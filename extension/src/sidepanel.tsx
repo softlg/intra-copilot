@@ -493,14 +493,43 @@ function App() {
     ]);
   }
 
+  async function readClipboardImages() {
+    if (!navigator.clipboard?.read) return;
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      const files: File[] = [];
+      for (const item of clipboardItems) {
+        for (const type of item.types.filter((value) =>
+          value.startsWith("image/"),
+        )) {
+          const blob = await item.getType(type);
+          const extension = type.split("/")[1] || "png";
+          files.push(
+            new File(
+              [blob],
+              `pasted-image-${Date.now()}-${files.length + 1}.${extension}`,
+              { type },
+            ),
+          );
+        }
+      }
+      if (files.length) addAttachments(files);
+    } catch {
+      // Clipboard read permission may be unavailable; text paste remains unchanged.
+    }
+  }
+
   function onInputPaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const imageFiles = Array.from(event.clipboardData.items)
-      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    const items = Array.from(event.clipboardData.items);
+    const imageItems = items.filter((item) => item.type.startsWith("image/"));
+    const imageFiles = imageItems
+      .filter((item) => item.kind === "file")
       .map((item) => item.getAsFile())
       .filter((file): file is File => file != null);
-    if (!imageFiles.length) return;
+    if (!imageFiles.length && !imageItems.length) return;
     event.preventDefault();
-    addAttachments(imageFiles);
+    if (imageFiles.length) addAttachments(imageFiles);
+    else void readClipboardImages();
   }
 
   function removeAttachment(url: string) {
