@@ -51,6 +51,27 @@ public class ChatService {
     return messages.findByConversationIdOrderByCreatedAtAsc(id);
   }
 
+  public Conversation rename(String id, String title) {
+    Conversation conversation =
+        conversations.findById(id).orElseThrow(() -> new NoSuchElementException("会话不存在"));
+    String normalized = title == null ? "" : title.trim();
+    if (normalized.isEmpty() || normalized.length() > 80) {
+      throw new IllegalArgumentException("会话名称不能为空且不能超过 80 个字符");
+    }
+    conversation.setTitle(normalized);
+    conversation.touch();
+    return conversations.save(conversation);
+  }
+
+  public void delete(String id) {
+    if (!conversations.existsById(id)) {
+      throw new NoSuchElementException("会话不存在");
+    }
+    messages.deleteByConversationId(id);
+    actions.deleteByConversationId(id);
+    conversations.deleteById(id);
+  }
+
   public SseEmitter chat(String sessionId, String text, String requestedAgent, String pageContext) {
     Conversation c = conversations.findById(sessionId).orElseGet(this::create);
     Agent agent =
