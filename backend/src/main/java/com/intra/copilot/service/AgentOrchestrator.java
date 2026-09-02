@@ -72,6 +72,11 @@ public class AgentOrchestrator {
     if (id == null || id.isBlank()) return general;
     Optional<Agent> configured = registry.findEnabled(id);
     if (configured.isPresent()) return configured.get();
+    // A configured but disabled agent must never be reachable through the
+    // built-in fallback implementations.
+    if (registry.allDefinitions().stream().anyMatch(definition -> id.equals(definition.getId()))) {
+      return general;
+    }
     return switch (id) {
       case "diagnosis" -> diagnosis;
       case "tms-manual" -> tms;
