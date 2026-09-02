@@ -87,7 +87,7 @@ public class ChatService {
     boolean tmsAuthorized =
         Boolean.TRUE.equals(permissions == null ? null : permissions.get("delegateTms"));
     boolean readPage =
-        !Boolean.FALSE.equals(permissions == null ? null : permissions.get("readPage"));
+        Boolean.TRUE.equals(permissions == null ? null : permissions.get("readPage"));
     boolean tmsIntent = router.isTmsIntent(text);
     boolean autoRoute = requestedAgent == null || requestedAgent.isBlank();
     Agent agent =
