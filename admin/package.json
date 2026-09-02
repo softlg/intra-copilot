@@ -1,0 +1,9 @@
+{
+  "name": "intra-copilot-admin",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "tsc -b && vite build", "format": "prettier --write \"src/**/*.{ts,tsx,css}\"" },
+  "dependencies": { "@vitejs/plugin-react": "latest", "react": "latest", "react-dom": "latest", "typescript": "latest", "vite": "latest" },
+  "devDependencies": { "@types/react": "latest", "@types/react-dom": "latest", "prettier": "^3.9.6" }
+}
