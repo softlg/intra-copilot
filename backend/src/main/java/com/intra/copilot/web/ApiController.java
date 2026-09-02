@@ -4,6 +4,7 @@ import com.intra.copilot.agent.*;
 import com.intra.copilot.model.*;
 import com.intra.copilot.service.ChatService;
 import java.util.*;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -48,6 +49,19 @@ public class ApiController {
   @GetMapping("/sessions/{id}/messages")
   public List<Message> history(@PathVariable String id) {
     return chat.history(id);
+  }
+
+  public record RenameSessionRequest(String title) {}
+
+  @PatchMapping("/sessions/{id}")
+  public Conversation rename(@PathVariable String id, @RequestBody RenameSessionRequest req) {
+    return chat.rename(id, req == null ? null : req.title());
+  }
+
+  @DeleteMapping("/sessions/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void delete(@PathVariable String id) {
+    chat.delete(id);
   }
 
   public record ChatRequest(String sessionId, String message, String agentId, String pageContext) {}
