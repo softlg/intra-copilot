@@ -1,129 +1,158 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+
 const API = "http://localhost:8080/api/v1";
-type Agent = { id: string; displayName: string; description: string };
-type Msg = { role: string; content: string; agentId?: string };
+type Theme = "system" | "light" | "dark";
+type Msg = { role: string; content: string };
+
 function App() {
-  const [agents, setAgents] = useState<Agent[]>([]),
-    [agent, setAgent] = useState(""),
-    [sessions, setSessions] = useState<any[]>([]),
-    [session, setSession] = useState<any>(),
-    [msgs, setMsgs] = useState<Msg[]>([]),
-    [input, setInput] = useState(""),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [session, setSession] = useState<any>();
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [theme, setTheme] = useState<Theme>("system");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const end = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     load();
   }, []);
+
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs]);
+
+  useEffect(() => {
+    chrome.storage.local.get(["theme"], (value: { theme?: Theme }) => {
+      if (value.theme === "light" || value.theme === "dark") {
+        setTheme(value.theme);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    chrome.storage.local.set({ theme });
+  }, [theme]);
+
   async function load() {
     try {
-      const [a, s] = await Promise.all([
-        fetch(API + "/agents").then((r) => r.json()),
-        fetch(API + "/sessions").then((r) => r.json()),
-      ]);
-      setAgents(a);
-      setSessions(s);
-      if (s[0]) select(s[0]);
+      const sessions = await fetch(API + "/sessions").then((r) => r.json());
+      setSessions(sessions);
+      if (sessions[0]) await select(sessions[0]);
       else await create();
-    } catch (e) {
+    } catch {
       setError("无法连接后端，请确认 Spring Boot 已启动。");
     }
   }
+
   async function create() {
-    const c = await fetch(API + "/sessions", { method: "POST" }).then((r) =>
-      r.json(),
-    );
-    setSessions((x) => [c, ...x]);
-    setSession(c);
+    const conversation = await fetch(API + "/sessions", {
+      method: "POST",
+    }).then((r) => r.json());
+    setSessions((items) => [conversation, ...items]);
+    setSession(conversation);
     setMsgs([]);
   }
-  async function select(c: any) {
-    setSession(c);
+
+  async function select(conversation: any) {
+    setSession(conversation);
     setMsgs(
-      await fetch(API + `/sessions/${c.id}/messages`).then((r) => r.json()),
+      await fetch(API + `/sessions/${conversation.id}/messages`).then((r) =>
+        r.json(),
+      ),
     );
   }
+
   async function send() {
     if (!input.trim() || busy || !session) return;
     const text = input.trim();
     setInput("");
     setBusy(true);
     setError("");
-    setMsgs((x) => [
-      ...x,
+    setMsgs((items) => [
+      ...items,
       { role: "user", content: text },
-      { role: "assistant", content: "", agentId: agent || "router" },
+      { role: "assistant", content: "" },
     ]);
-    let ctx = "";
+
+    let pageContext = "";
     try {
       const tabs = await chrome.tabs.query({
         active: true,
         currentWindow: true,
       });
       if (tabs[0]?.id) {
-        ctx = JSON.stringify(
+        pageContext = JSON.stringify(
           await chrome.tabs.sendMessage(tabs[0].id, {
             type: "COLLECT_CONTEXT",
           }),
         );
       }
-    } catch {}
+    } catch {
+      // The active tab may not allow content scripts (for example chrome:// pages).
+    }
+
     try {
-      const res = await fetch(API + "/chat/stream", {
+      const response = await fetch(API + "/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sessionId: session.id,
           message: text,
-          agentId: agent || null,
-          pageContext: ctx,
+          agentId: null,
+          pageContext,
         }),
       });
-      if (!res.ok || !res.body) throw Error("请求失败");
-      const reader = res.body.getReader(),
-        dec = new TextDecoder();
-      let buf = "";
+      if (!response.ok || !response.body) throw Error("请求失败");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const parts = buf.split("\n\n");
-        buf = parts.pop() || "";
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
         for (const part of parts) {
-          const name = (part.match(/^event: ?(.+)$/m) || [])[1],
-            data = (part.match(/^data: ?(.+)$/m) || [])[1];
-          if (name === "token" && data)
-            setMsgs((x) => {
-              const a = [...x],
-                i = a.length - 1;
-              a[i] = { ...a[i], content: a[i].content + data };
-              return a;
+          const name = (part.match(/^event: ?(.+)$/m) || [])[1];
+          const data = (part.match(/^data: ?(.+)$/m) || [])[1];
+          if (name === "token" && data) {
+            setMsgs((items) => {
+              const next = [...items];
+              const index = next.length - 1;
+              next[index] = {
+                ...next[index],
+                content: next[index].content + data,
+              };
+              return next;
             });
+          }
           if (name === "action_proposed" && data) {
             try {
               const action = JSON.parse(data);
-              const ok = window.confirm(
+              const approved = window.confirm(
                 `助手请求执行 ${action.type} 操作。\n原因：${action.reason || ""}\n风险：${action.risk || ""}\n\n是否执行？`,
               );
               let result = {
-                status: ok ? "EXECUTED" : "REJECTED",
-                result: ok ? "" : "用户拒绝",
+                status: approved ? "EXECUTED" : "REJECTED",
+                result: approved ? "" : "用户拒绝",
               };
-              if (ok) {
+              if (approved) {
                 const tabs = await chrome.tabs.query({
                   active: true,
                   currentWindow: true,
                 });
-                if (tabs[0]?.id)
+                if (tabs[0]?.id) {
                   result = await chrome.tabs.sendMessage(tabs[0].id, {
                     type: "EXECUTE_ACTION",
                     action,
                   });
+                }
               }
               await fetch(API + `/actions/${action.actionId}/result`, {
                 method: "POST",
@@ -143,48 +172,72 @@ function App() {
       setBusy(false);
     }
   }
+
   return (
     <div className="app">
       <header>
         <div>
           <h1>Intra Copilot</h1>
+          <small>页面诊断与 TMS 助手</small>
         </div>
-        <button onClick={create}>＋</button>
+        <div className="header-actions">
+          <button className="icon-button" onClick={create} title="新建会话">
+            ＋
+          </button>
+          <button
+            className="icon-button settings-button"
+            onClick={() => setSettingsOpen((open) => !open)}
+            title="设置"
+            aria-label="设置"
+          >
+            ⚙
+          </button>
+          {settingsOpen && (
+            <div className="settings-popover">
+              <div className="settings-title">外观</div>
+              <label>
+                <input
+                  type="radio"
+                  name="theme"
+                  checked={theme === "system"}
+                  onChange={() => setTheme("system")}
+                />
+                跟随系统
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="theme"
+                  checked={theme === "light"}
+                  onChange={() => setTheme("light")}
+                />
+                浅色
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="theme"
+                  checked={theme === "dark"}
+                  onChange={() => setTheme("dark")}
+                />
+                深色
+              </label>
+            </div>
+          )}
+        </div>
       </header>
-      <div className="toolbar">
-        <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-          <option value="">自动分发</option>
-          {agents
-            .filter((a) => a.id !== "router")
-            .map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.displayName}
-              </option>
-            ))}
-        </select>
-        <select
-          value={session?.id || ""}
-          onChange={(e) =>
-            select(sessions.find((s) => s.id === e.target.value))
-          }
-        >
-          {sessions.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.title}
-            </option>
-          ))}
-        </select>
-      </div>
       <main>
         {msgs.length === 0 && (
           <div className="empty">
             你好！我可以帮你诊断当前页面，或回答 TMS 操作问题。
           </div>
         )}
-        {msgs.map((m, i) => (
-          <div key={i} className={"msg " + m.role}>
-            <div className="role">{m.role === "user" ? "你" : "助手"}</div>
-            <div className="bubble">{m.content || "思考中…"}</div>
+        {msgs.map((message, index) => (
+          <div key={index} className={"msg " + message.role}>
+            <div className="role">
+              {message.role === "user" ? "你" : "助手"}
+            </div>
+            <div className="bubble">{message.content || "思考中…"}</div>
           </div>
         ))}
         <div ref={end} />
@@ -193,14 +246,14 @@ function App() {
       <footer>
         <textarea
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
+          onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
               send();
             }
           }}
-          placeholder="描述问题或询问…"
+          placeholder="描述问题或询问 TMS 操作…"
         />
         <button disabled={busy} onClick={send}>
           {busy ? "…" : "发送"}
@@ -209,4 +262,5 @@ function App() {
     </div>
   );
 }
+
 createRoot(document.getElementById("root")!).render(<App />);

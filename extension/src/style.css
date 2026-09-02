@@ -1,10 +1,36 @@
 * {
   box-sizing: border-box;
 }
+:root {
+  --page-bg: #f8fafc;
+  --surface: #ffffff;
+  --text: #172033;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --control-bg: #ffffff;
+}
+:root[data-theme="dark"] {
+  --page-bg: #111827;
+  --surface: #1f2937;
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --border: #374151;
+  --control-bg: #111827;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --page-bg: #111827;
+    --surface: #1f2937;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+    --border: #374151;
+    --control-bg: #111827;
+  }
+}
 body {
   margin: 0;
-  background: #f8fafc;
-  color: #172033;
+  background: var(--page-bg);
+  color: var(--text);
   font-family:
     Inter,
     system-ui,
@@ -19,8 +45,8 @@ body {
 }
 header {
   padding: 16px 18px;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -30,9 +56,14 @@ h1 {
   margin: 0 0 3px;
 }
 small {
-  color: #64748b;
+  color: var(--muted);
 }
-header button {
+.header-actions {
+  position: relative;
+  display: flex;
+  gap: 8px;
+}
+.icon-button {
   border: 0;
   background: #e8efff;
   color: #2563eb;
@@ -40,20 +71,37 @@ header button {
   font-size: 22px;
   width: 34px;
   height: 34px;
+  cursor: pointer;
 }
-.toolbar {
+.settings-button {
+  font-size: 18px;
+  background: transparent;
+  color: var(--muted);
+}
+.settings-popover {
+  position: absolute;
+  z-index: 10;
+  top: 42px;
+  right: 0;
+  width: 150px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 10px 24px #0003;
+}
+.settings-title {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.settings-popover label {
   display: flex;
   gap: 8px;
-  padding: 10px 14px;
-  background: #fff;
-}
-.toolbar select {
-  flex: 1;
-  padding: 8px;
-  border: 1px solid #dbe2ea;
-  border-radius: 7px;
-  background: #fff;
-  color: #334155;
+  align-items: center;
+  padding: 7px 2px;
+  color: var(--text);
+  font-size: 13px;
 }
 main {
   flex: 1;
@@ -61,7 +109,7 @@ main {
   padding: 16px;
 }
 .empty {
-  color: #64748b;
+  color: var(--muted);
   text-align: center;
   padding: 28px 12px;
 }
@@ -75,7 +123,7 @@ main {
 }
 .role {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--muted);
   padding-top: 5px;
 }
 .bubble {
@@ -84,8 +132,8 @@ main {
   border-radius: 12px;
   white-space: pre-wrap;
   line-height: 1.5;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--surface);
+  border: 1px solid var(--border);
 }
 .user .bubble {
   background: #2563eb;
@@ -104,16 +152,18 @@ footer {
   display: flex;
   gap: 8px;
   padding: 12px 14px;
-  background: #fff;
-  border-top: 1px solid #e5e7eb;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 textarea {
   flex: 1;
   resize: none;
   height: 44px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
+  background: var(--control-bg);
+  color: var(--text);
   font: inherit;
 }
 footer button {
