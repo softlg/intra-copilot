@@ -18,6 +18,7 @@ public class ChatService {
   private final MessageRepository messages;
   private final ActionProposalRepository actions;
   private final RouterAgent router;
+  private final GeneralAgent general;
   private final DiagnosisAgent diagnosis;
   private final TmsManualAgent tms;
   private final LlmClient llm;
@@ -28,6 +29,7 @@ public class ChatService {
       MessageRepository m,
       ActionProposalRepository a,
       RouterAgent r,
+      GeneralAgent g,
       DiagnosisAgent d,
       TmsManualAgent t,
       LlmClient l) {
@@ -35,6 +37,7 @@ public class ChatService {
     messages = m;
     actions = a;
     router = r;
+    general = g;
     diagnosis = d;
     tms = t;
     llm = l;
@@ -74,15 +77,33 @@ public class ChatService {
     conversations.deleteById(id);
   }
 
-  public SseEmitter chat(String sessionId, String text, String requestedAgent, String pageContext) {
+  public SseEmitter chat(
+      String sessionId,
+      String text,
+      String requestedAgent,
+      String pageContext,
+      Map<String, Boolean> permissions) {
     Conversation c = conversations.findById(sessionId).orElseGet(this::create);
+    boolean tmsAuthorized =
+        Boolean.TRUE.equals(permissions == null ? null : permissions.get("delegateTms"));
+    boolean readPage =
+        !Boolean.FALSE.equals(permissions == null ? null : permissions.get("readPage"));
+    boolean tmsIntent = router.isTmsIntent(text);
+    boolean autoRoute = requestedAgent == null || requestedAgent.isBlank();
     Agent agent =
-        requestedAgent == null || requestedAgent.isBlank()
-            ? router.route(text)
-            : ("diagnosis".equals(requestedAgent) ? diagnosis : tms);
+        autoRoute
+            ? router.route(text, tmsAuthorized)
+            : ("diagnosis".equals(requestedAgent)
+                ? diagnosis
+                : ("tms-manual".equals(requestedAgent) && tmsAuthorized ? tms : general));
     SseEmitter out = new SseEmitter(120000L);
     messages.save(
-        new Message(c.getId(), "user", text, agent == null ? "router" : agent.id(), pageContext));
+        new Message(
+            c.getId(),
+            "user",
+            text,
+            agent == null ? "router" : agent.id(),
+            readPage ? pageContext : null));
     try {
       out.send(
           SseEmitter.event()
@@ -93,8 +114,9 @@ public class ChatService {
                       : Map.of("agentId", agent.id(), "displayName", agent.displayName())));
     } catch (IOException ignored) {
     }
-    if (agent == null) {
-      String answer = "我可以帮你做问题诊断或 TMS 操作说明。请补充你的目标，或在顶部选择 Agent。";
+    if ((autoRoute && tmsIntent && !tmsAuthorized)
+        || ("tms-manual".equals(requestedAgent) && !tmsAuthorized)) {
+      String answer = "这个问题可能需要专用业务助手处理。请先在权限设置中授权后再继续。";
       messages.save(new Message(c.getId(), "assistant", answer, "router", null));
       try {
         out.send(SseEmitter.event().name("token").data(answer));
@@ -112,7 +134,7 @@ public class ChatService {
             .map(x -> Map.of("role", x.getRole(), "content", x.getContent()))
             .toList();
     String enriched =
-        pageContext == null || pageContext.isBlank()
+        !readPage || pageContext == null || pageContext.isBlank()
             ? text
             : text + "\n\n浏览器上下文（仅供分析）：\n" + pageContext;
     StringBuilder full = new StringBuilder();
