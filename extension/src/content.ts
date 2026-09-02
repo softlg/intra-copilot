@@ -28,7 +28,11 @@ function clampBall() {
 }
 
 function restoreBallPosition(value: any) {
-  if (value.ballAnchor) {
+  if (value.ballEdge) {
+    ball.style.left = "";
+    ball.style.right = "0px";
+    if (value.ballPos) ball.style.top = value.ballPos.y + "px";
+  } else if (value.ballAnchor) {
     const rect = ball.getBoundingClientRect();
     const maxX = Math.max(0, window.innerWidth - rect.width);
     const maxY = Math.max(0, window.innerHeight - rect.height);
@@ -99,8 +103,32 @@ ball.addEventListener("pointerup", () => {
 });
 mini.addEventListener("click", (e) => {
   e.stopPropagation();
-  ball.classList.toggle("edge");
-  chrome.storage.local.set({ ballEdge: ball.classList.contains("edge") });
+  const collapsing = !ball.classList.contains("edge");
+  if (collapsing) {
+    const rect = ball.getBoundingClientRect();
+    ball.classList.add("edge");
+    ball.style.left = "";
+    ball.style.right = "0px";
+    ball.style.top = Math.max(0, rect.top) + "px";
+    chrome.storage.local.set({
+      ballEdge: true,
+      ballPos: { x: rect.left, y: rect.top },
+    });
+  } else {
+    ball.classList.remove("edge");
+    ball.style.right = "auto";
+    chrome.storage.local.get(["ballPos"], (value: any) => {
+      if (value.ballPos) {
+        ball.style.left = value.ballPos.x + "px";
+        ball.style.top = value.ballPos.y + "px";
+      } else {
+        ball.style.left = "";
+        ball.style.top = "";
+      }
+      clampBall();
+    });
+    chrome.storage.local.set({ ballEdge: false });
+  }
 });
 export function collectContext(): Ctx {
   return {
