@@ -15,6 +15,8 @@ function App() {
   const [error, setError] = useState("");
   const [theme, setTheme] = useState<Theme>("system");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [permissionOpen, setPermissionOpen] = useState(false);
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -264,20 +266,54 @@ function App() {
       </main>
       {error && <div className="error">{error}</div>}
       <footer>
-        <textarea
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              send();
-            }
-          }}
-          placeholder="描述问题或输入你的需求…"
-        />
-        <button disabled={busy} onClick={send}>
-          {busy ? "…" : "发送"}
-        </button>
+        <div className="composer">
+          <div className="composer-row">
+            <textarea
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  send();
+                }
+              }}
+              placeholder="描述问题或输入你的需求…"
+              aria-label="聊天输入框"
+            />
+            <button className="send-button" disabled={busy} onClick={send}>
+              {busy ? "…" : "发送"}
+            </button>
+          </div>
+          <div className="composer-tools">
+            <button
+              className="tool-button"
+              onClick={() => setToolsOpen((open) => !open)}
+              title="添加插件或附件"
+              aria-label="添加插件或附件"
+            >
+              ＋
+            </button>
+            <button
+              className="tool-button permission-button"
+              onClick={() => setPermissionOpen((open) => !open)}
+              title="权限"
+              aria-label="权限"
+            >
+              ◉ 权限
+            </button>
+            {toolsOpen && (
+              <div className="tool-popover">
+                插件、附件等扩展能力将在后续版本接入。
+              </div>
+            )}
+            {permissionOpen && (
+              <div className="permission-popover">
+                <strong>页面权限</strong>
+                <span>仅在发送消息时按需读取当前页面上下文。</span>
+              </div>
+            )}
+          </div>
+        </div>
       </footer>
     </div>
   );
