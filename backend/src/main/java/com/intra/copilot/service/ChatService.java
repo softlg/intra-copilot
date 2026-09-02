@@ -45,7 +45,7 @@ public class ChatService {
   }
 
   public List<Conversation> list() {
-    return conversations.findAll();
+    return conversations.findAllByOrderByUpdatedAtDesc();
   }
 
   public List<Message> history(String id) {
