@@ -4,7 +4,134 @@ import "./style.css";
 
 const API = "http://localhost:8080/api/v1";
 type Theme = "system" | "light" | "dark";
+type Language = "zh" | "en";
 type Msg = { role: string; content: string };
+
+const translations = {
+  zh: {
+    appSubtitle: "浏览器智能助手",
+    newSession: "新建会话",
+    history: "历史",
+    settings: "设置",
+    appearance: "外观",
+    followSystem: "跟随系统",
+    light: "浅色",
+    dark: "深色",
+    language: "语言",
+    chinese: "中文",
+    english: "English",
+    chatWindows: "聊天窗口",
+    empty: "你好！我可以帮你诊断当前页面，或协助处理你的问题。",
+    you: "你",
+    assistant: "助手",
+    thinking: "思考中…",
+    closeHistory: "关闭历史",
+    selectAll: "全选",
+    noHistory: "暂无历史会话",
+    save: "保存",
+    cancel: "取消",
+    edit: "编辑",
+    delete: "删除",
+    bulkDelete: "删除已选",
+    saveNameTitle: "保存名称",
+    cancelEditTitle: "取消修改",
+    editTitle: "修改名称",
+    deleteTitle: "删除会话",
+    switchChat: "切换聊天窗口",
+    historyLabel: (count: number) => `${count} 个会话`,
+    defaultSession: (index: number) => `新会话 ${index}`,
+    selectSession: (title: string) => `选择 ${title}`,
+    deleteConfirm: (names: string) => `确定删除${names}吗？聊天记录将一并移除。`,
+    thisSession: "此会话",
+    sessions: (count: number) => `${count} 个会话`,
+    nameRequired: "会话名称不能为空",
+    renameFailed: "修改会话名称失败",
+    deleteFailed: "删除会话失败",
+    createFailed: "创建会话失败",
+    backendError: "无法连接后端，请确认 Spring Boot 已启动。",
+    requestFailed: "请求失败",
+    invalidAction: "操作提案格式无效",
+    rejected: "用户拒绝",
+    inputPlaceholder: "描述问题或输入你的需求…",
+    chatInput: "聊天输入框",
+    send: "发送",
+    addTools: "添加插件或附件",
+    permission: "权限",
+    toolsUnavailable: "插件、附件等扩展能力将在后续版本接入。",
+    pagePermission: "页面权限",
+    readPage: "允许读取当前页面上下文",
+    delegateTms: "授权业务子 Agent 处理专属问题",
+    permissionNote: "写入页面的操作仍会逐项请求确认。",
+    actionConfirm: (type: string, reason: string, risk: string) =>
+      `助手请求执行 ${type} 操作。\n原因：${reason}\n风险：${risk}\n\n是否执行？`,
+  },
+  en: {
+    appSubtitle: "Browser AI assistant",
+    newSession: "New chat",
+    history: "History",
+    settings: "Settings",
+    appearance: "Appearance",
+    followSystem: "Follow system",
+    light: "Light",
+    dark: "Dark",
+    language: "Language",
+    chinese: "中文",
+    english: "English",
+    chatWindows: "Chat windows",
+    empty: "Hello! I can help diagnose the current page or assist with your questions.",
+    you: "You",
+    assistant: "Assistant",
+    thinking: "Thinking…",
+    closeHistory: "Close history",
+    selectAll: "Select all",
+    noHistory: "No chat history",
+    save: "Save",
+    cancel: "Cancel",
+    edit: "Edit",
+    delete: "Delete",
+    bulkDelete: "Delete selected",
+    saveNameTitle: "Save name",
+    cancelEditTitle: "Cancel editing",
+    editTitle: "Rename",
+    deleteTitle: "Delete chat",
+    switchChat: "Switch chat window",
+    historyLabel: (count: number) => `${count} chat${count === 1 ? "" : "s"}`,
+    defaultSession: (index: number) => `New chat ${index}`,
+    selectSession: (title: string) => `Select ${title}`,
+    deleteConfirm: (names: string) =>
+      `Delete ${names}? All messages in this chat will also be removed.`,
+    thisSession: "this chat",
+    sessions: (count: number) => `${count} chat${count === 1 ? "" : "s"}`,
+    nameRequired: "Chat name cannot be empty",
+    renameFailed: "Failed to rename chat",
+    deleteFailed: "Failed to delete chat",
+    createFailed: "Failed to create chat",
+    backendError: "Unable to connect to the backend. Please make sure Spring Boot is running.",
+    requestFailed: "Request failed",
+    invalidAction: "Invalid action proposal",
+    rejected: "Rejected by user",
+    inputPlaceholder: "Describe the problem or enter your request…",
+    chatInput: "Chat input",
+    send: "Send",
+    addTools: "Add plugin or attachment",
+    permission: "Permissions",
+    toolsUnavailable: "Plugins and attachments will be available in a future version.",
+    pagePermission: "Page permissions",
+    readPage: "Allow reading the current page context",
+    delegateTms: "Authorize the business sub-agent for specialized requests",
+    permissionNote: "Write actions on the page will still ask for confirmation one by one.",
+    actionConfirm: (type: string, reason: string, risk: string) =>
+      `The assistant requests to perform ${type}.\nReason: ${reason}\nRisk: ${risk}\n\nProceed?`,
+  },
+} as const;
+
+function isDefaultSessionTitle(title: unknown) {
+  return (
+    !title ||
+    title === "新会话" ||
+    (typeof title === "string" && title.toLowerCase() === "new chat")
+  );
+}
 
 function App() {
   const [sessions, setSessions] = useState<any[]>([]);
@@ -17,6 +144,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
+  const [readPageEnabled, setReadPageEnabled] = useState(true);
+  const [tmsAuthorized, setTmsAuthorized] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
   const [editingSessionId, setEditingSessionId] = useState<string>();
@@ -32,11 +161,24 @@ function App() {
   }, [msgs]);
 
   useEffect(() => {
-    chrome.storage.local.get(["theme"], (value: { theme?: Theme }) => {
-      if (value.theme === "light" || value.theme === "dark") {
-        setTheme(value.theme);
-      }
-    });
+    chrome.storage.local.get(
+      ["theme", "readPageEnabled", "tmsAuthorized"],
+      (value: {
+        theme?: Theme;
+        readPageEnabled?: boolean;
+        tmsAuthorized?: boolean;
+      }) => {
+        if (value.theme === "light" || value.theme === "dark") {
+          setTheme(value.theme);
+        }
+        if (typeof value.readPageEnabled === "boolean") {
+          setReadPageEnabled(value.readPageEnabled);
+        }
+        if (typeof value.tmsAuthorized === "boolean") {
+          setTmsAuthorized(value.tmsAuthorized);
+        }
+      },
+    );
   }, []);
 
   useEffect(() => {
@@ -169,7 +311,7 @@ function App() {
         active: true,
         currentWindow: true,
       });
-      if (tabs[0]?.id) {
+      if (readPageEnabled && tabs[0]?.id) {
         pageContext = JSON.stringify(
           await chrome.tabs.sendMessage(tabs[0].id, {
             type: "COLLECT_CONTEXT",
@@ -189,6 +331,10 @@ function App() {
           message: text,
           agentId: null,
           pageContext,
+          permissions: {
+            readPage: readPageEnabled,
+            delegateTms: tmsAuthorized,
+          },
         }),
       });
       if (!response.ok || !response.body) throw Error("请求失败");
@@ -543,7 +689,31 @@ function App() {
             {permissionOpen && (
               <div className="permission-popover">
                 <strong>页面权限</strong>
-                <span>仅在发送消息时按需读取当前页面上下文。</span>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={readPageEnabled}
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      setReadPageEnabled(enabled);
+                      chrome.storage.local.set({ readPageEnabled: enabled });
+                    }}
+                  />
+                  允许读取当前页面上下文
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={tmsAuthorized}
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      setTmsAuthorized(enabled);
+                      chrome.storage.local.set({ tmsAuthorized: enabled });
+                    }}
+                  />
+                  授权业务子 Agent 处理专属问题
+                </label>
+                <span>写入页面的操作仍会逐项请求确认。</span>
               </div>
             )}
           </div>
