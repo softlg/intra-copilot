@@ -1,6 +1,6 @@
 # intra-copilot
 
-浏览器内的页面诊断与 TMS 操作助手（Chrome/Edge Chromium MV3 + Spring Boot）。
+浏览器内的页面助手（Chrome/Edge Chromium MV3 + Spring Boot）。
 
 ## 启动后端
 
