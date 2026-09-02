@@ -610,6 +610,10 @@ textarea {
 .tools-menu-action:hover {
   background: var(--page-bg);
 }
+.tools-menu-action.active {
+  background: var(--page-bg);
+  color: var(--text);
+}
 .tools-menu-action em {
   margin-left: auto;
   padding: 2px 5px;
@@ -618,6 +622,25 @@ textarea {
   color: #174ea6;
   font-size: 10px;
   font-style: normal;
+}
+.page-info-picker {
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--page-bg);
+}
+.page-info-hint {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.page-info-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 0;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
 }
 .permission-popover {
   left: 38px;

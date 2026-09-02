@@ -8,6 +8,14 @@ type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
 type Feedback = "up" | "down";
 type Msg = { role: string; content: string; id?: string };
+type PageInfoKey = "url" | "title" | "selection" | "visibleText" | "domSummary";
+const PAGE_INFO_KEYS: PageInfoKey[] = [
+  "url",
+  "title",
+  "selection",
+  "visibleText",
+  "domSummary",
+];
 
 const translations = {
   zh: {
@@ -72,7 +80,15 @@ const translations = {
     noTabs: "没有可用标签页",
     removeTab: "移除标签页",
     attachFile: "上传文件",
-    screenshot: "从屏幕上截图",
+    attachmentMenu: "附加文件",
+    screenshot: "从屏幕上选择",
+    pageInfo: "页面信息",
+    pageInfoHint: "选择要随消息发送的页面信息",
+    pageInfoUrl: "当前网址",
+    pageInfoTitle: "页面标题",
+    pageInfoSelection: "选中文本",
+    pageInfoVisibleText: "可见文本",
+    pageInfoDomSummary: "页面结构摘要",
     screenshotNew: "新",
     removeAttachment: "移除附件",
     screenshotFailed: "截图失败，请确认浏览器权限。",
@@ -156,7 +172,15 @@ const translations = {
     noTabs: "No available tabs",
     removeTab: "Remove tab",
     attachFile: "Upload file",
-    screenshot: "Capture screen",
+    attachmentMenu: "Attachments",
+    screenshot: "Select from screen",
+    pageInfo: "Page info",
+    pageInfoHint: "Choose page information to include with the message",
+    pageInfoUrl: "Current URL",
+    pageInfoTitle: "Page title",
+    pageInfoSelection: "Selected text",
+    pageInfoVisibleText: "Visible text",
+    pageInfoDomSummary: "DOM summary",
     screenshotNew: "New",
     removeAttachment: "Remove attachment",
     screenshotFailed: "Screenshot failed. Check browser permissions.",
@@ -243,6 +267,16 @@ function App() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [readPageEnabled, setReadPageEnabled] = useState(false);
+  const [pageInfoSelection, setPageInfoSelection] = useState<
+    Record<PageInfoKey, boolean>
+  >({
+    url: true,
+    title: true,
+    selection: true,
+    visibleText: true,
+    domSummary: true,
+  });
+  const [pageInfoOpen, setPageInfoOpen] = useState(false);
   const [activationMode, setActivationMode] =
     useState<ActivationMode>("manual");
   const [currentTabId, setCurrentTabId] = useState<number>();
@@ -304,6 +338,7 @@ function App() {
         "readPageEnabled",
         "tmsAuthorized",
         "activationMode",
+        "pageInfoSelection",
       ],
       (value: {
         theme?: Theme;
@@ -311,6 +346,7 @@ function App() {
         readPageEnabled?: boolean;
         tmsAuthorized?: boolean;
         activationMode?: ActivationMode;
+        pageInfoSelection?: Partial<Record<PageInfoKey, boolean>>;
       }) => {
         if (value.theme === "light" || value.theme === "dark") {
           setTheme(value.theme);
@@ -329,6 +365,12 @@ function App() {
           value.activationMode === "manual"
         ) {
           setActivationMode(value.activationMode);
+        }
+        if (value.pageInfoSelection) {
+          setPageInfoSelection((current) => ({
+            ...current,
+            ...value.pageInfoSelection,
+          }));
         }
         setPreferencesLoaded(true);
       },
@@ -352,6 +394,11 @@ function App() {
     chrome.storage.local.set({ activationMode });
     refreshCurrentTabState();
   }, [activationMode, preferencesLoaded]);
+
+  useEffect(() => {
+    if (!preferencesLoaded) return;
+    chrome.storage.local.set({ pageInfoSelection });
+  }, [pageInfoSelection, preferencesLoaded]);
 
   async function refreshCurrentTabState() {
     try {
@@ -550,6 +597,7 @@ function App() {
 
   async function openTools() {
     setPermissionOpen(false);
+    if (toolsOpen) setPageInfoOpen(false);
     setToolsOpen((open) => !open);
     if (!toolsOpen) {
       const tabs = await chrome.tabs.query({ currentWindow: true });
@@ -561,6 +609,13 @@ function App() {
     setSelectedTabIds((items) =>
       items.includes(id) ? items.filter((item) => item !== id) : [...items, id],
     );
+  }
+
+  function togglePageInfo(key: PageInfoKey) {
+    setPageInfoSelection((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
   }
 
   function removeTab(id: number) {
@@ -692,7 +747,18 @@ function App() {
             }
           }),
         );
-        pageContext = JSON.stringify(contexts.filter(Boolean));
+        pageContext = JSON.stringify(
+          contexts.filter(Boolean).map((context: Record<string, string>) => {
+            const selected: Record<string, string> = {
+              source: "current_page",
+              timestamp: context.timestamp,
+            };
+            PAGE_INFO_KEYS.forEach((key) => {
+              if (pageInfoSelection[key]) selected[key] = context[key];
+            });
+            return selected;
+          }),
+        );
       }
     } catch {
       // The active tab may not allow content scripts (for example chrome:// pages).
@@ -1251,7 +1317,7 @@ function App() {
             </button>
             {toolsOpen && (
               <div className="tool-popover tools-menu">
-                <div className="tools-menu-title">{t.addTab}</div>
+                <div className="tools-menu-title">{t.attachmentMenu}</div>
                 <div className="tabs-hint">{t.tabsHint}</div>
                 <div className="tab-picker-list">
                   {availableTabs.length === 0 && (
@@ -1296,18 +1362,50 @@ function App() {
                 <button
                   type="button"
                   className="tools-menu-action"
+                  onClick={captureScreen}
+                >
+                  <span>⌗</span> {t.screenshot}
+                </button>
+                <button
+                  type="button"
+                  className="tools-menu-action"
                   onClick={() => fileInput.current?.click()}
                 >
                   <span>📎</span> {t.attachFile}
                 </button>
                 <button
                   type="button"
-                  className="tools-menu-action"
-                  onClick={captureScreen}
+                  className={
+                    "tools-menu-action " + (pageInfoOpen ? "active" : "")
+                  }
+                  onClick={() => setPageInfoOpen((open) => !open)}
                 >
-                  <span>⌗</span> {t.screenshot}
-                  <em>{t.screenshotNew}</em>
+                  <span>☷</span> {t.pageInfo}
                 </button>
+                {pageInfoOpen && (
+                  <div className="page-info-picker">
+                    <div className="page-info-hint">{t.pageInfoHint}</div>
+                    {PAGE_INFO_KEYS.map((key) => {
+                      const labels: Record<PageInfoKey, string> = {
+                        url: t.pageInfoUrl,
+                        title: t.pageInfoTitle,
+                        selection: t.pageInfoSelection,
+                        visibleText: t.pageInfoVisibleText,
+                        domSummary: t.pageInfoDomSummary,
+                      };
+                      return (
+                        <label className="page-info-item" key={key}>
+                          <input
+                            type="checkbox"
+                            checked={pageInfoSelection[key]}
+                            onChange={() => togglePageInfo(key)}
+                          />
+                          {labels[key]}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
                 <input
                   ref={fileInput}
                   type="file"
