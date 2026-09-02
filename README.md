@@ -5,12 +5,15 @@
 ## 启动后端
 
 ```powershell
+docker compose up -d postgres
 cd backend
 $env:LLM_API_KEY="your-key"
 mvn spring-boot:run
 ```
 
-后端默认监听 `http://127.0.0.1:8080`，SQLite 数据文件位于 `backend/intra-copilot.db`。
+后端默认监听 `http://127.0.0.1:8080`，数据存储在 PostgreSQL。复制 `.env.example` 中的数据库、模型和 RAG 配置到环境变量后再启动。
+
+如需迁移旧 SQLite 数据，先启动 PostgreSQL 并让 Flyway 完成建表，再安装 `psycopg[binary]`，执行 `python backend/scripts/migrate-sqlite-to-postgres.py --sqlite backend/intra-copilot.db`。迁移脚本不会修改源文件。
 
 ## 构建并加载插件
 
