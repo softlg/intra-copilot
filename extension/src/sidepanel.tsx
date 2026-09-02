@@ -245,6 +245,8 @@ function App() {
   const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
   const [editingSessionId, setEditingSessionId] = useState<string>();
   const [editingTitle, setEditingTitle] = useState("");
+  const composerRef = useRef<HTMLDivElement>(null);
+  const composerToolsRef = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -254,6 +256,30 @@ function App() {
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs]);
+
+  useEffect(() => {
+    if (!toolsOpen && !permissionOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (composerRef.current?.contains(target)) {
+        const element = target as Element;
+        if (
+          composerToolsRef.current?.contains(target) &&
+          !element.closest(".tool-button, .tool-popover, .permission-popover")
+        ) {
+          setToolsOpen(false);
+          setPermissionOpen(false);
+        }
+        return;
+      }
+      setToolsOpen(false);
+      setPermissionOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () =>
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [toolsOpen, permissionOpen]);
 
   useEffect(() => {
     chrome.storage.local.get(
@@ -463,6 +489,7 @@ function App() {
   }
 
   async function openTools() {
+    setPermissionOpen(false);
     setToolsOpen((open) => !open);
     if (!toolsOpen) {
       const tabs = await chrome.tabs.query({ currentWindow: true });
@@ -1026,7 +1053,7 @@ function App() {
       )}
       {error && <div className="error">{error}</div>}
       <footer>
-        <div className="composer">
+        <div className="composer" ref={composerRef}>
           <div className="composer-row">
             {(attachments.length > 0 || screenshot) && (
               <div className="composer-previews">
@@ -1100,7 +1127,7 @@ function App() {
               {busy ? "…" : t.send}
             </button>
           </div>
-          <div className="composer-tools">
+          <div className="composer-tools" ref={composerToolsRef}>
             <button
               className="tool-button"
               onClick={openTools}
@@ -1111,7 +1138,10 @@ function App() {
             </button>
             <button
               className="tool-button permission-button"
-              onClick={() => setPermissionOpen((open) => !open)}
+              onClick={() => {
+                setToolsOpen(false);
+                setPermissionOpen((open) => !open);
+              }}
               title={t.permission}
               aria-label={t.permission}
             >
