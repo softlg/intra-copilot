@@ -77,22 +77,39 @@ chrome.runtime.onMessage.addListener(
       return true;
     }
     if (msg?.type === "CAPTURE_SCREENSHOT") {
-      const windowId = Number(msg.windowId);
-      if (!Number.isInteger(windowId)) {
-        sendResponse({ ok: false, error: "INVALID_WINDOW" });
+      const tabId = Number(msg.tabId);
+      const fallbackWindowId = Number(msg.windowId);
+      if (!Number.isInteger(tabId) && !Number.isInteger(fallbackWindowId)) {
+        sendResponse({ ok: false, error: "INVALID_TAB" });
         return true;
       }
-      chrome.tabs
-        .captureVisibleTab(windowId, { format: "png" })
+      const windowIdPromise = Number.isInteger(tabId)
+        ? chrome.tabs.get(tabId).then((tab) => tab.windowId)
+        : Promise.resolve(fallbackWindowId);
+      windowIdPromise
+        .then((windowId) => {
+          if (!Number.isInteger(windowId)) throw Error("NO_ACTIVE_WINDOW");
+          return chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+        })
         .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
         .catch((error: unknown) => {
           const message = String((error as Error)?.message || error || "");
-          const restricted = /cannot|not allowed|permission|capture/i.test(
-            message,
+          const normalized = message.toLowerCase();
+          const rateLimited = /max_capture|quota|too many|rate limit|频繁/.test(
+            normalized,
           );
+          const restricted =
+            /cannot capture|can't capture|not allowed|permission|restricted|chrome:|edge:|extension:/.test(
+              normalized,
+            );
           sendResponse({
             ok: false,
-            error: restricted ? "RESTRICTED_PAGE" : "CAPTURE_FAILED",
+            error: rateLimited
+              ? "RATE_LIMITED"
+              : restricted
+                ? "RESTRICTED_PAGE"
+                : "CAPTURE_FAILED",
+            detail: message.slice(0, 240),
           });
         });
       return true;

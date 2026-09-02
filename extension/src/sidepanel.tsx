@@ -95,6 +95,7 @@ const translations = {
     removeAttachment: "移除附件",
     screenshotFailed: "截图失败，请确认浏览器权限。",
     screenshotRestricted: "当前页面不允许截图，请切换到普通网页后重试。",
+    screenshotRateLimited: "截图请求过于频繁，请稍后再试。",
     imagePreview: "查看图片",
     closeImagePreview: "关闭图片预览",
     like: "有帮助",
@@ -190,6 +191,8 @@ const translations = {
     screenshotFailed: "Screenshot failed. Check browser permissions.",
     screenshotRestricted:
       "This page cannot be captured. Switch to a regular webpage and try again.",
+    screenshotRateLimited:
+      "Screenshot requested too often. Please try again shortly.",
     imagePreview: "View image",
     closeImagePreview: "Close image preview",
     like: "Helpful",
@@ -698,15 +701,24 @@ function App() {
         active: true,
         currentWindow: true,
       });
+      const tabId = tabs[0]?.id;
       const windowId = tabs[0]?.windowId;
-      if (windowId == null) throw Error("No active browser window");
+      if (tabId == null || windowId == null)
+        throw Error("No active browser tab");
       const result = await chrome.runtime.sendMessage({
         type: "CAPTURE_SCREENSHOT",
+        tabId,
         windowId,
       });
       if (!result?.ok || !result.dataUrl) {
         if (result?.error === "RESTRICTED_PAGE") {
           throw Error(t.screenshotRestricted);
+        }
+        if (result?.error === "RATE_LIMITED") {
+          throw Error(t.screenshotRateLimited);
+        }
+        if (result?.detail) {
+          throw Error(`${t.screenshotFailed} (${result.detail})`);
         }
         throw Error(t.screenshotFailed);
       }
