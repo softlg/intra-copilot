@@ -6,13 +6,35 @@ type Ctx = {
   domSummary: string;
   timestamp: string;
 };
+type Language = "zh" | "en";
 const root = document.createElement("div");
 root.id = "intra-copilot-root";
+root.style.display = "none";
 const shadow = root.attachShadow({ mode: "open" });
 document.documentElement.appendChild(root);
 shadow.innerHTML = `<style>.ball{position:fixed;right:22px;bottom:80px;width:52px;height:52px;border-radius:50%;background:#2563eb;color:#fff;z-index:2147483647;display:grid;place-items:center;font:700 18px sans-serif;box-shadow:0 5px 16px #0004;cursor:grab;user-select:none}.ball.edge{width:26px;height:68px;right:0;border-radius:24px 0 0 24px;font-size:12px}.mini{position:absolute;right:2px;top:-18px;background:#111;color:#fff;border:0;border-radius:8px;font-size:11px}</style><div class="ball" title="打开 Intra Copilot">✦<button class="mini" title="收缩">−</button></div>`;
 const ball = shadow.querySelector(".ball") as HTMLElement;
 const mini = shadow.querySelector(".mini") as HTMLButtonElement;
+let language: Language = "zh";
+let pageEnabled = false;
+
+function setPageEnabled(enabled: boolean) {
+  pageEnabled = enabled;
+  root.style.display = enabled ? "block" : "none";
+}
+
+function refreshPageEnabled() {
+  chrome.runtime.sendMessage({ type: "CONTENT_READY" }, (response) => {
+    if (chrome.runtime.lastError) return;
+    setPageEnabled(Boolean(response?.enabled));
+  });
+}
+
+function updateBallLanguage(next: Language) {
+  language = next;
+  ball.title = language === "en" ? "Open Intra Copilot" : "打开 Intra Copilot";
+  mini.title = language === "en" ? "Collapse" : "收缩";
+}
 let drag = false,
   moved = false,
   sx = 0,
@@ -48,12 +70,21 @@ function restoreBallPosition(value: any) {
 }
 
 chrome.storage.local.get(
-  ["ballPos", "ballAnchor", "ballEdge"],
+  ["ballPos", "ballAnchor", "ballEdge", "language"],
   (value: any) => {
+    if (value.language === "en" || value.language === "zh") {
+      updateBallLanguage(value.language);
+    }
     if (value.ballEdge) ball.classList.add("edge");
     restoreBallPosition(value);
   },
 );
+refreshPageEnabled();
+chrome.storage.onChanged.addListener((changes) => {
+  const next = changes.language?.newValue;
+  if (next === "en" || next === "zh") updateBallLanguage(next);
+  if (changes.activationMode || changes.enabledTabIds) refreshPageEnabled();
+});
 window.addEventListener("resize", clampBall);
 window.visualViewport?.addEventListener("resize", clampBall);
 new MutationObserver(() => {
@@ -157,12 +188,15 @@ chrome.runtime.onMessage.addListener((msg: any, _sender: any, send: any) => {
     try {
       const a = msg.action;
       if (!["CLICK", "FILL", "NAVIGATE"].includes(a.type))
-        throw Error("不支持的操作");
+        throw Error(language === "en" ? "Unsupported action" : "不支持的操作");
       if (a.type === "NAVIGATE") {
         location.href = a.arguments?.url;
       } else {
         const el = document.querySelector(a.target) as HTMLElement | null;
-        if (!el) throw Error("找不到目标元素");
+        if (!el)
+          throw Error(
+            language === "en" ? "Target element not found" : "找不到目标元素",
+          );
         if (a.type === "CLICK") el.click();
         else {
           const input = el as HTMLInputElement;

@@ -90,7 +90,7 @@ small {
   z-index: 10;
   top: 42px;
   right: 0;
-  width: 180px;
+  width: 260px;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -114,6 +114,25 @@ small {
   padding: 7px 2px;
   color: var(--text);
   font-size: 13px;
+}
+.current-page-toggle {
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.current-page-toggle:hover:not(:disabled) {
+  background: var(--page-bg);
+}
+.current-page-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 .session-tabs {
   display: flex;

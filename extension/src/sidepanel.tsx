@@ -5,6 +5,7 @@ import "./style.css";
 const API = "http://localhost:8080/api/v1";
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
+type ActivationMode = "all_pages" | "manual";
 type Msg = { role: string; content: string };
 
 const translations = {
@@ -17,6 +18,12 @@ const translations = {
     followSystem: "跟随系统",
     light: "浅色",
     dark: "深色",
+    activationScope: "插件启用范围",
+    allPages: "所有页面开启",
+    manualPages: "仅在手动开启的页面使用",
+    currentPage: "当前页面",
+    enableCurrentPage: "在当前页面开启",
+    disableCurrentPage: "关闭当前页面插件",
     language: "语言",
     chinese: "中文",
     english: "English",
@@ -84,6 +91,12 @@ const translations = {
     followSystem: "Follow system",
     light: "Light",
     dark: "Dark",
+    activationScope: "Extension activation",
+    allPages: "Enable on all pages",
+    manualPages: "Only use on pages enabled manually",
+    currentPage: "Current page",
+    enableCurrentPage: "Enable on current page",
+    disableCurrentPage: "Disable on current page",
     language: "Language",
     chinese: "中文",
     english: "English",
@@ -169,7 +182,11 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
-  const [readPageEnabled, setReadPageEnabled] = useState(true);
+  const [readPageEnabled, setReadPageEnabled] = useState(false);
+  const [activationMode, setActivationMode] =
+    useState<ActivationMode>("manual");
+  const [currentTabId, setCurrentTabId] = useState<number>();
+  const [currentTabEnabled, setCurrentTabEnabled] = useState(false);
   const [tmsAuthorized, setTmsAuthorized] = useState(false);
   const [availableTabs, setAvailableTabs] = useState<chrome.tabs.Tab[]>([]);
   const [selectedTabIds, setSelectedTabIds] = useState<number[]>([]);
@@ -194,12 +211,19 @@ function App() {
 
   useEffect(() => {
     chrome.storage.local.get(
-      ["theme", "language", "readPageEnabled", "tmsAuthorized"],
+      [
+        "theme",
+        "language",
+        "readPageEnabled",
+        "tmsAuthorized",
+        "activationMode",
+      ],
       (value: {
         theme?: Theme;
         language?: Language;
         readPageEnabled?: boolean;
         tmsAuthorized?: boolean;
+        activationMode?: ActivationMode;
       }) => {
         if (value.theme === "light" || value.theme === "dark") {
           setTheme(value.theme);
@@ -212,6 +236,12 @@ function App() {
         }
         if (typeof value.tmsAuthorized === "boolean") {
           setTmsAuthorized(value.tmsAuthorized);
+        }
+        if (
+          value.activationMode === "all_pages" ||
+          value.activationMode === "manual"
+        ) {
+          setActivationMode(value.activationMode);
         }
         setPreferencesLoaded(true);
       },
@@ -229,6 +259,43 @@ function App() {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
     chrome.storage.local.set({ language });
   }, [language, preferencesLoaded]);
+
+  useEffect(() => {
+    if (!preferencesLoaded) return;
+    chrome.storage.local.set({ activationMode });
+    refreshCurrentTabState();
+  }, [activationMode, preferencesLoaded]);
+
+  async function refreshCurrentTabState() {
+    try {
+      const tabs = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      const id = tabs[0]?.id;
+      setCurrentTabId(id);
+      if (id == null) return;
+      const result = await chrome.runtime.sendMessage({
+        type: "GET_TAB_ENABLED",
+        tabId: id,
+      });
+      setCurrentTabEnabled(Boolean(result?.enabled));
+    } catch {
+      setCurrentTabId(undefined);
+    }
+  }
+
+  async function toggleCurrentTab() {
+    if (currentTabId == null) return;
+    const type = currentTabEnabled
+      ? "DISABLE_CURRENT_TAB"
+      : "ENABLE_CURRENT_TAB";
+    const result = await chrome.runtime.sendMessage({
+      type,
+      tabId: currentTabId,
+    });
+    if (result?.ok) setCurrentTabEnabled(Boolean(result.enabled));
+  }
 
   const t = translations[language];
 
@@ -453,13 +520,6 @@ function App() {
             readPage: readPageEnabled,
             delegateTms: tmsAuthorized,
           },
-          selectedTabIds,
-          attachments: attachments.map(({ name, size, type }) => ({
-            name,
-            size,
-            type,
-          })),
-          screenshot: screenshot || null,
         }),
       });
       if (!response.ok || !response.body) throw Error(t.requestFailed);
@@ -608,6 +668,38 @@ function App() {
                 />
                 {t.english}
               </label>
+              <div className="settings-title language-title">
+                {t.activationScope}
+              </div>
+              <label>
+                <input
+                  type="radio"
+                  name="activationMode"
+                  checked={activationMode === "all_pages"}
+                  onChange={() => setActivationMode("all_pages")}
+                />
+                {t.allPages}
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="activationMode"
+                  checked={activationMode === "manual"}
+                  onChange={() => setActivationMode("manual")}
+                />
+                {t.manualPages}
+              </label>
+              {activationMode === "manual" && (
+                <button
+                  className="current-page-toggle"
+                  onClick={toggleCurrentTab}
+                  disabled={currentTabId == null}
+                >
+                  {currentTabEnabled
+                    ? t.disableCurrentPage
+                    : t.enableCurrentPage}
+                </button>
+              )}
             </div>
           )}
         </div>
