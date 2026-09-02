@@ -1,0 +1,7 @@
+**/target/
+**/node_modules/
+extension/dist/
+backend/data/
+*.db
+*.db-journal
+*.tsbuildinfo
