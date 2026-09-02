@@ -723,18 +723,48 @@ function App() {
         </div>
       </header>
       <nav className="session-tabs" aria-label={t.chatWindows}>
-        {sessions.map((conversation, index) => (
-          <button
-            key={conversation.id}
-            className={
-              "session-tab " + (conversation.id === session?.id ? "active" : "")
-            }
-            onClick={() => select(conversation)}
-            title={t.switchChat}
-          >
-            {sessionTitle(conversation, index)}
-          </button>
-        ))}
+        {sessions.map((conversation, index) =>
+          (() => {
+            const editing = editingSessionId === conversation.id;
+            return (
+              <button
+                key={conversation.id}
+                className={
+                  "session-tab " +
+                  (conversation.id === session?.id ? "active" : "")
+                }
+                onClick={() => {
+                  if (!editing) select(conversation);
+                }}
+                onDoubleClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  beginRename(conversation);
+                }}
+                title={t.editTitle}
+              >
+                {editing ? (
+                  <input
+                    className="session-tab-input"
+                    value={editingTitle}
+                    autoFocus
+                    maxLength={80}
+                    onChange={(event) => setEditingTitle(event.target.value)}
+                    onKeyDown={(event) => {
+                      event.stopPropagation();
+                      if (event.key === "Enter") saveRename(conversation);
+                      if (event.key === "Escape") cancelRename();
+                    }}
+                    onClick={(event) => event.stopPropagation()}
+                    aria-label={t.editTitle}
+                  />
+                ) : (
+                  sessionTitle(conversation, index)
+                )}
+              </button>
+            );
+          })(),
+        )}
       </nav>
       <main>
         {msgs.length === 0 && <div className="empty">{t.empty}</div>}

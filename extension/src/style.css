@@ -163,6 +163,18 @@ small {
   color: var(--text);
   font-weight: 600;
 }
+.session-tab-input {
+  width: 120px;
+  min-width: 0;
+  border: 1px solid #93c5fd;
+  border-radius: 4px;
+  padding: 2px 5px;
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
 main {
   flex: 1;
   overflow: auto;
