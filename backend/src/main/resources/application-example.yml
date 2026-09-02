@@ -1,0 +1,9 @@
+server:
+  port: 8080
+  address: 127.0.0.1
+llm:
+  base-url: https://api.openai.com/v1
+  api-key: replace-me
+  model: gpt-4o-mini
+app:
+  cors-origins: chrome-extension://YOUR_EXTENSION_ID
