@@ -3,12 +3,16 @@ server:
   address: ${SERVER_ADDRESS:127.0.0.1}
 spring:
   datasource:
-    url: jdbc:sqlite:${DB_PATH:./intra-copilot.db}
-    driver-class-name: org.sqlite.JDBC
+    url: ${DATABASE_URL:jdbc:postgresql://127.0.0.1:5432/intra_copilot}
+    username: ${DATABASE_USERNAME:intra}
+    password: ${DATABASE_PASSWORD:intra}
   jpa:
-    database-platform: org.hibernate.community.dialect.SQLiteDialect
-    hibernate.ddl-auto: update
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate.ddl-auto: validate
     open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
   webflux:
     multipart:
       max-in-memory-size: 10MB
@@ -18,5 +22,13 @@ llm:
   base-url: ${LLM_BASE_URL:https://api.openai.com/v1}
   api-key: ${LLM_API_KEY:}
   model: ${LLM_MODEL:gpt-4o-mini}
+embedding:
+  base-url: ${EMBEDDING_BASE_URL:${LLM_BASE_URL:https://api.openai.com/v1}}
+  api-key: ${EMBEDDING_API_KEY:${LLM_API_KEY:}}
+  model: ${EMBEDDING_MODEL:text-embedding-3-small}
+rag:
+  top-k: ${RAG_TOP_K:5}
+  chunk-size: ${RAG_CHUNK_SIZE:1200}
+  max-document-bytes: ${RAG_MAX_DOCUMENT_BYTES:10485760}
 app:
   cors-origins: ${CORS_ALLOWED_ORIGINS:chrome-extension://*,http://localhost:5173}

@@ -1,9 +1,24 @@
 server:
   port: 8080
   address: 127.0.0.1
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5432/intra_copilot
+    username: intra
+    password: replace-me
+  flyway:
+    enabled: true
 llm:
   base-url: https://api.openai.com/v1
   api-key: replace-me
   model: gpt-4o-mini
+embedding:
+  base-url: https://api.openai.com/v1
+  api-key: replace-me
+  model: text-embedding-3-small
+rag:
+  top-k: 5
+  chunk-size: 1200
+  max-document-bytes: 10485760
 app:
   cors-origins: chrome-extension://YOUR_EXTENSION_ID
