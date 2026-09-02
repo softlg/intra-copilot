@@ -1323,7 +1323,7 @@ function App() {
               onChange={(event) => setInput(event.target.value)}
               onPaste={onInputPaste}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
                   event.preventDefault();
                   send();
                 }
