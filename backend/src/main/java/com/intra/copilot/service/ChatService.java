@@ -9,6 +9,7 @@ import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Service
@@ -63,6 +64,7 @@ public class ChatService {
     return conversations.save(conversation);
   }
 
+  @Transactional
   public void delete(String id) {
     if (!conversations.existsById(id)) {
       throw new NoSuchElementException("会话不存在");
