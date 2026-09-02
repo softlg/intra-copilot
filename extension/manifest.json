@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "页面诊断与 TMS 操作助手",
   "permissions": ["sidePanel", "storage", "activeTab", "scripting", "tabs"],
-  "host_permissions": ["http://localhost:8080/*"],
+  "host_permissions": ["<all_urls>", "http://localhost:8080/*"],
   "background": { "service_worker": "service-worker.js", "type": "module" },
   "side_panel": { "default_path": "sidepanel.html" },
   "action": { "default_title": "打开 Intra Copilot" },
