@@ -436,16 +436,30 @@ function App() {
 
   function onFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
+    addAttachments(files);
+    event.target.value = "";
+  }
+
+  function addAttachments(files: File[]) {
     setAttachments((items) => [
       ...items,
-      ...files.map((file) => ({
-        name: file.name,
+      ...files.map((file, index) => ({
+        name: file.name || `pasted-image-${Date.now()}-${index + 1}.png`,
         size: file.size,
-        type: file.type,
+        type: file.type || "application/octet-stream",
         url: URL.createObjectURL(file),
       })),
     ]);
-    event.target.value = "";
+  }
+
+  function onInputPaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const imageFiles = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file != null);
+    if (!imageFiles.length) return;
+    event.preventDefault();
+    addAttachments(imageFiles);
   }
 
   function removeAttachment(url: string) {
@@ -924,6 +938,7 @@ function App() {
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
+              onPaste={onInputPaste}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
