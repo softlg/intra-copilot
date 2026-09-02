@@ -4,17 +4,23 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class RouterAgent {
+  private final GeneralAgent general;
   private final DiagnosisAgent diagnosis;
   private final TmsManualAgent tms;
 
-  public RouterAgent(DiagnosisAgent d, TmsManualAgent t) {
+  public RouterAgent(GeneralAgent g, DiagnosisAgent d, TmsManualAgent t) {
+    general = g;
     diagnosis = d;
     tms = t;
   }
 
-  public Agent route(String text) {
-    if (tms.matches(text) && !diagnosis.matches(text)) return tms;
+  public Agent route(String text, boolean tmsAuthorized) {
+    if (tmsAuthorized && tms.matches(text) && !diagnosis.matches(text)) return tms;
     if (diagnosis.matches(text)) return diagnosis;
-    return null;
+    return general;
+  }
+
+  public boolean isTmsIntent(String text) {
+    return tms.matches(text) && !diagnosis.matches(text);
   }
 }
