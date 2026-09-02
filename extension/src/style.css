@@ -470,10 +470,23 @@ textarea {
 }
 .send-button {
   width: 58px;
+  min-height: 44px;
   border: 0;
   border-radius: 8px;
   background: #2563eb;
   color: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+.send-button:hover {
+  background: #1d4ed8;
+}
+.send-button.stop-button {
+  background: #dc2626;
+  font-size: 16px;
+}
+.send-button.stop-button:hover {
+  background: #b91c1c;
 }
 .send-button:disabled {
   opacity: 0.5;

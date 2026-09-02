@@ -72,6 +72,7 @@ const translations = {
     inputPlaceholder: "描述问题或输入你的需求…",
     chatInput: "聊天输入框",
     send: "发送",
+    stop: "停止生成",
     addTools: "添加插件或附件",
     permission: "权限",
     toolsUnavailable: "插件、附件等扩展能力将在后续版本接入。",
@@ -163,6 +164,7 @@ const translations = {
     inputPlaceholder: "Describe the problem or enter your request…",
     chatInput: "Chat input",
     send: "Send",
+    stop: "Stop generating",
     addTools: "Add plugin or attachment",
     permission: "Permissions",
     toolsUnavailable:
@@ -297,6 +299,7 @@ function App() {
   const composerRef = useRef<HTMLDivElement>(null);
   const composerToolsRef = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     load();
@@ -714,6 +717,8 @@ function App() {
 
   async function send() {
     if (!input.trim() || busy || !session) return;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     const text = input.trim();
     setInput("");
     setBusy(true);
@@ -765,9 +770,11 @@ function App() {
     }
 
     try {
+      if (controller.signal.aborted) return;
       const response = await fetch(API + "/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           sessionId: session.id,
           message: text,
@@ -843,10 +850,19 @@ function App() {
         }
       }
     } catch (e) {
-      setError((e as Error).message);
+      if ((e as { name?: string })?.name !== "AbortError") {
+        setError((e as Error).message);
+      }
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setBusy(false);
     }
+  }
+
+  function stopGeneration() {
+    abortControllerRef.current?.abort();
   }
 
   return (
@@ -1291,8 +1307,13 @@ function App() {
               placeholder={t.inputPlaceholder}
               aria-label={t.chatInput}
             />
-            <button className="send-button" disabled={busy} onClick={send}>
-              {busy ? "…" : t.send}
+            <button
+              className={"send-button" + (busy ? " stop-button" : "")}
+              onClick={busy ? stopGeneration : send}
+              title={busy ? t.stop : t.send}
+              aria-label={busy ? t.stop : t.send}
+            >
+              {busy ? "■" : t.send}
             </button>
           </div>
           <div className="composer-tools" ref={composerToolsRef}>
