@@ -229,6 +229,16 @@ main {
   border: 1px solid var(--border);
   box-shadow: 0 3px 12px #0f172a0d;
 }
+.message-stack {
+  display: flex;
+  min-width: 0;
+  max-width: calc(100% - 36px);
+  flex-direction: column;
+  align-items: flex-start;
+}
+.user .message-stack {
+  align-items: flex-end;
+}
 .assistant .bubble {
   background: var(--assistant-bg);
   border-color: var(--assistant-border);
@@ -281,6 +291,36 @@ main {
 .thinking-indicator {
   color: var(--muted);
   font-style: italic;
+}
+.message-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  padding-left: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.msg.assistant:hover .message-actions,
+.message-actions:focus-within {
+  opacity: 1;
+}
+.message-action {
+  display: inline-grid;
+  width: 25px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.message-action:hover,
+.message-action.selected {
+  background: var(--page-bg);
+  color: #2563eb;
 }
 .error {
   margin: 0 14px 8px;

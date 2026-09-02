@@ -6,7 +6,8 @@ const API = "http://localhost:8080/api/v1";
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
-type Msg = { role: string; content: string };
+type Feedback = "up" | "down";
+type Msg = { role: string; content: string; id?: string };
 
 const translations = {
   zh: {
@@ -78,6 +79,11 @@ const translations = {
     screenshotRestricted: "当前页面不允许截图，请切换到普通网页后重试。",
     imagePreview: "查看图片",
     closeImagePreview: "关闭图片预览",
+    like: "有帮助",
+    dislike: "没帮助",
+    copyMessage: "复制回答",
+    copied: "已复制",
+    copyFailed: "复制失败，请手动选择文本复制。",
     pagePermission: "页面权限",
     readPage: "允许读取当前页面上下文",
     delegateTms: "授权业务子 Agent 处理专属问题",
@@ -158,6 +164,11 @@ const translations = {
       "This page cannot be captured. Switch to a regular webpage and try again.",
     imagePreview: "View image",
     closeImagePreview: "Close image preview",
+    like: "Helpful",
+    dislike: "Not helpful",
+    copyMessage: "Copy answer",
+    copied: "Copied",
+    copyFailed: "Copy failed. Please select and copy the text manually.",
     pagePermission: "Page permissions",
     readPage: "Allow reading the current page context",
     delegateTms: "Authorize the business sub-agent for specialized requests",
@@ -218,6 +229,10 @@ function App() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [session, setSession] = useState<any>();
   const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [messageFeedback, setMessageFeedback] = useState<
+    Record<number, Feedback>
+  >({});
+  const [copiedMessage, setCopiedMessage] = useState<number>();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -377,6 +392,49 @@ function App() {
       : conversation.title;
   }
 
+  function loadFeedback(sessionId: string) {
+    chrome.storage.local.get(["messageFeedback"], (value) => {
+      const all = (value.messageFeedback || {}) as Record<
+        string,
+        Record<number, Feedback>
+      >;
+      const stored = all[sessionId] || {};
+      setMessageFeedback(stored);
+    });
+  }
+
+  function saveFeedback(index: number, feedback: Feedback) {
+    setMessageFeedback((current) => ({ ...current, [index]: feedback }));
+    if (!session?.id) return;
+    chrome.storage.local.get(["messageFeedback"], (value) => {
+      const all = (value.messageFeedback || {}) as Record<
+        string,
+        Record<number, Feedback>
+      >;
+      const sessionFeedback = { ...(all[session.id] || {}) };
+      sessionFeedback[index] = feedback;
+      chrome.storage.local.set({
+        messageFeedback: { ...all, [session.id]: sessionFeedback },
+      });
+    });
+  }
+
+  async function copyMessage(content: string, index: number) {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMessage(index);
+      window.setTimeout(
+        () =>
+          setCopiedMessage((current) =>
+            current === index ? undefined : current,
+          ),
+        1600,
+      );
+    } catch {
+      setError(t.copyFailed);
+    }
+  }
+
   async function load() {
     try {
       const sessions = await fetch(API + "/sessions").then((r) => r.json());
@@ -396,6 +454,7 @@ function App() {
       setSessions((items) => [conversation, ...items]);
       setSession(conversation);
       setMsgs([]);
+      setMessageFeedback({});
     } catch (e) {
       setError((e as Error).message);
     }
@@ -408,6 +467,7 @@ function App() {
         r.json(),
       ),
     );
+    loadFeedback(conversation.id);
   }
 
   function beginRename(conversation: any) {
@@ -881,26 +941,68 @@ function App() {
       </nav>
       <main>
         {msgs.length === 0 && <div className="empty">{t.empty}</div>}
-        {msgs.map((message, index) => (
-          <div key={index} className={"msg " + message.role}>
-            <div className="role">
-              {message.role === "user" ? t.you : t.assistant}
-            </div>
-            <div className="bubble">
-              {message.role === "assistant" ? (
-                message.content ? (
-                  <div className="assistant-content">
-                    {renderAssistantMessage(message.content)}
+        {msgs.map((message, index) => {
+          const assistant = message.role === "assistant";
+          return (
+            <div key={index} className={"msg " + message.role}>
+              <div className="role">{assistant ? t.assistant : t.you}</div>
+              <div className="message-stack">
+                <div className="bubble">
+                  {assistant ? (
+                    message.content ? (
+                      <div className="assistant-content">
+                        {renderAssistantMessage(message.content)}
+                      </div>
+                    ) : (
+                      <span className="thinking-indicator">{t.thinking}</span>
+                    )
+                  ) : (
+                    message.content || t.thinking
+                  )}
+                </div>
+                {assistant && message.content && (
+                  <div className="message-actions" aria-label="Message actions">
+                    <button
+                      type="button"
+                      className={
+                        "message-action " +
+                        (messageFeedback[index] === "up" ? "selected" : "")
+                      }
+                      onClick={() => saveFeedback(index, "up")}
+                      title={t.like}
+                      aria-label={t.like}
+                    >
+                      ♡
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        "message-action " +
+                        (messageFeedback[index] === "down" ? "selected" : "")
+                      }
+                      onClick={() => saveFeedback(index, "down")}
+                      title={t.dislike}
+                      aria-label={t.dislike}
+                    >
+                      ♧
+                    </button>
+                    <button
+                      type="button"
+                      className="message-action"
+                      onClick={() => copyMessage(message.content, index)}
+                      title={copiedMessage === index ? t.copied : t.copyMessage}
+                      aria-label={
+                        copiedMessage === index ? t.copied : t.copyMessage
+                      }
+                    >
+                      {copiedMessage === index ? "✓" : "⧉"}
+                    </button>
                   </div>
-                ) : (
-                  <span className="thinking-indicator">{t.thinking}</span>
-                )
-              ) : (
-                message.content || t.thinking
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <div ref={end} />
       </main>
       {historyOpen && (
