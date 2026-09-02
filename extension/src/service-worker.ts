@@ -76,6 +76,27 @@ chrome.runtime.onMessage.addListener(
       });
       return true;
     }
+    if (msg?.type === "CAPTURE_SCREENSHOT") {
+      const windowId = Number(msg.windowId);
+      if (!Number.isInteger(windowId)) {
+        sendResponse({ ok: false, error: "INVALID_WINDOW" });
+        return true;
+      }
+      chrome.tabs
+        .captureVisibleTab(windowId, { format: "png" })
+        .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
+        .catch((error: unknown) => {
+          const message = String((error as Error)?.message || error || "");
+          const restricted = /cannot|not allowed|permission|capture/i.test(
+            message,
+          );
+          sendResponse({
+            ok: false,
+            error: restricted ? "RESTRICTED_PAGE" : "CAPTURE_FAILED",
+          });
+        });
+      return true;
+    }
   },
 );
 

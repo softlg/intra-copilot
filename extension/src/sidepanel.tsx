@@ -75,6 +75,7 @@ const translations = {
     screenshotNew: "新",
     removeAttachment: "移除附件",
     screenshotFailed: "截图失败，请确认浏览器权限。",
+    screenshotRestricted: "当前页面不允许截图，请切换到普通网页后重试。",
     pagePermission: "页面权限",
     readPage: "允许读取当前页面上下文",
     delegateTms: "授权业务子 Agent 处理专属问题",
@@ -151,6 +152,8 @@ const translations = {
     screenshotNew: "New",
     removeAttachment: "Remove attachment",
     screenshotFailed: "Screenshot failed. Check browser permissions.",
+    screenshotRestricted:
+      "This page cannot be captured. Switch to a regular webpage and try again.",
     pagePermission: "Page permissions",
     readPage: "Allow reading the current page context",
     delegateTms: "Authorize the business sub-agent for specialized requests",
@@ -472,15 +475,26 @@ function App() {
 
   async function captureScreen() {
     try {
-      const currentWindow = await chrome.windows.getCurrent();
-      if (currentWindow.id == null) throw Error("No active browser window");
-      const dataUrl = await chrome.tabs.captureVisibleTab(currentWindow.id, {
-        format: "png",
+      const tabs = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
       });
-      setScreenshot(dataUrl);
+      const windowId = tabs[0]?.windowId;
+      if (windowId == null) throw Error("No active browser window");
+      const result = await chrome.runtime.sendMessage({
+        type: "CAPTURE_SCREENSHOT",
+        windowId,
+      });
+      if (!result?.ok || !result.dataUrl) {
+        if (result?.error === "RESTRICTED_PAGE") {
+          throw Error(t.screenshotRestricted);
+        }
+        throw Error(t.screenshotFailed);
+      }
+      setScreenshot(result.dataUrl);
       setToolsOpen(false);
-    } catch {
-      setError(t.screenshotFailed);
+    } catch (error) {
+      setError((error as Error).message || t.screenshotFailed);
     }
   }
 
