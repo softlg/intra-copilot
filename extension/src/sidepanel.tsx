@@ -172,6 +172,44 @@ function isDefaultSessionTitle(title: unknown) {
   );
 }
 
+function renderInlineMarkdown(value: string) {
+  return value
+    .split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g)
+    .map((part, index) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return <strong key={index}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return <code key={index}>{part.slice(1, -1)}</code>;
+      }
+      if (part.startsWith("*") && part.endsWith("*")) {
+        return <em key={index}>{part.slice(1, -1)}</em>;
+      }
+      return <React.Fragment key={index}>{part}</React.Fragment>;
+    });
+}
+
+function renderAssistantMessage(content: string) {
+  return content.split("\n").map((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) return <div className="assistant-spacer" key={index} />;
+    const heading = trimmed.match(/^#{1,3}\s+(.+)$/);
+    if (heading) {
+      return <h3 key={index}>{renderInlineMarkdown(heading[1])}</h3>;
+    }
+    const listItem = trimmed.match(/^(?:[-*]|\d+\.)\s+(.+)$/);
+    if (listItem) {
+      return (
+        <div className="assistant-list-item" key={index}>
+          <span aria-hidden="true">•</span>
+          <span>{renderInlineMarkdown(listItem[1])}</span>
+        </div>
+      );
+    }
+    return <p key={index}>{renderInlineMarkdown(line)}</p>;
+  });
+}
+
 function App() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [session, setSession] = useState<any>();
@@ -787,7 +825,19 @@ function App() {
             <div className="role">
               {message.role === "user" ? t.you : t.assistant}
             </div>
-            <div className="bubble">{message.content || t.thinking}</div>
+            <div className="bubble">
+              {message.role === "assistant" ? (
+                message.content ? (
+                  <div className="assistant-content">
+                    {renderAssistantMessage(message.content)}
+                  </div>
+                ) : (
+                  <span className="thinking-indicator">{t.thinking}</span>
+                )
+              ) : (
+                message.content || t.thinking
+              )}
+            </div>
           </div>
         ))}
         <div ref={end} />

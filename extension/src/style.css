@@ -8,6 +8,8 @@
   --muted: #64748b;
   --border: #e2e8f0;
   --control-bg: #ffffff;
+  --assistant-bg: #f7fbff;
+  --assistant-border: #d7e6f8;
 }
 :root[data-theme="dark"] {
   --page-bg: #111827;
@@ -16,6 +18,8 @@
   --muted: #94a3b8;
   --border: #374151;
   --control-bg: #111827;
+  --assistant-bg: #1d2939;
+  --assistant-border: #34465e;
 }
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"] {
@@ -25,6 +29,8 @@
     --muted: #94a3b8;
     --border: #374151;
     --control-bg: #111827;
+    --assistant-bg: #1d2939;
+    --assistant-border: #34465e;
   }
 }
 body {
@@ -187,8 +193,9 @@ main {
 }
 .msg {
   display: flex;
+  align-items: flex-start;
   gap: 8px;
-  margin: 12px 0;
+  margin: 16px 0;
 }
 .msg.user {
   flex-direction: row-reverse;
@@ -196,21 +203,84 @@ main {
 .role {
   font-size: 11px;
   color: var(--muted);
-  padding-top: 5px;
+  min-width: 28px;
+  padding: 5px 7px;
+  border-radius: 999px;
+  background: var(--page-bg);
+  text-align: center;
+  white-space: nowrap;
+}
+.assistant .role {
+  color: #2563eb;
+  background: #dbeafe;
+  font-weight: 600;
+}
+.user .role {
+  color: var(--muted);
+  background: var(--border);
 }
 .bubble {
-  max-width: 85%;
-  padding: 10px 12px;
-  border-radius: 12px;
+  max-width: min(92%, 620px);
+  padding: 12px 15px;
+  border-radius: 4px 15px 15px 15px;
   white-space: pre-wrap;
-  line-height: 1.5;
+  line-height: 1.6;
   background: var(--surface);
   border: 1px solid var(--border);
+  box-shadow: 0 3px 12px #0f172a0d;
+}
+.assistant .bubble {
+  background: var(--assistant-bg);
+  border-color: var(--assistant-border);
+  box-shadow: 0 5px 16px #0f172a14;
 }
 .user .bubble {
+  border-radius: 15px 4px 15px 15px;
   background: #2563eb;
   color: white;
   border-color: #2563eb;
+}
+.assistant-content {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.assistant-content p {
+  margin: 0 0 9px;
+}
+.assistant-content p:last-child {
+  margin-bottom: 0;
+}
+.assistant-content h3 {
+  margin: 0 0 9px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.assistant-content code {
+  padding: 2px 5px;
+  border: 1px solid var(--assistant-border);
+  border-radius: 4px;
+  background: var(--page-bg);
+  color: #c2410c;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.9em;
+}
+.assistant-list-item {
+  display: flex;
+  gap: 8px;
+  margin: 5px 0;
+}
+.assistant-list-item > span:first-child {
+  flex: 0 0 auto;
+  color: #2563eb;
+  font-weight: 700;
+}
+.assistant-spacer {
+  height: 6px;
+}
+.thinking-indicator {
+  color: var(--muted);
+  font-style: italic;
 }
 .error {
   margin: 0 14px 8px;
