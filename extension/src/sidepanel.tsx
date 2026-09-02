@@ -76,6 +76,8 @@ const translations = {
     removeAttachment: "移除附件",
     screenshotFailed: "截图失败，请确认浏览器权限。",
     screenshotRestricted: "当前页面不允许截图，请切换到普通网页后重试。",
+    imagePreview: "查看图片",
+    closeImagePreview: "关闭图片预览",
     pagePermission: "页面权限",
     readPage: "允许读取当前页面上下文",
     delegateTms: "授权业务子 Agent 处理专属问题",
@@ -154,6 +156,8 @@ const translations = {
     screenshotFailed: "Screenshot failed. Check browser permissions.",
     screenshotRestricted:
       "This page cannot be captured. Switch to a regular webpage and try again.",
+    imagePreview: "View image",
+    closeImagePreview: "Close image preview",
     pagePermission: "Page permissions",
     readPage: "Allow reading the current page context",
     delegateTms: "Authorize the business sub-agent for specialized requests",
@@ -235,6 +239,7 @@ function App() {
     { name: string; size: number; type: string; url: string }[]
   >([]);
   const [screenshot, setScreenshot] = useState<string>();
+  const [previewImage, setPreviewImage] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
@@ -1028,7 +1033,15 @@ function App() {
                 {attachments.map((attachment) => (
                   <div className="attachment-chip" key={attachment.url}>
                     {attachment.type.startsWith("image/") ? (
-                      <img src={attachment.url} alt={attachment.name} />
+                      <button
+                        type="button"
+                        className="attachment-image-button"
+                        onClick={() => setPreviewImage(attachment.url)}
+                        title={t.imagePreview}
+                        aria-label={`${t.imagePreview}: ${attachment.name}`}
+                      >
+                        <img src={attachment.url} alt={attachment.name} />
+                      </button>
                     ) : (
                       <span className="file-icon">📎</span>
                     )}
@@ -1045,12 +1058,24 @@ function App() {
                 ))}
                 {screenshot && (
                   <div className="screenshot-preview">
-                    <img src={screenshot} alt={t.screenshot} />
                     <button
                       type="button"
-                      onClick={() => setScreenshot(undefined)}
+                      className="screenshot-image-button"
+                      onClick={() => setPreviewImage(screenshot)}
+                      title={t.imagePreview}
+                      aria-label={t.imagePreview}
+                    >
+                      <img src={screenshot} alt={t.screenshot} />
+                    </button>
+                    <button
+                      type="button"
+                      className="screenshot-remove-button"
                       title={t.removeAttachment}
                       aria-label={t.removeAttachment}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setScreenshot(undefined);
+                      }}
                     >
                       ×
                     </button>
@@ -1193,6 +1218,28 @@ function App() {
           </div>
         </div>
       </footer>
+      {previewImage && (
+        <div
+          className="image-preview-overlay"
+          onClick={() => setPreviewImage(undefined)}
+        >
+          <div
+            className="image-preview-dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="image-preview-close"
+              onClick={() => setPreviewImage(undefined)}
+              title={t.closeImagePreview}
+              aria-label={t.closeImagePreview}
+            >
+              ×
+            </button>
+            <img src={previewImage} alt={t.imagePreview} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

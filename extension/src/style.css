@@ -329,13 +329,24 @@ footer {
   border-radius: 4px;
   object-fit: cover;
 }
+.attachment-image-button,
+.screenshot-image-button {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.attachment-image-button img {
+  display: block;
+}
 .attachment-chip > span:not(.file-icon) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .attachment-chip button,
-.screenshot-preview button {
+.screenshot-remove-button {
   border: 0;
   background: transparent;
   color: var(--muted);
@@ -353,7 +364,10 @@ footer {
   border-radius: 4px;
   object-fit: cover;
 }
-.screenshot-preview button {
+.screenshot-image-button img {
+  display: block;
+}
+.screenshot-remove-button {
   position: absolute;
   top: -7px;
   right: -7px;
@@ -362,6 +376,46 @@ footer {
   border-radius: 50%;
   background: var(--surface);
   box-shadow: 0 1px 3px #0004;
+}
+.image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #020617c7;
+}
+.image-preview-dialog {
+  position: relative;
+  max-width: min(92vw, 900px);
+  max-height: 92vh;
+  padding: 8px;
+  border: 1px solid #ffffff2b;
+  border-radius: 12px;
+  background: #0f172af2;
+  box-shadow: 0 20px 60px #0008;
+}
+.image-preview-dialog img {
+  display: block;
+  max-width: min(88vw, 860px);
+  max-height: 84vh;
+  border-radius: 7px;
+  object-fit: contain;
+}
+.image-preview-close {
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #ffffff40;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
 }
 textarea {
   flex: 1;
