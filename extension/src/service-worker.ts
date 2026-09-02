@@ -81,7 +81,10 @@ chrome.runtime.onMessage.addListener(
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.local.get(["enabledTabIds"], (value) => {
-    if (!Array.isArray(value.enabledTabIds) || !value.enabledTabIds.includes(tabId)) {
+    if (
+      !Array.isArray(value.enabledTabIds) ||
+      !value.enabledTabIds.includes(tabId)
+    ) {
       return;
     }
     chrome.storage.local.set({

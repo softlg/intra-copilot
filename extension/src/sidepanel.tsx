@@ -71,7 +71,7 @@ const translations = {
     noTabs: "没有可用标签页",
     removeTab: "移除标签页",
     attachFile: "上传文件",
-    screenshot: "从屏幕上选择",
+    screenshot: "从屏幕上截图",
     screenshotNew: "新",
     removeAttachment: "移除附件",
     screenshotFailed: "截图失败，请确认浏览器权限。",
@@ -458,7 +458,11 @@ function App() {
 
   async function captureScreen() {
     try {
-      const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
+      const currentWindow = await chrome.windows.getCurrent();
+      if (currentWindow.id == null) throw Error("No active browser window");
+      const dataUrl = await chrome.tabs.captureVisibleTab(currentWindow.id, {
+        format: "png",
+      });
       setScreenshot(dataUrl);
       setToolsOpen(false);
     } catch {
