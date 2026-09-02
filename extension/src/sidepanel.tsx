@@ -50,12 +50,16 @@ function App() {
   }
 
   async function create() {
-    const conversation = await fetch(API + "/sessions", {
-      method: "POST",
-    }).then((r) => r.json());
-    setSessions((items) => [conversation, ...items]);
-    setSession(conversation);
-    setMsgs([]);
+    try {
+      const response = await fetch(API + "/sessions", { method: "POST" });
+      if (!response.ok) throw Error("创建会话失败");
+      const conversation = await response.json();
+      setSessions((items) => [conversation, ...items]);
+      setSession(conversation);
+      setMsgs([]);
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }
 
   async function select(conversation: any) {
@@ -226,6 +230,22 @@ function App() {
           )}
         </div>
       </header>
+      <nav className="session-tabs" aria-label="聊天窗口">
+        {sessions.map((conversation, index) => (
+          <button
+            key={conversation.id}
+            className={
+              "session-tab " + (conversation.id === session?.id ? "active" : "")
+            }
+            onClick={() => select(conversation)}
+            title="切换聊天窗口"
+          >
+            {conversation.title && conversation.title !== "新会话"
+              ? conversation.title
+              : `新会话 ${sessions.length - index}`}
+          </button>
+        ))}
+      </nav>
       <main>
         {msgs.length === 0 && (
           <div className="empty">

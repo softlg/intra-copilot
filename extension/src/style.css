@@ -103,6 +103,35 @@ small {
   color: var(--text);
   font-size: 13px;
 }
+.session-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 14px 0;
+  background: var(--surface);
+  scrollbar-width: thin;
+}
+.session-tab {
+  flex: 0 0 auto;
+  max-width: 150px;
+  overflow: hidden;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--page-bg);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-tab.active {
+  background: var(--page-bg);
+  color: var(--text);
+  font-weight: 600;
+}
 main {
   flex: 1;
   overflow: auto;
