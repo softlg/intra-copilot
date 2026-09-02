@@ -17,14 +17,46 @@ let drag = false,
   moved = false,
   sx = 0,
   sy = 0;
-chrome.storage.local.get(["ballPos", "ballEdge"], (v: any) => {
-  if (v.ballPos) {
-    ball.style.left = v.ballPos.x + "px";
-    ball.style.top = v.ballPos.y + "px";
+
+function clampBall() {
+  if (!ball.style.left || !ball.style.top) return;
+  const rect = ball.getBoundingClientRect();
+  const maxX = Math.max(0, window.innerWidth - rect.width);
+  const maxY = Math.max(0, window.innerHeight - rect.height);
+  ball.style.left = Math.min(maxX, Math.max(0, rect.left)) + "px";
+  ball.style.top = Math.min(maxY, Math.max(0, rect.top)) + "px";
+}
+
+function restoreBallPosition(value: any) {
+  if (value.ballAnchor) {
+    const rect = ball.getBoundingClientRect();
+    const maxX = Math.max(0, window.innerWidth - rect.width);
+    const maxY = Math.max(0, window.innerHeight - rect.height);
+    ball.style.left = value.ballAnchor.x * maxX + "px";
+    ball.style.top = value.ballAnchor.y * maxY + "px";
+    ball.style.right = "auto";
+  } else if (value.ballPos) {
+    ball.style.left = value.ballPos.x + "px";
+    ball.style.top = value.ballPos.y + "px";
     ball.style.right = "auto";
   }
-  if (v.ballEdge) ball.classList.add("edge");
-});
+  clampBall();
+}
+
+chrome.storage.local.get(
+  ["ballPos", "ballAnchor", "ballEdge"],
+  (value: any) => {
+    if (value.ballEdge) ball.classList.add("edge");
+    restoreBallPosition(value);
+  },
+);
+window.addEventListener("resize", clampBall);
+window.visualViewport?.addEventListener("resize", clampBall);
+new MutationObserver(() => {
+  if (!document.documentElement.contains(root)) {
+    document.documentElement.appendChild(root);
+  }
+}).observe(document.documentElement, { childList: true, subtree: true });
 ball.addEventListener("pointerdown", (e) => {
   if ((e.target as HTMLElement).classList.contains("mini")) return;
   drag = true;
@@ -36,17 +68,31 @@ ball.addEventListener("pointerdown", (e) => {
 ball.addEventListener("pointermove", (e) => {
   if (!drag) return;
   moved = true;
+  const rect = ball.getBoundingClientRect();
   ball.style.left =
-    Math.max(0, Math.min(innerWidth - 52, e.clientX - sx)) + "px";
+    Math.max(0, Math.min(window.innerWidth - rect.width, e.clientX - sx)) +
+    "px";
   ball.style.top =
-    Math.max(0, Math.min(innerHeight - 52, e.clientY - sy)) + "px";
+    Math.max(0, Math.min(window.innerHeight - rect.height, e.clientY - sy)) +
+    "px";
   ball.style.right = "auto";
 });
 ball.addEventListener("pointerup", () => {
   if (drag) {
     drag = false;
+    const rect = ball.getBoundingClientRect();
     chrome.storage.local.set({
       ballPos: { x: ball.offsetLeft, y: ball.offsetTop },
+      ballAnchor: {
+        x:
+          rect.width >= window.innerWidth
+            ? 0
+            : ball.offsetLeft / (window.innerWidth - rect.width),
+        y:
+          rect.height >= window.innerHeight
+            ? 0
+            : ball.offsetTop / (window.innerHeight - rect.height),
+      },
     });
     if (!moved) chrome.runtime.sendMessage({ type: "OPEN_SIDE_PANEL" });
   }
