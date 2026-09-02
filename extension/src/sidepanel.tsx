@@ -41,6 +41,7 @@ const translations = {
     you: "你",
     assistant: "助手",
     thinking: "思考中…",
+    stopped: "已停止生成",
     closeHistory: "关闭历史",
     selectAll: "全选",
     noHistory: "暂无历史会话",
@@ -132,6 +133,7 @@ const translations = {
     you: "You",
     assistant: "Assistant",
     thinking: "Thinking…",
+    stopped: "Generation stopped",
     closeHistory: "Close history",
     selectAll: "Select all",
     noHistory: "No chat history",
@@ -715,6 +717,23 @@ function App() {
     }
   }
 
+  function markGenerationStopped() {
+    setMsgs((items) => {
+      if (!items.length) return items;
+      const next = [...items];
+      const index = next.length - 1;
+      const last = next[index];
+      if (last.role !== "assistant" || last.content.includes(t.stopped)) {
+        return next;
+      }
+      next[index] = {
+        ...last,
+        content: last.content ? `${last.content}\n\n${t.stopped}` : t.stopped,
+      };
+      return next;
+    });
+  }
+
   async function send() {
     if (!input.trim() || busy || !session) return;
     const controller = new AbortController();
@@ -770,7 +789,10 @@ function App() {
     }
 
     try {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) {
+        markGenerationStopped();
+        return;
+      }
       const response = await fetch(API + "/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -850,7 +872,9 @@ function App() {
         }
       }
     } catch (e) {
-      if ((e as { name?: string })?.name !== "AbortError") {
+      if ((e as { name?: string })?.name === "AbortError") {
+        markGenerationStopped();
+      } else {
         setError((e as Error).message);
       }
     } finally {
