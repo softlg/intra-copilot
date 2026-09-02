@@ -96,6 +96,7 @@ const translations = {
     screenshotFailed: "截图失败，请确认浏览器权限。",
     screenshotRestricted: "当前页面不允许截图，请切换到普通网页后重试。",
     screenshotRateLimited: "截图请求过于频繁，请稍后再试。",
+    dismissError: "关闭异常提示",
     imagePreview: "查看图片",
     closeImagePreview: "关闭图片预览",
     like: "有帮助",
@@ -193,6 +194,7 @@ const translations = {
       "This page cannot be captured. Switch to a regular webpage and try again.",
     screenshotRateLimited:
       "Screenshot requested too often. Please try again shortly.",
+    dismissError: "Dismiss error",
     imagePreview: "View image",
     closeImagePreview: "Close image preview",
     like: "Helpful",
@@ -1271,7 +1273,20 @@ function App() {
           </aside>
         </div>
       )}
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <div className="error" role="alert">
+          <span className="error-message">{error}</span>
+          <button
+            type="button"
+            className="error-dismiss"
+            onClick={() => setError("")}
+            title={t.dismissError}
+            aria-label={t.dismissError}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <footer>
         <div className="composer" ref={composerRef}>
           <div className="composer-row">
