@@ -3,4 +3,6 @@ package com.intra.copilot.repo;
 import com.intra.copilot.model.ActionProposal;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface ActionProposalRepository extends JpaRepository<ActionProposal, String> {}
+public interface ActionProposalRepository extends JpaRepository<ActionProposal, String> {
+  void deleteByConversationId(String conversationId);
+}
