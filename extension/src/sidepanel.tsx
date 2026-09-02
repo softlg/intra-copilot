@@ -41,7 +41,8 @@ const translations = {
     historyLabel: (count: number) => `${count} 个会话`,
     defaultSession: (index: number) => `新会话 ${index}`,
     selectSession: (title: string) => `选择 ${title}`,
-    deleteConfirm: (names: string) => `确定删除${names}吗？聊天记录将一并移除。`,
+    deleteConfirm: (names: string) =>
+      `确定删除${names}吗？聊天记录将一并移除。`,
     thisSession: "此会话",
     sessions: (count: number) => `${count} 个会话`,
     nameRequired: "会话名称不能为空",
@@ -78,7 +79,8 @@ const translations = {
     chinese: "中文",
     english: "English",
     chatWindows: "Chat windows",
-    empty: "Hello! I can help diagnose the current page or assist with your questions.",
+    empty:
+      "Hello! I can help diagnose the current page or assist with your questions.",
     you: "You",
     assistant: "Assistant",
     thinking: "Thinking…",
@@ -106,7 +108,8 @@ const translations = {
     renameFailed: "Failed to rename chat",
     deleteFailed: "Failed to delete chat",
     createFailed: "Failed to create chat",
-    backendError: "Unable to connect to the backend. Please make sure Spring Boot is running.",
+    backendError:
+      "Unable to connect to the backend. Please make sure Spring Boot is running.",
     requestFailed: "Request failed",
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
@@ -115,11 +118,13 @@ const translations = {
     send: "Send",
     addTools: "Add plugin or attachment",
     permission: "Permissions",
-    toolsUnavailable: "Plugins and attachments will be available in a future version.",
+    toolsUnavailable:
+      "Plugins and attachments will be available in a future version.",
     pagePermission: "Page permissions",
     readPage: "Allow reading the current page context",
     delegateTms: "Authorize the business sub-agent for specialized requests",
-    permissionNote: "Write actions on the page will still ask for confirmation one by one.",
+    permissionNote:
+      "Write actions on the page will still ask for confirmation one by one.",
     actionConfirm: (type: string, reason: string, risk: string) =>
       `The assistant requests to perform ${type}.\nReason: ${reason}\nRisk: ${risk}\n\nProceed?`,
   },
@@ -141,10 +146,11 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [theme, setTheme] = useState<Theme>("system");
+  const [language, setLanguage] = useState<Language>("zh");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
-  const [readPageEnabled, setReadPageEnabled] = useState(true);
+  const [readPageEnabled, setReadPageEnabled] = useState(false);
   const [tmsAuthorized, setTmsAuthorized] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
@@ -162,14 +168,18 @@ function App() {
 
   useEffect(() => {
     chrome.storage.local.get(
-      ["theme", "readPageEnabled", "tmsAuthorized"],
+      ["theme", "language", "readPageEnabled", "tmsAuthorized"],
       (value: {
         theme?: Theme;
+        language?: Language;
         readPageEnabled?: boolean;
         tmsAuthorized?: boolean;
       }) => {
         if (value.theme === "light" || value.theme === "dark") {
           setTheme(value.theme);
+        }
+        if (value.language === "zh" || value.language === "en") {
+          setLanguage(value.language);
         }
         if (typeof value.readPageEnabled === "boolean") {
           setReadPageEnabled(value.readPageEnabled);
@@ -186,6 +196,18 @@ function App() {
     chrome.storage.local.set({ theme });
   }, [theme]);
 
+  useEffect(() => {
+    chrome.storage.local.set({ language });
+  }, [language]);
+
+  const t = translations[language];
+
+  function sessionTitle(conversation: any, index: number) {
+    return isDefaultSessionTitle(conversation.title)
+      ? t.defaultSession(sessions.length - index)
+      : conversation.title;
+  }
+
   async function load() {
     try {
       const sessions = await fetch(API + "/sessions").then((r) => r.json());
@@ -193,14 +215,14 @@ function App() {
       if (sessions[0]) await select(sessions[0]);
       else await create();
     } catch {
-      setError("无法连接后端，请确认 Spring Boot 已启动。");
+      setError(t.backendError);
     }
   }
 
   async function create() {
     try {
       const response = await fetch(API + "/sessions", { method: "POST" });
-      if (!response.ok) throw Error("创建会话失败");
+      if (!response.ok) throw Error(t.createFailed);
       const conversation = await response.json();
       setSessions((items) => [conversation, ...items]);
       setSession(conversation);
@@ -221,7 +243,11 @@ function App() {
 
   function beginRename(conversation: any) {
     setEditingSessionId(conversation.id);
-    setEditingTitle(conversation.title || "新会话");
+    setEditingTitle(
+      isDefaultSessionTitle(conversation.title)
+        ? t.defaultSession(1)
+        : conversation.title,
+    );
   }
 
   function cancelRename() {
@@ -232,7 +258,7 @@ function App() {
   async function saveRename(conversation: any) {
     const title = editingTitle.trim();
     if (!title) {
-      setError("会话名称不能为空");
+      setError(t.nameRequired);
       return;
     }
     try {
@@ -243,7 +269,7 @@ function App() {
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw Error(body.error || "修改会话名称失败");
+        throw Error(body.error || t.renameFailed);
       }
       const updated = await response.json();
       setSessions((items) =>
@@ -260,14 +286,14 @@ function App() {
 
   async function removeSessions(ids: string[]) {
     if (!ids.length) return;
-    const names = ids.length === 1 ? "此会话" : `${ids.length} 个会话`;
-    if (!window.confirm(`确定删除${names}吗？聊天记录将一并移除。`)) return;
+    const names = ids.length === 1 ? t.thisSession : t.sessions(ids.length);
+    if (!window.confirm(t.deleteConfirm(names))) return;
     try {
       const responses = await Promise.all(
         ids.map((id) => fetch(API + `/sessions/${id}`, { method: "DELETE" })),
       );
       const failed = responses.find((response) => !response.ok);
-      if (failed) throw Error("删除会话失败");
+      if (failed) throw Error(t.deleteFailed);
       const remaining = sessions.filter((item) => !ids.includes(item.id));
       setSessions(remaining);
       setSelectedSessions([]);
@@ -337,7 +363,7 @@ function App() {
           },
         }),
       });
-      if (!response.ok || !response.body) throw Error("请求失败");
+      if (!response.ok || !response.body) throw Error(t.requestFailed);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -366,11 +392,15 @@ function App() {
             try {
               const action = JSON.parse(data);
               const approved = window.confirm(
-                `助手请求执行 ${action.type} 操作。\n原因：${action.reason || ""}\n风险：${action.risk || ""}\n\n是否执行？`,
+                t.actionConfirm(
+                  action.type,
+                  action.reason || "",
+                  action.risk || "",
+                ),
               );
               let result = {
                 status: approved ? "EXECUTED" : "REJECTED",
-                result: approved ? "" : "用户拒绝",
+                result: approved ? "" : t.rejected,
               };
               if (approved) {
                 const tabs = await chrome.tabs.query({
@@ -390,7 +420,7 @@ function App() {
                 body: JSON.stringify(result),
               });
             } catch {
-              setError("操作提案格式无效");
+              setError(t.invalidAction);
             }
           }
           if (name === "error") setError(data);
@@ -408,31 +438,31 @@ function App() {
       <header>
         <div>
           <h1>Intra Copilot</h1>
-          <small>浏览器智能助手</small>
+          <small>{t.appSubtitle}</small>
         </div>
         <div className="header-actions">
-          <button className="icon-button" onClick={create} title="新建会话">
+          <button className="icon-button" onClick={create} title={t.newSession}>
             ＋
           </button>
           <button
             className="icon-button history-button"
             onClick={() => setHistoryOpen(true)}
-            title="历史"
-            aria-label="历史"
+            title={t.history}
+            aria-label={t.history}
           >
-            历史
+            {t.history}
           </button>
           <button
             className="icon-button settings-button"
             onClick={() => setSettingsOpen((open) => !open)}
-            title="设置"
-            aria-label="设置"
+            title={t.settings}
+            aria-label={t.settings}
           >
             ⚙
           </button>
           {settingsOpen && (
             <div className="settings-popover">
-              <div className="settings-title">外观</div>
+              <div className="settings-title">{t.appearance}</div>
               <label>
                 <input
                   type="radio"
@@ -440,7 +470,7 @@ function App() {
                   checked={theme === "system"}
                   onChange={() => setTheme("system")}
                 />
-                跟随系统
+                {t.followSystem}
               </label>
               <label>
                 <input
@@ -449,7 +479,7 @@ function App() {
                   checked={theme === "light"}
                   onChange={() => setTheme("light")}
                 />
-                浅色
+                {t.light}
               </label>
               <label>
                 <input
@@ -458,13 +488,32 @@ function App() {
                   checked={theme === "dark"}
                   onChange={() => setTheme("dark")}
                 />
-                深色
+                {t.dark}
+              </label>
+              <div className="settings-title language-title">{t.language}</div>
+              <label>
+                <input
+                  type="radio"
+                  name="language"
+                  checked={language === "zh"}
+                  onChange={() => setLanguage("zh")}
+                />
+                {t.chinese}
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="language"
+                  checked={language === "en"}
+                  onChange={() => setLanguage("en")}
+                />
+                {t.english}
               </label>
             </div>
           )}
         </div>
       </header>
-      <nav className="session-tabs" aria-label="聊天窗口">
+      <nav className="session-tabs" aria-label={t.chatWindows}>
         {sessions.map((conversation, index) => (
           <button
             key={conversation.id}
@@ -472,26 +521,22 @@ function App() {
               "session-tab " + (conversation.id === session?.id ? "active" : "")
             }
             onClick={() => select(conversation)}
-            title="切换聊天窗口"
+            title={t.switchChat}
           >
-            {conversation.title && conversation.title !== "新会话"
-              ? conversation.title
-              : `新会话 ${sessions.length - index}`}
+            {sessionTitle(conversation, index)}
           </button>
         ))}
       </nav>
       <main>
         {msgs.length === 0 && (
-          <div className="empty">
-            你好！我可以帮你诊断当前页面，或协助处理你的问题。
-          </div>
+          <div className="empty">{t.empty}</div>
         )}
         {msgs.map((message, index) => (
           <div key={index} className={"msg " + message.role}>
             <div className="role">
-              {message.role === "user" ? "你" : "助手"}
+              {message.role === "user" ? t.you : t.assistant}
             </div>
-            <div className="bubble">{message.content || "思考中…"}</div>
+            <div className="bubble">{message.content || t.thinking}</div>
           </div>
         ))}
         <div ref={end} />
@@ -501,17 +546,17 @@ function App() {
           <aside
             className="history-drawer"
             onClick={(event) => event.stopPropagation()}
-            aria-label="历史会话"
+            aria-label={t.history}
           >
             <div className="history-header">
               <div>
-                <h2>历史</h2>
-                <small>{sessions.length} 个会话</small>
+                <h2>{t.history}</h2>
+                <small>{t.historyLabel(sessions.length)}</small>
               </div>
               <button
                 className="close-button"
                 onClick={() => setHistoryOpen(false)}
-                aria-label="关闭历史"
+                aria-label={t.closeHistory}
               >
                 ×
               </button>
@@ -525,11 +570,11 @@ function App() {
                 }
                 onChange={toggleAllSessions}
               />
-              全选
+              {t.selectAll}
             </label>
             <div className="history-list">
               {sessions.length === 0 && (
-                <div className="history-empty">暂无历史会话</div>
+                <div className="history-empty">{t.noHistory}</div>
               )}
               {sessions.map((conversation, index) => {
                 const editing = editingSessionId === conversation.id;
@@ -552,7 +597,7 @@ function App() {
                       checked={selectedSessions.includes(conversation.id)}
                       onChange={() => toggleSession(conversation.id)}
                       onClick={(event) => event.stopPropagation()}
-                      aria-label={`选择 ${conversation.title || `新会话 ${sessions.length - index}`}`}
+                      aria-label={t.selectSession(sessionTitle(conversation, index))}
                     />
                     {editing ? (
                       <input
@@ -571,9 +616,7 @@ function App() {
                       />
                     ) : (
                       <span className="history-item-title">
-                        {conversation.title && conversation.title !== "新会话"
-                          ? conversation.title
-                          : `新会话 ${sessions.length - index}`}
+                        {sessionTitle(conversation, index)}
                       </span>
                     )}
                     <div className="history-item-actions">
@@ -585,9 +628,9 @@ function App() {
                               event.stopPropagation();
                               saveRename(conversation);
                             }}
-                            title="保存名称"
+                            title={t.saveNameTitle}
                           >
-                            保存
+                            {t.save}
                           </button>
                           <button
                             className="mini-button"
@@ -595,9 +638,9 @@ function App() {
                               event.stopPropagation();
                               cancelRename();
                             }}
-                            title="取消修改"
+                            title={t.cancelEditTitle}
                           >
-                            取消
+                            {t.cancel}
                           </button>
                         </>
                       ) : (
@@ -608,9 +651,9 @@ function App() {
                               event.stopPropagation();
                               beginRename(conversation);
                             }}
-                            title="修改名称"
+                            title={t.editTitle}
                           >
-                            编辑
+                            {t.edit}
                           </button>
                           <button
                             className="mini-button danger-button"
@@ -618,9 +661,9 @@ function App() {
                               event.stopPropagation();
                               removeSessions([conversation.id]);
                             }}
-                            title="删除会话"
+                            title={t.deleteTitle}
                           >
-                            删除
+                            {t.delete}
                           </button>
                         </>
                       )}
@@ -635,7 +678,7 @@ function App() {
                 disabled={!selectedSessions.length}
                 onClick={() => removeSessions(selectedSessions)}
               >
-                删除已选
+                {t.bulkDelete}
                 {selectedSessions.length
                   ? `（${selectedSessions.length}）`
                   : ""}
@@ -657,38 +700,38 @@ function App() {
                   send();
                 }
               }}
-              placeholder="描述问题或输入你的需求…"
-              aria-label="聊天输入框"
+              placeholder={t.inputPlaceholder}
+              aria-label={t.chatInput}
             />
             <button className="send-button" disabled={busy} onClick={send}>
-              {busy ? "…" : "发送"}
+              {busy ? "…" : t.send}
             </button>
           </div>
           <div className="composer-tools">
             <button
               className="tool-button"
               onClick={() => setToolsOpen((open) => !open)}
-              title="添加插件或附件"
-              aria-label="添加插件或附件"
+              title={t.addTools}
+              aria-label={t.addTools}
             >
               ＋
             </button>
             <button
               className="tool-button permission-button"
               onClick={() => setPermissionOpen((open) => !open)}
-              title="权限"
-              aria-label="权限"
+              title={t.permission}
+              aria-label={t.permission}
             >
-              ◉ 权限
+              ◉ {t.permission}
             </button>
             {toolsOpen && (
               <div className="tool-popover">
-                插件、附件等扩展能力将在后续版本接入。
+                {t.toolsUnavailable}
               </div>
             )}
             {permissionOpen && (
               <div className="permission-popover">
-                <strong>页面权限</strong>
+                <strong>{t.pagePermission}</strong>
                 <label>
                   <input
                     type="checkbox"
@@ -699,7 +742,7 @@ function App() {
                       chrome.storage.local.set({ readPageEnabled: enabled });
                     }}
                   />
-                  允许读取当前页面上下文
+                  {t.readPage}
                 </label>
                 <label>
                   <input
@@ -711,9 +754,9 @@ function App() {
                       chrome.storage.local.set({ tmsAuthorized: enabled });
                     }}
                   />
-                  授权业务子 Agent 处理专属问题
+                  {t.delegateTms}
                 </label>
-                <span>写入页面的操作仍会逐项请求确认。</span>
+                <span>{t.permissionNote}</span>
               </div>
             )}
           </div>
