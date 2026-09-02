@@ -182,7 +182,7 @@ function App() {
       <header>
         <div>
           <h1>Intra Copilot</h1>
-          <small>页面诊断与 TMS 助手</small>
+          <small>浏览器智能助手</small>
         </div>
         <div className="header-actions">
           <button className="icon-button" onClick={create} title="新建会话">
@@ -249,7 +249,7 @@ function App() {
       <main>
         {msgs.length === 0 && (
           <div className="empty">
-            你好！我可以帮你诊断当前页面，或回答 TMS 操作问题。
+            你好！我可以帮你诊断当前页面，或协助处理你的问题。
           </div>
         )}
         {msgs.map((message, index) => (
@@ -273,7 +273,7 @@ function App() {
               send();
             }
           }}
-          placeholder="描述问题或询问 TMS 操作…"
+          placeholder="描述问题或输入你的需求…"
         />
         <button disabled={busy} onClick={send}>
           {busy ? "…" : "发送"}
