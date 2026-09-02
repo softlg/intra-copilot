@@ -150,7 +150,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
-  const [readPageEnabled, setReadPageEnabled] = useState(false);
+  const [readPageEnabled, setReadPageEnabled] = useState(true);
   const [tmsAuthorized, setTmsAuthorized] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
@@ -197,6 +197,7 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
     chrome.storage.local.set({ language });
   }, [language]);
 
@@ -528,9 +529,7 @@ function App() {
         ))}
       </nav>
       <main>
-        {msgs.length === 0 && (
-          <div className="empty">{t.empty}</div>
-        )}
+        {msgs.length === 0 && <div className="empty">{t.empty}</div>}
         {msgs.map((message, index) => (
           <div key={index} className={"msg " + message.role}>
             <div className="role">
@@ -597,7 +596,9 @@ function App() {
                       checked={selectedSessions.includes(conversation.id)}
                       onChange={() => toggleSession(conversation.id)}
                       onClick={(event) => event.stopPropagation()}
-                      aria-label={t.selectSession(sessionTitle(conversation, index))}
+                      aria-label={t.selectSession(
+                        sessionTitle(conversation, index),
+                      )}
                     />
                     {editing ? (
                       <input
@@ -725,9 +726,7 @@ function App() {
               ◉ {t.permission}
             </button>
             {toolsOpen && (
-              <div className="tool-popover">
-                {t.toolsUnavailable}
-              </div>
+              <div className="tool-popover">{t.toolsUnavailable}</div>
             )}
             {permissionOpen && (
               <div className="permission-popover">
