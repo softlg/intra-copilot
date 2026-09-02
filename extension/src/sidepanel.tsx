@@ -17,6 +17,10 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
+  const [editingSessionId, setEditingSessionId] = useState<string>();
+  const [editingTitle, setEditingTitle] = useState("");
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,6 +74,80 @@ function App() {
       await fetch(API + `/sessions/${conversation.id}/messages`).then((r) =>
         r.json(),
       ),
+    );
+  }
+
+  function beginRename(conversation: any) {
+    setEditingSessionId(conversation.id);
+    setEditingTitle(conversation.title || "新会话");
+  }
+
+  function cancelRename() {
+    setEditingSessionId(undefined);
+    setEditingTitle("");
+  }
+
+  async function saveRename(conversation: any) {
+    const title = editingTitle.trim();
+    if (!title) {
+      setError("会话名称不能为空");
+      return;
+    }
+    try {
+      const response = await fetch(API + `/sessions/${conversation.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw Error(body.error || "修改会话名称失败");
+      }
+      const updated = await response.json();
+      setSessions((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setSession((current: any) =>
+        current?.id === updated.id ? updated : current,
+      );
+      cancelRename();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function removeSessions(ids: string[]) {
+    if (!ids.length) return;
+    const names = ids.length === 1 ? "此会话" : `${ids.length} 个会话`;
+    if (!window.confirm(`确定删除${names}吗？聊天记录将一并移除。`)) return;
+    try {
+      const responses = await Promise.all(
+        ids.map((id) => fetch(API + `/sessions/${id}`, { method: "DELETE" })),
+      );
+      const failed = responses.find((response) => !response.ok);
+      if (failed) throw Error("删除会话失败");
+      const remaining = sessions.filter((item) => !ids.includes(item.id));
+      setSessions(remaining);
+      setSelectedSessions([]);
+      setEditingSessionId(undefined);
+      if (session && ids.includes(session.id)) {
+        if (remaining[0]) await select(remaining[0]);
+        else await create();
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  function toggleSession(id: string) {
+    setSelectedSessions((items) =>
+      items.includes(id) ? items.filter((item) => item !== id) : [...items, id],
+    );
+  }
+
+  function toggleAllSessions() {
+    setSelectedSessions((items) =>
+      items.length === sessions.length ? [] : sessions.map((item) => item.id),
     );
   }
 
@@ -191,6 +269,14 @@ function App() {
             ＋
           </button>
           <button
+            className="icon-button history-button"
+            onClick={() => setHistoryOpen(true)}
+            title="历史"
+            aria-label="历史"
+          >
+            历史
+          </button>
+          <button
             className="icon-button settings-button"
             onClick={() => setSettingsOpen((open) => !open)}
             title="设置"
@@ -264,6 +350,154 @@ function App() {
         ))}
         <div ref={end} />
       </main>
+      {historyOpen && (
+        <div className="history-overlay" onClick={() => setHistoryOpen(false)}>
+          <aside
+            className="history-drawer"
+            onClick={(event) => event.stopPropagation()}
+            aria-label="历史会话"
+          >
+            <div className="history-header">
+              <div>
+                <h2>历史</h2>
+                <small>{sessions.length} 个会话</small>
+              </div>
+              <button
+                className="close-button"
+                onClick={() => setHistoryOpen(false)}
+                aria-label="关闭历史"
+              >
+                ×
+              </button>
+            </div>
+            <label className="history-select-all">
+              <input
+                type="checkbox"
+                checked={
+                  sessions.length > 0 &&
+                  selectedSessions.length === sessions.length
+                }
+                onChange={toggleAllSessions}
+              />
+              全选
+            </label>
+            <div className="history-list">
+              {sessions.length === 0 && (
+                <div className="history-empty">暂无历史会话</div>
+              )}
+              {sessions.map((conversation, index) => {
+                const editing = editingSessionId === conversation.id;
+                return (
+                  <div
+                    key={conversation.id}
+                    className={
+                      "history-item " +
+                      (conversation.id === session?.id ? "active" : "")
+                    }
+                    onClick={() => {
+                      if (!editing) {
+                        select(conversation);
+                        setHistoryOpen(false);
+                      }
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedSessions.includes(conversation.id)}
+                      onChange={() => toggleSession(conversation.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label={`选择 ${conversation.title || `新会话 ${sessions.length - index}`}`}
+                    />
+                    {editing ? (
+                      <input
+                        className="rename-input"
+                        value={editingTitle}
+                        autoFocus
+                        maxLength={80}
+                        onChange={(event) =>
+                          setEditingTitle(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") saveRename(conversation);
+                          if (event.key === "Escape") cancelRename();
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    ) : (
+                      <span className="history-item-title">
+                        {conversation.title && conversation.title !== "新会话"
+                          ? conversation.title
+                          : `新会话 ${sessions.length - index}`}
+                      </span>
+                    )}
+                    <div className="history-item-actions">
+                      {editing ? (
+                        <>
+                          <button
+                            className="mini-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              saveRename(conversation);
+                            }}
+                            title="保存名称"
+                          >
+                            保存
+                          </button>
+                          <button
+                            className="mini-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              cancelRename();
+                            }}
+                            title="取消修改"
+                          >
+                            取消
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="mini-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              beginRename(conversation);
+                            }}
+                            title="修改名称"
+                          >
+                            编辑
+                          </button>
+                          <button
+                            className="mini-button danger-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              removeSessions([conversation.id]);
+                            }}
+                            title="删除会话"
+                          >
+                            删除
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="history-footer">
+              <button
+                className="danger-button bulk-delete-button"
+                disabled={!selectedSessions.length}
+                onClick={() => removeSessions(selectedSessions)}
+              >
+                删除已选
+                {selectedSessions.length
+                  ? `（${selectedSessions.length}）`
+                  : ""}
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
       {error && <div className="error">{error}</div>}
       <footer>
         <div className="composer">
