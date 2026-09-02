@@ -1,1 +1,21 @@
-{"manifest_version":3,"name":"Intra Copilot","version":"0.1.0","description":"页面诊断与 TMS 操作助手","permissions":["sidePanel","storage","activeTab","scripting","tabs"],"host_permissions":["http://localhost:8080/*"],"background":{"service_worker":"service-worker.js","type":"module"},"side_panel":{"default_path":"sidepanel.html"},"action":{"default_title":"打开 Intra Copilot"},"content_scripts":[{"matches":["<all_urls>"],"js":["content.js"],"run_at":"document_idle"}]}
+{
+  "manifest_version": 3,
+  "name": "Intra Copilot",
+  "version": "0.1.0",
+  "description": "页面助手",
+  "permissions": ["sidePanel", "storage", "activeTab", "scripting", "tabs"],
+  "host_permissions": ["<all_urls>", "http://localhost:8080/*"],
+  "background": { "service_worker": "service-worker.js", "type": "module" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "action": { "default_title": "打开 Intra Copilot" },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    { "resources": ["assets/*"], "matches": ["<all_urls>"] }
+  ]
+}
