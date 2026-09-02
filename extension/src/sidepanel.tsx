@@ -59,6 +59,15 @@ const translations = {
     addTools: "添加插件或附件",
     permission: "权限",
     toolsUnavailable: "插件、附件等扩展能力将在后续版本接入。",
+    addTab: "添加标签页",
+    tabsHint: "选择要提供给助手的标签页",
+    noTabs: "没有可用标签页",
+    removeTab: "移除标签页",
+    attachFile: "上传文件",
+    screenshot: "从屏幕上选择",
+    screenshotNew: "新",
+    removeAttachment: "移除附件",
+    screenshotFailed: "截图失败，请确认浏览器权限。",
     pagePermission: "页面权限",
     readPage: "允许读取当前页面上下文",
     delegateTms: "授权业务子 Agent 处理专属问题",
@@ -120,6 +129,15 @@ const translations = {
     permission: "Permissions",
     toolsUnavailable:
       "Plugins and attachments will be available in a future version.",
+    addTab: "Add tabs",
+    tabsHint: "Choose tabs to share with the assistant",
+    noTabs: "No available tabs",
+    removeTab: "Remove tab",
+    attachFile: "Upload file",
+    screenshot: "Capture screen",
+    screenshotNew: "New",
+    removeAttachment: "Remove attachment",
+    screenshotFailed: "Screenshot failed. Check browser permissions.",
     pagePermission: "Page permissions",
     readPage: "Allow reading the current page context",
     delegateTms: "Authorize the business sub-agent for specialized requests",
@@ -147,11 +165,19 @@ function App() {
   const [error, setError] = useState("");
   const [theme, setTheme] = useState<Theme>("system");
   const [language, setLanguage] = useState<Language>("zh");
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [readPageEnabled, setReadPageEnabled] = useState(true);
   const [tmsAuthorized, setTmsAuthorized] = useState(false);
+  const [availableTabs, setAvailableTabs] = useState<chrome.tabs.Tab[]>([]);
+  const [selectedTabIds, setSelectedTabIds] = useState<number[]>([]);
+  const [attachments, setAttachments] = useState<
+    { name: string; size: number; type: string; url: string }[]
+  >([]);
+  const [screenshot, setScreenshot] = useState<string>();
+  const fileInput = useRef<HTMLInputElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
   const [editingSessionId, setEditingSessionId] = useState<string>();
@@ -187,19 +213,22 @@ function App() {
         if (typeof value.tmsAuthorized === "boolean") {
           setTmsAuthorized(value.tmsAuthorized);
         }
+        setPreferencesLoaded(true);
       },
     );
   }, []);
 
   useEffect(() => {
+    if (!preferencesLoaded) return;
     document.documentElement.dataset.theme = theme;
     chrome.storage.local.set({ theme });
-  }, [theme]);
+  }, [theme, preferencesLoaded]);
 
   useEffect(() => {
+    if (!preferencesLoaded) return;
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
     chrome.storage.local.set({ language });
-  }, [language]);
+  }, [language, preferencesLoaded]);
 
   const t = translations[language];
 
@@ -320,6 +349,56 @@ function App() {
     );
   }
 
+  async function openTools() {
+    setToolsOpen((open) => !open);
+    if (!toolsOpen) {
+      const tabs = await chrome.tabs.query({ currentWindow: true });
+      setAvailableTabs(tabs.filter((tab) => tab.id != null));
+    }
+  }
+
+  function toggleTab(id: number) {
+    setSelectedTabIds((items) =>
+      items.includes(id) ? items.filter((item) => item !== id) : [...items, id],
+    );
+  }
+
+  function removeTab(id: number) {
+    setSelectedTabIds((items) => items.filter((item) => item !== id));
+  }
+
+  function onFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    setAttachments((items) => [
+      ...items,
+      ...files.map((file) => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        url: URL.createObjectURL(file),
+      })),
+    ]);
+    event.target.value = "";
+  }
+
+  function removeAttachment(url: string) {
+    setAttachments((items) => {
+      const removed = items.find((item) => item.url === url);
+      if (removed) URL.revokeObjectURL(removed.url);
+      return items.filter((item) => item.url !== url);
+    });
+  }
+
+  async function captureScreen() {
+    try {
+      const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
+      setScreenshot(dataUrl);
+      setToolsOpen(false);
+    } catch {
+      setError(t.screenshotFailed);
+    }
+  }
+
   async function send() {
     if (!input.trim() || busy || !session) return;
     const text = input.trim();
@@ -338,12 +417,24 @@ function App() {
         active: true,
         currentWindow: true,
       });
-      if (readPageEnabled && tabs[0]?.id) {
-        pageContext = JSON.stringify(
-          await chrome.tabs.sendMessage(tabs[0].id, {
-            type: "COLLECT_CONTEXT",
+      const ids = selectedTabIds.length
+        ? selectedTabIds
+        : tabs[0]?.id != null
+          ? [tabs[0].id]
+          : [];
+      if (readPageEnabled && ids.length) {
+        const contexts = await Promise.all(
+          ids.map(async (id) => {
+            try {
+              return await chrome.tabs.sendMessage(id, {
+                type: "COLLECT_CONTEXT",
+              });
+            } catch {
+              return null;
+            }
           }),
         );
+        pageContext = JSON.stringify(contexts.filter(Boolean));
       }
     } catch {
       // The active tab may not allow content scripts (for example chrome:// pages).
@@ -362,6 +453,13 @@ function App() {
             readPage: readPageEnabled,
             delegateTms: tmsAuthorized,
           },
+          selectedTabIds,
+          attachments: attachments.map(({ name, size, type }) => ({
+            name,
+            size,
+            type,
+          })),
+          screenshot: screenshot || null,
         }),
       });
       if (!response.ok || !response.body) throw Error(t.requestFailed);
@@ -692,6 +790,41 @@ function App() {
       <footer>
         <div className="composer">
           <div className="composer-row">
+            {(attachments.length > 0 || screenshot) && (
+              <div className="composer-previews">
+                {attachments.map((attachment) => (
+                  <div className="attachment-chip" key={attachment.url}>
+                    {attachment.type.startsWith("image/") ? (
+                      <img src={attachment.url} alt={attachment.name} />
+                    ) : (
+                      <span className="file-icon">📎</span>
+                    )}
+                    <span title={attachment.name}>{attachment.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(attachment.url)}
+                      title={t.removeAttachment}
+                      aria-label={t.removeAttachment}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {screenshot && (
+                  <div className="screenshot-preview">
+                    <img src={screenshot} alt={t.screenshot} />
+                    <button
+                      type="button"
+                      onClick={() => setScreenshot(undefined)}
+                      title={t.removeAttachment}
+                      aria-label={t.removeAttachment}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
@@ -711,7 +844,7 @@ function App() {
           <div className="composer-tools">
             <button
               className="tool-button"
-              onClick={() => setToolsOpen((open) => !open)}
+              onClick={openTools}
               title={t.addTools}
               aria-label={t.addTools}
             >
@@ -726,7 +859,72 @@ function App() {
               ◉ {t.permission}
             </button>
             {toolsOpen && (
-              <div className="tool-popover">{t.toolsUnavailable}</div>
+              <div className="tool-popover tools-menu">
+                <div className="tools-menu-title">{t.addTab}</div>
+                <div className="tabs-hint">{t.tabsHint}</div>
+                <div className="tab-picker-list">
+                  {availableTabs.length === 0 && (
+                    <div className="tabs-empty">{t.noTabs}</div>
+                  )}
+                  {availableTabs.map((tab) => (
+                    <label className="tab-picker-item" key={tab.id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedTabIds.includes(tab.id!)}
+                        onChange={() => toggleTab(tab.id!)}
+                      />
+                      <span className="tab-favicon">
+                        {tab.favIconUrl ? "🌐" : "◉"}
+                      </span>
+                      <span title={tab.title || tab.url || ""}>
+                        {tab.title || tab.url || `Tab ${tab.id}`}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {selectedTabIds.length > 0 && (
+                  <div className="selected-tabs">
+                    {selectedTabIds.map((id) => {
+                      const tab = availableTabs.find((item) => item.id === id);
+                      return (
+                        <button
+                          type="button"
+                          className="selected-tab-chip"
+                          key={id}
+                          onClick={() => removeTab(id)}
+                          title={t.removeTab}
+                        >
+                          {(tab?.title || tab?.url || `Tab ${id}`).slice(0, 18)}{" "}
+                          ×
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="tools-menu-divider" />
+                <button
+                  type="button"
+                  className="tools-menu-action"
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <span>📎</span> {t.attachFile}
+                </button>
+                <button
+                  type="button"
+                  className="tools-menu-action"
+                  onClick={captureScreen}
+                >
+                  <span>⌗</span> {t.screenshot}
+                  <em>{t.screenshotNew}</em>
+                </button>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  hidden
+                  multiple
+                  onChange={onFilesSelected}
+                />
+              </div>
             )}
             {permissionOpen && (
               <div className="permission-popover">
