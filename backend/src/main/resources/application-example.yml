@@ -21,4 +21,5 @@ rag:
   chunk-size: 1200
   max-document-bytes: 10485760
 app:
-  cors-origins: chrome-extension://YOUR_EXTENSION_ID
+  # 管理端开发服务器默认使用 4174；插件来源请替换为实际扩展 ID。
+  cors-origins: chrome-extension://YOUR_EXTENSION_ID,http://localhost:4174,http://127.0.0.1:4174
