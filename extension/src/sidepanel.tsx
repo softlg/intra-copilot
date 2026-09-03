@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import rehypeHighlight from "rehype-highlight";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import "./style.css";
 
 const API = "http://localhost:8080/api/v1";
@@ -102,6 +105,7 @@ const translations = {
     like: "有帮助",
     dislike: "没帮助",
     copyMessage: "复制回答",
+    copyCode: "复制代码",
     copied: "已复制",
     copyFailed: "复制失败，请手动选择文本复制。",
     pagePermission: "页面权限",
@@ -200,6 +204,7 @@ const translations = {
     like: "Helpful",
     dislike: "Not helpful",
     copyMessage: "Copy answer",
+    copyCode: "Copy code",
     copied: "Copied",
     copyFailed: "Copy failed. Please select and copy the text manually.",
     pagePermission: "Page permissions",
@@ -220,42 +225,89 @@ function isDefaultSessionTitle(title: unknown) {
   );
 }
 
-function renderInlineMarkdown(value: string) {
-  return value
-    .split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g)
-    .map((part, index) => {
-      if (part.startsWith("**") && part.endsWith("**")) {
-        return <strong key={index}>{part.slice(2, -2)}</strong>;
-      }
-      if (part.startsWith("`") && part.endsWith("`")) {
-        return <code key={index}>{part.slice(1, -1)}</code>;
-      }
-      if (part.startsWith("*") && part.endsWith("*")) {
-        return <em key={index}>{part.slice(1, -1)}</em>;
-      }
-      return <React.Fragment key={index}>{part}</React.Fragment>;
-    });
+type AssistantMarkdownProps = {
+  content: string;
+  messageIndex: number;
+  copiedCode?: string;
+  onCopyCode: (code: string, codeId: string) => void;
+  copyCodeLabel: string;
+  copiedLabel: string;
+};
+type CodeElementProps = {
+  className?: string;
+  children?: React.ReactNode;
+};
+
+function getRenderedText(value: React.ReactNode): string {
+  if (typeof value === "string" || typeof value === "number")
+    return String(value);
+  if (Array.isArray(value)) return value.map(getRenderedText).join("");
+  if (React.isValidElement<{ children?: React.ReactNode }>(value)) {
+    return getRenderedText(value.props.children);
+  }
+  return "";
 }
 
-function renderAssistantMessage(content: string) {
-  return content.split("\n").map((line, index) => {
-    const trimmed = line.trim();
-    if (!trimmed) return <div className="assistant-spacer" key={index} />;
-    const heading = trimmed.match(/^#{1,3}\s+(.+)$/);
-    if (heading) {
-      return <h3 key={index}>{renderInlineMarkdown(heading[1])}</h3>;
-    }
-    const listItem = trimmed.match(/^(?:[-*]|\d+\.)\s+(.+)$/);
-    if (listItem) {
-      return (
-        <div className="assistant-list-item" key={index}>
-          <span aria-hidden="true">•</span>
-          <span>{renderInlineMarkdown(listItem[1])}</span>
-        </div>
-      );
-    }
-    return <p key={index}>{renderInlineMarkdown(line)}</p>;
-  });
+function AssistantMarkdown({
+  content,
+  messageIndex,
+  copiedCode,
+  onCopyCode,
+  copyCodeLabel,
+  copiedLabel,
+}: AssistantMarkdownProps) {
+  let codeBlockIndex = 0;
+  return (
+    <ReactMarkdown
+      skipHtml
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeHighlight]}
+      components={{
+        code({ className, children, ...props }) {
+          return (
+            <code className={className} {...props}>
+              {children}
+            </code>
+          );
+        },
+        pre({ children }) {
+          const codeElement = React.Children.toArray(children).find((child) =>
+            React.isValidElement(child),
+          ) as React.ReactElement<CodeElementProps> | undefined;
+          const code = getRenderedText(codeElement?.props.children).replace(
+            /\n$/,
+            "",
+          );
+          const className = codeElement?.props.className;
+          const language =
+            className?.match(/language-([\w+-]+)/)?.[1]?.toLowerCase() ||
+            "text";
+          const codeId = `${messageIndex}:${codeBlockIndex++}`;
+          const isCopied = copiedCode === codeId;
+          return (
+            <div className="code-block">
+              <div className="code-toolbar">
+                <span className="code-language">{language}</span>
+                <button
+                  type="button"
+                  className="code-copy-button"
+                  onClick={() => onCopyCode(code, codeId)}
+                  title={isCopied ? copiedLabel : copyCodeLabel}
+                  aria-label={isCopied ? copiedLabel : copyCodeLabel}
+                >
+                  {isCopied ? "✓" : "⧉"}{" "}
+                  {isCopied ? copiedLabel : copyCodeLabel}
+                </button>
+              </div>
+              <pre>{codeElement ?? <code>{children}</code>}</pre>
+            </div>
+          );
+        },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
 }
 
 function App() {
@@ -266,6 +318,7 @@ function App() {
     Record<number, Feedback>
   >({});
   const [copiedMessage, setCopiedMessage] = useState<number>();
+  const [copiedCode, setCopiedCode] = useState<string>();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -484,6 +537,22 @@ function App() {
         () =>
           setCopiedMessage((current) =>
             current === index ? undefined : current,
+          ),
+        1600,
+      );
+    } catch {
+      setError(t.copyFailed);
+    }
+  }
+
+  async function copyCode(content: string, codeId: string) {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedCode(codeId);
+      window.setTimeout(
+        () =>
+          setCopiedCode((current) =>
+            current === codeId ? undefined : current,
           ),
         1600,
       );
@@ -1071,7 +1140,14 @@ function App() {
                   {assistant ? (
                     message.content ? (
                       <div className="assistant-content">
-                        {renderAssistantMessage(message.content)}
+                        <AssistantMarkdown
+                          content={message.content}
+                          messageIndex={index}
+                          copiedCode={copiedCode}
+                          onCopyCode={copyCode}
+                          copyCodeLabel={t.copyCode}
+                          copiedLabel={t.copied}
+                        />
                       </div>
                     ) : (
                       <span className="thinking-indicator">{t.thinking}</span>
