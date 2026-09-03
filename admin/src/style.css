@@ -25,7 +25,9 @@ button {
   background: #4776d0;
   color: #fff;
   cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease;
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease;
 }
 
 button:hover:not(:disabled) {
@@ -239,6 +241,13 @@ pre {
   font-size: 13px;
 }
 
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: #7f8da5;
+  font-size: 12px;
+}
+
 .field input,
 .field textarea {
   width: 100%;
@@ -253,6 +262,24 @@ pre {
 
 .field textarea {
   min-height: 86px;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 3px 0 0;
+  color: #b8c4d7;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.checkbox-field input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 1px 0 0;
+  accent-color: #4776d0;
 }
 
 .error {

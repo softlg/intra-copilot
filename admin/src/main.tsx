@@ -42,6 +42,15 @@ function App() {
   const [tab, setTab] = useState("agents");
   const [message, setMessage] = useState("");
   const [route, setRoute] = useState<Record<string, unknown>>();
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false);
+  const [agentId, setAgentId] = useState("custom-agent");
+  const [agentDisplayName, setAgentDisplayName] = useState("自定义 Agent");
+  const [agentDescription, setAgentDescription] = useState("");
+  const [agentSystemPrompt, setAgentSystemPrompt] =
+    useState("你是一个页面助手子 Agent。");
+  const [agentBrowserActions, setAgentBrowserActions] = useState(false);
+  const [agentSubmitting, setAgentSubmitting] = useState(false);
+  const [agentError, setAgentError] = useState("");
   const [baseDialogOpen, setBaseDialogOpen] = useState(false);
   const [baseName, setBaseName] = useState("");
   const [baseDescription, setBaseDescription] = useState("");
@@ -60,33 +69,76 @@ function App() {
   useEffect(load, []);
 
   useEffect(() => {
-    if (!baseDialogOpen) return undefined;
+    if (!baseDialogOpen && !agentDialogOpen) return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !baseSubmitting) {
+      if (event.key !== "Escape") return;
+      if (baseDialogOpen && !baseSubmitting) {
         setBaseDialogOpen(false);
+      }
+      if (agentDialogOpen && !agentSubmitting) {
+        setAgentDialogOpen(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [baseDialogOpen, baseSubmitting]);
+  }, [agentDialogOpen, agentSubmitting, baseDialogOpen, baseSubmitting]);
 
-  const addAgent = async () => {
-    const id = prompt("Agent ID（小写）", "custom-agent");
-    if (!id) return;
-    const name = prompt("显示名称", "自定义 Agent") || id;
-    await request("/admin/agents", {
-      method: "POST",
-      body: JSON.stringify({
-        id,
-        displayName: name,
-        description: "",
-        systemPrompt: "你是一个页面助手子 Agent。",
-        enabled: true,
-        priority: 100,
-        supportsBrowserActions: false,
-      }),
-    });
-    load();
+  const addAgent = () => {
+    setAgentId("custom-agent");
+    setAgentDisplayName("自定义 Agent");
+    setAgentDescription("");
+    setAgentSystemPrompt("你是一个页面助手子 Agent。");
+    setAgentBrowserActions(false);
+    setAgentError("");
+    setAgentDialogOpen(true);
+  };
+
+  const closeAgentDialog = () => {
+    if (!agentSubmitting) setAgentDialogOpen(false);
+  };
+
+  const createAgent = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const id = agentId.trim();
+    const displayName = agentDisplayName.trim();
+    const systemPrompt = agentSystemPrompt.trim();
+    if (!/^[a-z0-9][a-z0-9-]{1,127}$/.test(id)) {
+      setAgentError("Agent ID 只能使用 2-128 位小写字母、数字和连字符");
+      return;
+    }
+    if (!displayName) {
+      setAgentError("Agent 名称不能为空");
+      return;
+    }
+    if (!systemPrompt) {
+      setAgentError("系统提示词不能为空");
+      return;
+    }
+
+    setAgentSubmitting(true);
+    setAgentError("");
+    try {
+      await request("/admin/agents", {
+        method: "POST",
+        body: JSON.stringify({
+          id,
+          displayName,
+          description: agentDescription.trim(),
+          systemPrompt,
+          enabled: true,
+          priority: 100,
+          supportsBrowserActions: agentBrowserActions,
+        }),
+      });
+      setAgentDialogOpen(false);
+      load();
+    } catch (error) {
+      setAgentError(
+        error instanceof Error ? error.message : "创建 Agent 失败，请稍后重试",
+      );
+    } finally {
+      setAgentSubmitting(false);
+    }
   };
 
   const toggle = async (agent: Agent) => {
@@ -130,7 +182,9 @@ function App() {
       setBaseDialogOpen(false);
       load();
     } catch (error) {
-      setBaseError(error instanceof Error ? error.message : "创建知识库失败，请稍后重试");
+      setBaseError(
+        error instanceof Error ? error.message : "创建知识库失败，请稍后重试",
+      );
     } finally {
       setBaseSubmitting(false);
     }
@@ -141,7 +195,11 @@ function App() {
     setRoute(
       await request<Record<string, unknown>>("/admin/router/test", {
         method: "POST",
-        body: JSON.stringify({ message, pageContext: "", tmsAuthorized: false }),
+        body: JSON.stringify({
+          message,
+          pageContext: "",
+          tmsAuthorized: false,
+        }),
       }),
     );
   };
@@ -232,6 +290,108 @@ function App() {
         )}
       </main>
 
+      {agentDialogOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeAgentDialog();
+          }}
+        >
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="agent-dialog-title"
+          >
+            <div className="modal-header">
+              <div>
+                <h3 id="agent-dialog-title">新建 Agent</h3>
+                <p className="modal-subtitle">
+                  配置一个可供主 Agent 调度的页面助手子 Agent。
+                </p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={closeAgentDialog}
+                disabled={agentSubmitting}
+                aria-label="关闭"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={createAgent}>
+              <label className="field">
+                <span>Agent ID</span>
+                <input
+                  autoFocus
+                  value={agentId}
+                  onChange={(event) => setAgentId(event.target.value)}
+                  placeholder="例如：release-helper"
+                  maxLength={128}
+                />
+                <small className="field-hint">
+                  使用 2-128 位小写字母、数字和连字符。
+                </small>
+              </label>
+              <label className="field">
+                <span>显示名称</span>
+                <input
+                  value={agentDisplayName}
+                  onChange={(event) => setAgentDisplayName(event.target.value)}
+                  placeholder="例如：发布助手"
+                  maxLength={100}
+                />
+              </label>
+              <label className="field">
+                <span>描述（可选）</span>
+                <textarea
+                  value={agentDescription}
+                  onChange={(event) => setAgentDescription(event.target.value)}
+                  placeholder="简要说明这个 Agent 负责处理什么问题"
+                  rows={2}
+                  maxLength={500}
+                />
+              </label>
+              <label className="field">
+                <span>系统提示词</span>
+                <textarea
+                  value={agentSystemPrompt}
+                  onChange={(event) => setAgentSystemPrompt(event.target.value)}
+                  placeholder="定义 Agent 的角色、边界和回答方式"
+                  rows={4}
+                  maxLength={8000}
+                />
+              </label>
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={agentBrowserActions}
+                  onChange={(event) =>
+                    setAgentBrowserActions(event.target.checked)
+                  }
+                />
+                <span>允许使用浏览器操作提案（执行前仍需用户确认）</span>
+              </label>
+              {agentError && <p className="error">{agentError}</p>}
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeAgentDialog}
+                  disabled={agentSubmitting}
+                >
+                  取消
+                </button>
+                <button type="submit" disabled={agentSubmitting}>
+                  {agentSubmitting ? "创建中…" : "创建 Agent"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {baseDialogOpen && (
         <div
           className="modal-backdrop"
@@ -240,11 +400,18 @@ function App() {
             if (event.target === event.currentTarget) closeBaseDialog();
           }}
         >
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="base-dialog-title">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="base-dialog-title"
+          >
             <div className="modal-header">
               <div>
                 <h3 id="base-dialog-title">新建知识库</h3>
-                <p className="modal-subtitle">创建后即可上传文档并用于页面助手检索。</p>
+                <p className="modal-subtitle">
+                  创建后即可上传文档并用于页面助手检索。
+                </p>
               </div>
               <button
                 className="icon-button"
