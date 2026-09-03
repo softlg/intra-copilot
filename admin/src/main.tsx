@@ -19,6 +19,17 @@ type Base = {
   enabled: boolean;
 };
 
+type KnowledgeDocument = {
+  id: string;
+  knowledgeBaseId: string;
+  filename: string;
+  mediaType?: string;
+  status: "PENDING" | "INDEXING" | "READY" | "ERROR" | string;
+  error?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API}${path}`, {
     headers: {
@@ -39,6 +50,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [bases, setBases] = useState<Base[]>([]);
+  const [documents, setDocuments] = useState<
+    Record<string, KnowledgeDocument[]>
+  >({});
+  const [uploadingBaseId, setUploadingBaseId] = useState<string>();
+  const [uploadError, setUploadError] = useState("");
+  const [documentActionId, setDocumentActionId] = useState<string>();
   const [tab, setTab] = useState("agents");
   const [message, setMessage] = useState("");
   const [route, setRoute] = useState<Record<string, unknown>>();
@@ -62,8 +79,27 @@ function App() {
       .then(setAgents)
       .catch(() => setAgents([]));
     request<Base[]>("/admin/knowledge-bases")
-      .then(setBases)
-      .catch(() => setBases([]));
+      .then((list) => {
+        setBases(list);
+        Promise.all(
+          list.map(async (base) => {
+            try {
+              return [
+                base.id,
+                await request<KnowledgeDocument[]>(
+                  `/admin/knowledge-bases/${base.id}/documents`,
+                ),
+              ] as const;
+            } catch {
+              return [base.id, []] as const;
+            }
+          }),
+        ).then((entries) => setDocuments(Object.fromEntries(entries)));
+      })
+      .catch(() => {
+        setBases([]);
+        setDocuments({});
+      });
   };
 
   useEffect(load, []);
@@ -190,6 +226,99 @@ function App() {
     }
   };
 
+  const uploadDocument = async (
+    baseId: string,
+    file: File | undefined,
+    input: HTMLInputElement,
+  ) => {
+    input.value = "";
+    if (!file) return;
+    setUploadingBaseId(baseId);
+    setUploadError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(
+        `${API}/admin/knowledge-bases/${baseId}/documents`,
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || `上传失败（${response.status}）`);
+      }
+      const document = (await response.json()) as KnowledgeDocument;
+      setDocuments((current) => ({
+        ...current,
+        [baseId]: [
+          document,
+          ...(current[baseId] ?? []).filter((item) => item.id !== document.id),
+        ],
+      }));
+    } catch (error) {
+      setUploadError(
+        error instanceof Error ? error.message : "上传文档失败，请稍后重试",
+      );
+    } finally {
+      setUploadingBaseId(undefined);
+    }
+  };
+
+  const reindexDocument = async (document: KnowledgeDocument) => {
+    setDocumentActionId(document.id);
+    setUploadError("");
+    try {
+      const updated = await request<KnowledgeDocument>(
+        `/admin/knowledge-bases/documents/${document.id}/reindex`,
+        { method: "POST" },
+      );
+      setDocuments((current) => ({
+        ...current,
+        [document.knowledgeBaseId]: (
+          current[document.knowledgeBaseId] ?? []
+        ).map((item) => (item.id === document.id ? updated : item)),
+      }));
+    } catch (error) {
+      setUploadError(
+        error instanceof Error ? error.message : "重新解析文档失败，请稍后重试",
+      );
+    } finally {
+      setDocumentActionId(undefined);
+    }
+  };
+
+  const deleteDocument = async (document: KnowledgeDocument) => {
+    if (!window.confirm(`确定删除文档“${document.filename}”吗？`)) return;
+    setDocumentActionId(document.id);
+    setUploadError("");
+    try {
+      await request(`/admin/knowledge-bases/documents/${document.id}`, {
+        method: "DELETE",
+      });
+      setDocuments((current) => ({
+        ...current,
+        [document.knowledgeBaseId]: (
+          current[document.knowledgeBaseId] ?? []
+        ).filter((item) => item.id !== document.id),
+      }));
+    } catch (error) {
+      setUploadError(
+        error instanceof Error ? error.message : "删除文档失败，请稍后重试",
+      );
+    } finally {
+      setDocumentActionId(undefined);
+    }
+  };
+
+  const documentStatus = (status: KnowledgeDocument["status"]) => {
+    if (status === "READY") return "已解析";
+    if (status === "INDEXING") return "解析中";
+    if (status === "ERROR") return "解析失败";
+    return "等待处理";
+  };
+
   const testRoute = async () => {
     if (!message.trim()) return;
     setRoute(
@@ -265,12 +394,80 @@ function App() {
         {tab === "knowledge" && (
           <section>
             <button onClick={addBase}>+ 新建知识库</button>
+            {uploadError && <p className="error page-error">{uploadError}</p>}
             <div className="grid">
               {bases.map((base) => (
-                <article key={base.id}>
-                  <strong>{base.name}</strong>
+                <article className="knowledge-card" key={base.id}>
+                  <div className="row">
+                    <strong>{base.name}</strong>
+                    <span className={base.enabled ? "ok" : "off"}>
+                      {base.enabled ? "已启用" : "已停用"}
+                    </span>
+                  </div>
                   <p>{base.description || "支持 Markdown、TXT、PDF 文档"}</p>
                   <code>{base.id}</code>
+                  <div className="document-upload">
+                    <label className="upload-button">
+                      {uploadingBaseId === base.id ? "解析中…" : "上传文档"}
+                      <input
+                        type="file"
+                        accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
+                        disabled={uploadingBaseId === base.id}
+                        onChange={(event) =>
+                          uploadDocument(
+                            base.id,
+                            event.target.files?.[0],
+                            event.currentTarget,
+                          )
+                        }
+                      />
+                    </label>
+                    <span className="upload-hint">
+                      Markdown、TXT、PDF，最大 10 MB
+                    </span>
+                  </div>
+                  {(documents[base.id] ?? []).length > 0 && (
+                    <div className="document-list">
+                      {(documents[base.id] ?? []).map((document) => (
+                        <div className="document-item" key={document.id}>
+                          <div className="document-main">
+                            <span
+                              className="document-name"
+                              title={document.filename}
+                            >
+                              {document.filename}
+                            </span>
+                            <span
+                              className={`document-status ${document.status.toLowerCase()}`}
+                            >
+                              {documentStatus(document.status)}
+                            </span>
+                          </div>
+                          {document.error && (
+                            <span className="document-error">
+                              {document.error}
+                            </span>
+                          )}
+                          <div className="document-actions">
+                            <button
+                              className="document-action"
+                              disabled={documentActionId === document.id}
+                              onClick={() => reindexDocument(document)}
+                            >
+                              重新解析
+                            </button>
+                            <button
+                              className="document-action danger"
+                              disabled={documentActionId === document.id}
+                              onClick={() => deleteDocument(document)}
+                            >
+                              删除
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </article>
               ))}
             </div>

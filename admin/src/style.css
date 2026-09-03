@@ -135,6 +135,135 @@ article p {
   color: #9ba9bd;
 }
 
+.knowledge-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.page-error {
+  margin: 16px 0 0;
+}
+
+.document-upload {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.upload-button {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 7px;
+  padding: 8px 12px;
+  background: #315da9;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.upload-button:hover {
+  background: #4776d0;
+}
+
+.upload-button input {
+  display: none;
+}
+
+.upload-hint {
+  color: #7f8da5;
+  font-size: 11px;
+}
+
+.document-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #283852;
+}
+
+.document-item {
+  padding: 10px;
+  border: 1px solid #283852;
+  border-radius: 8px;
+  background: #101a2b;
+}
+
+.document-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.document-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #cbd6e8;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-status {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #26344c;
+  color: #aab7cd;
+  font-size: 10px;
+}
+
+.document-status.ready {
+  background: #143b2b;
+  color: #64d49b;
+}
+
+.document-status.indexing,
+.document-status.pending {
+  background: #3a321a;
+  color: #e5c56b;
+}
+
+.document-status.error {
+  background: #3b2630;
+  color: #e990a4;
+}
+
+.document-error {
+  display: block;
+  margin-top: 6px;
+  color: #e990a4;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.document-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.document-action {
+  padding: 5px 8px;
+  border: 1px solid #344560;
+  border-radius: 5px;
+  background: transparent;
+  color: #9eb3d4;
+  font-size: 11px;
+}
+
+.document-action:hover:not(:disabled) {
+  background: #22314b;
+}
+
+.document-action.danger {
+  color: #e990a4;
+}
+
 .row {
   display: flex;
   align-items: center;
