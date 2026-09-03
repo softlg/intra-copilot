@@ -12,8 +12,8 @@ public class KnowledgeDocument {
   private String filename;
   private String mediaType;
   private String status = "PENDING";
-  @Lob private String content;
-  @Lob private String error;
+  @Column(columnDefinition = "TEXT") private String content;
+  @Column(columnDefinition = "TEXT") private String error;
   private Instant createdAt = Instant.now();
   private Instant updatedAt = Instant.now();
 

@@ -9,12 +9,12 @@ import java.util.UUID;
 public class ToolDefinition {
   @Id private String id = UUID.randomUUID().toString();
   private String name;
-  @Lob private String description;
+  @Column(columnDefinition = "TEXT") private String description;
   private String type = "BROWSER_PROPOSAL";
   private String method;
-  @Lob private String endpoint;
-  @Lob private String parameterSchema = "{}";
-  @Lob private String allowedDomains = "[]";
+  @Column(columnDefinition = "TEXT") private String endpoint;
+  @Column(columnDefinition = "TEXT") private String parameterSchema = "{}";
+  @Column(columnDefinition = "TEXT") private String allowedDomains = "[]";
   private Integer timeoutMs = 10000;
   private boolean enabled = true;
   private Instant createdAt = Instant.now();

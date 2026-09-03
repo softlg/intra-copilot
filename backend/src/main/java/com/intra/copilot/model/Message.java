@@ -9,9 +9,9 @@ public class Message {
   @Id private String id = UUID.randomUUID().toString();
   private String conversationId;
   private String role;
-  @Lob private String content;
+  @Column(columnDefinition = "TEXT") private String content;
   private String agentId;
-  @Lob private String contextSummary;
+  @Column(columnDefinition = "TEXT") private String contextSummary;
   private Instant createdAt = Instant.now();
 
   public Message() {}

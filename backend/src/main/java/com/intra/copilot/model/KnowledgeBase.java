@@ -9,7 +9,7 @@ import java.util.UUID;
 public class KnowledgeBase {
   @Id private String id = UUID.randomUUID().toString();
   private String name;
-  @Lob private String description;
+  @Column(columnDefinition = "TEXT") private String description;
   private boolean enabled = true;
   private Instant createdAt = Instant.now();
   private Instant updatedAt = Instant.now();

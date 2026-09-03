@@ -10,12 +10,12 @@ public class ActionProposal {
   private String conversationId;
   private String type;
   private String target;
-  @Lob private String arguments;
+  @Column(columnDefinition = "TEXT") private String arguments;
   private String reason;
   private String risk;
   private Instant expiresAt;
   private String status = "PENDING";
-  @Lob private String result;
+  @Column(columnDefinition = "TEXT") private String result;
 
   public String getActionId() {
     return actionId;

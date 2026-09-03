@@ -9,7 +9,7 @@ public class DocumentChunk {
   @Id private String id = UUID.randomUUID().toString();
   private String documentId;
   private int chunkIndex;
-  @Lob private String content;
+  @Column(columnDefinition = "TEXT") private String content;
   private Integer pageNumber;
 
   public String getId() { return id; }

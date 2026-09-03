@@ -9,9 +9,9 @@ import java.util.UUID;
 public class SkillDefinition {
   @Id private String id = UUID.randomUUID().toString();
   private String name;
-  @Lob private String description;
-  @Lob private String prompt;
-  @Lob private String toolIds = "[]";
+  @Column(columnDefinition = "TEXT") private String description;
+  @Column(columnDefinition = "TEXT") private String prompt;
+  @Column(columnDefinition = "TEXT") private String toolIds = "[]";
   private String version = "1.0.0";
   private boolean enabled = true;
   private Instant createdAt = Instant.now();

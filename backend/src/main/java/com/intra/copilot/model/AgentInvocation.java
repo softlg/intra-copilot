@@ -11,11 +11,11 @@ public class AgentInvocation {
   private String conversationId;
   private String requestedAgentId;
   private String selectedAgentId;
-  @Lob private String routeReason;
+  @Column(columnDefinition = "TEXT") private String routeReason;
   private Double confidence;
   private String routeSource;
   private Long durationMs;
-  @Lob private String error;
+  @Column(columnDefinition = "TEXT") private String error;
   private Integer inputTokens;
   private Integer outputTokens;
   private Instant createdAt = Instant.now();
