@@ -2443,14 +2443,25 @@ function App() {
                       <button
                         type="button"
                         className="conversation-log-heading"
-                        onClick={() => setSelectedConversationLogId(log.id)}
+                        onClick={() =>
+                          setSelectedConversationLogId((current) =>
+                            current === log.id ? undefined : log.id,
+                          )
+                        }
                         aria-expanded={selected}
+                        aria-label={log.title || log.id}
                       >
                         <span>
                           <strong>{log.title || log.id}</strong>
                           <code>{log.id}</code>
                         </span>
                         <span className="conversation-log-meta">
+                          <span
+                            className="conversation-log-chevron"
+                            aria-hidden="true"
+                          >
+                            {selected ? "▾" : "▸"}
+                          </span>
                           {log.updatedAt
                             ? new Date(log.updatedAt).toLocaleString()
                             : "-"}
