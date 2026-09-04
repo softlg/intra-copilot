@@ -85,7 +85,9 @@ const translations = {
     newBaseSubtitle: "创建后即可上传文档并用于页面助手检索。",
     baseName: "名称",
     baseNamePlaceholder: "例如：产品操作手册",
+    baseDescription: "描述",
     baseDescriptionPlaceholder: "简要说明这个知识库的内容",
+    doubleClickToEdit: "双击名称或描述进行编辑",
     createBase: "创建知识库",
     baseNameRequired: "请输入知识库名称",
     agentIdInvalid: "Agent ID 只能使用 2-128 位小写字母、数字和连字符",
@@ -117,6 +119,7 @@ const translations = {
     topK: "检索条数",
     topKHint: "每次问答最多注入的相关片段数量",
     saveSettings: "保存设置",
+    save: "保存",
     saved: "已保存",
     collapseSidebar: "收缩菜单栏",
     expandSidebar: "展开菜单栏",
@@ -291,7 +294,9 @@ const translations = {
       "Upload documents and use them for page-assistant retrieval.",
     baseName: "Name",
     baseNamePlaceholder: "e.g. Product operation manual",
+    baseDescription: "Description",
     baseDescriptionPlaceholder: "Briefly describe this knowledge base",
+    doubleClickToEdit: "Double-click the name or description to edit",
     createBase: "Create knowledge base",
     baseNameRequired: "Enter a knowledge base name",
     agentIdInvalid:
@@ -327,6 +332,7 @@ const translations = {
     topK: "Retrieval count",
     topKHint: "Maximum number of relevant chunks injected per question",
     saveSettings: "Save settings",
+    save: "Save",
     saved: "Saved",
     collapseSidebar: "Collapse menu",
     expandSidebar: "Expand menu",
@@ -602,6 +608,10 @@ function App() {
   const [uploadError, setUploadError] = useState("");
   const [documentActionId, setDocumentActionId] = useState<string>();
   const [activeBaseId, setActiveBaseId] = useState<string>();
+  const [editingBase, setEditingBase] = useState(false);
+  const [baseDraftName, setBaseDraftName] = useState("");
+  const [baseDraftDescription, setBaseDraftDescription] = useState("");
+  const [baseSaving, setBaseSaving] = useState(false);
   const [knowledgeSection, setKnowledgeSection] = useState<
     "maintenance" | "qa"
   >("maintenance");
@@ -943,6 +953,9 @@ function App() {
 
   const openKnowledgeBase = (base: Base) => {
     setActiveBaseId(base.id);
+    setEditingBase(false);
+    setBaseDraftName(base.name);
+    setBaseDraftDescription(base.description ?? "");
     setKnowledgeSection("maintenance");
     setUploadError("");
     setQaSaved(false);
@@ -950,7 +963,48 @@ function App() {
 
   const closeKnowledgeBase = () => {
     setActiveBaseId(undefined);
+    setEditingBase(false);
     setUploadError("");
+  };
+
+  const beginBaseEdit = () => {
+    if (!activeBase) return;
+    setBaseDraftName(activeBase.name);
+    setBaseDraftDescription(activeBase.description ?? "");
+    setEditingBase(true);
+  };
+
+  const cancelBaseEdit = () => setEditingBase(false);
+
+  const saveBaseDetails = async () => {
+    if (!activeBase || !baseDraftName.trim()) {
+      setBaseError(t.baseNameRequired);
+      return;
+    }
+    setBaseSaving(true);
+    setBaseError("");
+    try {
+      const updated = await request<Base>(
+        `/admin/knowledge-bases/${activeBase.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            id: activeBase.id,
+            name: baseDraftName.trim(),
+            description: baseDraftDescription.trim(),
+            enabled: activeBase.enabled,
+          }),
+        },
+      );
+      setBases((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setEditingBase(false);
+    } catch (error) {
+      setBaseError(error instanceof Error ? error.message : t.createBaseFailed);
+    } finally {
+      setBaseSaving(false);
+    }
   };
 
   const updateQaSettings = (patch: Partial<QASceneSettings>) => {
@@ -2132,10 +2186,74 @@ function App() {
                   >
                     ← {t.back}
                   </button>
-                  <div>
-                    <h3>{activeBase.name}</h3>
-                    <p>{activeBase.description || t.supportedDocs}</p>
+                  <div
+                    className="knowledge-detail-title"
+                    onDoubleClick={beginBaseEdit}
+                  >
+                    {editingBase ? (
+                      <div className="knowledge-inline-edit">
+                        <input
+                          value={baseDraftName}
+                          onChange={(event) =>
+                            setBaseDraftName(event.target.value)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") saveBaseDetails();
+                            if (event.key === "Escape") cancelBaseEdit();
+                          }}
+                          autoFocus
+                          maxLength={160}
+                          aria-label={t.baseName}
+                        />
+                        <textarea
+                          value={baseDraftDescription}
+                          onChange={(event) =>
+                            setBaseDraftDescription(event.target.value)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") cancelBaseEdit();
+                          }}
+                          rows={2}
+                          maxLength={500}
+                          aria-label={t.baseDescription}
+                        />
+                        <div className="knowledge-inline-actions">
+                          <button
+                            type="button"
+                            onClick={saveBaseDetails}
+                            disabled={baseSaving}
+                          >
+                            {baseSaving ? t.saving : t.save}
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={cancelBaseEdit}
+                            disabled={baseSaving}
+                          >
+                            {t.cancel}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <h3>{activeBase.name}</h3>
+                        <p>{activeBase.description || t.supportedDocs}</p>
+                        <small className="field-hint">
+                          {t.doubleClickToEdit}
+                        </small>
+                      </>
+                    )}
                   </div>
+                  {knowledgeSection === "qa" && (
+                    <button
+                      type="button"
+                      className="qa-header-save"
+                      onClick={saveQaSettings}
+                    >
+                      {qaSaved ? `✓ ${t.saved}` : t.saveSettings}
+                    </button>
+                  )}
                 </div>
                 <div className="detail-tabs" role="tablist">
                   <button
@@ -2258,11 +2376,6 @@ function App() {
                       />
                       <small className="field-hint">{t.topKHint}</small>
                     </label>
-                    <div className="modal-actions qa-actions">
-                      <button onClick={saveQaSettings}>
-                        {qaSaved ? `✓ ${t.saved}` : t.saveSettings}
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
