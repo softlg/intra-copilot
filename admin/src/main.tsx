@@ -104,6 +104,7 @@ const translations = {
     dark: "深色",
     light: "浅色",
     close: "关闭",
+    error: "提示",
     enter: "进入维护",
     back: "返回知识库",
     maintenance: "知识维护",
@@ -310,6 +311,7 @@ const translations = {
     dark: "Dark",
     light: "Light",
     close: "Close",
+    error: "Notice",
     enter: "Open maintenance",
     back: "Back to knowledge bases",
     maintenance: "Knowledge maintenance",
@@ -1151,6 +1153,7 @@ function App() {
     try {
       await request(`/admin/agents/${agent.id}`, { method: "DELETE" });
       setAgents((current) => current.filter((item) => item.id !== agent.id));
+      if (agentConfigId === agent.id) closeAgentConfig();
     } catch (error) {
       setAgentError(
         error instanceof Error ? error.message : t.deleteAgentFailed,
@@ -1322,6 +1325,15 @@ function App() {
   const configuredAgentIsSystem = configuredAgent
     ? isSystemAgent(configuredAgent)
     : true;
+  const promptError =
+    agentError || agentTestError || baseError || uploadError || resourceError;
+  const dismissPromptError = () => {
+    setAgentError("");
+    setAgentTestError("");
+    setBaseError("");
+    setUploadError("");
+    setResourceError("");
+  };
 
   return (
     <div className="shell">
@@ -2012,7 +2024,6 @@ function App() {
                   )}
                 </div>
               )}
-              {agentError && <p className="error">{agentError}</p>}
             </form>
           </section>
         )}
@@ -2020,9 +2031,6 @@ function App() {
         {tab === "agents" && (
           <section>
             <button onClick={addAgent}>{t.newAgent}</button>
-            {agentError && !agentDialogOpen && (
-              <p className="error page-error">{agentError}</p>
-            )}
             {([true, false] as const).map((system) => {
               const group = agents.filter(
                 (agent) => isSystemAgent(agent) === system,
@@ -2074,9 +2082,6 @@ function App() {
             {!activeBase ? (
               <>
                 <button onClick={addBase}>{t.newBase}</button>
-                {uploadError && (
-                  <p className="error page-error">{uploadError}</p>
-                )}
                 <div className="grid">
                   {bases.map((base) => (
                     <article
@@ -2158,9 +2163,6 @@ function App() {
                     {t.qaSettings}
                   </button>
                 </div>
-                {uploadError && (
-                  <p className="error page-error">{uploadError}</p>
-                )}
                 {knowledgeSection === "maintenance" ? (
                   <div className="maintenance-panel">
                     <div className="upload-panel">
@@ -2280,9 +2282,6 @@ function App() {
                 </button>
               </div>
             </div>
-            {resourceError && !resourceDialog && (
-              <p className="error page-error">{resourceError}</p>
-            )}
             <div className="resource-section">
               <h3>{t.tool}</h3>
               {tools.length === 0 ? (
@@ -2348,9 +2347,6 @@ function App() {
                 {t.newSkill}
               </button>
             </div>
-            {resourceError && !resourceDialog && (
-              <p className="error page-error">{resourceError}</p>
-            )}
             <div className="resource-section">
               <h3>{t.skill}</h3>
               {skills.length === 0 ? (
@@ -2650,6 +2646,22 @@ function App() {
           </section>
         )}
       </main>
+      {promptError && (
+        <div className="prompt-modal-overlay" role="presentation">
+          <div
+            className="prompt-modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-label={t.error}
+          >
+            <h3>{t.error}</h3>
+            <p>{promptError}</p>
+            <button type="button" onClick={dismissPromptError}>
+              {t.close}
+            </button>
+          </div>
+        </div>
+      )}
 
       {resourceDetails && (
         <div
