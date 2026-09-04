@@ -1632,7 +1632,16 @@ function App() {
                     </label>
                     <div className="routing-priority-note">
                       <strong>{t.priority}</strong>
-                      <span>{agentPriority}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={10000}
+                        value={agentPriority}
+                        onChange={(event) =>
+                          setAgentPriority(Number(event.target.value) || 0)
+                        }
+                        aria-label={t.priority}
+                      />
                       <small>{t.intentRoutingHint}</small>
                     </div>
                   </div>

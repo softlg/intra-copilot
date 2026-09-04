@@ -742,10 +742,19 @@ article p {
   color: var(--text);
 }
 
-.routing-priority-note span {
-  min-width: 26px;
-  color: #8db2f2;
+.routing-priority-note input {
+  width: 72px;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
   font-weight: 700;
+}
+
+.routing-priority-note span {
+  color: #8db2f2;
 }
 
 .routing-priority-note small {
