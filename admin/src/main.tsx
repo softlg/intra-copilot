@@ -132,6 +132,9 @@ const translations = {
     backToAgents: "返回 Agent 列表",
     basicInfo: "基本信息",
     knowledgeBinding: "知识库绑定",
+    noKnowledgeBases: "暂无可用知识库，请先创建知识库。",
+    viewDetails: "查看详情",
+    resourceDetails: "资源详情",
     capabilityBinding: "工具和 Skill",
     toolsTitle: "工具管理",
     toolsSubtitle: "注册可供 Agent 调用的后端 API 工具。",
@@ -301,6 +304,9 @@ const translations = {
     backToAgents: "Back to Agents",
     basicInfo: "Basic information",
     knowledgeBinding: "Knowledge bases",
+    noKnowledgeBases: "No knowledge bases available. Create one first.",
+    viewDetails: "View details",
+    resourceDetails: "Resource details",
     capabilityBinding: "Tools and Skill",
     toolsTitle: "Tool management",
     toolsSubtitle: "Register backend API tools that Agents can call.",
@@ -370,6 +376,10 @@ type SkillDefinition = {
   version?: string;
   enabled: boolean;
 };
+
+type ResourceDetails =
+  | { kind: "tool"; resource: ToolDefinition }
+  | { kind: "skill"; resource: SkillDefinition };
 
 type AgentFeedback = {
   id: string;
@@ -450,6 +460,9 @@ function App() {
   const [resourceSubmitting, setResourceSubmitting] = useState(false);
   const [resourceError, setResourceError] = useState("");
   const [resourceActionId, setResourceActionId] = useState<string>();
+  const [resourceDetails, setResourceDetails] = useState<
+    ResourceDetails | undefined
+  >();
   const [bases, setBases] = useState<Base[]>([]);
   const [documents, setDocuments] = useState<
     Record<string, KnowledgeDocument[]>
@@ -1397,17 +1410,52 @@ function App() {
               )}
               {agentConfigSection === "knowledge" && (
                 <div className="settings-panel">
-                  <label className="field">
-                    <span>{t.knowledgeBases}</span>
-                    <input
-                      value={agentKnowledgeBaseIds}
-                      onChange={(event) =>
-                        setAgentKnowledgeBaseIds(event.target.value)
-                      }
-                      placeholder={t.idsHint}
-                    />
-                  </label>
-                  <p className="field-hint">{t.idsHint}</p>
+                  <div className="binding-heading">
+                    <div>
+                      <h4>{t.knowledgeBases}</h4>
+                      <p>{t.idsHint}</p>
+                    </div>
+                    <span className="binding-count">
+                      {parseIds(agentKnowledgeBaseIds).length}
+                    </span>
+                  </div>
+                  {bases.length === 0 ? (
+                    <p className="binding-empty">{t.noKnowledgeBases}</p>
+                  ) : (
+                    <div className="binding-list">
+                      {bases.map((base) => {
+                        const selected = parseIds(
+                          agentKnowledgeBaseIds,
+                        ).includes(base.id);
+                        return (
+                          <label className="binding-option" key={base.id}>
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => {
+                                const current = parseIds(agentKnowledgeBaseIds);
+                                const next = selected
+                                  ? current.filter((id) => id !== base.id)
+                                  : [...current, base.id];
+                                setAgentKnowledgeBaseIds(JSON.stringify(next));
+                              }}
+                            />
+                            <span className="binding-copy">
+                              <span className="binding-name">{base.name}</span>
+                              <span className="binding-meta">
+                                {base.enabled ? t.enabled : t.disabled}
+                              </span>
+                              {base.description && (
+                                <span className="binding-description">
+                                  {base.description}
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
               {(agentConfigSection === "tools" ||
@@ -1462,6 +1510,20 @@ function App() {
                                       </span>
                                     )}
                                   </span>
+                                  <button
+                                    type="button"
+                                    className="binding-detail-button"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      setResourceDetails({
+                                        kind: "tool",
+                                        resource: tool,
+                                      });
+                                    }}
+                                  >
+                                    {t.viewDetails}
+                                  </button>
                                 </label>
                               );
                             })}
@@ -1521,6 +1583,20 @@ function App() {
                                       </span>
                                     )}
                                   </span>
+                                  <button
+                                    type="button"
+                                    className="binding-detail-button"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      setResourceDetails({
+                                        kind: "skill",
+                                        resource: skill,
+                                      });
+                                    }}
+                                  >
+                                    {t.viewDetails}
+                                  </button>
                                 </label>
                               );
                             })}
@@ -1984,6 +2060,82 @@ function App() {
           </section>
         )}
       </main>
+
+      {resourceDetails && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget)
+              setResourceDetails(undefined);
+          }}
+        >
+          <div
+            className="modal resource-details-modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header">
+              <div>
+                <h3>{resourceDetails.resource.name}</h3>
+                <p className="modal-subtitle">{t.resourceDetails}</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => setResourceDetails(undefined)}
+                aria-label={t.close}
+              >
+                ×
+              </button>
+            </div>
+            <div className="resource-detail-grid">
+              <div>
+                <span className="detail-label">ID</span>
+                <code>{resourceDetails.resource.id}</code>
+              </div>
+              <div>
+                <span className="detail-label">{t.enabled}</span>
+                <span
+                  className={resourceDetails.resource.enabled ? "ok" : "off"}
+                >
+                  {resourceDetails.resource.enabled ? t.enabled : t.disabled}
+                </span>
+              </div>
+              {resourceDetails.kind === "tool" ? (
+                <>
+                  <div>
+                    <span className="detail-label">{t.toolTypeLabel}</span>
+                    <span>{resourceDetails.resource.type || "-"}</span>
+                  </div>
+                  <div>
+                    <span className="detail-label">{t.method}</span>
+                    <span>{resourceDetails.resource.method || "-"}</span>
+                  </div>
+                  <div className="detail-full">
+                    <span className="detail-label">{t.endpoint}</span>
+                    <code>{resourceDetails.resource.endpoint || "-"}</code>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <span className="detail-label">{t.version}</span>
+                    <span>{resourceDetails.resource.version || "-"}</span>
+                  </div>
+                  <div className="detail-full">
+                    <span className="detail-label">{t.skillPrompt}</span>
+                    <pre>{resourceDetails.resource.prompt || "-"}</pre>
+                  </div>
+                </>
+              )}
+              <div className="detail-full">
+                <span className="detail-label">{t.descriptionOptional}</span>
+                <p>{resourceDetails.resource.description || t.noDescription}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {agentDialogOpen && (
         <div
