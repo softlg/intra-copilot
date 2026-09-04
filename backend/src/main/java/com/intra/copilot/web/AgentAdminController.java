@@ -33,7 +33,7 @@ public class AgentAdminController {
   @ResponseStatus(HttpStatus.CREATED)
   public AgentDefinition create(@RequestBody AgentDefinition definition) {
     if (definition == null) throw new IllegalArgumentException("Agent 配置不能为空");
-    definition.setId("agent-" + UUID.randomUUID().toString());
+    definition.setId(UUID.randomUUID().toString());
     validate(definition);
     definition.setSystemAgent(false);
     return registry.save(definition);
