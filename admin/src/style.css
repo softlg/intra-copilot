@@ -620,6 +620,15 @@ article p {
   background: #3b2630;
 }
 
+.agent-test {
+  border: 1px solid #355b9d;
+  background: #1b3768;
+}
+
+.agent-test:hover:not(:disabled) {
+  background: #284b88;
+}
+
 code {
   color: #86a6d8;
   font-size: 12px;
@@ -893,6 +902,38 @@ pre {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 24px;
+}
+
+.agent-test-modal {
+  width: min(100%, 560px);
+}
+
+.test-result {
+  margin-top: 18px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+.test-result-heading {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.test-result pre {
+  max-height: 240px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--control-bg);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .secondary {

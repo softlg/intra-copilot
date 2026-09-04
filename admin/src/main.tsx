@@ -113,6 +113,17 @@ const translations = {
     saved: "已保存",
     collapseSidebar: "收缩菜单栏",
     expandSidebar: "展开菜单栏",
+    testAgent: "测试",
+    testAgentTitle: "测试 Agent",
+    testAgentSubtitle: "直接模拟一轮对话，验证当前提示词和能力配置是否生效。",
+    testMessage: "测试消息",
+    testMessagePlaceholder: "输入要发送给该 Agent 的问题",
+    testPageContext: "页面上下文（可选）",
+    testPageContextPlaceholder: "粘贴页面信息，验证 Agent 是否能正确使用上下文",
+    runTest: "运行测试",
+    testing: "测试中…",
+    testResponse: "Agent 回复",
+    testFailed: "Agent 测试失败，请稍后重试",
   },
   en: {
     title: "Page Assistant",
@@ -229,6 +240,19 @@ const translations = {
     saved: "Saved",
     collapseSidebar: "Collapse menu",
     expandSidebar: "Expand menu",
+    testAgent: "Test",
+    testAgentTitle: "Test Agent",
+    testAgentSubtitle:
+      "Simulate one conversation turn to verify the current prompt and capability configuration.",
+    testMessage: "Test message",
+    testMessagePlaceholder: "Enter a question for this Agent",
+    testPageContext: "Page context (optional)",
+    testPageContextPlaceholder:
+      "Paste page information to verify context handling",
+    runTest: "Run test",
+    testing: "Testing…",
+    testResponse: "Agent response",
+    testFailed: "Agent test failed. Please try again.",
   },
 } as const;
 
@@ -358,6 +382,13 @@ function App() {
   const [agentSubmitting, setAgentSubmitting] = useState(false);
   const [agentError, setAgentError] = useState("");
   const [agentActionId, setAgentActionId] = useState<string>();
+  const [agentTestDialogOpen, setAgentTestDialogOpen] = useState(false);
+  const [testingAgent, setTestingAgent] = useState<Agent>();
+  const [agentTestMessage, setAgentTestMessage] = useState("");
+  const [agentTestContext, setAgentTestContext] = useState("");
+  const [agentTestResult, setAgentTestResult] = useState("");
+  const [agentTestError, setAgentTestError] = useState("");
+  const [agentTestSubmitting, setAgentTestSubmitting] = useState(false);
   const [baseDialogOpen, setBaseDialogOpen] = useState(false);
   const [baseName, setBaseName] = useState("");
   const [baseDescription, setBaseDescription] = useState("");
@@ -451,7 +482,8 @@ function App() {
   useEffect(load, []);
 
   useEffect(() => {
-    if (!baseDialogOpen && !agentDialogOpen) return undefined;
+    if (!baseDialogOpen && !agentDialogOpen && !agentTestDialogOpen)
+      return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (baseDialogOpen && !baseSubmitting) {
@@ -460,10 +492,20 @@ function App() {
       if (agentDialogOpen && !agentSubmitting) {
         setAgentDialogOpen(false);
       }
+      if (agentTestDialogOpen && !agentTestSubmitting) {
+        setAgentTestDialogOpen(false);
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [agentDialogOpen, agentSubmitting, baseDialogOpen, baseSubmitting]);
+  }, [
+    agentDialogOpen,
+    agentSubmitting,
+    agentTestDialogOpen,
+    agentTestSubmitting,
+    baseDialogOpen,
+    baseSubmitting,
+  ]);
 
   const activeBase = bases.find((base) => base.id === activeBaseId);
   const activeQaSettings: QASceneSettings = activeBaseId
@@ -543,6 +585,44 @@ function App() {
 
   const closeAgentDialog = () => {
     if (!agentSubmitting) setAgentDialogOpen(false);
+  };
+
+  const openAgentTest = (agent: Agent) => {
+    setTestingAgent(agent);
+    setAgentTestMessage("");
+    setAgentTestContext("");
+    setAgentTestResult("");
+    setAgentTestError("");
+    setAgentTestDialogOpen(true);
+  };
+
+  const closeAgentTest = () => {
+    if (!agentTestSubmitting) setAgentTestDialogOpen(false);
+  };
+
+  const runAgentTest = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!testingAgent || !agentTestMessage.trim()) return;
+    setAgentTestSubmitting(true);
+    setAgentTestError("");
+    setAgentTestResult("");
+    try {
+      const result = await request<{ response: string }>(
+        `/admin/agents/${testingAgent.id}/test`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            message: agentTestMessage.trim(),
+            pageContext: agentTestContext.trim() || null,
+          }),
+        },
+      );
+      setAgentTestResult(result.response);
+    } catch (error) {
+      setAgentTestError(error instanceof Error ? error.message : t.testFailed);
+    } finally {
+      setAgentTestSubmitting(false);
+    }
   };
 
   const saveAgent = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -930,6 +1010,20 @@ function App() {
                         <code>{agent.id}</code>
                         <p>{agent.description || t.noDescription}</p>
                         <div className="agent-actions">
+                          <button
+                            onClick={() => openAgentTest(agent)}
+                            className="agent-test"
+                            disabled={
+                              !agent.enabled || agentActionId === agent.id
+                            }
+                            title={
+                              !agent.enabled
+                                ? t.deleteAgentDisabledHint
+                                : t.testAgent
+                            }
+                          >
+                            {t.testAgent}
+                          </button>
                           <button
                             onClick={() => openAgentSettings(agent)}
                             className="secondary"
@@ -1439,6 +1533,85 @@ function App() {
                     : editingAgentId
                       ? t.saveAgent
                       : t.createAgent}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {agentTestDialogOpen && testingAgent && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeAgentTest();
+          }}
+        >
+          <div
+            className="modal agent-test-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="agent-test-dialog-title"
+          >
+            <div className="modal-header">
+              <div>
+                <h3 id="agent-test-dialog-title">
+                  {t.testAgentTitle} · {testingAgent.displayName}
+                </h3>
+                <p className="modal-subtitle">{t.testAgentSubtitle}</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={closeAgentTest}
+                disabled={agentTestSubmitting}
+                aria-label={t.close}
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={runAgentTest}>
+              <label className="field">
+                <span>{t.testMessage}</span>
+                <textarea
+                  autoFocus
+                  value={agentTestMessage}
+                  onChange={(event) => setAgentTestMessage(event.target.value)}
+                  placeholder={t.testMessagePlaceholder}
+                  rows={4}
+                  required
+                />
+              </label>
+              <label className="field">
+                <span>{t.testPageContext}</span>
+                <textarea
+                  value={agentTestContext}
+                  onChange={(event) => setAgentTestContext(event.target.value)}
+                  placeholder={t.testPageContextPlaceholder}
+                  rows={3}
+                />
+              </label>
+              {agentTestError && <p className="error">{agentTestError}</p>}
+              {agentTestResult && (
+                <section className="test-result" aria-live="polite">
+                  <div className="test-result-heading">{t.testResponse}</div>
+                  <pre>{agentTestResult}</pre>
+                </section>
+              )}
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeAgentTest}
+                  disabled={agentTestSubmitting}
+                >
+                  {t.close}
+                </button>
+                <button
+                  type="submit"
+                  disabled={agentTestSubmitting || !agentTestMessage.trim()}
+                >
+                  {agentTestSubmitting ? t.testing : t.runTest}
                 </button>
               </div>
             </form>
