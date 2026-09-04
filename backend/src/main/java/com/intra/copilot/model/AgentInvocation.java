@@ -15,6 +15,7 @@ public class AgentInvocation {
   @Column(columnDefinition = "TEXT") private String intent;
   @Column(columnDefinition = "TEXT") private String contextSent;
   @Column(columnDefinition = "TEXT") private String responseContent;
+  private String clientIp;
   private Double confidence;
   private String routeSource;
   private Long durationMs;
@@ -65,6 +66,8 @@ public class AgentInvocation {
   public void setContextSent(String value) { contextSent = value; }
   public String getResponseContent() { return responseContent; }
   public void setResponseContent(String value) { responseContent = value; }
+  public String getClientIp() { return clientIp; }
+  public void setClientIp(String value) { clientIp = value; }
 
   public Double getConfidence() {
     return confidence;
