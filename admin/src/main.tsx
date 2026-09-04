@@ -3,6 +3,150 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 
 const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8080/api/v1";
+type Language = "zh" | "en";
+type Theme = "dark" | "light";
+
+const translations = {
+  zh: {
+    title: "页面助手",
+    subtitle: "管理控制台",
+    agents: "Agent",
+    knowledge: "知识库",
+    router: "路由测试",
+    agentConfig: "Agent 配置",
+    routerTest: "主 Agent 路由测试",
+    localMode: "本机模式",
+    newAgent: "+ 新建 Agent",
+    newBase: "+ 新建知识库",
+    enabled: "已启用",
+    disabled: "已停用",
+    noDescription: "暂无描述",
+    stop: "停用",
+    enable: "启用",
+    supportedDocs: "支持 Markdown、TXT、PDF 文档",
+    upload: "上传文档",
+    processing: "解析中…",
+    uploadHint: "Markdown、TXT、PDF，最大 10 MB",
+    parsed: "已解析",
+    pending: "等待处理",
+    parseFailed: "解析失败",
+    reindex: "重新解析",
+    delete: "删除",
+    deleteConfirm: (name: string) => `确定删除文档“${name}”吗？`,
+    routerPlaceholder: "输入一条消息测试路由",
+    testRoute: "测试路由",
+    newAgentTitle: "新建 Agent",
+    newAgentSubtitle: "配置一个可供主 Agent 调度的页面助手子 Agent。",
+    agentId: "Agent ID",
+    agentIdHint: "使用 2-128 位小写字母、数字和连字符。",
+    agentIdPlaceholder: "例如：release-helper",
+    displayName: "显示名称",
+    displayNamePlaceholder: "例如：发布助手",
+    descriptionOptional: "描述（可选）",
+    agentDescriptionPlaceholder: "简要说明这个 Agent 负责处理什么问题",
+    systemPrompt: "系统提示词",
+    systemPromptPlaceholder: "定义 Agent 的角色、边界和回答方式",
+    browserActions: "允许使用浏览器操作提案（执行前仍需用户确认）",
+    cancel: "取消",
+    createAgent: "创建 Agent",
+    creating: "创建中…",
+    newBaseTitle: "新建知识库",
+    newBaseSubtitle: "创建后即可上传文档并用于页面助手检索。",
+    baseName: "名称",
+    baseNamePlaceholder: "例如：产品操作手册",
+    baseDescriptionPlaceholder: "简要说明这个知识库的内容",
+    createBase: "创建知识库",
+    baseNameRequired: "请输入知识库名称",
+    agentIdInvalid: "Agent ID 只能使用 2-128 位小写字母、数字和连字符",
+    agentNameRequired: "Agent 名称不能为空",
+    promptRequired: "系统提示词不能为空",
+    createAgentFailed: "创建 Agent 失败，请稍后重试",
+    createBaseFailed: "创建知识库失败，请稍后重试",
+    uploadFailed: "上传文档失败，请稍后重试",
+    reindexFailed: "重新解析文档失败，请稍后重试",
+    deleteFailed: "删除文档失败，请稍后重试",
+    settings: "设置",
+    language: "语言",
+    chinese: "中文",
+    english: "English",
+    appearance: "背景颜色",
+    dark: "深色",
+    light: "浅色",
+    close: "关闭",
+  },
+  en: {
+    title: "Page Assistant",
+    subtitle: "Admin Console",
+    agents: "Agents",
+    knowledge: "Knowledge bases",
+    router: "Router test",
+    agentConfig: "Agent configuration",
+    routerTest: "Main Agent router test",
+    localMode: "Local mode",
+    newAgent: "+ New Agent",
+    newBase: "+ New knowledge base",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    noDescription: "No description",
+    stop: "Disable",
+    enable: "Enable",
+    supportedDocs: "Supports Markdown, TXT, and PDF documents",
+    upload: "Upload document",
+    processing: "Processing…",
+    uploadHint: "Markdown, TXT, PDF, up to 10 MB",
+    parsed: "Parsed",
+    pending: "Pending",
+    parseFailed: "Failed",
+    reindex: "Reprocess",
+    delete: "Delete",
+    deleteConfirm: (name: string) => `Delete “${name}”?`,
+    routerPlaceholder: "Enter a message to test routing",
+    testRoute: "Test route",
+    newAgentTitle: "New Agent",
+    newAgentSubtitle:
+      "Configure a page-assistant sub-agent for the main Agent to dispatch.",
+    agentId: "Agent ID",
+    agentIdHint: "Use 2-128 lowercase letters, numbers, and hyphens.",
+    agentIdPlaceholder: "e.g. release-helper",
+    displayName: "Display name",
+    displayNamePlaceholder: "e.g. Release assistant",
+    descriptionOptional: "Description (optional)",
+    agentDescriptionPlaceholder: "Briefly describe what this Agent handles",
+    systemPrompt: "System prompt",
+    systemPromptPlaceholder:
+      "Define the Agent role, boundaries, and response style",
+    browserActions:
+      "Allow browser action proposals (user confirmation is still required)",
+    cancel: "Cancel",
+    createAgent: "Create Agent",
+    creating: "Creating…",
+    newBaseTitle: "New knowledge base",
+    newBaseSubtitle:
+      "Upload documents and use them for page-assistant retrieval.",
+    baseName: "Name",
+    baseNamePlaceholder: "e.g. Product operation manual",
+    baseDescriptionPlaceholder: "Briefly describe this knowledge base",
+    createBase: "Create knowledge base",
+    baseNameRequired: "Enter a knowledge base name",
+    agentIdInvalid:
+      "Agent ID must be 2-128 lowercase letters, numbers, or hyphens",
+    agentNameRequired: "Agent name is required",
+    promptRequired: "System prompt is required",
+    createAgentFailed: "Failed to create Agent. Please try again.",
+    createBaseFailed: "Failed to create knowledge base. Please try again.",
+    uploadFailed: "Failed to upload document. Please try again.",
+    reindexFailed: "Failed to reprocess document. Please try again.",
+    deleteFailed: "Failed to delete document. Please try again.",
+    settings: "Settings",
+    language: "Language",
+    chinese: "中文",
+    english: "English",
+    appearance: "Background",
+    dark: "Dark",
+    light: "Light",
+    close: "Close",
+  },
+} as const;
 
 type Agent = {
   id: string;
@@ -48,6 +192,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function App() {
+  const [language, setLanguage] = useState<Language>(() => {
+    return localStorage.getItem("admin-language") === "en" ? "en" : "zh";
+  });
+  const [theme, setTheme] = useState<Theme>(() => {
+    return localStorage.getItem("admin-theme") === "light" ? "light" : "dark";
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [bases, setBases] = useState<Base[]>([]);
   const [documents, setDocuments] = useState<
@@ -73,6 +224,25 @@ function App() {
   const [baseDescription, setBaseDescription] = useState("");
   const [baseSubmitting, setBaseSubmitting] = useState(false);
   const [baseError, setBaseError] = useState("");
+  const t = translations[language];
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("admin-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("admin-language", language);
+  }, [language]);
+
+  useEffect(() => {
+    if (!settingsOpen) return undefined;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSettingsOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [settingsOpen]);
 
   const load = () => {
     request<Agent[]>("/admin/agents")
@@ -121,9 +291,13 @@ function App() {
 
   const addAgent = () => {
     setAgentId("custom-agent");
-    setAgentDisplayName("自定义 Agent");
+    setAgentDisplayName(language === "zh" ? "自定义 Agent" : "Custom Agent");
     setAgentDescription("");
-    setAgentSystemPrompt("你是一个页面助手子 Agent。");
+    setAgentSystemPrompt(
+      language === "zh"
+        ? "你是一个页面助手子 Agent。"
+        : "You are a page-assistant sub-agent.",
+    );
     setAgentBrowserActions(false);
     setAgentError("");
     setAgentDialogOpen(true);
@@ -139,15 +313,15 @@ function App() {
     const displayName = agentDisplayName.trim();
     const systemPrompt = agentSystemPrompt.trim();
     if (!/^[a-z0-9][a-z0-9-]{1,127}$/.test(id)) {
-      setAgentError("Agent ID 只能使用 2-128 位小写字母、数字和连字符");
+      setAgentError(t.agentIdInvalid);
       return;
     }
     if (!displayName) {
-      setAgentError("Agent 名称不能为空");
+      setAgentError(t.agentNameRequired);
       return;
     }
     if (!systemPrompt) {
-      setAgentError("系统提示词不能为空");
+      setAgentError(t.promptRequired);
       return;
     }
 
@@ -170,7 +344,7 @@ function App() {
       load();
     } catch (error) {
       setAgentError(
-        error instanceof Error ? error.message : "创建 Agent 失败，请稍后重试",
+        error instanceof Error ? error.message : t.createAgentFailed,
       );
     } finally {
       setAgentSubmitting(false);
@@ -200,7 +374,7 @@ function App() {
     event.preventDefault();
     const name = baseName.trim();
     if (!name) {
-      setBaseError("请输入知识库名称");
+      setBaseError(t.baseNameRequired);
       return;
     }
 
@@ -218,9 +392,7 @@ function App() {
       setBaseDialogOpen(false);
       load();
     } catch (error) {
-      setBaseError(
-        error instanceof Error ? error.message : "创建知识库失败，请稍后重试",
-      );
+      setBaseError(error instanceof Error ? error.message : t.createBaseFailed);
     } finally {
       setBaseSubmitting(false);
     }
@@ -258,9 +430,7 @@ function App() {
         ],
       }));
     } catch (error) {
-      setUploadError(
-        error instanceof Error ? error.message : "上传文档失败，请稍后重试",
-      );
+      setUploadError(error instanceof Error ? error.message : t.uploadFailed);
     } finally {
       setUploadingBaseId(undefined);
     }
@@ -281,16 +451,14 @@ function App() {
         ).map((item) => (item.id === document.id ? updated : item)),
       }));
     } catch (error) {
-      setUploadError(
-        error instanceof Error ? error.message : "重新解析文档失败，请稍后重试",
-      );
+      setUploadError(error instanceof Error ? error.message : t.reindexFailed);
     } finally {
       setDocumentActionId(undefined);
     }
   };
 
   const deleteDocument = async (document: KnowledgeDocument) => {
-    if (!window.confirm(`确定删除文档“${document.filename}”吗？`)) return;
+    if (!window.confirm(t.deleteConfirm(document.filename))) return;
     setDocumentActionId(document.id);
     setUploadError("");
     try {
@@ -304,19 +472,20 @@ function App() {
         ).filter((item) => item.id !== document.id),
       }));
     } catch (error) {
-      setUploadError(
-        error instanceof Error ? error.message : "删除文档失败，请稍后重试",
-      );
+      setUploadError(error instanceof Error ? error.message : t.deleteFailed);
     } finally {
       setDocumentActionId(undefined);
     }
   };
 
-  const documentStatus = (status: KnowledgeDocument["status"]) => {
-    if (status === "READY") return "已解析";
-    if (status === "INDEXING") return "解析中";
-    if (status === "ERROR") return "解析失败";
-    return "等待处理";
+  const documentStatus = (
+    status: KnowledgeDocument["status"],
+    labels: (typeof translations)[Language],
+  ) => {
+    if (status === "READY") return labels.parsed;
+    if (status === "INDEXING") return labels.processing;
+    if (status === "ERROR") return labels.parseFailed;
+    return labels.pending;
   };
 
   const testRoute = async () => {
@@ -336,13 +505,13 @@ function App() {
   return (
     <div className="shell">
       <aside>
-        <h1>页面助手</h1>
-        <p className="muted">管理控制台</p>
+        <h1>{t.title}</h1>
+        <p className="muted">{t.subtitle}</p>
         {["agents", "knowledge", "router"].map((key) => {
           const labels: Record<string, string> = {
-            agents: "Agent",
-            knowledge: "知识库",
-            router: "路由测试",
+            agents: t.agents,
+            knowledge: t.knowledge,
+            router: t.router,
           };
           return (
             <button
@@ -360,30 +529,79 @@ function App() {
         <header>
           <h2>
             {tab === "agents"
-              ? "Agent 配置"
+              ? t.agentConfig
               : tab === "knowledge"
-                ? "知识库"
-                : "主 Agent 路由测试"}
+                ? t.knowledge
+                : t.routerTest}
           </h2>
-          <span className="badge">本机模式</span>
+          <div className="header-actions">
+            <span className="badge">{t.localMode}</span>
+            <button
+              className="settings-button"
+              onClick={() => setSettingsOpen((open) => !open)}
+              aria-label={t.settings}
+              title={t.settings}
+            >
+              ⚙
+            </button>
+            {settingsOpen && (
+              <div
+                className="settings-popover"
+                role="dialog"
+                aria-label={t.settings}
+              >
+                <strong>{t.settings}</strong>
+                <span className="settings-label">{t.language}</span>
+                <div className="settings-options">
+                  <button
+                    className={language === "zh" ? "option active" : "option"}
+                    onClick={() => setLanguage("zh")}
+                  >
+                    {t.chinese}
+                  </button>
+                  <button
+                    className={language === "en" ? "option active" : "option"}
+                    onClick={() => setLanguage("en")}
+                  >
+                    {t.english}
+                  </button>
+                </div>
+                <span className="settings-label">{t.appearance}</span>
+                <div className="settings-options">
+                  <button
+                    className={theme === "dark" ? "option active" : "option"}
+                    onClick={() => setTheme("dark")}
+                  >
+                    {t.dark}
+                  </button>
+                  <button
+                    className={theme === "light" ? "option active" : "option"}
+                    onClick={() => setTheme("light")}
+                  >
+                    {t.light}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </header>
 
         {tab === "agents" && (
           <section>
-            <button onClick={addAgent}>+ 新建 Agent</button>
+            <button onClick={addAgent}>{t.newAgent}</button>
             <div className="grid">
               {agents.map((agent) => (
                 <article key={agent.id}>
                   <div className="row">
                     <strong>{agent.displayName}</strong>
                     <span className={agent.enabled ? "ok" : "off"}>
-                      {agent.enabled ? "已启用" : "已停用"}
+                      {agent.enabled ? t.enabled : t.disabled}
                     </span>
                   </div>
                   <code>{agent.id}</code>
-                  <p>{agent.description || "暂无描述"}</p>
+                  <p>{agent.description || t.noDescription}</p>
                   <button onClick={() => toggle(agent)}>
-                    {agent.enabled ? "停用" : "启用"}
+                    {agent.enabled ? t.stop : t.enable}
                   </button>
                 </article>
               ))}
@@ -393,7 +611,7 @@ function App() {
 
         {tab === "knowledge" && (
           <section>
-            <button onClick={addBase}>+ 新建知识库</button>
+            <button onClick={addBase}>{t.newBase}</button>
             {uploadError && <p className="error page-error">{uploadError}</p>}
             <div className="grid">
               {bases.map((base) => (
@@ -401,14 +619,14 @@ function App() {
                   <div className="row">
                     <strong>{base.name}</strong>
                     <span className={base.enabled ? "ok" : "off"}>
-                      {base.enabled ? "已启用" : "已停用"}
+                      {base.enabled ? t.enabled : t.disabled}
                     </span>
                   </div>
-                  <p>{base.description || "支持 Markdown、TXT、PDF 文档"}</p>
+                  <p>{base.description || t.supportedDocs}</p>
                   <code>{base.id}</code>
                   <div className="document-upload">
                     <label className="upload-button">
-                      {uploadingBaseId === base.id ? "解析中…" : "上传文档"}
+                      {uploadingBaseId === base.id ? t.processing : t.upload}
                       <input
                         type="file"
                         accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
@@ -422,9 +640,7 @@ function App() {
                         }
                       />
                     </label>
-                    <span className="upload-hint">
-                      Markdown、TXT、PDF，最大 10 MB
-                    </span>
+                    <span className="upload-hint">{t.uploadHint}</span>
                   </div>
                   {(documents[base.id] ?? []).length > 0 && (
                     <div className="document-list">
@@ -440,7 +656,7 @@ function App() {
                             <span
                               className={`document-status ${document.status.toLowerCase()}`}
                             >
-                              {documentStatus(document.status)}
+                              {documentStatus(document.status, t)}
                             </span>
                           </div>
                           {document.error && (
@@ -454,14 +670,14 @@ function App() {
                               disabled={documentActionId === document.id}
                               onClick={() => reindexDocument(document)}
                             >
-                              重新解析
+                              {t.reindex}
                             </button>
                             <button
                               className="document-action danger"
                               disabled={documentActionId === document.id}
                               onClick={() => deleteDocument(document)}
                             >
-                              删除
+                              {t.delete}
                             </button>
                           </div>
                         </div>
@@ -479,9 +695,9 @@ function App() {
             <textarea
               value={message}
               onChange={(event) => setMessage(event.target.value)}
-              placeholder="输入一条消息测试路由"
+              placeholder={t.routerPlaceholder}
             />
-            <button onClick={testRoute}>测试路由</button>
+            <button onClick={testRoute}>{t.testRoute}</button>
             {route && <pre>{JSON.stringify(route, null, 2)}</pre>}
           </section>
         )}
@@ -503,59 +719,55 @@ function App() {
           >
             <div className="modal-header">
               <div>
-                <h3 id="agent-dialog-title">新建 Agent</h3>
-                <p className="modal-subtitle">
-                  配置一个可供主 Agent 调度的页面助手子 Agent。
-                </p>
+                <h3 id="agent-dialog-title">{t.newAgentTitle}</h3>
+                <p className="modal-subtitle">{t.newAgentSubtitle}</p>
               </div>
               <button
                 className="icon-button"
                 onClick={closeAgentDialog}
                 disabled={agentSubmitting}
-                aria-label="关闭"
+                aria-label={t.close}
               >
                 ×
               </button>
             </div>
             <form onSubmit={createAgent}>
               <label className="field">
-                <span>Agent ID</span>
+                <span>{t.agentId}</span>
                 <input
                   autoFocus
                   value={agentId}
                   onChange={(event) => setAgentId(event.target.value)}
-                  placeholder="例如：release-helper"
+                  placeholder={t.agentIdPlaceholder}
                   maxLength={128}
                 />
-                <small className="field-hint">
-                  使用 2-128 位小写字母、数字和连字符。
-                </small>
+                <small className="field-hint">{t.agentIdHint}</small>
               </label>
               <label className="field">
-                <span>显示名称</span>
+                <span>{t.displayName}</span>
                 <input
                   value={agentDisplayName}
                   onChange={(event) => setAgentDisplayName(event.target.value)}
-                  placeholder="例如：发布助手"
+                  placeholder={t.displayNamePlaceholder}
                   maxLength={100}
                 />
               </label>
               <label className="field">
-                <span>描述（可选）</span>
+                <span>{t.descriptionOptional}</span>
                 <textarea
                   value={agentDescription}
                   onChange={(event) => setAgentDescription(event.target.value)}
-                  placeholder="简要说明这个 Agent 负责处理什么问题"
+                  placeholder={t.agentDescriptionPlaceholder}
                   rows={2}
                   maxLength={500}
                 />
               </label>
               <label className="field">
-                <span>系统提示词</span>
+                <span>{t.systemPrompt}</span>
                 <textarea
                   value={agentSystemPrompt}
                   onChange={(event) => setAgentSystemPrompt(event.target.value)}
-                  placeholder="定义 Agent 的角色、边界和回答方式"
+                  placeholder={t.systemPromptPlaceholder}
                   rows={4}
                   maxLength={8000}
                 />
@@ -568,7 +780,7 @@ function App() {
                     setAgentBrowserActions(event.target.checked)
                   }
                 />
-                <span>允许使用浏览器操作提案（执行前仍需用户确认）</span>
+                <span>{t.browserActions}</span>
               </label>
               {agentError && <p className="error">{agentError}</p>}
               <div className="modal-actions">
@@ -578,10 +790,10 @@ function App() {
                   onClick={closeAgentDialog}
                   disabled={agentSubmitting}
                 >
-                  取消
+                  {t.cancel}
                 </button>
                 <button type="submit" disabled={agentSubmitting}>
-                  {agentSubmitting ? "创建中…" : "创建 Agent"}
+                  {agentSubmitting ? t.creating : t.createAgent}
                 </button>
               </div>
             </form>
@@ -605,37 +817,35 @@ function App() {
           >
             <div className="modal-header">
               <div>
-                <h3 id="base-dialog-title">新建知识库</h3>
-                <p className="modal-subtitle">
-                  创建后即可上传文档并用于页面助手检索。
-                </p>
+                <h3 id="base-dialog-title">{t.newBaseTitle}</h3>
+                <p className="modal-subtitle">{t.newBaseSubtitle}</p>
               </div>
               <button
                 className="icon-button"
                 onClick={closeBaseDialog}
                 disabled={baseSubmitting}
-                aria-label="关闭"
+                aria-label={t.close}
               >
                 ×
               </button>
             </div>
             <form onSubmit={createBase}>
               <label className="field">
-                <span>名称</span>
+                <span>{t.baseName}</span>
                 <input
                   autoFocus
                   value={baseName}
                   onChange={(event) => setBaseName(event.target.value)}
-                  placeholder="例如：产品操作手册"
+                  placeholder={t.baseNamePlaceholder}
                   maxLength={100}
                 />
               </label>
               <label className="field">
-                <span>描述（可选）</span>
+                <span>{t.descriptionOptional}</span>
                 <textarea
                   value={baseDescription}
                   onChange={(event) => setBaseDescription(event.target.value)}
-                  placeholder="简要说明这个知识库的内容"
+                  placeholder={t.baseDescriptionPlaceholder}
                   rows={3}
                   maxLength={500}
                 />
@@ -648,10 +858,10 @@ function App() {
                   onClick={closeBaseDialog}
                   disabled={baseSubmitting}
                 >
-                  取消
+                  {t.cancel}
                 </button>
                 <button type="submit" disabled={baseSubmitting}>
-                  {baseSubmitting ? "创建中…" : "创建知识库"}
+                  {baseSubmitting ? t.creating : t.createBase}
                 </button>
               </div>
             </form>

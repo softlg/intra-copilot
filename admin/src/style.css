@@ -2,6 +2,25 @@
   font-family: Inter, system-ui, sans-serif;
   color: #e7ecf5;
   background: #111827;
+  --page-bg: #111827;
+  --surface: #151f32;
+  --surface-muted: #0b1220;
+  --border: #283852;
+  --control-bg: #0f1726;
+  --text: #e7ecf5;
+  --muted: #9ba9bd;
+}
+
+:root[data-theme="light"] {
+  color: #172033;
+  background: #f6f8fc;
+  --page-bg: #f6f8fc;
+  --surface: #ffffff;
+  --surface-muted: #eef2f8;
+  --border: #d8e0ec;
+  --control-bg: #ffffff;
+  --text: #172033;
+  --muted: #64748b;
 }
 
 * {
@@ -10,6 +29,8 @@
 
 body {
   margin: 0;
+  background: var(--page-bg);
+  color: var(--text);
 }
 
 button,
@@ -47,8 +68,8 @@ button:disabled {
 aside {
   width: 240px;
   padding: 28px 18px;
-  background: #0b1220;
-  border-right: 1px solid #253047;
+  background: var(--surface-muted);
+  border-right: 1px solid var(--border);
 }
 
 h1 {
@@ -84,6 +105,76 @@ main {
   flex: 1;
   max-width: 1100px;
   padding: 32px 42px;
+}
+
+.header-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.settings-button:hover {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.settings-popover {
+  position: absolute;
+  z-index: 5;
+  top: 44px;
+  right: 0;
+  width: 220px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 16px 36px rgb(0 0 0 / 25%);
+}
+
+.settings-popover strong {
+  display: block;
+  margin-bottom: 15px;
+  color: var(--text);
+}
+
+.settings-label {
+  display: block;
+  margin: 12px 0 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-options {
+  display: flex;
+  gap: 7px;
+}
+
+.settings-options .option {
+  flex: 1;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--control-bg);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-options .option.active {
+  border-color: #4776d0;
+  background: #4776d0;
+  color: #fff;
 }
 
 header {
@@ -455,4 +546,53 @@ pre {
   main {
     padding: 24px 18px;
   }
+}
+
+:root[data-theme="light"] aside,
+:root[data-theme="light"] article,
+:root[data-theme="light"] .document-item,
+:root[data-theme="light"] .modal {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+:root[data-theme="light"] .nav {
+  color: #52637d;
+}
+
+:root[data-theme="light"] .nav.active,
+:root[data-theme="light"] .nav:hover {
+  background: #e8efff;
+  color: #1d4ed8;
+}
+
+:root[data-theme="light"] article p {
+  color: #64748b;
+}
+
+:root[data-theme="light"] .document-item {
+  background: #f8faff;
+}
+
+:root[data-theme="light"] .document-name,
+:root[data-theme="light"] .field span,
+:root[data-theme="light"] .checkbox-field {
+  color: #334155;
+}
+
+:root[data-theme="light"] textarea,
+:root[data-theme="light"] .field input,
+:root[data-theme="light"] .field textarea {
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+:root[data-theme="light"] pre {
+  background: #eef2f8;
+}
+
+:root[data-theme="light"] .upload-hint,
+:root[data-theme="light"] .field-hint,
+:root[data-theme="light"] .modal-subtitle {
+  color: #64748b;
 }
