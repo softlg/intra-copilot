@@ -282,6 +282,28 @@ main {
   color: white;
   border-color: #2563eb;
 }
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.message-image-button {
+  display: inline-flex;
+  max-width: 220px;
+  padding: 0;
+  border: 1px solid #ffffff55;
+  border-radius: 7px;
+  background: transparent;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+.message-image-button img {
+  display: block;
+  max-width: 218px;
+  max-height: 160px;
+  object-fit: contain;
+}
 .assistant-content {
   font-size: 13px;
   overflow-wrap: anywhere;
@@ -427,8 +449,19 @@ main {
   transition: opacity 0.15s ease;
 }
 .msg.assistant:hover .message-actions,
+.msg.user:hover .message-actions,
 .message-actions:focus-within {
   opacity: 1;
+}
+.user-message-actions {
+  justify-content: flex-end;
+  padding-right: 4px;
+}
+.edit-resend-action {
+  width: auto;
+  min-width: 32px;
+  padding: 0 7px;
+  font-size: 12px;
 }
 .message-action {
   display: inline-grid;
