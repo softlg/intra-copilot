@@ -81,6 +81,7 @@ const translations = {
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
     inputPlaceholder: "描述问题或输入你的需求…",
+    shiftEnterHint: "按 Shift+Enter 换行",
     chatInput: "聊天输入框",
     send: "发送",
     stop: "停止生成",
@@ -179,6 +180,7 @@ const translations = {
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
     inputPlaceholder: "Describe the problem or enter your request…",
+    shiftEnterHint: "Press Shift+Enter for a new line",
     chatInput: "Chat input",
     send: "Send",
     stop: "Stop generating",
@@ -1649,6 +1651,7 @@ function App() {
               {busy ? "■" : t.send}
             </button>
           </div>
+          <div className="composer-hint">{t.shiftEnterHint}</div>
           <div className="composer-tools" ref={composerToolsRef}>
             <button
               className="tool-button"
