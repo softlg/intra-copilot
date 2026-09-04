@@ -81,6 +81,10 @@ aside.sidebar-collapsed {
   padding-left: 12px;
 }
 
+aside.sidebar-collapsed .sidebar-brand {
+  display: none;
+}
+
 .sidebar-header {
   display: flex;
   align-items: flex-start;
