@@ -147,6 +147,9 @@ const translations = {
     noKnowledgeBases: "暂无可用知识库，请先创建知识库。",
     search: "搜索",
     searchPlaceholder: "搜索名称、ID或描述",
+    menuSearchPlaceholder: "搜索当前菜单内容",
+    refresh: "刷新",
+    refreshing: "刷新中…",
     noSearchResults: "没有匹配的结果。",
     viewDetails: "查看详情",
     resourceDetails: "资源详情",
@@ -362,6 +365,9 @@ const translations = {
     noKnowledgeBases: "No knowledge bases available. Create one first.",
     search: "Search",
     searchPlaceholder: "Search by name, ID, or description",
+    menuSearchPlaceholder: "Search this menu",
+    refresh: "Refresh",
+    refreshing: "Refreshing…",
     noSearchResults: "No matching results.",
     viewDetails: "View details",
     resourceDetails: "Resource details",
@@ -624,6 +630,8 @@ function App() {
     total: 0,
   });
   const [tab, setTab] = useState("agents");
+  const [menuSearch, setMenuSearch] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
   const [route, setRoute] = useState<Record<string, unknown>>();
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
@@ -763,6 +771,16 @@ function App() {
   };
 
   useEffect(load, []);
+
+  useEffect(() => {
+    setMenuSearch("");
+  }, [tab, activeBaseId]);
+
+  const refresh = () => {
+    setRefreshing(true);
+    load();
+    window.setTimeout(() => setRefreshing(false), 700);
+  };
 
   const openResourceDialog = (
     kind: "tool" | "skill",
@@ -1388,6 +1406,55 @@ function App() {
     setUploadError("");
     setResourceError("");
   };
+  const query = menuSearch.trim().toLowerCase();
+  const matchesSearch = (...values: unknown[]) =>
+    !query ||
+    values.some(
+      (value) =>
+        value !== undefined &&
+        value !== null &&
+        String(value).toLowerCase().includes(query),
+    );
+  const filteredAgents = agents.filter((agent) =>
+    matchesSearch(agent.displayName, agent.id, agent.description),
+  );
+  const filteredBases = bases.filter((base) =>
+    matchesSearch(base.name, base.id, base.description),
+  );
+  const activeDocuments = activeBaseId ? (documents[activeBaseId] ?? []) : [];
+  const filteredDocuments = activeDocuments.filter((document) =>
+    matchesSearch(document.filename, document.id, document.status),
+  );
+  const filteredTools = tools.filter((tool) =>
+    matchesSearch(
+      tool.name,
+      tool.id,
+      tool.description,
+      tool.type,
+      tool.endpoint,
+      tool.mcpServerUrl,
+    ),
+  );
+  const filteredSkills = skills.filter((skill) =>
+    matchesSearch(skill.name, skill.id, skill.description, skill.prompt),
+  );
+  const filteredFeedback = feedback.filter((item) =>
+    matchesSearch(
+      item.agentId,
+      item.sessionId,
+      item.messageId,
+      item.rating,
+      item.comment,
+    ),
+  );
+  const filteredConversationLogs = conversationLogs.filter((log) =>
+    matchesSearch(
+      log.id,
+      log.title,
+      ...log.messages.flatMap((item) => [item.content, item.agentId]),
+    ),
+  );
+  const showMenuToolbar = tab !== "router" && tab !== "agent-settings";
 
   return (
     <div className="shell">
@@ -1511,6 +1578,43 @@ function App() {
             )}
           </div>
         </header>
+
+        {showMenuToolbar && (
+          <div className="menu-toolbar" role="search">
+            <div className="menu-search-control">
+              <span className="menu-search-icon" aria-hidden="true">
+                ⌕
+              </span>
+              <input
+                type="search"
+                value={menuSearch}
+                onChange={(event) => setMenuSearch(event.target.value)}
+                placeholder={t.menuSearchPlaceholder}
+                aria-label={t.search}
+              />
+              {menuSearch && (
+                <button
+                  type="button"
+                  className="menu-search-clear"
+                  onClick={() => setMenuSearch("")}
+                  aria-label={t.close}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              className="secondary menu-refresh-button"
+              onClick={refresh}
+              disabled={refreshing}
+              title={refreshing ? t.refreshing : t.refresh}
+            >
+              <span aria-hidden="true">↻</span>
+              {refreshing ? t.refreshing : t.refresh}
+            </button>
+          </div>
+        )}
 
         {tab === "agent-settings" && agentConfigId && (
           <section className="agent-settings-page">
@@ -2086,7 +2190,7 @@ function App() {
           <section>
             <button onClick={addAgent}>{t.newAgent}</button>
             {([true, false] as const).map((system) => {
-              const group = agents.filter(
+              const group = filteredAgents.filter(
                 (agent) => isSystemAgent(agent) === system,
               );
               if (!group.length) return null;
@@ -2128,6 +2232,9 @@ function App() {
                 </section>
               );
             })}
+            {agents.length > 0 && filteredAgents.length === 0 && (
+              <p className="empty-documents">{t.noSearchResults}</p>
+            )}
           </section>
         )}
 
@@ -2137,7 +2244,7 @@ function App() {
               <>
                 <button onClick={addBase}>{t.newBase}</button>
                 <div className="grid">
-                  {bases.map((base) => (
+                  {filteredBases.map((base) => (
                     <article
                       className="knowledge-card knowledge-card-clickable"
                       key={base.id}
@@ -2176,6 +2283,11 @@ function App() {
                     </article>
                   ))}
                 </div>
+                {bases.length === 0 ? (
+                  <p className="empty-documents">{t.noKnowledgeBases}</p>
+                ) : filteredBases.length === 0 ? (
+                  <p className="empty-documents">{t.noSearchResults}</p>
+                ) : null}
               </>
             ) : (
               <div className="knowledge-detail">
@@ -2307,11 +2419,13 @@ function App() {
                         />
                       </label>
                     </div>
-                    {(documents[activeBase.id] ?? []).length === 0 ? (
+                    {activeDocuments.length === 0 ? (
                       <p className="empty-documents">{t.noDocuments}</p>
+                    ) : filteredDocuments.length === 0 ? (
+                      <p className="empty-documents">{t.noSearchResults}</p>
                     ) : (
                       <div className="document-list detail-document-list">
-                        {(documents[activeBase.id] ?? []).map((document) => (
+                        {filteredDocuments.map((document) => (
                           <div className="document-item" key={document.id}>
                             <div className="document-main">
                               <span
@@ -2399,9 +2513,11 @@ function App() {
               <h3>{t.tool}</h3>
               {tools.length === 0 ? (
                 <p className="empty-documents">{t.noResources}</p>
+              ) : filteredTools.length === 0 ? (
+                <p className="empty-documents">{t.noSearchResults}</p>
               ) : (
                 <div className="grid">
-                  {tools.map((tool) => (
+                  {filteredTools.map((tool) => (
                     <article key={tool.id}>
                       <div className="row">
                         <strong>{tool.name}</strong>
@@ -2464,9 +2580,11 @@ function App() {
               <h3>{t.skill}</h3>
               {skills.length === 0 ? (
                 <p className="empty-documents">{t.noResources}</p>
+              ) : filteredSkills.length === 0 ? (
+                <p className="empty-documents">{t.noSearchResults}</p>
               ) : (
                 <div className="grid">
-                  {skills.map((skill) => (
+                  {filteredSkills.map((skill) => (
                     <article key={skill.id}>
                       <div className="row">
                         <strong>{skill.name}</strong>
@@ -2514,9 +2632,11 @@ function App() {
             <p className="muted">{t.noFeedback}</p>
             {feedback.length === 0 ? (
               <p className="empty-documents">{t.noFeedback}</p>
+            ) : filteredFeedback.length === 0 ? (
+              <p className="empty-documents">{t.noSearchResults}</p>
             ) : (
               <div className="feedback-list">
-                {feedback.map((item) => (
+                {filteredFeedback.map((item) => (
                   <article className="feedback-card" key={item.id}>
                     <div className="row">
                       <strong>{item.agentId || "-"}</strong>
@@ -2540,9 +2660,11 @@ function App() {
             <p className="muted">{t.conversationLogsSubtitle}</p>
             {conversationLogs.length === 0 ? (
               <p className="empty-documents">{t.noConversationLogs}</p>
+            ) : filteredConversationLogs.length === 0 ? (
+              <p className="empty-documents">{t.noSearchResults}</p>
             ) : (
               <div className="conversation-log-list">
-                {conversationLogs.map((log) => {
+                {filteredConversationLogs.map((log) => {
                   const selected = selectedConversationLogId === log.id;
                   return (
                     <article
