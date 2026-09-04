@@ -79,8 +79,7 @@ public class ChatService {
       String text,
       String requestedAgent,
       String pageContext,
-      Map<String, Boolean> permissions,
-      List<String> images) {
+      Map<String, Boolean> permissions) {
     Conversation c = conversations.findById(sessionId).orElseGet(this::create);
     boolean readPage =
         Boolean.TRUE.equals(permissions == null ? null : permissions.get("readPage"));
@@ -151,7 +150,7 @@ public class ChatService {
       } catch (Exception ignored) { }
     }
     StringBuilder full = new StringBuilder();
-    llm.stream(agent.systemPrompt(), h, enriched, sanitizeImages(images))
+    llm.stream(agent.systemPrompt(), h, enriched)
         .subscribe(
             token -> {
               full.append(token);
@@ -204,16 +203,6 @@ public class ChatService {
               }
             });
     return out;
-  }
-
-  private List<String> sanitizeImages(List<String> images) {
-    if (images == null || images.isEmpty()) return List.of();
-    return images.stream()
-        .filter(Objects::nonNull)
-        .filter(value -> value.startsWith("data:image/"))
-        .filter(value -> value.length() <= 8_000_000)
-        .limit(8)
-        .toList();
   }
 
   private ActionProposal parseProposal(String conversationId, String text) {
