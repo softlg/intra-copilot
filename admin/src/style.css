@@ -733,6 +733,23 @@ article p {
   white-space: nowrap;
 }
 
+.feedback-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.feedback-card {
+  display: grid;
+  gap: 8px;
+}
+
+.feedback-card small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .agent-delete {
   border: 1px solid #6b3441;
   background: transparent;

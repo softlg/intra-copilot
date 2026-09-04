@@ -16,6 +16,7 @@ const translations = {
     skillsMenu: "Skill",
     skillsTitle: "Skill 管理",
     router: "路由测试",
+    agentRatings: "Agent 评分",
     agentConfig: "Agent 配置",
     routerTest: "主 Agent 路由测试",
     localMode: "本机模式",
@@ -159,6 +160,9 @@ const translations = {
     resourceDeleteFailed: "删除资源失败，请稍后重试",
     saveResource: "保存",
     createResource: "创建",
+    ratingUp: "赞",
+    ratingDown: "踩",
+    noFeedback: "暂无评分反馈。用户在插件中点击赞/踩后会显示在这里。",
   },
   en: {
     title: "Page Assistant",
@@ -169,6 +173,7 @@ const translations = {
     skillsMenu: "Skill",
     skillsTitle: "Skill management",
     router: "Router test",
+    agentRatings: "Agent ratings",
     agentConfig: "Agent configuration",
     routerTest: "Main Agent router test",
     localMode: "Local mode",
@@ -323,6 +328,9 @@ const translations = {
     resourceDeleteFailed: "Failed to delete the resource. Please try again.",
     saveResource: "Save",
     createResource: "Create",
+    ratingUp: "Up",
+    ratingDown: "Down",
+    noFeedback: "No feedback yet. Ratings from the extension will appear here.",
   },
 } as const;
 
@@ -359,6 +367,17 @@ type SkillDefinition = {
   prompt: string;
   version?: string;
   enabled: boolean;
+};
+
+type AgentFeedback = {
+  id: string;
+  sessionId?: string;
+  messageId?: string;
+  messageIndex?: number;
+  agentId?: string;
+  rating: "up" | "down";
+  comment?: string;
+  createdAt?: string;
 };
 
 type Base = {
@@ -415,6 +434,7 @@ function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
+  const [feedback, setFeedback] = useState<AgentFeedback[]>([]);
   const [resourceDialog, setResourceDialog] = useState<"tool" | "skill">();
   const [editingResourceId, setEditingResourceId] = useState<string>();
   const [resourceName, setResourceName] = useState("");
@@ -545,6 +565,9 @@ function App() {
     request<SkillDefinition[]>("/admin/skills")
       .then(setSkills)
       .catch(() => setSkills([]));
+    request<AgentFeedback[]>("/admin/agent-feedback")
+      .then(setFeedback)
+      .catch(() => setFeedback([]));
     request<Base[]>("/admin/knowledge-bases")
       .then((list) => {
         setBases(list);
@@ -1135,6 +1158,7 @@ function App() {
           ["knowledge", "▣"],
           ["tools", "⚒"],
           ["skills", "✦"],
+          ["ratings", "★"],
           ["router", "⌁"],
         ].map(([key, icon]) => {
           const labels: Record<string, string> = {
@@ -1142,6 +1166,7 @@ function App() {
             knowledge: t.knowledge,
             tools: t.toolsMenu,
             skills: t.skillsMenu,
+            ratings: t.agentRatings,
             router: t.router,
           };
           return (
@@ -1174,7 +1199,9 @@ function App() {
                     ? t.toolsTitle
                     : tab === "skills"
                       ? t.skillsTitle
-                      : t.routerTest}
+                      : tab === "ratings"
+                        ? t.agentRatings
+                        : t.routerTest}
           </h2>
           <div className="header-actions">
             <span className="badge">{t.localMode}</span>
@@ -1914,6 +1941,32 @@ function App() {
                 </div>
               )}
             </div>
+          </section>
+        )}
+
+        {tab === "ratings" && (
+          <section>
+            <p className="muted">{t.noFeedback}</p>
+            {feedback.length === 0 ? (
+              <p className="empty-documents">{t.noFeedback}</p>
+            ) : (
+              <div className="feedback-list">
+                {feedback.map((item) => (
+                  <article className="feedback-card" key={item.id}>
+                    <div className="row">
+                      <strong>{item.agentId || "-"}</strong>
+                      <span className={item.rating === "up" ? "ok" : "off"}>
+                        {item.rating === "up" ? t.ratingUp : t.ratingDown}
+                      </span>
+                    </div>
+                    <code>{item.sessionId || item.messageId || ""}</code>
+                    {item.createdAt && (
+                      <small>{new Date(item.createdAt).toLocaleString()}</small>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
