@@ -104,11 +104,19 @@ public class AgentOrchestrator {
 
   private String routingPrompt() {
     StringBuilder available = new StringBuilder();
+    String routingRules = "";
+    for (AgentDefinition definition : registry.allDefinitions()) {
+      if ("route-copilot".equals(definition.getId())) {
+        routingRules = definition.getRoutingRules();
+        break;
+      }
+    }
     for (AgentDefinition definition : registry.enabledDefinitions()) {
       if ("route-copilot".equals(definition.getId())) continue;
       available.append("- ").append(definition.getId()).append(": ").append(definition.getDescription()).append('\n');
     }
     return "你是 Intra route Copilot，只负责识别用户意图并选择一个后台 Agent。\n"
+        + (routingRules == null || routingRules.isBlank() ? "" : "管理员配置的意图路由规则（优先遵循）：\n" + routingRules + "\n")
         + "可选 Agent：\n"
         + available
         + "只输出 JSON，不要 Markdown：{\"targetAgentId\":\"...\",\"confidence\":0到1,\"reason\":\"...\",\"needsClarification\":false}。"
