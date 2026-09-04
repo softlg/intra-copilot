@@ -107,6 +107,8 @@ const translations = {
     topKHint: "每次问答最多注入的相关片段数量",
     saveSettings: "保存设置",
     saved: "已保存",
+    collapseSidebar: "收缩菜单栏",
+    expandSidebar: "展开菜单栏",
   },
   en: {
     title: "Page Assistant",
@@ -217,6 +219,8 @@ const translations = {
     topKHint: "Maximum number of relevant chunks injected per question",
     saveSettings: "Save settings",
     saved: "Saved",
+    collapseSidebar: "Collapse menu",
+    expandSidebar: "Expand menu",
   },
 } as const;
 
@@ -283,6 +287,9 @@ function App() {
   const [theme, setTheme] = useState<Theme>(() => {
     return localStorage.getItem("admin-theme") === "light" ? "light" : "dark";
   });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem("admin-sidebar-collapsed") === "true",
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [bases, setBases] = useState<Base[]>([]);
@@ -340,6 +347,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem("admin-language", language);
   }, [language]);
+
+  useEffect(() => {
+    localStorage.setItem("admin-sidebar-collapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     try {
@@ -533,11 +544,7 @@ function App() {
       load();
     } catch (error) {
       setAgentError(
-        error instanceof Error
-          ? error.message
-          : editingAgentId
-            ? t.createAgentFailed
-            : t.createAgentFailed,
+        error instanceof Error ? error.message : t.createAgentFailed,
       );
     } finally {
       setAgentSubmitting(false);
@@ -739,10 +746,26 @@ function App() {
 
   return (
     <div className="shell">
-      <aside>
-        <h1>{t.title}</h1>
-        <p className="muted">{t.subtitle}</p>
-        {["agents", "knowledge", "router"].map((key) => {
+      <aside className={sidebarCollapsed ? "sidebar-collapsed" : undefined}>
+        <div className="sidebar-header">
+          <div className="sidebar-brand">
+            <h1>{t.title}</h1>
+            {!sidebarCollapsed && <p className="muted">{t.subtitle}</p>}
+          </div>
+          <button
+            className="sidebar-toggle"
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            aria-label={sidebarCollapsed ? t.expandSidebar : t.collapseSidebar}
+            title={sidebarCollapsed ? t.expandSidebar : t.collapseSidebar}
+          >
+            {sidebarCollapsed ? "›" : "‹"}
+          </button>
+        </div>
+        {[
+          ["agents", "◆"],
+          ["knowledge", "▣"],
+          ["router", "⌁"],
+        ].map(([key, icon]) => {
           const labels: Record<string, string> = {
             agents: t.agents,
             knowledge: t.knowledge,
@@ -754,7 +777,10 @@ function App() {
               onClick={() => setTab(key)}
               key={key}
             >
-              {labels[key]}
+              <span className="nav-icon" aria-hidden="true">
+                {icon}
+              </span>
+              {!sidebarCollapsed && <span>{labels[key]}</span>}
             </button>
           );
         })}
