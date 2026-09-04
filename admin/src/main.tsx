@@ -17,6 +17,8 @@ const translations = {
     skillsTitle: "Skill 管理",
     router: "路由测试",
     agentRatings: "Agent 评分",
+    conversationLogs: "对话日志",
+    conversationLogsSubtitle: "按会话查看用户消息、路由和 Agent 执行过程。",
     agentConfig: "Agent 配置",
     routerTest: "主 Agent 路由测试",
     localMode: "本机模式",
@@ -49,7 +51,7 @@ const translations = {
     routerPlaceholder: "输入一条消息测试路由",
     testRoute: "测试路由",
     newAgentTitle: "新建 Agent",
-    newAgentSubtitle: "配置一个可供主 Agent 调度的页面助手子 Agent。",
+    newAgentSubtitle: "先填写基础信息，创建后可在设置中配置能力和关联资源。",
     agentId: "Agent ID",
     agentIdHint: "使用 2-128 位小写字母、数字和连字符。",
     agentIdPlaceholder: "例如：release-helper",
@@ -170,6 +172,19 @@ const translations = {
     ratingUp: "赞",
     ratingDown: "踩",
     noFeedback: "暂无评分反馈。用户在插件中点击赞/踩后会显示在这里。",
+    noConversationLogs:
+      "暂无对话日志。用户从浏览器插件发起对话后会显示在这里。",
+    userMessage: "用户",
+    assistantMessage: "助手",
+    invocationDetails: "Agent 执行记录",
+    actionDetails: "浏览器动作提案",
+    route: "路由",
+    duration: "耗时",
+    confidence: "置信度",
+    routeSource: "路由来源",
+    actionPending: "待处理",
+    actionCompleted: "已完成",
+    actionFailed: "失败",
   },
   en: {
     title: "Page Assistant",
@@ -181,6 +196,9 @@ const translations = {
     skillsTitle: "Skill management",
     router: "Router test",
     agentRatings: "Agent ratings",
+    conversationLogs: "Conversation logs",
+    conversationLogsSubtitle:
+      "Review user messages, routing, and Agent execution by session.",
     agentConfig: "Agent configuration",
     routerTest: "Main Agent router test",
     localMode: "Local mode",
@@ -214,7 +232,7 @@ const translations = {
     testRoute: "Test route",
     newAgentTitle: "New Agent",
     newAgentSubtitle:
-      "Configure a page-assistant sub-agent for the main Agent to dispatch.",
+      "Enter the basic information first; configure capabilities and resources after creation.",
     agentId: "Agent ID",
     agentIdHint: "Use 2-128 lowercase letters, numbers, and hyphens.",
     agentIdPlaceholder: "e.g. release-helper",
@@ -345,6 +363,19 @@ const translations = {
     ratingUp: "Up",
     ratingDown: "Down",
     noFeedback: "No feedback yet. Ratings from the extension will appear here.",
+    noConversationLogs:
+      "No conversation logs yet. Logs will appear after users chat from the extension.",
+    userMessage: "User",
+    assistantMessage: "Assistant",
+    invocationDetails: "Agent invocations",
+    actionDetails: "Browser action proposals",
+    route: "Route",
+    duration: "Duration",
+    confidence: "Confidence",
+    routeSource: "Route source",
+    actionPending: "Pending",
+    actionCompleted: "Completed",
+    actionFailed: "Failed",
   },
 } as const;
 
@@ -421,6 +452,42 @@ type QASceneSettings = {
   topK: number;
 };
 
+type ConversationLog = {
+  id: string;
+  title: string;
+  createdAt?: string;
+  updatedAt?: string;
+  messages: {
+    id: string;
+    role: string;
+    content: string;
+    agentId?: string;
+    contextSummary?: string;
+    createdAt?: string;
+  }[];
+  invocations: {
+    id: string;
+    requestedAgentId?: string;
+    selectedAgentId?: string;
+    routeReason?: string;
+    confidence?: number;
+    routeSource?: string;
+    durationMs?: number;
+    error?: string;
+    createdAt?: string;
+  }[];
+  actions: {
+    actionId: string;
+    type?: string;
+    target?: string;
+    reason?: string;
+    risk?: string;
+    status?: string;
+    result?: string;
+    expiresAt?: string;
+  }[];
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API}${path}`, {
     headers: {
@@ -450,6 +517,11 @@ function App() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [conversationLogs, setConversationLogs] = useState<ConversationLog[]>(
+    [],
+  );
+  const [selectedConversationLogId, setSelectedConversationLogId] =
+    useState<string>();
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [feedback, setFeedback] = useState<AgentFeedback[]>([]);
@@ -583,6 +655,16 @@ function App() {
     request<Agent[]>("/admin/agents")
       .then(setAgents)
       .catch(() => setAgents([]));
+    request<ConversationLog[]>("/admin/conversation-logs")
+      .then((logs) => {
+        setConversationLogs(logs);
+        setSelectedConversationLogId((current) =>
+          current && logs.some((log) => log.id === current)
+            ? current
+            : logs[0]?.id,
+        );
+      })
+      .catch(() => setConversationLogs([]));
     request<ToolDefinition[]>("/admin/tools")
       .then(setTools)
       .catch(() => setTools([]));
@@ -1189,6 +1271,7 @@ function App() {
           ["tools", "⚒"],
           ["skills", "✦"],
           ["ratings", "★"],
+          ["conversation-logs", "☷"],
           ["router", "⌁"],
         ].map(([key, icon]) => {
           const labels: Record<string, string> = {
@@ -1197,6 +1280,7 @@ function App() {
             tools: t.toolsMenu,
             skills: t.skillsMenu,
             ratings: t.agentRatings,
+            "conversation-logs": t.conversationLogs,
             router: t.router,
           };
           return (
@@ -1231,7 +1315,9 @@ function App() {
                       ? t.skillsTitle
                       : tab === "ratings"
                         ? t.agentRatings
-                        : t.routerTest}
+                        : tab === "conversation-logs"
+                          ? t.conversationLogs
+                          : t.routerTest}
           </h2>
           <div className="header-actions">
             <span className="badge">{t.localMode}</span>
@@ -2205,6 +2291,192 @@ function App() {
           </section>
         )}
 
+        {tab === "conversation-logs" && (
+          <section className="conversation-logs-page">
+            <p className="muted">{t.conversationLogsSubtitle}</p>
+            {conversationLogs.length === 0 ? (
+              <p className="empty-documents">{t.noConversationLogs}</p>
+            ) : (
+              <div className="conversation-log-list">
+                {conversationLogs.map((log) => {
+                  const selected = selectedConversationLogId === log.id;
+                  return (
+                    <article
+                      className={
+                        selected
+                          ? "conversation-log-card selected"
+                          : "conversation-log-card"
+                      }
+                      key={log.id}
+                    >
+                      <button
+                        type="button"
+                        className="conversation-log-heading"
+                        onClick={() => setSelectedConversationLogId(log.id)}
+                        aria-expanded={selected}
+                      >
+                        <span>
+                          <strong>{log.title || log.id}</strong>
+                          <code>{log.id}</code>
+                        </span>
+                        <span className="conversation-log-meta">
+                          {log.updatedAt
+                            ? new Date(log.updatedAt).toLocaleString()
+                            : "-"}
+                          <span>{log.messages.length} 条消息</span>
+                        </span>
+                      </button>
+                      {selected && (
+                        <div className="conversation-log-body">
+                          <section>
+                            <h4>
+                              {t.userMessage} / {t.assistantMessage}
+                            </h4>
+                            <div className="conversation-log-messages">
+                              {log.messages.length === 0 ? (
+                                <p className="binding-empty">-</p>
+                              ) : (
+                                log.messages.map((item) => (
+                                  <div
+                                    className={
+                                      item.role === "user"
+                                        ? "conversation-log-message user"
+                                        : "conversation-log-message assistant"
+                                    }
+                                    key={item.id}
+                                  >
+                                    <div className="conversation-log-message-meta">
+                                      <strong>
+                                        {item.role === "user"
+                                          ? t.userMessage
+                                          : t.assistantMessage}
+                                      </strong>
+                                      {item.agentId && (
+                                        <code>{item.agentId}</code>
+                                      )}
+                                      {item.createdAt && (
+                                        <small>
+                                          {new Date(
+                                            item.createdAt,
+                                          ).toLocaleString()}
+                                        </small>
+                                      )}
+                                    </div>
+                                    <p>{item.content || "-"}</p>
+                                    {item.contextSummary && (
+                                      <details>
+                                        <summary>Context</summary>
+                                        <pre>{item.contextSummary}</pre>
+                                      </details>
+                                    )}
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </section>
+                          <section>
+                            <h4>{t.invocationDetails}</h4>
+                            {log.invocations.length === 0 ? (
+                              <p className="binding-empty">-</p>
+                            ) : (
+                              <div className="conversation-log-invocations">
+                                {log.invocations.map((item) => (
+                                  <div
+                                    className="conversation-log-invocation"
+                                    key={item.id}
+                                  >
+                                    <div className="conversation-log-message-meta">
+                                      <strong>
+                                        {item.selectedAgentId || "-"}
+                                      </strong>
+                                      {item.createdAt && (
+                                        <small>
+                                          {new Date(
+                                            item.createdAt,
+                                          ).toLocaleString()}
+                                        </small>
+                                      )}
+                                    </div>
+                                    <div className="conversation-log-fields">
+                                      <span>
+                                        {t.route}:{" "}
+                                        {item.requestedAgentId || "auto"}
+                                      </span>
+                                      <span>
+                                        {t.confidence}:{" "}
+                                        {item.confidence == null
+                                          ? "-"
+                                          : item.confidence.toFixed(2)}
+                                      </span>
+                                      <span>
+                                        {t.duration}:{" "}
+                                        {item.durationMs == null
+                                          ? "-"
+                                          : `${item.durationMs} ms`}
+                                      </span>
+                                      <span>
+                                        {t.routeSource}:{" "}
+                                        {item.routeSource || "-"}
+                                      </span>
+                                    </div>
+                                    {item.routeReason && (
+                                      <p>{item.routeReason}</p>
+                                    )}
+                                    {item.error && (
+                                      <p className="error">{item.error}</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </section>
+                          <section>
+                            <h4>{t.actionDetails}</h4>
+                            {log.actions.length === 0 ? (
+                              <p className="binding-empty">-</p>
+                            ) : (
+                              <div className="conversation-log-invocations">
+                                {log.actions.map((item) => (
+                                  <div
+                                    className="conversation-log-invocation"
+                                    key={item.actionId}
+                                  >
+                                    <div className="conversation-log-message-meta">
+                                      <strong>{item.type || "-"}</strong>
+                                      <span
+                                        className={
+                                          item.status === "COMPLETED"
+                                            ? "ok"
+                                            : item.status === "FAILED"
+                                              ? "off"
+                                              : "badge"
+                                        }
+                                      >
+                                        {item.status === "COMPLETED"
+                                          ? t.actionCompleted
+                                          : item.status === "FAILED"
+                                            ? t.actionFailed
+                                            : t.actionPending}
+                                      </span>
+                                    </div>
+                                    <code>{item.target || item.actionId}</code>
+                                    {item.reason && <p>{item.reason}</p>}
+                                    {item.result && <pre>{item.result}</pre>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </section>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
         {tab === "router" && (
           <section>
             <textarea
@@ -2368,240 +2640,262 @@ function App() {
                   maxLength={8000}
                 />
               </label>
-              <label className="checkbox-field">
-                <input
-                  type="checkbox"
-                  checked={agentBrowserActions}
-                  onChange={(event) =>
-                    setAgentBrowserActions(event.target.checked)
-                  }
-                />
-                <span>{t.browserActions}</span>
-              </label>
-              <label className="checkbox-field">
-                <input
-                  type="checkbox"
-                  checked={agentEnabled}
-                  onChange={(event) => setAgentEnabled(event.target.checked)}
-                />
-                <span>{t.enabled}</span>
-              </label>
-              <div className="field-grid">
-                <label className="field">
-                  <span>{t.priority}</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={10000}
-                    value={agentPriority}
-                    onChange={(event) =>
-                      setAgentPriority(Number(event.target.value) || 0)
-                    }
-                  />
-                </label>
-                <label className="field">
-                  <span>{t.temperature}</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={2}
-                    step={0.1}
-                    value={agentTemperature}
-                    onChange={(event) =>
-                      setAgentTemperature(event.target.value)
-                    }
-                    placeholder="0.7"
-                  />
-                </label>
-              </div>
-              <label className="field">
-                <span>{t.model}</span>
-                <input
-                  value={agentModel}
-                  onChange={(event) => setAgentModel(event.target.value)}
-                  placeholder={t.modelPlaceholder}
-                />
-              </label>
-              <section className="binding-section">
-                <div className="binding-heading">
-                  <div>
-                    <h4>{t.knowledgeBases}</h4>
-                    <p>{t.idsHint}</p>
+              {editingAgentId && (
+                <>
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={agentBrowserActions}
+                      onChange={(event) =>
+                        setAgentBrowserActions(event.target.checked)
+                      }
+                    />
+                    <span>{t.browserActions}</span>
+                  </label>
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={agentEnabled}
+                      onChange={(event) =>
+                        setAgentEnabled(event.target.checked)
+                      }
+                    />
+                    <span>{t.enabled}</span>
+                  </label>
+                  <div className="field-grid">
+                    <label className="field">
+                      <span>{t.priority}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={10000}
+                        value={agentPriority}
+                        onChange={(event) =>
+                          setAgentPriority(Number(event.target.value) || 0)
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>{t.temperature}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        value={agentTemperature}
+                        onChange={(event) =>
+                          setAgentTemperature(event.target.value)
+                        }
+                        placeholder="0.7"
+                      />
+                    </label>
                   </div>
-                  <span className="binding-count">
-                    {parseIds(agentKnowledgeBaseIds).length}
-                  </span>
-                </div>
-                {bases.length === 0 ? (
-                  <p className="binding-empty">{t.noKnowledgeBases}</p>
-                ) : (
-                  <div className="binding-list">
-                    {bases.map((base) => {
-                      const selected = parseIds(agentKnowledgeBaseIds).includes(
-                        base.id,
-                      );
-                      return (
-                        <label className="binding-option" key={base.id}>
-                          <input
-                            type="checkbox"
-                            checked={selected}
-                            onChange={() => {
-                              const current = parseIds(agentKnowledgeBaseIds);
-                              const next = selected
-                                ? current.filter((id) => id !== base.id)
-                                : [...current, base.id];
-                              setAgentKnowledgeBaseIds(JSON.stringify(next));
-                            }}
-                          />
-                          <span className="binding-copy">
-                            <span className="binding-name">{base.name}</span>
-                            <span className="binding-meta">
-                              {base.enabled ? t.enabled : t.disabled}
-                            </span>
-                            {base.description && (
-                              <span className="binding-description">
-                                {base.description}
-                              </span>
-                            )}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-
-              <section
-                className="binding-section"
-                aria-labelledby="tool-bindings-title"
-              >
-                <div className="binding-heading">
-                  <div>
-                    <h4 id="tool-bindings-title">{t.tools}</h4>
-                    <p>{t.browserActions}</p>
-                  </div>
-                  <span className="binding-count">{agentToolIds.length}</span>
-                </div>
-                {tools.filter((tool) => tool.enabled).length === 0 ? (
-                  <p className="binding-empty">{t.noTools}</p>
-                ) : (
-                  <div className="binding-list">
-                    {tools
-                      .filter((tool) => tool.enabled)
-                      .map((tool) => {
-                        const checked = agentToolIds.includes(tool.id);
-                        return (
-                          <label className="binding-option" key={tool.id}>
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() =>
-                                setAgentToolIds((current) =>
-                                  checked
-                                    ? current.filter((id) => id !== tool.id)
-                                    : [...current, tool.id],
-                                )
-                              }
-                            />
-                            <span className="binding-copy">
-                              <span className="binding-name">{tool.name}</span>
-                              <span className="binding-meta">
-                                {tool.type === "BROWSER_PROPOSAL"
-                                  ? t.browserProposal
-                                  : (tool.type ?? t.toolType)}
-                              </span>
-                              {tool.description && (
-                                <span className="binding-description">
-                                  {tool.description}
+                  <label className="field">
+                    <span>{t.model}</span>
+                    <input
+                      value={agentModel}
+                      onChange={(event) => setAgentModel(event.target.value)}
+                      placeholder={t.modelPlaceholder}
+                    />
+                  </label>
+                  <section className="binding-section">
+                    <div className="binding-heading">
+                      <div>
+                        <h4>{t.knowledgeBases}</h4>
+                        <p>{t.idsHint}</p>
+                      </div>
+                      <span className="binding-count">
+                        {parseIds(agentKnowledgeBaseIds).length}
+                      </span>
+                    </div>
+                    {bases.length === 0 ? (
+                      <p className="binding-empty">{t.noKnowledgeBases}</p>
+                    ) : (
+                      <div className="binding-list">
+                        {bases.map((base) => {
+                          const selected = parseIds(
+                            agentKnowledgeBaseIds,
+                          ).includes(base.id);
+                          return (
+                            <label className="binding-option" key={base.id}>
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => {
+                                  const current = parseIds(
+                                    agentKnowledgeBaseIds,
+                                  );
+                                  const next = selected
+                                    ? current.filter((id) => id !== base.id)
+                                    : [...current, base.id];
+                                  setAgentKnowledgeBaseIds(
+                                    JSON.stringify(next),
+                                  );
+                                }}
+                              />
+                              <span className="binding-copy">
+                                <span className="binding-name">
+                                  {base.name}
                                 </span>
-                              )}
-                            </span>
-                            <button
-                              type="button"
-                              className="binding-detail-button"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setResourceDetails({
-                                  kind: "tool",
-                                  resource: tool,
-                                });
-                              }}
-                            >
-                              {t.viewDetails}
-                            </button>
-                          </label>
-                        );
-                      })}
-                  </div>
-                )}
-              </section>
-
-              <section
-                className="binding-section"
-                aria-labelledby="skill-bindings-title"
-              >
-                <div className="binding-heading">
-                  <div>
-                    <h4 id="skill-bindings-title">{t.skills}</h4>
-                    <p>{t.idsHint}</p>
-                  </div>
-                  <span className="binding-count">{agentSkillIds.length}</span>
-                </div>
-                {skills.filter((skill) => skill.enabled).length === 0 ? (
-                  <p className="binding-empty">{t.noSkills}</p>
-                ) : (
-                  <div className="binding-list">
-                    {skills
-                      .filter((skill) => skill.enabled)
-                      .map((skill) => {
-                        const checked = agentSkillIds.includes(skill.id);
-                        return (
-                          <label className="binding-option" key={skill.id}>
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() =>
-                                setAgentSkillIds((current) =>
-                                  checked
-                                    ? current.filter((id) => id !== skill.id)
-                                    : [...current, skill.id],
-                                )
-                              }
-                            />
-                            <span className="binding-copy">
-                              <span className="binding-name">{skill.name}</span>
-                              {skill.version && (
                                 <span className="binding-meta">
-                                  v{skill.version}
+                                  {base.enabled ? t.enabled : t.disabled}
                                 </span>
-                              )}
-                              {skill.description && (
-                                <span className="binding-description">
-                                  {skill.description}
+                                {base.description && (
+                                  <span className="binding-description">
+                                    {base.description}
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+
+                  <section
+                    className="binding-section"
+                    aria-labelledby="tool-bindings-title"
+                  >
+                    <div className="binding-heading">
+                      <div>
+                        <h4 id="tool-bindings-title">{t.tools}</h4>
+                        <p>{t.browserActions}</p>
+                      </div>
+                      <span className="binding-count">
+                        {agentToolIds.length}
+                      </span>
+                    </div>
+                    {tools.filter((tool) => tool.enabled).length === 0 ? (
+                      <p className="binding-empty">{t.noTools}</p>
+                    ) : (
+                      <div className="binding-list">
+                        {tools
+                          .filter((tool) => tool.enabled)
+                          .map((tool) => {
+                            const checked = agentToolIds.includes(tool.id);
+                            return (
+                              <label className="binding-option" key={tool.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() =>
+                                    setAgentToolIds((current) =>
+                                      checked
+                                        ? current.filter((id) => id !== tool.id)
+                                        : [...current, tool.id],
+                                    )
+                                  }
+                                />
+                                <span className="binding-copy">
+                                  <span className="binding-name">
+                                    {tool.name}
+                                  </span>
+                                  <span className="binding-meta">
+                                    {tool.type === "BROWSER_PROPOSAL"
+                                      ? t.browserProposal
+                                      : (tool.type ?? t.toolType)}
+                                  </span>
+                                  {tool.description && (
+                                    <span className="binding-description">
+                                      {tool.description}
+                                    </span>
+                                  )}
                                 </span>
-                              )}
-                            </span>
-                            <button
-                              type="button"
-                              className="binding-detail-button"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setResourceDetails({
-                                  kind: "skill",
-                                  resource: skill,
-                                });
-                              }}
-                            >
-                              {t.viewDetails}
-                            </button>
-                          </label>
-                        );
-                      })}
-                  </div>
-                )}
-              </section>
+                                <button
+                                  type="button"
+                                  className="binding-detail-button"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setResourceDetails({
+                                      kind: "tool",
+                                      resource: tool,
+                                    });
+                                  }}
+                                >
+                                  {t.viewDetails}
+                                </button>
+                              </label>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </section>
+
+                  <section
+                    className="binding-section"
+                    aria-labelledby="skill-bindings-title"
+                  >
+                    <div className="binding-heading">
+                      <div>
+                        <h4 id="skill-bindings-title">{t.skills}</h4>
+                        <p>{t.idsHint}</p>
+                      </div>
+                      <span className="binding-count">
+                        {agentSkillIds.length}
+                      </span>
+                    </div>
+                    {skills.filter((skill) => skill.enabled).length === 0 ? (
+                      <p className="binding-empty">{t.noSkills}</p>
+                    ) : (
+                      <div className="binding-list">
+                        {skills
+                          .filter((skill) => skill.enabled)
+                          .map((skill) => {
+                            const checked = agentSkillIds.includes(skill.id);
+                            return (
+                              <label className="binding-option" key={skill.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() =>
+                                    setAgentSkillIds((current) =>
+                                      checked
+                                        ? current.filter(
+                                            (id) => id !== skill.id,
+                                          )
+                                        : [...current, skill.id],
+                                    )
+                                  }
+                                />
+                                <span className="binding-copy">
+                                  <span className="binding-name">
+                                    {skill.name}
+                                  </span>
+                                  {skill.version && (
+                                    <span className="binding-meta">
+                                      v{skill.version}
+                                    </span>
+                                  )}
+                                  {skill.description && (
+                                    <span className="binding-description">
+                                      {skill.description}
+                                    </span>
+                                  )}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="binding-detail-button"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setResourceDetails({
+                                      kind: "skill",
+                                      resource: skill,
+                                    });
+                                  }}
+                                >
+                                  {t.viewDetails}
+                                </button>
+                              </label>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </section>
+                </>
+              )}
               {agentError && <p className="error">{agentError}</p>}
               <div className="modal-actions">
                 <button

@@ -750,6 +750,158 @@ article p {
   font-size: 11px;
 }
 
+.conversation-logs-page {
+  max-width: 1100px;
+}
+
+.conversation-log-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.conversation-log-card {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.conversation-log-card.selected {
+  border-color: #4776d0;
+}
+
+.conversation-log-heading {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 15px 18px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.conversation-log-heading:hover {
+  background: var(--surface-muted);
+}
+
+.conversation-log-heading > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.conversation-log-heading code {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-log-meta {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.conversation-log-body {
+  display: grid;
+  gap: 20px;
+  padding: 0 18px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.conversation-log-body h4 {
+  margin: 18px 0 10px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.conversation-log-messages,
+.conversation-log-invocations {
+  display: grid;
+  gap: 8px;
+}
+
+.conversation-log-message,
+.conversation-log-invocation {
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.conversation-log-message.user {
+  border-left: 3px solid #64748b;
+}
+
+.conversation-log-message.assistant {
+  border-left: 3px solid #4776d0;
+}
+
+.conversation-log-message-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.conversation-log-message-meta small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.conversation-log-message p,
+.conversation-log-invocation p {
+  margin: 8px 0 0;
+  min-height: 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.conversation-log-message details {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.conversation-log-message details pre,
+.conversation-log-invocation pre {
+  max-height: 180px;
+  margin: 7px 0 0;
+  padding: 9px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--control-bg);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.conversation-log-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .agent-delete {
   border: 1px solid #6b3441;
   background: transparent;
