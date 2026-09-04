@@ -337,6 +337,19 @@ article p {
   color: #9ba9bd;
 }
 
+.agent-group article {
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-group article > p {
+  flex: 1;
+}
+
+.agent-group .agent-actions {
+  justify-content: flex-end;
+}
+
 .knowledge-card {
   display: flex;
   flex-direction: column;
@@ -613,6 +626,64 @@ article p {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+}
+
+.agent-settings-page {
+  max-width: 900px;
+}
+
+.agent-settings-header {
+  align-items: center;
+  margin-bottom: 22px;
+}
+
+.agent-settings-header h3 {
+  margin: 0 0 5px;
+  color: var(--text);
+  font-size: 20px;
+}
+
+.agent-settings-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.config-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.config-tabs button {
+  padding: 9px 13px;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.config-tabs button:hover,
+.config-tabs button.active {
+  border-bottom-color: #4776d0;
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.settings-panel {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
 }
 
 .resource-toolbar {

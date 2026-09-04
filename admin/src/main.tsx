@@ -125,6 +125,11 @@ const translations = {
     testing: "测试中…",
     testResponse: "Agent 回复",
     testFailed: "Agent 测试失败，请稍后重试",
+    agentSettingsPage: "Agent 配置",
+    backToAgents: "返回 Agent 列表",
+    basicInfo: "基本信息",
+    knowledgeBinding: "知识库绑定",
+    capabilityBinding: "插件 / Skill",
     toolsTitle: "工具 / Skill 管理",
     toolsSubtitle: "注册可供 Agent 调用的后端 API 和操作技能。",
     newTool: "+ 新建工具",
@@ -282,6 +287,11 @@ const translations = {
     testing: "Testing…",
     testResponse: "Agent response",
     testFailed: "Agent test failed. Please try again.",
+    agentSettingsPage: "Agent configuration",
+    backToAgents: "Back to Agents",
+    basicInfo: "Basic information",
+    knowledgeBinding: "Knowledge bases",
+    capabilityBinding: "Tools / Skill",
     toolsTitle: "Tools / Skill management",
     toolsSubtitle: "Register backend APIs and skills that Agents can call.",
     newTool: "+ New tool",
@@ -438,6 +448,10 @@ function App() {
   const [route, setRoute] = useState<Record<string, unknown>>();
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
   const [editingAgentId, setEditingAgentId] = useState<string>();
+  const [agentConfigId, setAgentConfigId] = useState<string>();
+  const [agentConfigSection, setAgentConfigSection] = useState<
+    "basic" | "knowledge" | "capabilities"
+  >("basic");
   const [agentId, setAgentId] = useState("custom-agent");
   const [agentDisplayName, setAgentDisplayName] = useState("自定义 Agent");
   const [agentDescription, setAgentDescription] = useState("");
@@ -754,6 +768,7 @@ function App() {
   };
 
   const addAgent = () => {
+    setAgentConfigId(undefined);
     setEditingAgentId(undefined);
     setAgentId("custom-agent");
     setAgentDisplayName(language === "zh" ? "自定义 Agent" : "Custom Agent");
@@ -776,6 +791,9 @@ function App() {
   };
 
   const openAgentSettings = (agent: Agent) => {
+    setAgentConfigId(agent.id);
+    setTab("agent-settings");
+    setAgentConfigSection("basic");
     setEditingAgentId(agent.id);
     setAgentId(agent.id);
     setAgentDisplayName(agent.displayName);
@@ -794,7 +812,12 @@ function App() {
     setAgentToolIds(parseIds(agent.toolIds));
     setAgentSkillIds(parseIds(agent.skillIds));
     setAgentError("");
-    setAgentDialogOpen(true);
+    setAgentDialogOpen(false);
+  };
+
+  const closeAgentConfig = () => {
+    setAgentConfigId(undefined);
+    setTab("agents");
   };
 
   const closeAgentDialog = () => {
@@ -1137,11 +1160,13 @@ function App() {
           <h2>
             {tab === "agents"
               ? t.agentConfig
-              : tab === "knowledge"
-                ? t.knowledge
-                : tab === "tools"
-                  ? t.toolsTitle
-                  : t.routerTest}
+              : tab === "agent-settings"
+                ? t.agentSettingsPage
+                : tab === "knowledge"
+                  ? t.knowledge
+                  : tab === "tools"
+                    ? t.toolsTitle
+                    : t.routerTest}
           </h2>
           <div className="header-actions">
             <span className="badge">{t.localMode}</span>
@@ -1195,6 +1220,285 @@ function App() {
           </div>
         </header>
 
+        {tab === "agent-settings" && agentConfigId && (
+          <section className="agent-settings-page">
+            <div className="detail-header agent-settings-header">
+              <button className="back-button" onClick={closeAgentConfig}>
+                {t.backToAgents}
+              </button>
+              <div>
+                <h3>{agentDisplayName || agentId}</h3>
+                <p>{t.editAgentSubtitle}</p>
+              </div>
+              <button
+                className="agent-test"
+                onClick={() => {
+                  const current = agents.find(
+                    (item) => item.id === agentConfigId,
+                  );
+                  if (current) openAgentTest(current);
+                }}
+                disabled={!agentEnabled}
+              >
+                {t.testAgent}
+              </button>
+            </div>
+            <div className="config-tabs">
+              {(
+                [
+                  ["basic", t.basicInfo],
+                  ["knowledge", t.knowledgeBinding],
+                  ["capabilities", t.capabilityBinding],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  className={agentConfigSection === key ? "active" : undefined}
+                  onClick={() => setAgentConfigSection(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <form className="agent-settings-form" onSubmit={saveAgent}>
+              {agentConfigSection === "basic" && (
+                <div className="settings-panel">
+                  <label className="field">
+                    <span>{t.agentId}</span>
+                    <input value={agentId} disabled />
+                    <small className="field-hint">{t.agentIdHint}</small>
+                  </label>
+                  <label className="field">
+                    <span>{t.displayName}</span>
+                    <input
+                      value={agentDisplayName}
+                      onChange={(event) =>
+                        setAgentDisplayName(event.target.value)
+                      }
+                      maxLength={100}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>{t.descriptionOptional}</span>
+                    <textarea
+                      value={agentDescription}
+                      onChange={(event) =>
+                        setAgentDescription(event.target.value)
+                      }
+                      rows={3}
+                      maxLength={500}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>{t.systemPrompt}</span>
+                    <textarea
+                      value={agentSystemPrompt}
+                      onChange={(event) =>
+                        setAgentSystemPrompt(event.target.value)
+                      }
+                      rows={7}
+                      maxLength={8000}
+                    />
+                  </label>
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={agentBrowserActions}
+                      onChange={(event) =>
+                        setAgentBrowserActions(event.target.checked)
+                      }
+                    />
+                    <span>{t.browserActions}</span>
+                  </label>
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={agentEnabled}
+                      onChange={(event) =>
+                        setAgentEnabled(event.target.checked)
+                      }
+                    />
+                    <span>{t.enabled}</span>
+                  </label>
+                  <div className="field-grid">
+                    <label className="field">
+                      <span>{t.priority}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={10000}
+                        value={agentPriority}
+                        onChange={(event) =>
+                          setAgentPriority(Number(event.target.value) || 0)
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>{t.temperature}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        value={agentTemperature}
+                        onChange={(event) =>
+                          setAgentTemperature(event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                  <label className="field">
+                    <span>{t.model}</span>
+                    <input
+                      value={agentModel}
+                      onChange={(event) => setAgentModel(event.target.value)}
+                      placeholder={t.modelPlaceholder}
+                    />
+                  </label>
+                </div>
+              )}
+              {agentConfigSection === "knowledge" && (
+                <div className="settings-panel">
+                  <label className="field">
+                    <span>{t.knowledgeBases}</span>
+                    <input
+                      value={agentKnowledgeBaseIds}
+                      onChange={(event) =>
+                        setAgentKnowledgeBaseIds(event.target.value)
+                      }
+                      placeholder={t.idsHint}
+                    />
+                  </label>
+                  <p className="field-hint">{t.idsHint}</p>
+                </div>
+              )}
+              {agentConfigSection === "capabilities" && (
+                <div className="settings-panel">
+                  <section className="binding-section">
+                    <div className="binding-heading">
+                      <div>
+                        <h4>{t.tools}</h4>
+                        <p>{t.browserActions}</p>
+                      </div>
+                      <span className="binding-count">
+                        {agentToolIds.length}
+                      </span>
+                    </div>
+                    {tools.filter((tool) => tool.enabled).length === 0 ? (
+                      <p className="binding-empty">{t.noTools}</p>
+                    ) : (
+                      <div className="binding-list">
+                        {tools
+                          .filter((tool) => tool.enabled)
+                          .map((tool) => {
+                            const checked = agentToolIds.includes(tool.id);
+                            return (
+                              <label className="binding-option" key={tool.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() =>
+                                    setAgentToolIds((current) =>
+                                      checked
+                                        ? current.filter((id) => id !== tool.id)
+                                        : [...current, tool.id],
+                                    )
+                                  }
+                                />
+                                <span className="binding-copy">
+                                  <span className="binding-name">
+                                    {tool.name}
+                                  </span>
+                                  <span className="binding-meta">
+                                    {tool.type === "BROWSER_PROPOSAL"
+                                      ? t.browserProposal
+                                      : tool.type}
+                                  </span>
+                                  {tool.description && (
+                                    <span className="binding-description">
+                                      {tool.description}
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </section>
+                  <section className="binding-section">
+                    <div className="binding-heading">
+                      <div>
+                        <h4>{t.skills}</h4>
+                        <p>{t.idsHint}</p>
+                      </div>
+                      <span className="binding-count">
+                        {agentSkillIds.length}
+                      </span>
+                    </div>
+                    {skills.filter((skill) => skill.enabled).length === 0 ? (
+                      <p className="binding-empty">{t.noSkills}</p>
+                    ) : (
+                      <div className="binding-list">
+                        {skills
+                          .filter((skill) => skill.enabled)
+                          .map((skill) => {
+                            const checked = agentSkillIds.includes(skill.id);
+                            return (
+                              <label className="binding-option" key={skill.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() =>
+                                    setAgentSkillIds((current) =>
+                                      checked
+                                        ? current.filter(
+                                            (id) => id !== skill.id,
+                                          )
+                                        : [...current, skill.id],
+                                    )
+                                  }
+                                />
+                                <span className="binding-copy">
+                                  <span className="binding-name">
+                                    {skill.name}
+                                  </span>
+                                  {skill.version && (
+                                    <span className="binding-meta">
+                                      v{skill.version}
+                                    </span>
+                                  )}
+                                  {skill.description && (
+                                    <span className="binding-description">
+                                      {skill.description}
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </section>
+                </div>
+              )}
+              {agentError && <p className="error">{agentError}</p>}
+              <div className="settings-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeAgentConfig}
+                >
+                  {t.cancel}
+                </button>
+                <button type="submit" disabled={agentSubmitting}>
+                  {agentSubmitting ? t.saving : t.saveAgent}
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+
         {tab === "agents" && (
           <section>
             <button onClick={addAgent}>{t.newAgent}</button>
@@ -1230,20 +1534,6 @@ function App() {
                         <code>{agent.id}</code>
                         <p>{agent.description || t.noDescription}</p>
                         <div className="agent-actions">
-                          <button
-                            onClick={() => openAgentTest(agent)}
-                            className="agent-test"
-                            disabled={
-                              !agent.enabled || agentActionId === agent.id
-                            }
-                            title={
-                              !agent.enabled
-                                ? t.deleteAgentDisabledHint
-                                : t.testAgent
-                            }
-                          >
-                            {t.testAgent}
-                          </button>
                           <button
                             onClick={() => openAgentSettings(agent)}
                             className="secondary"
