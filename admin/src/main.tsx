@@ -184,6 +184,7 @@ const translations = {
     deleteResourceConfirm: (name: string) =>
       `确定删除“${name}”吗？此操作不可撤销。`,
     resourceNameRequired: "请输入名称",
+    nameExists: "名称已存在，请使用其他名称",
     endpointRequired: "HTTP 工具必须填写 Endpoint",
     skillPromptRequired: "Skill 提示词不能为空",
     resourceSaveFailed: "保存资源失败，请稍后重试",
@@ -402,6 +403,7 @@ const translations = {
     deleteResourceConfirm: (name: string) =>
       `Delete “${name}”? This cannot be undone.`,
     resourceNameRequired: "Enter a name",
+    nameExists: "This name already exists. Choose another name.",
     endpointRequired: "HTTP tools require an Endpoint",
     skillPromptRequired: "Skill prompt is required",
     resourceSaveFailed: "Failed to save the resource. Please try again.",
@@ -690,6 +692,8 @@ function App() {
       .filter(Boolean);
   };
 
+  const normalizedName = (value: string) => value.trim().toLocaleLowerCase();
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("admin-theme", theme);
@@ -817,6 +821,20 @@ function App() {
     const name = resourceName.trim();
     if (!name) {
       setResourceError(t.resourceNameRequired);
+      return;
+    }
+    const resourceNames =
+      resourceDialog === "tool"
+        ? tools.map((item) => ({ id: item.id, name: item.name }))
+        : skills.map((item) => ({ id: item.id, name: item.name }));
+    if (
+      resourceNames.some(
+        (item) =>
+          item.id !== editingResourceId &&
+          normalizedName(item.name) === normalizedName(name),
+      )
+    ) {
+      setResourceError(t.nameExists);
       return;
     }
     if (
@@ -1255,6 +1273,12 @@ function App() {
     const name = baseName.trim();
     if (!name) {
       setBaseError(t.baseNameRequired);
+      return;
+    }
+    if (
+      bases.some((item) => normalizedName(item.name) === normalizedName(name))
+    ) {
+      setBaseError(t.nameExists);
       return;
     }
 
