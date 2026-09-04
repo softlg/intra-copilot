@@ -1099,6 +1099,45 @@ pre {
   backdrop-filter: blur(4px);
 }
 
+.prompt-modal-overlay {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(2 6 23 / 72%);
+  backdrop-filter: blur(4px);
+}
+
+.prompt-modal {
+  width: min(100%, 420px);
+  padding: 22px 24px;
+  border: 1px solid #334665;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
+}
+
+.prompt-modal h3 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.prompt-modal p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.prompt-modal button {
+  display: block;
+  margin: 20px 0 0 auto;
+}
+
 .modal {
   width: min(100%, 480px);
   max-height: calc(100vh - 32px);
