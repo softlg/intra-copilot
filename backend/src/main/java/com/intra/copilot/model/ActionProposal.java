@@ -1,21 +1,22 @@
 package com.intra.copilot.model;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 import java.util.UUID;
 
-@Entity
+@TableName("action_proposal")
 public class ActionProposal {
-  @Id private String actionId = UUID.randomUUID().toString();
+  @TableId("action_id") private String actionId = UUID.randomUUID().toString();
   private String conversationId;
   private String type;
   private String target;
-  @Lob private String arguments;
+  private String arguments;
   private String reason;
   private String risk;
   private Instant expiresAt;
   private String status = "PENDING";
-  @Lob private String result;
+  private String result;
 
   public String getActionId() {
     return actionId;
