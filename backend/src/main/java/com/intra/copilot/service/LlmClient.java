@@ -24,10 +24,25 @@ public class LlmClient {
   }
 
   public Flux<String> stream(String system, List<Map<String, String>> history, String user) {
-    List<Map<String, String>> messages = new ArrayList<>();
+    return stream(system, history, user, List.of());
+  }
+
+  public Flux<String> stream(
+      String system, List<Map<String, String>> history, String user, List<String> images) {
+    List<Map<String, Object>> messages = new ArrayList<>();
     messages.add(Map.of("role", "system", "content", system));
-    messages.addAll(history);
-    messages.add(Map.of("role", "user", "content", user));
+    history.forEach(item -> messages.add(Map.of("role", item.get("role"), "content", item.get("content"))));
+    List<Map<String, Object>> content = new ArrayList<>();
+    content.add(Map.of("type", "text", "text", user));
+    if (images != null) {
+      images.forEach(
+          image ->
+              content.add(
+                  Map.of(
+                      "type", "image_url",
+                      "image_url", Map.of("url", image))));
+    }
+    messages.add(Map.of("role", "user", "content", content));
     Map<String, Object> body = new HashMap<>();
     body.put("model", model);
     body.put("messages", messages);
