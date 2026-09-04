@@ -81,8 +81,6 @@ public class ChatService {
       String pageContext,
       Map<String, Boolean> permissions) {
     Conversation c = conversations.findById(sessionId).orElseGet(this::create);
-    boolean tmsAuthorized =
-        Boolean.TRUE.equals(permissions == null ? null : permissions.get("delegateTms"));
     boolean readPage =
         Boolean.TRUE.equals(permissions == null ? null : permissions.get("readPage"));
     boolean autoRoute = requestedAgent == null || requestedAgent.isBlank();
@@ -95,14 +93,14 @@ public class ChatService {
     long routeStarted = System.nanoTime();
     AgentOrchestrator.RoutingResult routing =
         autoRoute
-            ? orchestrator.route(text, pageContext, h, tmsAuthorized)
+            ? orchestrator.route(text, pageContext, h)
             : new AgentOrchestrator.RoutingResult(
                 orchestrator.resolve(requestedAgent),
                 requestedAgent,
                 1.0,
                 "用户指定 Agent",
                 "user",
-                "tms-manual".equals(requestedAgent) && !tmsAuthorized);
+                false);
     Agent agent = routing.agent();
     AgentInvocation invocation = new AgentInvocation();
     invocation.setConversationId(c.getId());
@@ -133,22 +131,6 @@ public class ChatService {
                       "reason", routing.reason(),
                       "routeSource", routing.routeSource())));
     } catch (IOException ignored) {
-    }
-    if (routing.needsClarification()
-        && "tms-manual".equals(routing.selectedAgentId())
-        && !tmsAuthorized) {
-      String answer = "这个问题可能需要专用业务助手处理。请先在权限设置中授权后再继续。";
-      messages.save(new Message(c.getId(), "assistant", answer, "router", null));
-      try {
-        out.send(SseEmitter.event().name("token").data(answer));
-        out.send(SseEmitter.event().name("message_completed").data(Map.of("content", answer)));
-        out.complete();
-      } catch (IOException e) {
-        out.completeWithError(e);
-      }
-      invocation.setDurationMs((System.nanoTime() - routeStarted) / 1_000_000L);
-      invocations.save(invocation);
-      return out;
     }
     String enriched =
         !readPage || pageContext == null || pageContext.isBlank()
