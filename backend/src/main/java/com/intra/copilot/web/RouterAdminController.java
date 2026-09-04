@@ -10,10 +10,10 @@ import org.springframework.web.bind.annotation.*;
 public class RouterAdminController {
   private final AgentOrchestrator orchestrator;
   public RouterAdminController(AgentOrchestrator orchestrator) { this.orchestrator = orchestrator; }
-  public record RouterTestRequest(String message, String pageContext, boolean tmsAuthorized) {}
+  public record RouterTestRequest(String message, String pageContext) {}
   @PostMapping("/test")
   public Map<String, Object> test(@RequestBody RouterTestRequest request) {
-    var result = orchestrator.route(request.message(), request.pageContext(), List.of(), request.tmsAuthorized());
+    var result = orchestrator.route(request.message(), request.pageContext(), List.of());
     return Map.of("agentId", result.selectedAgentId(), "confidence", result.confidence(), "reason", result.reason(), "routeSource", result.routeSource(), "needsClarification", result.needsClarification());
   }
 }

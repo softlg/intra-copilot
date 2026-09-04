@@ -14,35 +14,25 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ApiController {
   private final ChatService chat;
   private final GeneralAgent general;
-  private final DiagnosisAgent diagnosis;
-  private final TmsManualAgent tms;
+  private final RouteCopilotAgent routeCopilot;
 
-  public ApiController(ChatService c, GeneralAgent g, DiagnosisAgent d, TmsManualAgent t) {
+  public ApiController(ChatService c, GeneralAgent g, RouteCopilotAgent routeCopilot) {
     chat = c;
     general = g;
-    diagnosis = d;
-    tms = t;
+    this.routeCopilot = routeCopilot;
   }
 
   @GetMapping("/agents")
   public List<Map<String, Object>> agents() {
     return List.of(
         Map.of(
-            "id",
-            general.id(),
-            "displayName",
-            general.displayName(),
-            "description",
-            general.description()),
-        Map.of("id", "router", "displayName", "自动分发", "description", "根据问题选择最合适的 Agent"),
+            "id", routeCopilot.id(),
+            "displayName", routeCopilot.displayName(),
+            "description", routeCopilot.description()),
         Map.of(
-            "id",
-            diagnosis.id(),
-            "displayName",
-            diagnosis.displayName(),
-            "description",
-            diagnosis.description()),
-        Map.of("id", tms.id(), "displayName", tms.displayName(), "description", tms.description()));
+            "id", general.id(),
+            "displayName", general.displayName(),
+            "description", general.description()));
   }
 
   @PostMapping("/sessions")
