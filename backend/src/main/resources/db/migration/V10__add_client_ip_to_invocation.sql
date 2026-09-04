@@ -1,0 +1,1 @@
+ALTER TABLE agent_invocation ADD COLUMN IF NOT EXISTS client_ip VARCHAR(128);
