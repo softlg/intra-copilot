@@ -613,6 +613,61 @@ footer {
   font-size: 20px;
   line-height: 1;
 }
+.screenshot-selection-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #020617e8;
+}
+.screenshot-selection-dialog {
+  width: min(96vw, 1000px);
+  max-height: 94vh;
+  padding: 12px;
+  border: 1px solid #ffffff2b;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 20px 60px #0008;
+}
+.screenshot-selection-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: var(--text);
+  font-size: 12px;
+}
+.screenshot-selection-toolbar span {
+  flex: 1;
+  color: var(--muted);
+}
+.screenshot-selection-toolbar .image-preview-close {
+  position: static;
+  flex: 0 0 auto;
+}
+.screenshot-selection-canvas {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  max-height: calc(94vh - 70px);
+  overflow: hidden;
+  cursor: crosshair;
+  user-select: none;
+}
+.screenshot-selection-canvas img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(94vh - 70px);
+  object-fit: contain;
+}
+.screenshot-selection-box {
+  position: absolute;
+  border: 2px solid #60a5fa;
+  background: #3b82f633;
+  pointer-events: none;
+}
 textarea {
   flex: 1;
   resize: none;
