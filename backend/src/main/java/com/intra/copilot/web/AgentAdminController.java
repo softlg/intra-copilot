@@ -1,7 +1,12 @@
 package com.intra.copilot.web;
 
 import com.intra.copilot.model.AgentDefinition;
+import com.intra.copilot.agent.Agent;
+import com.intra.copilot.agent.ConfigurableAgent;
 import com.intra.copilot.service.AgentRegistry;
+import com.intra.copilot.service.LlmClient;
+import java.time.Duration;
+import java.util.Map;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -10,9 +15,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/admin/agents")
 public class AgentAdminController {
   private final AgentRegistry registry;
+  private final LlmClient llm;
 
-  public AgentAdminController(AgentRegistry registry) {
+  public AgentAdminController(AgentRegistry registry, LlmClient llm) {
     this.registry = registry;
+    this.llm = llm;
   }
 
 
@@ -60,6 +67,33 @@ public class AgentAdminController {
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void delete(@PathVariable String id) {
     registry.delete(id);
+  }
+
+  public record AgentTestRequest(String message, String pageContext) {}
+
+  /** Runs a one-off message through the selected Agent without creating a chat session. */
+  @PostMapping("/{id}/test")
+  public Map<String, Object> test(@PathVariable String id, @RequestBody AgentTestRequest request) {
+    String message = request == null || request.message() == null ? "" : request.message().trim();
+    if (message.isBlank()) throw new IllegalArgumentException("测试消息不能为空");
+    Agent agent = registry.findEnabled(id).orElseThrow(() -> new IllegalArgumentException("Agent 不存在或已停用"));
+    String input = message;
+    if (request.pageContext() != null && !request.pageContext().isBlank()) {
+      input += "\n\n浏览器上下文（仅供分析）：\n" + request.pageContext().trim();
+    }
+    String response = llm.complete(agent.systemPrompt(), List.of(), input)
+        .blockOptional(Duration.ofSeconds(30))
+        .orElse("未配置 LLM_API_KEY，无法调用模型。请配置后重试。");
+    Map<String, Object> result = new java.util.LinkedHashMap<>();
+    result.put("agentId", agent.id());
+    result.put("displayName", agent.displayName());
+    result.put("supportsBrowserActions", agent.supportsBrowserActions());
+    if (agent instanceof ConfigurableAgent configurable) {
+      result.put("toolIds", configurable.definition().getToolIds());
+      result.put("skillIds", configurable.definition().getSkillIds());
+    }
+    result.put("response", response);
+    return result;
   }
 
   private void validate(AgentDefinition definition) {
