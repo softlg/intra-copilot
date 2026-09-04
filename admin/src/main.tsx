@@ -12,7 +12,9 @@ const translations = {
     subtitle: "管理控制台",
     agents: "Agent",
     knowledge: "知识库",
-    toolsMenu: "工具 / Skill",
+    toolsMenu: "工具 / 插件",
+    skillsMenu: "Skill",
+    skillsTitle: "Skill 管理",
     router: "路由测试",
     agentConfig: "Agent 配置",
     routerTest: "主 Agent 路由测试",
@@ -163,7 +165,9 @@ const translations = {
     subtitle: "Admin Console",
     agents: "Agents",
     knowledge: "Knowledge bases",
-    toolsMenu: "Tools / Skill",
+    toolsMenu: "Tools / plugins",
+    skillsMenu: "Skill",
+    skillsTitle: "Skill management",
     router: "Router test",
     agentConfig: "Agent configuration",
     routerTest: "Main Agent router test",
@@ -1130,12 +1134,14 @@ function App() {
           ["agents", "◆"],
           ["knowledge", "▣"],
           ["tools", "⚒"],
+          ["skills", "✦"],
           ["router", "⌁"],
         ].map(([key, icon]) => {
           const labels: Record<string, string> = {
             agents: t.agents,
             knowledge: t.knowledge,
             tools: t.toolsMenu,
+            skills: t.skillsMenu,
             router: t.router,
           };
           return (
@@ -1166,7 +1172,9 @@ function App() {
                   ? t.knowledge
                   : tab === "tools"
                     ? t.toolsTitle
-                    : t.routerTest}
+                    : tab === "skills"
+                      ? t.skillsTitle
+                      : t.routerTest}
           </h2>
           <div className="header-actions">
             <span className="badge">{t.localMode}</span>
@@ -1782,12 +1790,6 @@ function App() {
                 <button onClick={() => openResourceDialog("tool")}>
                   {t.newTool}
                 </button>
-                <button
-                  className="secondary"
-                  onClick={() => openResourceDialog("skill")}
-                >
-                  {t.newSkill}
-                </button>
               </div>
             </div>
             {resourceError && !resourceDialog && (
@@ -1841,6 +1843,20 @@ function App() {
                 </div>
               )}
             </div>
+          </section>
+        )}
+
+        {tab === "skills" && (
+          <section>
+            <div className="resource-toolbar">
+              <p className="muted">{t.toolsSubtitle}</p>
+              <button onClick={() => openResourceDialog("skill")}>
+                {t.newSkill}
+              </button>
+            </div>
+            {resourceError && !resourceDialog && (
+              <p className="error page-error">{resourceError}</p>
+            )}
             <div className="resource-section">
               <h3>{t.skill}</h3>
               {skills.length === 0 ? (
