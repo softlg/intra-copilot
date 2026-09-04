@@ -1,17 +1,17 @@
 package com.intra.copilot.model;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 import java.util.UUID;
 
-@Entity
-@Table(name = "skill_definition")
+@TableName("skill_definition")
 public class SkillDefinition {
-  @Id private String id = UUID.randomUUID().toString();
+  @TableId private String id = UUID.randomUUID().toString();
   private String name;
-  @Lob private String description;
-  @Lob private String prompt;
-  @Lob private String toolIds = "[]";
+  private String description;
+  private String prompt;
+  private String toolIds = "[]";
   private String version = "1.0.0";
   private boolean enabled = true;
   private Instant createdAt = Instant.now();
