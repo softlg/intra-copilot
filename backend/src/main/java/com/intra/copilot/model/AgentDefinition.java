@@ -15,6 +15,7 @@ public class AgentDefinition {
   private boolean systemAgent;
   private boolean supportsBrowserActions;
   private int priority = 100;
+  @Column(columnDefinition = "TEXT") private String routingRules;
   private String model;
   private Double temperature;
   @Column(columnDefinition = "TEXT") private String knowledgeBaseIds = "[]";
@@ -103,6 +104,14 @@ public class AgentDefinition {
 
   public void setPriority(int priority) {
     this.priority = priority;
+  }
+
+  public String getRoutingRules() {
+    return routingRules;
+  }
+
+  public void setRoutingRules(String routingRules) {
+    this.routingRules = routingRules;
   }
 
   public String getModel() {
