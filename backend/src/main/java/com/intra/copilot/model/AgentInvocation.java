@@ -11,11 +11,14 @@ public class AgentInvocation {
   private String conversationId;
   private String requestedAgentId;
   private String selectedAgentId;
-  @Lob private String routeReason;
+  @Column(columnDefinition = "TEXT") private String routeReason;
+  @Column(columnDefinition = "TEXT") private String intent;
+  @Column(columnDefinition = "TEXT") private String contextSent;
+  @Column(columnDefinition = "TEXT") private String responseContent;
   private Double confidence;
   private String routeSource;
   private Long durationMs;
-  @Lob private String error;
+  @Column(columnDefinition = "TEXT") private String error;
   private Integer inputTokens;
   private Integer outputTokens;
   private Instant createdAt = Instant.now();
@@ -55,6 +58,13 @@ public class AgentInvocation {
   public void setRouteReason(String value) {
     routeReason = value;
   }
+
+  public String getIntent() { return intent; }
+  public void setIntent(String value) { intent = value; }
+  public String getContextSent() { return contextSent; }
+  public void setContextSent(String value) { contextSent = value; }
+  public String getResponseContent() { return responseContent; }
+  public void setResponseContent(String value) { responseContent = value; }
 
   public Double getConfidence() {
     return confidence;
