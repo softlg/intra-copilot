@@ -1,15 +1,15 @@
 package com.intra.copilot.model;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.util.UUID;
 
-@Entity
-@Table(name = "document_chunk")
+@TableName("document_chunk")
 public class DocumentChunk {
-  @Id private String id = UUID.randomUUID().toString();
+  @TableId private String id = UUID.randomUUID().toString();
   private String documentId;
   private int chunkIndex;
-  @Lob private String content;
+  private String content;
   private Integer pageNumber;
 
   public String getId() { return id; }
