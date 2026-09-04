@@ -8,6 +8,7 @@ import com.intra.copilot.service.LlmClient;
 import java.time.Duration;
 import java.util.Map;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,10 +32,9 @@ public class AgentAdminController {
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   public AgentDefinition create(@RequestBody AgentDefinition definition) {
+    if (definition == null) throw new IllegalArgumentException("Agent 配置不能为空");
+    definition.setId("agent-" + UUID.randomUUID().toString());
     validate(definition);
-    if (registry.allDefinitions().stream().anyMatch(item -> item.getId().equals(definition.getId()))) {
-      throw new IllegalArgumentException("Agent ID 已存在");
-    }
     definition.setSystemAgent(false);
     return registry.save(definition);
   }
