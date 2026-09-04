@@ -2265,16 +2265,54 @@ function App() {
                   placeholder={t.modelPlaceholder}
                 />
               </label>
-              <label className="field">
-                <span>{t.knowledgeBases}</span>
-                <input
-                  value={agentKnowledgeBaseIds}
-                  onChange={(event) =>
-                    setAgentKnowledgeBaseIds(event.target.value)
-                  }
-                  placeholder={t.idsHint}
-                />
-              </label>
+              <section className="binding-section">
+                <div className="binding-heading">
+                  <div>
+                    <h4>{t.knowledgeBases}</h4>
+                    <p>{t.idsHint}</p>
+                  </div>
+                  <span className="binding-count">
+                    {parseIds(agentKnowledgeBaseIds).length}
+                  </span>
+                </div>
+                {bases.length === 0 ? (
+                  <p className="binding-empty">{t.noKnowledgeBases}</p>
+                ) : (
+                  <div className="binding-list">
+                    {bases.map((base) => {
+                      const selected = parseIds(agentKnowledgeBaseIds).includes(
+                        base.id,
+                      );
+                      return (
+                        <label className="binding-option" key={base.id}>
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => {
+                              const current = parseIds(agentKnowledgeBaseIds);
+                              const next = selected
+                                ? current.filter((id) => id !== base.id)
+                                : [...current, base.id];
+                              setAgentKnowledgeBaseIds(JSON.stringify(next));
+                            }}
+                          />
+                          <span className="binding-copy">
+                            <span className="binding-name">{base.name}</span>
+                            <span className="binding-meta">
+                              {base.enabled ? t.enabled : t.disabled}
+                            </span>
+                            {base.description && (
+                              <span className="binding-description">
+                                {base.description}
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
 
               <section
                 className="binding-section"
@@ -2321,6 +2359,20 @@ function App() {
                                 </span>
                               )}
                             </span>
+                            <button
+                              type="button"
+                              className="binding-detail-button"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setResourceDetails({
+                                  kind: "tool",
+                                  resource: tool,
+                                });
+                              }}
+                            >
+                              {t.viewDetails}
+                            </button>
                           </label>
                         );
                       })}
@@ -2373,6 +2425,20 @@ function App() {
                                 </span>
                               )}
                             </span>
+                            <button
+                              type="button"
+                              className="binding-detail-button"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setResourceDetails({
+                                  kind: "skill",
+                                  resource: skill,
+                                });
+                              }}
+                            >
+                              {t.viewDetails}
+                            </button>
                           </label>
                         );
                       })}
