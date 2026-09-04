@@ -9,12 +9,16 @@ import java.util.UUID;
 public class ToolDefinition {
   @Id private String id = UUID.randomUUID().toString();
   private String name;
-  @Lob private String description;
+  @Column(columnDefinition = "TEXT") private String description;
   private String type = "BROWSER_PROPOSAL";
   private String method;
-  @Lob private String endpoint;
-  @Lob private String parameterSchema = "{}";
-  @Lob private String allowedDomains = "[]";
+  @Column(columnDefinition = "TEXT") private String endpoint;
+  /** MCP server endpoint used when type is MCP. Credentials are referenced by environment variable name. */
+  @Column(columnDefinition = "TEXT") private String mcpServerUrl;
+  private String mcpTransport = "STREAMABLE_HTTP";
+  private String mcpAuthEnv;
+  @Column(columnDefinition = "TEXT") private String parameterSchema = "{}";
+  @Column(columnDefinition = "TEXT") private String allowedDomains = "[]";
   private Integer timeoutMs = 10000;
   private boolean enabled = true;
   private Instant createdAt = Instant.now();
@@ -32,6 +36,12 @@ public class ToolDefinition {
   public void setMethod(String value) { method = value; }
   public String getEndpoint() { return endpoint; }
   public void setEndpoint(String value) { endpoint = value; }
+  public String getMcpServerUrl() { return mcpServerUrl; }
+  public void setMcpServerUrl(String value) { mcpServerUrl = value; }
+  public String getMcpTransport() { return mcpTransport; }
+  public void setMcpTransport(String value) { mcpTransport = value; }
+  public String getMcpAuthEnv() { return mcpAuthEnv; }
+  public void setMcpAuthEnv(String value) { mcpAuthEnv = value; }
   public String getParameterSchema() { return parameterSchema; }
   public void setParameterSchema(String value) { parameterSchema = value; }
   public String getAllowedDomains() { return allowedDomains; }
