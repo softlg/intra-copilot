@@ -1,15 +1,15 @@
 package com.intra.copilot.model;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 import java.util.UUID;
 
-@Entity
-@Table(name = "knowledge_base")
+@TableName("knowledge_base")
 public class KnowledgeBase {
-  @Id private String id = UUID.randomUUID().toString();
+  @TableId private String id = UUID.randomUUID().toString();
   private String name;
-  @Lob private String description;
+  private String description;
   private boolean enabled = true;
   private Instant createdAt = Instant.now();
   private Instant updatedAt = Instant.now();
