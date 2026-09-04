@@ -1,17 +1,18 @@
 package com.intra.copilot.model;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 import java.util.UUID;
 
-@Entity
+@TableName("message")
 public class Message {
-  @Id private String id = UUID.randomUUID().toString();
+  @TableId private String id = UUID.randomUUID().toString();
   private String conversationId;
   private String role;
-  @Lob private String content;
+  private String content;
   private String agentId;
-  @Lob private String contextSummary;
+  private String contextSummary;
   private Instant createdAt = Instant.now();
 
   public Message() {}
