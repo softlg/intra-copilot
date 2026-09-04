@@ -915,6 +915,12 @@ article p {
   text-align: right;
 }
 
+.conversation-log-chevron {
+  color: #4776d0;
+  font-size: 15px;
+  line-height: 1;
+}
+
 .conversation-log-body {
   display: grid;
   gap: 20px;
