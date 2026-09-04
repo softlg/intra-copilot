@@ -133,6 +133,9 @@ const translations = {
     basicInfo: "基本信息",
     knowledgeBinding: "知识库绑定",
     noKnowledgeBases: "暂无可用知识库，请先创建知识库。",
+    search: "搜索",
+    searchPlaceholder: "搜索名称、ID或描述",
+    noSearchResults: "没有匹配的结果。",
     viewDetails: "查看详情",
     resourceDetails: "资源详情",
     capabilityBinding: "工具和 Skill",
@@ -305,6 +308,9 @@ const translations = {
     basicInfo: "Basic information",
     knowledgeBinding: "Knowledge bases",
     noKnowledgeBases: "No knowledge bases available. Create one first.",
+    search: "Search",
+    searchPlaceholder: "Search by name, ID, or description",
+    noSearchResults: "No matching results.",
     viewDetails: "View details",
     resourceDetails: "Resource details",
     capabilityBinding: "Tools and Skill",
@@ -504,6 +510,9 @@ function App() {
   const [agentKnowledgeBaseIds, setAgentKnowledgeBaseIds] = useState("");
   const [agentToolIds, setAgentToolIds] = useState<string[]>([]);
   const [agentSkillIds, setAgentSkillIds] = useState<string[]>([]);
+  const [agentKnowledgeSearch, setAgentKnowledgeSearch] = useState("");
+  const [agentToolSearch, setAgentToolSearch] = useState("");
+  const [agentSkillSearch, setAgentSkillSearch] = useState("");
   const [agentSubmitting, setAgentSubmitting] = useState(false);
   const [agentError, setAgentError] = useState("");
   const [agentActionId, setAgentActionId] = useState<string>();
@@ -828,6 +837,9 @@ function App() {
     setAgentKnowledgeBaseIds("");
     setAgentToolIds([]);
     setAgentSkillIds([]);
+    setAgentKnowledgeSearch("");
+    setAgentToolSearch("");
+    setAgentSkillSearch("");
     setAgentError("");
     setAgentDialogOpen(true);
   };
@@ -853,6 +865,9 @@ function App() {
     setAgentKnowledgeBaseIds(agent.knowledgeBaseIds ?? "");
     setAgentToolIds(parseIds(agent.toolIds));
     setAgentSkillIds(parseIds(agent.skillIds));
+    setAgentKnowledgeSearch("");
+    setAgentToolSearch("");
+    setAgentSkillSearch("");
     setAgentError("");
     setAgentDialogOpen(false);
   };
@@ -1422,39 +1437,84 @@ function App() {
                   {bases.length === 0 ? (
                     <p className="binding-empty">{t.noKnowledgeBases}</p>
                   ) : (
-                    <div className="binding-list">
-                      {bases.map((base) => {
-                        const selected = parseIds(
-                          agentKnowledgeBaseIds,
-                        ).includes(base.id);
-                        return (
-                          <label className="binding-option" key={base.id}>
-                            <input
-                              type="checkbox"
-                              checked={selected}
-                              onChange={() => {
-                                const current = parseIds(agentKnowledgeBaseIds);
-                                const next = selected
-                                  ? current.filter((id) => id !== base.id)
-                                  : [...current, base.id];
-                                setAgentKnowledgeBaseIds(JSON.stringify(next));
-                              }}
-                            />
-                            <span className="binding-copy">
-                              <span className="binding-name">{base.name}</span>
-                              <span className="binding-meta">
-                                {base.enabled ? t.enabled : t.disabled}
-                              </span>
-                              {base.description && (
-                                <span className="binding-description">
-                                  {base.description}
-                                </span>
-                              )}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
+                    <>
+                      <label className="binding-search">
+                        <span className="sr-only">{t.search}</span>
+                        <input
+                          value={agentKnowledgeSearch}
+                          onChange={(event) =>
+                            setAgentKnowledgeSearch(event.target.value)
+                          }
+                          placeholder={t.searchPlaceholder}
+                          type="search"
+                        />
+                      </label>
+                      {bases.filter((base) => {
+                        const query = agentKnowledgeSearch.trim().toLowerCase();
+                        if (!query) return true;
+                        return [
+                          base.id,
+                          base.name,
+                          base.description ?? "",
+                        ].some((value) => value.toLowerCase().includes(query));
+                      }).length === 0 ? (
+                        <p className="binding-empty">{t.noSearchResults}</p>
+                      ) : (
+                        <div className="binding-list">
+                          {bases
+                            .filter((base) => {
+                              const query = agentKnowledgeSearch
+                                .trim()
+                                .toLowerCase();
+                              if (!query) return true;
+                              return [
+                                base.id,
+                                base.name,
+                                base.description ?? "",
+                              ].some((value) =>
+                                value.toLowerCase().includes(query),
+                              );
+                            })
+                            .map((base) => {
+                              const selected = parseIds(
+                                agentKnowledgeBaseIds,
+                              ).includes(base.id);
+                              return (
+                                <label className="binding-option" key={base.id}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selected}
+                                    onChange={() => {
+                                      const current = parseIds(
+                                        agentKnowledgeBaseIds,
+                                      );
+                                      const next = selected
+                                        ? current.filter((id) => id !== base.id)
+                                        : [...current, base.id];
+                                      setAgentKnowledgeBaseIds(
+                                        JSON.stringify(next),
+                                      );
+                                    }}
+                                  />
+                                  <span className="binding-copy">
+                                    <span className="binding-name">
+                                      {base.name}
+                                    </span>
+                                    <span className="binding-meta">
+                                      {base.enabled ? t.enabled : t.disabled}
+                                    </span>
+                                    {base.description && (
+                                      <span className="binding-description">
+                                        {base.description}
+                                      </span>
+                                    )}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -1475,59 +1535,109 @@ function App() {
                       {tools.filter((tool) => tool.enabled).length === 0 ? (
                         <p className="binding-empty">{t.noTools}</p>
                       ) : (
-                        <div className="binding-list">
-                          {tools
-                            .filter((tool) => tool.enabled)
-                            .map((tool) => {
-                              const checked = agentToolIds.includes(tool.id);
-                              return (
-                                <label className="binding-option" key={tool.id}>
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() =>
-                                      setAgentToolIds((current) =>
-                                        checked
-                                          ? current.filter(
-                                              (id) => id !== tool.id,
-                                            )
-                                          : [...current, tool.id],
-                                      )
-                                    }
-                                  />
-                                  <span className="binding-copy">
-                                    <span className="binding-name">
-                                      {tool.name}
-                                    </span>
-                                    <span className="binding-meta">
-                                      {tool.type === "BROWSER_PROPOSAL"
-                                        ? t.browserProposal
-                                        : tool.type}
-                                    </span>
-                                    {tool.description && (
-                                      <span className="binding-description">
-                                        {tool.description}
+                        <>
+                          <label className="binding-search">
+                            <span className="sr-only">{t.search}</span>
+                            <input
+                              value={agentToolSearch}
+                              onChange={(event) =>
+                                setAgentToolSearch(event.target.value)
+                              }
+                              placeholder={t.searchPlaceholder}
+                              type="search"
+                            />
+                          </label>
+                          {tools.filter((tool) => {
+                            if (!tool.enabled) return false;
+                            const query = agentToolSearch.trim().toLowerCase();
+                            if (!query) return true;
+                            return [
+                              tool.id,
+                              tool.name,
+                              tool.description ?? "",
+                              tool.type ?? "",
+                              tool.endpoint ?? "",
+                            ].some((value) =>
+                              value.toLowerCase().includes(query),
+                            );
+                          }).length === 0 ? (
+                            <p className="binding-empty">{t.noSearchResults}</p>
+                          ) : (
+                            <div className="binding-list">
+                              {tools
+                                .filter((tool) => {
+                                  if (!tool.enabled) return false;
+                                  const query = agentToolSearch
+                                    .trim()
+                                    .toLowerCase();
+                                  if (!query) return true;
+                                  return [
+                                    tool.id,
+                                    tool.name,
+                                    tool.description ?? "",
+                                    tool.type ?? "",
+                                    tool.endpoint ?? "",
+                                  ].some((value) =>
+                                    value.toLowerCase().includes(query),
+                                  );
+                                })
+                                .map((tool) => {
+                                  const checked = agentToolIds.includes(
+                                    tool.id,
+                                  );
+                                  return (
+                                    <label
+                                      className="binding-option"
+                                      key={tool.id}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() =>
+                                          setAgentToolIds((current) =>
+                                            checked
+                                              ? current.filter(
+                                                  (id) => id !== tool.id,
+                                                )
+                                              : [...current, tool.id],
+                                          )
+                                        }
+                                      />
+                                      <span className="binding-copy">
+                                        <span className="binding-name">
+                                          {tool.name}
+                                        </span>
+                                        <span className="binding-meta">
+                                          {tool.type === "BROWSER_PROPOSAL"
+                                            ? t.browserProposal
+                                            : tool.type}
+                                        </span>
+                                        {tool.description && (
+                                          <span className="binding-description">
+                                            {tool.description}
+                                          </span>
+                                        )}
                                       </span>
-                                    )}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    className="binding-detail-button"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      setResourceDetails({
-                                        kind: "tool",
-                                        resource: tool,
-                                      });
-                                    }}
-                                  >
-                                    {t.viewDetails}
-                                  </button>
-                                </label>
-                              );
-                            })}
-                        </div>
+                                      <button
+                                        type="button"
+                                        className="binding-detail-button"
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          setResourceDetails({
+                                            kind: "tool",
+                                            resource: tool,
+                                          });
+                                        }}
+                                      >
+                                        {t.viewDetails}
+                                      </button>
+                                    </label>
+                                  );
+                                })}
+                            </div>
+                          )}
+                        </>
                       )}
                     </section>
                   )}
@@ -1545,62 +1655,109 @@ function App() {
                       {skills.filter((skill) => skill.enabled).length === 0 ? (
                         <p className="binding-empty">{t.noSkills}</p>
                       ) : (
-                        <div className="binding-list">
-                          {skills
-                            .filter((skill) => skill.enabled)
-                            .map((skill) => {
-                              const checked = agentSkillIds.includes(skill.id);
-                              return (
-                                <label
-                                  className="binding-option"
-                                  key={skill.id}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() =>
-                                      setAgentSkillIds((current) =>
-                                        checked
-                                          ? current.filter(
-                                              (id) => id !== skill.id,
-                                            )
-                                          : [...current, skill.id],
-                                      )
-                                    }
-                                  />
-                                  <span className="binding-copy">
-                                    <span className="binding-name">
-                                      {skill.name}
-                                    </span>
-                                    {skill.version && (
-                                      <span className="binding-meta">
-                                        v{skill.version}
+                        <>
+                          <label className="binding-search">
+                            <span className="sr-only">{t.search}</span>
+                            <input
+                              value={agentSkillSearch}
+                              onChange={(event) =>
+                                setAgentSkillSearch(event.target.value)
+                              }
+                              placeholder={t.searchPlaceholder}
+                              type="search"
+                            />
+                          </label>
+                          {skills.filter((skill) => {
+                            if (!skill.enabled) return false;
+                            const query = agentSkillSearch.trim().toLowerCase();
+                            if (!query) return true;
+                            return [
+                              skill.id,
+                              skill.name,
+                              skill.description ?? "",
+                              skill.prompt,
+                              skill.version ?? "",
+                            ].some((value) =>
+                              value.toLowerCase().includes(query),
+                            );
+                          }).length === 0 ? (
+                            <p className="binding-empty">{t.noSearchResults}</p>
+                          ) : (
+                            <div className="binding-list">
+                              {skills
+                                .filter((skill) => {
+                                  if (!skill.enabled) return false;
+                                  const query = agentSkillSearch
+                                    .trim()
+                                    .toLowerCase();
+                                  if (!query) return true;
+                                  return [
+                                    skill.id,
+                                    skill.name,
+                                    skill.description ?? "",
+                                    skill.prompt,
+                                    skill.version ?? "",
+                                  ].some((value) =>
+                                    value.toLowerCase().includes(query),
+                                  );
+                                })
+                                .map((skill) => {
+                                  const checked = agentSkillIds.includes(
+                                    skill.id,
+                                  );
+                                  return (
+                                    <label
+                                      className="binding-option"
+                                      key={skill.id}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() =>
+                                          setAgentSkillIds((current) =>
+                                            checked
+                                              ? current.filter(
+                                                  (id) => id !== skill.id,
+                                                )
+                                              : [...current, skill.id],
+                                          )
+                                        }
+                                      />
+                                      <span className="binding-copy">
+                                        <span className="binding-name">
+                                          {skill.name}
+                                        </span>
+                                        {skill.version && (
+                                          <span className="binding-meta">
+                                            v{skill.version}
+                                          </span>
+                                        )}
+                                        {skill.description && (
+                                          <span className="binding-description">
+                                            {skill.description}
+                                          </span>
+                                        )}
                                       </span>
-                                    )}
-                                    {skill.description && (
-                                      <span className="binding-description">
-                                        {skill.description}
-                                      </span>
-                                    )}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    className="binding-detail-button"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      setResourceDetails({
-                                        kind: "skill",
-                                        resource: skill,
-                                      });
-                                    }}
-                                  >
-                                    {t.viewDetails}
-                                  </button>
-                                </label>
-                              );
-                            })}
-                        </div>
+                                      <button
+                                        type="button"
+                                        className="binding-detail-button"
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          setResourceDetails({
+                                            kind: "skill",
+                                            resource: skill,
+                                          });
+                                        }}
+                                      >
+                                        {t.viewDetails}
+                                      </button>
+                                    </label>
+                                  );
+                                })}
+                            </div>
+                          )}
+                        </>
                       )}
                     </section>
                   )}

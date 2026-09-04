@@ -951,6 +951,38 @@ pre {
   padding-right: 2px;
 }
 
+.binding-search {
+  display: block;
+  margin-bottom: 9px;
+}
+
+.binding-search input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  outline: none;
+  background: var(--control-bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.binding-search input:focus {
+  border-color: #4776d0;
+  box-shadow: 0 0 0 3px rgb(71 118 208 / 20%);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .binding-option {
   display: flex;
   align-items: flex-start;
