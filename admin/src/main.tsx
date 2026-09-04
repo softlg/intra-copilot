@@ -903,6 +903,8 @@ function App() {
             <button
               className={tab === key ? "nav active" : "nav"}
               onClick={() => setTab(key)}
+              title={sidebarCollapsed ? labels[key] : undefined}
+              aria-label={labels[key]}
               key={key}
             >
               <span className="nav-icon" aria-hidden="true">
