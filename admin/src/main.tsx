@@ -454,7 +454,7 @@ function App() {
   const [editingAgentId, setEditingAgentId] = useState<string>();
   const [agentConfigId, setAgentConfigId] = useState<string>();
   const [agentConfigSection, setAgentConfigSection] = useState<
-    "basic" | "knowledge" | "capabilities"
+    "basic" | "knowledge" | "tools" | "skills"
   >("basic");
   const [agentId, setAgentId] = useState("custom-agent");
   const [agentDisplayName, setAgentDisplayName] = useState("自定义 Agent");
@@ -1256,7 +1256,8 @@ function App() {
                 [
                   ["basic", t.basicInfo],
                   ["knowledge", t.knowledgeBinding],
-                  ["capabilities", t.capabilityBinding],
+                  ["tools", t.tools],
+                  ["skills", t.skills],
                 ] as const
               ).map(([key, label]) => (
                 <button
@@ -1380,114 +1381,124 @@ function App() {
                   <p className="field-hint">{t.idsHint}</p>
                 </div>
               )}
-              {agentConfigSection === "capabilities" && (
+              {(agentConfigSection === "tools" ||
+                agentConfigSection === "skills") && (
                 <div className="settings-panel">
-                  <section className="binding-section">
-                    <div className="binding-heading">
-                      <div>
-                        <h4>{t.tools}</h4>
-                        <p>{t.browserActions}</p>
+                  {agentConfigSection === "tools" && (
+                    <section className="binding-section">
+                      <div className="binding-heading">
+                        <div>
+                          <h4>{t.tools}</h4>
+                          <p>{t.browserActions}</p>
+                        </div>
+                        <span className="binding-count">
+                          {agentToolIds.length}
+                        </span>
                       </div>
-                      <span className="binding-count">
-                        {agentToolIds.length}
-                      </span>
-                    </div>
-                    {tools.filter((tool) => tool.enabled).length === 0 ? (
-                      <p className="binding-empty">{t.noTools}</p>
-                    ) : (
-                      <div className="binding-list">
-                        {tools
-                          .filter((tool) => tool.enabled)
-                          .map((tool) => {
-                            const checked = agentToolIds.includes(tool.id);
-                            return (
-                              <label className="binding-option" key={tool.id}>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() =>
-                                    setAgentToolIds((current) =>
-                                      checked
-                                        ? current.filter((id) => id !== tool.id)
-                                        : [...current, tool.id],
-                                    )
-                                  }
-                                />
-                                <span className="binding-copy">
-                                  <span className="binding-name">
-                                    {tool.name}
-                                  </span>
-                                  <span className="binding-meta">
-                                    {tool.type === "BROWSER_PROPOSAL"
-                                      ? t.browserProposal
-                                      : tool.type}
-                                  </span>
-                                  {tool.description && (
-                                    <span className="binding-description">
-                                      {tool.description}
+                      {tools.filter((tool) => tool.enabled).length === 0 ? (
+                        <p className="binding-empty">{t.noTools}</p>
+                      ) : (
+                        <div className="binding-list">
+                          {tools
+                            .filter((tool) => tool.enabled)
+                            .map((tool) => {
+                              const checked = agentToolIds.includes(tool.id);
+                              return (
+                                <label className="binding-option" key={tool.id}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() =>
+                                      setAgentToolIds((current) =>
+                                        checked
+                                          ? current.filter(
+                                              (id) => id !== tool.id,
+                                            )
+                                          : [...current, tool.id],
+                                      )
+                                    }
+                                  />
+                                  <span className="binding-copy">
+                                    <span className="binding-name">
+                                      {tool.name}
                                     </span>
-                                  )}
-                                </span>
-                              </label>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </section>
-                  <section className="binding-section">
-                    <div className="binding-heading">
-                      <div>
-                        <h4>{t.skills}</h4>
-                        <p>{t.idsHint}</p>
-                      </div>
-                      <span className="binding-count">
-                        {agentSkillIds.length}
-                      </span>
-                    </div>
-                    {skills.filter((skill) => skill.enabled).length === 0 ? (
-                      <p className="binding-empty">{t.noSkills}</p>
-                    ) : (
-                      <div className="binding-list">
-                        {skills
-                          .filter((skill) => skill.enabled)
-                          .map((skill) => {
-                            const checked = agentSkillIds.includes(skill.id);
-                            return (
-                              <label className="binding-option" key={skill.id}>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() =>
-                                    setAgentSkillIds((current) =>
-                                      checked
-                                        ? current.filter(
-                                            (id) => id !== skill.id,
-                                          )
-                                        : [...current, skill.id],
-                                    )
-                                  }
-                                />
-                                <span className="binding-copy">
-                                  <span className="binding-name">
-                                    {skill.name}
-                                  </span>
-                                  {skill.version && (
                                     <span className="binding-meta">
-                                      v{skill.version}
+                                      {tool.type === "BROWSER_PROPOSAL"
+                                        ? t.browserProposal
+                                        : tool.type}
                                     </span>
-                                  )}
-                                  {skill.description && (
-                                    <span className="binding-description">
-                                      {skill.description}
-                                    </span>
-                                  )}
-                                </span>
-                              </label>
-                            );
-                          })}
+                                    {tool.description && (
+                                      <span className="binding-description">
+                                        {tool.description}
+                                      </span>
+                                    )}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </section>
+                  )}
+                  {agentConfigSection === "skills" && (
+                    <section className="binding-section">
+                      <div className="binding-heading">
+                        <div>
+                          <h4>{t.skills}</h4>
+                          <p>{t.idsHint}</p>
+                        </div>
+                        <span className="binding-count">
+                          {agentSkillIds.length}
+                        </span>
                       </div>
-                    )}
-                  </section>
+                      {skills.filter((skill) => skill.enabled).length === 0 ? (
+                        <p className="binding-empty">{t.noSkills}</p>
+                      ) : (
+                        <div className="binding-list">
+                          {skills
+                            .filter((skill) => skill.enabled)
+                            .map((skill) => {
+                              const checked = agentSkillIds.includes(skill.id);
+                              return (
+                                <label
+                                  className="binding-option"
+                                  key={skill.id}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() =>
+                                      setAgentSkillIds((current) =>
+                                        checked
+                                          ? current.filter(
+                                              (id) => id !== skill.id,
+                                            )
+                                          : [...current, skill.id],
+                                      )
+                                    }
+                                  />
+                                  <span className="binding-copy">
+                                    <span className="binding-name">
+                                      {skill.name}
+                                    </span>
+                                    {skill.version && (
+                                      <span className="binding-meta">
+                                        v{skill.version}
+                                      </span>
+                                    )}
+                                    {skill.description && (
+                                      <span className="binding-description">
+                                        {skill.description}
+                                      </span>
+                                    )}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </section>
+                  )}
                 </div>
               )}
               {agentError && <p className="error">{agentError}</p>}
