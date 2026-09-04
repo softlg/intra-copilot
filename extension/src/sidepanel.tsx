@@ -69,7 +69,7 @@ const translations = {
     renameFailed: "修改会话名称失败",
     deleteFailed: "删除会话失败",
     createFailed: "创建会话失败",
-    backendError: "无法连接后端，请确认 Spring Boot 已启动。",
+    backendError: "无法连接后端，请确认 Spring Boot 已启用。",
     requestFailed: "请求失败",
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
@@ -164,7 +164,7 @@ const translations = {
     deleteFailed: "Failed to delete chat",
     createFailed: "Failed to create chat",
     backendError:
-      "Unable to connect to the backend. Please make sure Spring Boot is running.",
+      "Unable to connect to the backend. Please make sure Spring Boot is enabled.",
     requestFailed: "Request failed",
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
