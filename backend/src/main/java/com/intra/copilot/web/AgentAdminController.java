@@ -28,12 +28,18 @@ public class AgentAdminController {
     if (registry.allDefinitions().stream().anyMatch(item -> item.getId().equals(definition.getId()))) {
       throw new IllegalArgumentException("Agent ID 已存在");
     }
+    definition.setSystemAgent(false);
     return registry.save(definition);
   }
 
   @PutMapping("/{id}")
   public AgentDefinition update(@PathVariable String id, @RequestBody AgentDefinition definition) {
     definition.setId(id);
+    AgentDefinition existing = registry.allDefinitions().stream()
+        .filter(item -> item.getId().equals(id))
+        .findFirst()
+        .orElseThrow(() -> new java.util.NoSuchElementException("Agent 不存在"));
+    definition.setSystemAgent(existing.isSystemAgent());
     validate(definition);
     return registry.save(definition);
   }
