@@ -1012,10 +1012,10 @@ function App() {
 
   const cancelBaseEdit = () => setEditingBase(false);
 
-  const saveBaseDetails = async () => {
+  const saveBaseDetails = async (): Promise<boolean> => {
     if (!activeBase || !baseDraftName.trim()) {
       setBaseError(t.baseNameRequired);
-      return;
+      return false;
     }
     setBaseSaving(true);
     setBaseError("");
@@ -1036,8 +1036,10 @@ function App() {
         items.map((item) => (item.id === updated.id ? updated : item)),
       );
       setEditingBase(false);
+      return true;
     } catch (error) {
       setBaseError(error instanceof Error ? error.message : t.createBaseFailed);
+      return false;
     } finally {
       setBaseSaving(false);
     }
@@ -1056,6 +1058,11 @@ function App() {
     localStorage.setItem("admin-qa-settings", JSON.stringify(qaSettings));
     setQaSaved(true);
     window.setTimeout(() => setQaSaved(false), 1800);
+  };
+
+  const saveKnowledgeSettings = async () => {
+    if (editingBase && !(await saveBaseDetails())) return;
+    saveQaSettings();
   };
 
   const addAgent = () => {
@@ -2334,7 +2341,6 @@ function App() {
                             setBaseDraftName(event.target.value)
                           }
                           onKeyDown={(event) => {
-                            if (event.key === "Enter") saveBaseDetails();
                             if (event.key === "Escape") cancelBaseEdit();
                           }}
                           autoFocus
@@ -2353,23 +2359,6 @@ function App() {
                           maxLength={500}
                           aria-label={t.baseDescription}
                         />
-                        <div className="knowledge-inline-actions">
-                          <button
-                            type="button"
-                            onClick={saveBaseDetails}
-                            disabled={baseSaving}
-                          >
-                            {baseSaving ? t.saving : t.save}
-                          </button>
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={cancelBaseEdit}
-                            disabled={baseSaving}
-                          >
-                            {t.cancel}
-                          </button>
-                        </div>
                       </div>
                     ) : (
                       <>
@@ -2381,15 +2370,14 @@ function App() {
                       </>
                     )}
                   </div>
-                  {knowledgeSection === "qa" && (
-                    <button
-                      type="button"
-                      className="qa-header-save"
-                      onClick={saveQaSettings}
-                    >
-                      {qaSaved ? `✓ ${t.saved}` : t.saveSettings}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="qa-header-save"
+                    onClick={saveKnowledgeSettings}
+                    disabled={baseSaving}
+                  >
+                    {qaSaved ? `✓ ${t.saved}` : t.saveSettings}
+                  </button>
                 </div>
                 <div className="detail-tabs" role="tablist">
                   <button

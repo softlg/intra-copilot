@@ -508,17 +508,6 @@ article p {
   box-shadow: 0 0 0 2px rgb(71 118 208 / 18%);
 }
 
-.knowledge-inline-actions {
-  display: flex;
-  justify-content: flex-start;
-  gap: 8px;
-}
-
-.knowledge-inline-actions button {
-  padding: 7px 12px;
-  font-size: 12px;
-}
-
 .qa-header-save {
   flex: 0 0 auto;
   margin-left: auto;
