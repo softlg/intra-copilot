@@ -87,6 +87,7 @@ const translations = {
     attachFile: "上传文件",
     attachmentMenu: "附加文件",
     screenshot: "从屏幕上选择",
+    screenshotSelectHint: "拖动鼠标框选需要截图的页面区域，松开完成",
     pageInfo: "页面信息",
     pageInfoHint: "选择要随消息发送的页面信息",
     pageInfoUrl: "当前网址",
@@ -183,6 +184,8 @@ const translations = {
     attachFile: "Upload file",
     attachmentMenu: "Attachments",
     screenshot: "Select from screen",
+    screenshotSelectHint:
+      "Drag to select the page area to capture, then release",
     pageInfo: "Page info",
     pageInfoHint: "Choose page information to include with the message",
     pageInfoUrl: "Current URL",
@@ -347,6 +350,16 @@ function App() {
     { name: string; size: number; type: string; url: string }[]
   >([]);
   const [screenshot, setScreenshot] = useState<string>();
+  const [screenshotSelection, setScreenshotSelection] = useState<string>();
+  const [selectionRect, setSelectionRect] = useState({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
+  const selectionStart = useRef<{ x: number; y: number } | undefined>(
+    undefined,
+  );
   const [previewImage, setPreviewImage] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -798,11 +811,73 @@ function App() {
         }
         throw Error(t.screenshotFailed);
       }
-      setScreenshot(result.dataUrl);
+      setScreenshotSelection(result.dataUrl);
+      setSelectionRect({ x: 0, y: 0, width: 0, height: 0 });
       setToolsOpen(false);
     } catch (error) {
       setError((error as Error).message || t.screenshotFailed);
     }
+  }
+
+  function updateSelection(event: React.PointerEvent<HTMLDivElement>) {
+    if (!selectionStart.current) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
+    const y = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
+    const start = selectionStart.current;
+    setSelectionRect({
+      x: Math.min(start.x, x),
+      y: Math.min(start.y, y),
+      width: Math.abs(x - start.x),
+      height: Math.abs(y - start.y),
+    });
+  }
+
+  function finishSelection(event: React.PointerEvent<HTMLDivElement>) {
+    if (!selectionStart.current || !screenshotSelection) return;
+    updateSelection(event);
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const start = selectionStart.current;
+    const endX = Math.max(
+      0,
+      Math.min(bounds.width, event.clientX - bounds.left),
+    );
+    const endY = Math.max(
+      0,
+      Math.min(bounds.height, event.clientY - bounds.top),
+    );
+    const rect = {
+      x: Math.min(start.x, endX),
+      y: Math.min(start.y, endY),
+      width: Math.abs(endX - start.x),
+      height: Math.abs(endY - start.y),
+    };
+    selectionStart.current = undefined;
+    if (rect.width < 5 || rect.height < 5) return;
+    const image = new Image();
+    image.onload = () => {
+      const scaleX = image.naturalWidth / bounds.width;
+      const scaleY = image.naturalHeight / bounds.height;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(rect.width * scaleX));
+      canvas.height = Math.max(1, Math.round(rect.height * scaleY));
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.drawImage(
+        image,
+        rect.x * scaleX,
+        rect.y * scaleY,
+        rect.width * scaleX,
+        rect.height * scaleY,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+      setScreenshot(canvas.toDataURL("image/png"));
+      setScreenshotSelection(undefined);
+    };
+    image.src = screenshotSelection;
   }
 
   function markGenerationStopped() {
@@ -1620,6 +1695,55 @@ function App() {
               ×
             </button>
             <img src={previewImage} alt={t.imagePreview} />
+          </div>
+        </div>
+      )}
+      {screenshotSelection && (
+        <div className="screenshot-selection-overlay">
+          <div className="screenshot-selection-dialog">
+            <div className="screenshot-selection-toolbar">
+              <strong>{t.screenshot}</strong>
+              <span>{t.screenshotSelectHint}</span>
+              <button
+                type="button"
+                className="image-preview-close"
+                onClick={() => setScreenshotSelection(undefined)}
+                aria-label={t.cancel}
+              >
+                ×
+              </button>
+            </div>
+            <div
+              className="screenshot-selection-canvas"
+              onPointerDown={(event) => {
+                const bounds = event.currentTarget.getBoundingClientRect();
+                selectionStart.current = {
+                  x: event.clientX - bounds.left,
+                  y: event.clientY - bounds.top,
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
+                updateSelection(event);
+              }}
+              onPointerMove={updateSelection}
+              onPointerUp={finishSelection}
+            >
+              <img
+                src={screenshotSelection}
+                alt={t.screenshot}
+                draggable={false}
+              />
+              {selectionRect.width > 0 && selectionRect.height > 0 && (
+                <div
+                  className="screenshot-selection-box"
+                  style={{
+                    left: selectionRect.x,
+                    top: selectionRect.y,
+                    width: selectionRect.width,
+                    height: selectionRect.height,
+                  }}
+                />
+              )}
+            </div>
           </div>
         </div>
       )}
