@@ -196,6 +196,10 @@ const translations = {
     duration: "耗时",
     confidence: "置信度",
     routeSource: "路由来源",
+    intentResult: "意图识别结果",
+    contextTransfer: "传递给子 Agent 的上下文",
+    responseTransfer: "子 Agent 返回处理",
+    routeTrail: "路由分发轨迹",
     actionPending: "待处理",
     actionCompleted: "已完成",
     actionFailed: "失败",
@@ -402,6 +406,10 @@ const translations = {
     duration: "Duration",
     confidence: "Confidence",
     routeSource: "Route source",
+    intentResult: "Intent recognition",
+    contextTransfer: "Context sent to sub-agent",
+    responseTransfer: "Sub-agent response handling",
+    routeTrail: "Routing trail",
     actionPending: "Pending",
     actionCompleted: "Completed",
     actionFailed: "Failed",
@@ -505,6 +513,9 @@ type ConversationLog = {
     routeReason?: string;
     confidence?: number;
     routeSource?: string;
+    intent?: string;
+    contextSent?: string;
+    responseContent?: string;
     durationMs?: number;
     error?: string;
     createdAt?: string;
@@ -2533,6 +2544,29 @@ function App() {
                                         {t.routeSource}:{" "}
                                         {item.routeSource || "-"}
                                       </span>
+                                      <span>
+                                        {t.routeTrail}:{" "}
+                                        {item.requestedAgentId || "auto"} →{" "}
+                                        {item.selectedAgentId || "-"}
+                                      </span>
+                                    </div>
+                                    <div className="conversation-log-trace">
+                                      <div>
+                                        <strong>{t.intentResult}</strong>
+                                        <p>
+                                          {item.intent ||
+                                            item.routeReason ||
+                                            "-"}
+                                        </p>
+                                      </div>
+                                      <div>
+                                        <strong>{t.contextTransfer}</strong>
+                                        <pre>{item.contextSent || "-"}</pre>
+                                      </div>
+                                      <div>
+                                        <strong>{t.responseTransfer}</strong>
+                                        <pre>{item.responseContent || "-"}</pre>
+                                      </div>
                                     </div>
                                     {item.routeReason && (
                                       <p>{item.routeReason}</p>
