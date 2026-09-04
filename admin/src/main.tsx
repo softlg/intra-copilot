@@ -28,6 +28,10 @@ const translations = {
       `确定删除 Agent“${name}”吗？此操作不可撤销。`,
     deleteAgentDisabledHint: "请先停用 Agent 后再删除",
     deleteAgentFailed: "删除 Agent 失败，请稍后重试",
+    systemAgent: "系统 Agent",
+    customAgent: "自定义 Agent",
+    systemAgentHint: "系统 Agent 由页面助手内置提供，不允许删除",
+    customAgentHint: "自定义 Agent 可按需停用后删除",
     supportedDocs: "支持 Markdown、TXT、PDF 文档",
     upload: "上传文档",
     processing: "解析中…",
@@ -54,6 +58,18 @@ const translations = {
     browserActions: "允许使用浏览器操作提案（执行前仍需用户确认）",
     cancel: "取消",
     createAgent: "创建 Agent",
+    editAgentTitle: "Agent 设置",
+    editAgentSubtitle: "调整 Agent 的能力、提示词和关联资源，保存后立即生效。",
+    saveAgent: "保存设置",
+    saving: "保存中…",
+    model: "模型（可选）",
+    modelPlaceholder: "留空使用系统默认模型",
+    temperature: "温度（可选）",
+    priority: "调度优先级",
+    knowledgeBases: "关联知识库 ID（可选）",
+    tools: "关联工具 ID（可选）",
+    skills: "关联 Skill ID（可选）",
+    idsHint: "多个 ID 使用英文逗号分隔",
     creating: "创建中…",
     newBaseTitle: "新建知识库",
     newBaseSubtitle: "创建后即可上传文档并用于页面助手检索。",
@@ -113,6 +129,10 @@ const translations = {
       `Delete Agent “${name}”? This cannot be undone.`,
     deleteAgentDisabledHint: "Disable the Agent before deleting it",
     deleteAgentFailed: "Failed to delete the Agent. Please try again.",
+    systemAgent: "System Agent",
+    customAgent: "Custom Agent",
+    systemAgentHint: "Built-in page-assistant agents cannot be deleted",
+    customAgentHint: "Custom agents can be deleted after they are disabled",
     supportedDocs: "Supports Markdown, TXT, and PDF documents",
     upload: "Upload document",
     processing: "Processing…",
@@ -142,6 +162,19 @@ const translations = {
       "Allow browser action proposals (user confirmation is still required)",
     cancel: "Cancel",
     createAgent: "Create Agent",
+    editAgentTitle: "Agent settings",
+    editAgentSubtitle:
+      "Tune capabilities, prompts, and resource links. Changes apply immediately.",
+    saveAgent: "Save settings",
+    saving: "Saving…",
+    model: "Model (optional)",
+    modelPlaceholder: "Leave empty to use the default model",
+    temperature: "Temperature (optional)",
+    priority: "Routing priority",
+    knowledgeBases: "Knowledge base IDs (optional)",
+    tools: "Tool IDs (optional)",
+    skills: "Skill IDs (optional)",
+    idsHint: "Separate multiple IDs with commas",
     creating: "Creating…",
     newBaseTitle: "New knowledge base",
     newBaseSubtitle:
@@ -193,6 +226,14 @@ type Agent = {
   description?: string;
   enabled: boolean;
   systemPrompt: string;
+  systemAgent?: boolean;
+  supportsBrowserActions?: boolean;
+  priority?: number;
+  model?: string;
+  temperature?: number;
+  knowledgeBaseIds?: string;
+  toolIds?: string;
+  skillIds?: string;
 };
 
 type Base = {
@@ -267,12 +308,20 @@ function App() {
   const [message, setMessage] = useState("");
   const [route, setRoute] = useState<Record<string, unknown>>();
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
+  const [editingAgentId, setEditingAgentId] = useState<string>();
   const [agentId, setAgentId] = useState("custom-agent");
   const [agentDisplayName, setAgentDisplayName] = useState("自定义 Agent");
   const [agentDescription, setAgentDescription] = useState("");
   const [agentSystemPrompt, setAgentSystemPrompt] =
     useState("你是一个页面助手子 Agent。");
   const [agentBrowserActions, setAgentBrowserActions] = useState(false);
+  const [agentEnabled, setAgentEnabled] = useState(true);
+  const [agentPriority, setAgentPriority] = useState(100);
+  const [agentModel, setAgentModel] = useState("");
+  const [agentTemperature, setAgentTemperature] = useState("");
+  const [agentKnowledgeBaseIds, setAgentKnowledgeBaseIds] = useState("");
+  const [agentToolIds, setAgentToolIds] = useState("");
+  const [agentSkillIds, setAgentSkillIds] = useState("");
   const [agentSubmitting, setAgentSubmitting] = useState(false);
   const [agentError, setAgentError] = useState("");
   const [agentActionId, setAgentActionId] = useState<string>();
@@ -390,6 +439,7 @@ function App() {
   };
 
   const addAgent = () => {
+    setEditingAgentId(undefined);
     setAgentId("custom-agent");
     setAgentDisplayName(language === "zh" ? "自定义 Agent" : "Custom Agent");
     setAgentDescription("");
@@ -399,6 +449,35 @@ function App() {
         : "You are a page-assistant sub-agent.",
     );
     setAgentBrowserActions(false);
+    setAgentEnabled(true);
+    setAgentPriority(100);
+    setAgentModel("");
+    setAgentTemperature("");
+    setAgentKnowledgeBaseIds("");
+    setAgentToolIds("");
+    setAgentSkillIds("");
+    setAgentError("");
+    setAgentDialogOpen(true);
+  };
+
+  const openAgentSettings = (agent: Agent) => {
+    setEditingAgentId(agent.id);
+    setAgentId(agent.id);
+    setAgentDisplayName(agent.displayName);
+    setAgentDescription(agent.description ?? "");
+    setAgentSystemPrompt(agent.systemPrompt ?? "");
+    setAgentBrowserActions(Boolean(agent.supportsBrowserActions));
+    setAgentEnabled(agent.enabled);
+    setAgentPriority(agent.priority ?? 100);
+    setAgentModel(agent.model ?? "");
+    setAgentTemperature(
+      agent.temperature === undefined || agent.temperature === null
+        ? ""
+        : String(agent.temperature),
+    );
+    setAgentKnowledgeBaseIds(agent.knowledgeBaseIds ?? "");
+    setAgentToolIds(agent.toolIds ?? "");
+    setAgentSkillIds(agent.skillIds ?? "");
     setAgentError("");
     setAgentDialogOpen(true);
   };
@@ -407,7 +486,7 @@ function App() {
     if (!agentSubmitting) setAgentDialogOpen(false);
   };
 
-  const createAgent = async (event: React.FormEvent<HTMLFormElement>) => {
+  const saveAgent = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const id = agentId.trim();
     const displayName = agentDisplayName.trim();
@@ -428,23 +507,37 @@ function App() {
     setAgentSubmitting(true);
     setAgentError("");
     try {
-      await request("/admin/agents", {
-        method: "POST",
-        body: JSON.stringify({
-          id,
-          displayName,
-          description: agentDescription.trim(),
-          systemPrompt,
-          enabled: true,
-          priority: 100,
-          supportsBrowserActions: agentBrowserActions,
-        }),
-      });
+      await request(
+        editingAgentId ? `/admin/agents/${editingAgentId}` : "/admin/agents",
+        {
+          method: editingAgentId ? "PUT" : "POST",
+          body: JSON.stringify({
+            id,
+            displayName,
+            description: agentDescription.trim(),
+            systemPrompt,
+            enabled: agentEnabled,
+            priority: Math.max(0, Math.min(10000, Number(agentPriority) || 0)),
+            supportsBrowserActions: agentBrowserActions,
+            model: agentModel.trim() || null,
+            temperature: agentTemperature.trim()
+              ? Number(agentTemperature)
+              : null,
+            knowledgeBaseIds: agentKnowledgeBaseIds.trim(),
+            toolIds: agentToolIds.trim(),
+            skillIds: agentSkillIds.trim(),
+          }),
+        },
+      );
       setAgentDialogOpen(false);
       load();
     } catch (error) {
       setAgentError(
-        error instanceof Error ? error.message : t.createAgentFailed,
+        error instanceof Error
+          ? error.message
+          : editingAgentId
+            ? t.createAgentFailed
+            : t.createAgentFailed,
       );
     } finally {
       setAgentSubmitting(false);
@@ -460,6 +553,12 @@ function App() {
   };
 
   const deleteAgent = async (agent: Agent) => {
+    if (
+      agent.systemAgent ||
+      ["assistant", "diagnosis", "tms-manual"].includes(agent.id)
+    ) {
+      return;
+    }
     if (
       agent.enabled ||
       !window.confirm(t.deleteAgentConfirm(agent.displayName))
@@ -478,6 +577,10 @@ function App() {
       setAgentActionId(undefined);
     }
   };
+
+  const isSystemAgent = (agent: Agent) =>
+    agent.systemAgent === true ||
+    ["assistant", "diagnosis", "tms-manual"].includes(agent.id);
 
   const addBase = () => {
     setBaseName("");
@@ -724,40 +827,71 @@ function App() {
             {agentError && !agentDialogOpen && (
               <p className="error page-error">{agentError}</p>
             )}
-            <div className="grid">
-              {agents.map((agent) => (
-                <article key={agent.id}>
-                  <div className="row">
-                    <strong>{agent.displayName}</strong>
-                    <span className={agent.enabled ? "ok" : "off"}>
-                      {agent.enabled ? t.enabled : t.disabled}
-                    </span>
+            {([true, false] as const).map((system) => {
+              const group = agents.filter(
+                (agent) => isSystemAgent(agent) === system,
+              );
+              if (!group.length) return null;
+              return (
+                <section
+                  className="agent-group"
+                  key={system ? "system" : "custom"}
+                >
+                  <div className="group-heading">
+                    <div>
+                      <h3>{system ? t.systemAgent : t.customAgent}</h3>
+                      <p>{system ? t.systemAgentHint : t.customAgentHint}</p>
+                    </div>
+                    <span className="group-count">{group.length}</span>
                   </div>
-                  <code>{agent.id}</code>
-                  <p>{agent.description || t.noDescription}</p>
-                  <div className="agent-actions">
-                    <button
-                      onClick={() => toggle(agent)}
-                      disabled={agentActionId === agent.id}
-                    >
-                      {agent.enabled ? t.stop : t.enable}
-                    </button>
-                    <button
-                      className="agent-delete"
-                      onClick={() => deleteAgent(agent)}
-                      disabled={agent.enabled || agentActionId === agent.id}
-                      title={
-                        agent.enabled
-                          ? t.deleteAgentDisabledHint
-                          : t.deleteAgent
-                      }
-                    >
-                      {t.deleteAgent}
-                    </button>
+                  <div className="grid">
+                    {group.map((agent) => (
+                      <article key={agent.id}>
+                        <div className="row">
+                          <strong>{agent.displayName}</strong>
+                          <span className={agent.enabled ? "ok" : "off"}>
+                            {agent.enabled ? t.enabled : t.disabled}
+                          </span>
+                        </div>
+                        <code>{agent.id}</code>
+                        <p>{agent.description || t.noDescription}</p>
+                        <div className="agent-actions">
+                          <button
+                            onClick={() => openAgentSettings(agent)}
+                            className="secondary"
+                            disabled={agentActionId === agent.id}
+                          >
+                            {t.settings}
+                          </button>
+                          <button
+                            onClick={() => toggle(agent)}
+                            disabled={agentActionId === agent.id}
+                          >
+                            {agent.enabled ? t.stop : t.enable}
+                          </button>
+                          {!system && (
+                            <button
+                              className="agent-delete"
+                              onClick={() => deleteAgent(agent)}
+                              disabled={
+                                agent.enabled || agentActionId === agent.id
+                              }
+                              title={
+                                agent.enabled
+                                  ? t.deleteAgentDisabledHint
+                                  : t.deleteAgent
+                              }
+                            >
+                              {t.deleteAgent}
+                            </button>
+                          )}
+                        </div>
+                      </article>
+                    ))}
                   </div>
-                </article>
-              ))}
-            </div>
+                </section>
+              );
+            })}
           </section>
         )}
 
@@ -989,8 +1123,12 @@ function App() {
           >
             <div className="modal-header">
               <div>
-                <h3 id="agent-dialog-title">{t.newAgentTitle}</h3>
-                <p className="modal-subtitle">{t.newAgentSubtitle}</p>
+                <h3 id="agent-dialog-title">
+                  {editingAgentId ? t.editAgentTitle : t.newAgentTitle}
+                </h3>
+                <p className="modal-subtitle">
+                  {editingAgentId ? t.editAgentSubtitle : t.newAgentSubtitle}
+                </p>
               </div>
               <button
                 className="icon-button"
@@ -1001,7 +1139,7 @@ function App() {
                 ×
               </button>
             </div>
-            <form onSubmit={createAgent}>
+            <form onSubmit={saveAgent}>
               <label className="field">
                 <span>{t.agentId}</span>
                 <input
@@ -1010,6 +1148,7 @@ function App() {
                   onChange={(event) => setAgentId(event.target.value)}
                   placeholder={t.agentIdPlaceholder}
                   maxLength={128}
+                  disabled={Boolean(editingAgentId)}
                 />
                 <small className="field-hint">{t.agentIdHint}</small>
               </label>
@@ -1052,6 +1191,72 @@ function App() {
                 />
                 <span>{t.browserActions}</span>
               </label>
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={agentEnabled}
+                  onChange={(event) => setAgentEnabled(event.target.checked)}
+                />
+                <span>{t.enabled}</span>
+              </label>
+              <div className="field-grid">
+                <label className="field">
+                  <span>{t.priority}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10000}
+                    value={agentPriority}
+                    onChange={(event) =>
+                      setAgentPriority(Number(event.target.value) || 0)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>{t.temperature}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    value={agentTemperature}
+                    onChange={(event) =>
+                      setAgentTemperature(event.target.value)
+                    }
+                    placeholder="0.7"
+                  />
+                </label>
+              </div>
+              <label className="field">
+                <span>{t.model}</span>
+                <input
+                  value={agentModel}
+                  onChange={(event) => setAgentModel(event.target.value)}
+                  placeholder={t.modelPlaceholder}
+                />
+              </label>
+              {[
+                [
+                  t.knowledgeBases,
+                  agentKnowledgeBaseIds,
+                  setAgentKnowledgeBaseIds,
+                ],
+                [t.tools, agentToolIds, setAgentToolIds],
+                [t.skills, agentSkillIds, setAgentSkillIds],
+              ].map(([label, value, setter]) => (
+                <label className="field" key={label as string}>
+                  <span>{label as string}</span>
+                  <input
+                    value={value as string}
+                    onChange={(event) =>
+                      (setter as React.Dispatch<React.SetStateAction<string>>)(
+                        event.target.value,
+                      )
+                    }
+                    placeholder={t.idsHint}
+                  />
+                </label>
+              ))}
               {agentError && <p className="error">{agentError}</p>}
               <div className="modal-actions">
                 <button
@@ -1063,7 +1268,11 @@ function App() {
                   {t.cancel}
                 </button>
                 <button type="submit" disabled={agentSubmitting}>
-                  {agentSubmitting ? t.creating : t.createAgent}
+                  {agentSubmitting
+                    ? t.saving
+                    : editingAgentId
+                      ? t.saveAgent
+                      : t.createAgent}
                 </button>
               </div>
             </form>

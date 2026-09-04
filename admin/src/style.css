@@ -217,6 +217,39 @@ header {
   margin-top: 20px;
 }
 
+.agent-group {
+  margin-top: 28px;
+}
+
+.group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.group-heading h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.group-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.group-count {
+  min-width: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 article {
   padding: 18px;
   border: 1px solid #283852;
@@ -608,6 +641,12 @@ pre {
 .field {
   display: block;
   margin-bottom: 17px;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
 .field span {
