@@ -1060,7 +1060,7 @@ function App() {
     const id = agentId.trim();
     const displayName = agentDisplayName.trim();
     const systemPrompt = agentSystemPrompt.trim();
-    if (!/^[a-z0-9][a-z0-9-]{1,127}$/.test(id)) {
+    if (editingAgentId && !/^[a-z0-9][a-z0-9-]{1,127}$/.test(id)) {
       setAgentError(t.agentIdInvalid);
       return;
     }
@@ -1081,7 +1081,7 @@ function App() {
         {
           method: editingAgentId ? "PUT" : "POST",
           body: JSON.stringify({
-            id,
+            id: editingAgentId ? id : null,
             displayName,
             description: agentDescription.trim(),
             systemPrompt,
@@ -2736,18 +2736,13 @@ function App() {
               </button>
             </div>
             <form onSubmit={saveAgent}>
-              <label className="field">
-                <span>{t.agentId}</span>
-                <input
-                  autoFocus
-                  value={agentId}
-                  onChange={(event) => setAgentId(event.target.value)}
-                  placeholder={t.agentIdPlaceholder}
-                  maxLength={128}
-                  disabled={Boolean(editingAgentId)}
-                />
-                <small className="field-hint">{t.agentIdHint}</small>
-              </label>
+              {editingAgentId && (
+                <label className="field">
+                  <span>{t.agentId}</span>
+                  <input value={agentId} disabled />
+                  <small className="field-hint">{t.agentIdHint}</small>
+                </label>
+              )}
               <label className="field">
                 <span>{t.displayName}</span>
                 <input
