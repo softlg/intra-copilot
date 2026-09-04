@@ -10,7 +10,7 @@ type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
 type Feedback = "up" | "down";
-type Msg = { role: string; content: string; id?: string };
+type Msg = { role: string; content: string; id?: string; agentId?: string };
 type PageInfoKey = "url" | "title" | "selection" | "visibleText" | "domSummary";
 const PAGE_INFO_KEYS: PageInfoKey[] = [
   "url",
@@ -527,6 +527,18 @@ function App() {
         messageFeedback: { ...all, [session.id]: sessionFeedback },
       });
     });
+    const target = msgs[index];
+    fetch(API + "/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.id,
+        messageId: target?.id,
+        messageIndex: index,
+        agentId: target?.agentId,
+        rating: feedback,
+      }),
+    }).catch(() => undefined);
   }
 
   async function copyMessage(content: string, index: number) {
