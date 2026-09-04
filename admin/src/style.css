@@ -706,6 +706,54 @@ article p {
   background: var(--surface-muted);
 }
 
+.routing-panel {
+  border-color: rgb(71 118 208 / 55%);
+  background: linear-gradient(
+    145deg,
+    var(--surface-muted),
+    rgb(71 118 208 / 9%)
+  );
+}
+
+.route-badge {
+  padding: 4px 9px;
+  border: 1px solid rgb(71 118 208 / 55%);
+  border-radius: 999px;
+  background: rgb(71 118 208 / 14%);
+  color: #8db2f2;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.routing-priority-note {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.routing-priority-note strong {
+  color: var(--text);
+}
+
+.routing-priority-note span {
+  min-width: 26px;
+  color: #8db2f2;
+  font-weight: 700;
+}
+
+.routing-priority-note small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .resource-toolbar {
   display: flex;
   align-items: center;

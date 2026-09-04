@@ -133,6 +133,12 @@ const translations = {
     agentSettingsPage: "Agent 配置",
     backToAgents: "返回 Agent 列表",
     basicInfo: "基本信息",
+    intentRouting: "意图路由",
+    intentRoutingHint:
+      "配置主 Agent 如何识别意图、选择子 Agent，以及处理低置信度请求。",
+    routingRules: "指派规则",
+    routingRulesPlaceholder:
+      "例如：\n- 页面报错、接口异常 → 优先指派给故障排查子 Agent\n- 产品流程咨询 → 指派给对应业务子 Agent\n- 无法判断时 → 转给 Intra Copilot",
     knowledgeBinding: "知识库绑定",
     noKnowledgeBases: "暂无可用知识库，请先创建知识库。",
     search: "搜索",
@@ -333,6 +339,12 @@ const translations = {
     agentSettingsPage: "Agent configuration",
     backToAgents: "Back to Agents",
     basicInfo: "Basic information",
+    intentRouting: "Intent routing",
+    intentRoutingHint:
+      "Configure how the primary Agent identifies intent, selects sub-agents, and handles low-confidence requests.",
+    routingRules: "Assignment rules",
+    routingRulesPlaceholder:
+      "For example:\n- Page errors or API failures → route to the troubleshooting sub-agent\n- Product workflow questions → route to the relevant sub-agent\n- If uncertain → fall back to Intra Copilot",
     knowledgeBinding: "Knowledge bases",
     noKnowledgeBases: "No knowledge bases available. Create one first.",
     search: "Search",
@@ -405,6 +417,7 @@ type Agent = {
   systemAgent?: boolean;
   supportsBrowserActions?: boolean;
   priority?: number;
+  routingRules?: string;
   model?: string;
   temperature?: number;
   knowledgeBaseIds?: string;
@@ -591,7 +604,7 @@ function App() {
   const [editingAgentId, setEditingAgentId] = useState<string>();
   const [agentConfigId, setAgentConfigId] = useState<string>();
   const [agentConfigSection, setAgentConfigSection] = useState<
-    "basic" | "knowledge" | "tools" | "skills"
+    "basic" | "routing" | "knowledge" | "tools" | "skills"
   >("basic");
   const [agentId, setAgentId] = useState("custom-agent");
   const [agentDisplayName, setAgentDisplayName] = useState("子 Agent");
@@ -601,6 +614,7 @@ function App() {
   const [agentBrowserActions, setAgentBrowserActions] = useState(false);
   const [agentEnabled, setAgentEnabled] = useState(true);
   const [agentPriority, setAgentPriority] = useState(100);
+  const [agentRoutingRules, setAgentRoutingRules] = useState("");
   const [agentModel, setAgentModel] = useState("");
   const [agentTemperature, setAgentTemperature] = useState("");
   const [agentKnowledgeBaseIds, setAgentKnowledgeBaseIds] = useState("");
@@ -952,6 +966,7 @@ function App() {
     setAgentBrowserActions(false);
     setAgentEnabled(true);
     setAgentPriority(100);
+    setAgentRoutingRules("");
     setAgentModel("");
     setAgentTemperature("");
     setAgentKnowledgeBaseIds("");
@@ -976,6 +991,7 @@ function App() {
     setAgentBrowserActions(Boolean(agent.supportsBrowserActions));
     setAgentEnabled(agent.enabled);
     setAgentPriority(agent.priority ?? 100);
+    setAgentRoutingRules(agent.routingRules ?? "");
     setAgentModel(agent.model ?? "");
     setAgentTemperature(
       agent.temperature === undefined || agent.temperature === null
@@ -1071,6 +1087,7 @@ function App() {
             systemPrompt,
             enabled: agentEnabled,
             priority: Math.max(0, Math.min(10000, Number(agentPriority) || 0)),
+            routingRules: agentRoutingRules.trim() || null,
             supportsBrowserActions: agentBrowserActions,
             model: agentModel.trim() || null,
             temperature: agentTemperature.trim()
@@ -1472,6 +1489,9 @@ function App() {
               {(
                 [
                   ["basic", t.basicInfo],
+                  ...(agentConfigId === "route-copilot"
+                    ? ([["routing", t.intentRouting]] as const)
+                    : []),
                   ["knowledge", t.knowledgeBinding],
                   ["tools", t.tools],
                   ["skills", t.skills],
@@ -1587,6 +1607,36 @@ function App() {
                   </label>
                 </div>
               )}
+              {agentConfigSection === "routing" &&
+                agentConfigId === "route-copilot" && (
+                  <div className="settings-panel routing-panel">
+                    <div className="binding-heading">
+                      <div>
+                        <h4>{t.intentRouting}</h4>
+                        <p>{t.intentRoutingHint}</p>
+                      </div>
+                      <span className="route-badge">主 Agent</span>
+                    </div>
+                    <label className="field">
+                      <span>{t.routingRules}</span>
+                      <textarea
+                        value={agentRoutingRules}
+                        onChange={(event) =>
+                          setAgentRoutingRules(event.target.value)
+                        }
+                        placeholder={t.routingRulesPlaceholder}
+                        rows={12}
+                        maxLength={8000}
+                      />
+                      <small className="field-hint">{t.idsHint}</small>
+                    </label>
+                    <div className="routing-priority-note">
+                      <strong>{t.priority}</strong>
+                      <span>{agentPriority}</span>
+                      <small>{t.intentRoutingHint}</small>
+                    </div>
+                  </div>
+                )}
               {agentConfigSection === "knowledge" && (
                 <div className="settings-panel">
                   <div className="binding-heading">
