@@ -4,6 +4,7 @@ import com.intra.copilot.agent.*;
 import com.intra.copilot.model.*;
 import com.intra.copilot.service.ChatService;
 import java.util.*;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
@@ -72,9 +73,10 @@ public class ApiController {
       List<String> images) {}
 
   @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-  public SseEmitter stream(@RequestBody ChatRequest req) {
+  public SseEmitter stream(@RequestBody ChatRequest req, HttpServletRequest request) {
     return chat.chat(
-        req.sessionId(), req.message(), req.agentId(), req.pageContext(), req.permissions(), req.images());
+        req.sessionId(), req.message(), req.agentId(), req.pageContext(), req.permissions(), req.images(),
+        request.getRemoteAddr());
   }
 
   public record ActionResult(String status, String result) {}
