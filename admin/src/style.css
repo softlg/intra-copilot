@@ -1003,6 +1003,40 @@ article p {
   font-size: 11px;
 }
 
+.conversation-log-trace {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.conversation-log-trace > div {
+  min-width: 0;
+}
+
+.conversation-log-trace strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.conversation-log-trace p {
+  margin: 4px 0 0;
+}
+
+.conversation-log-trace pre {
+  max-height: 140px;
+  margin: 4px 0 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .agent-delete {
   border: 1px solid #6b3441;
   background: transparent;
