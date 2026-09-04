@@ -17,7 +17,7 @@ public class WebConfig implements WebMvcConfigurer {
                 .map(String::trim)
                 .filter(origin -> !origin.isBlank())
                 .toArray(String[]::new))
-        .allowedMethods("GET", "POST", "PATCH", "DELETE", "OPTIONS")
+        .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
         .allowedHeaders("*")
         .maxAge(3600);
   }
