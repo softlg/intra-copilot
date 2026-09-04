@@ -68,12 +68,13 @@ public class ApiController {
       String message,
       String agentId,
       String pageContext,
-      Map<String, Boolean> permissions) {}
+      Map<String, Boolean> permissions,
+      List<String> images) {}
 
   @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
   public SseEmitter stream(@RequestBody ChatRequest req) {
     return chat.chat(
-        req.sessionId(), req.message(), req.agentId(), req.pageContext(), req.permissions());
+        req.sessionId(), req.message(), req.agentId(), req.pageContext(), req.permissions(), req.images());
   }
 
   public record ActionResult(String status, String result) {}
