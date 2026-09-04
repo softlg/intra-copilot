@@ -364,6 +364,22 @@ article p {
   justify-content: space-between;
 }
 
+.agent-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.agent-delete {
+  border: 1px solid #6b3441;
+  background: transparent;
+  color: #e990a4;
+}
+
+.agent-delete:hover:not(:disabled) {
+  background: #3b2630;
+}
+
 code {
   color: #86a6d8;
   font-size: 12px;

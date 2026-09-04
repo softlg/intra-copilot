@@ -23,6 +23,11 @@ const translations = {
     noDescription: "暂无描述",
     stop: "停用",
     enable: "启用",
+    deleteAgent: "删除",
+    deleteAgentConfirm: (name: string) =>
+      `确定删除 Agent“${name}”吗？此操作不可撤销。`,
+    deleteAgentDisabledHint: "请先停用 Agent 后再删除",
+    deleteAgentFailed: "删除 Agent 失败，请稍后重试",
     supportedDocs: "支持 Markdown、TXT、PDF 文档",
     upload: "上传文档",
     processing: "解析中…",
@@ -90,6 +95,11 @@ const translations = {
     noDescription: "No description",
     stop: "Disable",
     enable: "Enable",
+    deleteAgent: "Delete",
+    deleteAgentConfirm: (name: string) =>
+      `Delete Agent “${name}”? This cannot be undone.`,
+    deleteAgentDisabledHint: "Disable the Agent before deleting it",
+    deleteAgentFailed: "Failed to delete the Agent. Please try again.",
     supportedDocs: "Supports Markdown, TXT, and PDF documents",
     upload: "Upload document",
     processing: "Processing…",
@@ -219,6 +229,7 @@ function App() {
   const [agentBrowserActions, setAgentBrowserActions] = useState(false);
   const [agentSubmitting, setAgentSubmitting] = useState(false);
   const [agentError, setAgentError] = useState("");
+  const [agentActionId, setAgentActionId] = useState<string>();
   const [baseDialogOpen, setBaseDialogOpen] = useState(false);
   const [baseName, setBaseName] = useState("");
   const [baseDescription, setBaseDescription] = useState("");
@@ -357,6 +368,26 @@ function App() {
       body: JSON.stringify({ enabled: !agent.enabled }),
     });
     load();
+  };
+
+  const deleteAgent = async (agent: Agent) => {
+    if (
+      agent.enabled ||
+      !window.confirm(t.deleteAgentConfirm(agent.displayName))
+    ) {
+      return;
+    }
+    setAgentActionId(agent.id);
+    try {
+      await request(`/admin/agents/${agent.id}`, { method: "DELETE" });
+      setAgents((current) => current.filter((item) => item.id !== agent.id));
+    } catch (error) {
+      setAgentError(
+        error instanceof Error ? error.message : t.deleteAgentFailed,
+      );
+    } finally {
+      setAgentActionId(undefined);
+    }
   };
 
   const addBase = () => {
@@ -589,6 +620,9 @@ function App() {
         {tab === "agents" && (
           <section>
             <button onClick={addAgent}>{t.newAgent}</button>
+            {agentError && !agentDialogOpen && (
+              <p className="error page-error">{agentError}</p>
+            )}
             <div className="grid">
               {agents.map((agent) => (
                 <article key={agent.id}>
@@ -600,9 +634,26 @@ function App() {
                   </div>
                   <code>{agent.id}</code>
                   <p>{agent.description || t.noDescription}</p>
-                  <button onClick={() => toggle(agent)}>
-                    {agent.enabled ? t.stop : t.enable}
-                  </button>
+                  <div className="agent-actions">
+                    <button
+                      onClick={() => toggle(agent)}
+                      disabled={agentActionId === agent.id}
+                    >
+                      {agent.enabled ? t.stop : t.enable}
+                    </button>
+                    <button
+                      className="agent-delete"
+                      onClick={() => deleteAgent(agent)}
+                      disabled={agent.enabled || agentActionId === agent.id}
+                      title={
+                        agent.enabled
+                          ? t.deleteAgentDisabledHint
+                          : t.deleteAgent
+                      }
+                    >
+                      {t.deleteAgent}
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
