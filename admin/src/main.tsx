@@ -67,8 +67,12 @@ const translations = {
     temperature: "温度（可选）",
     priority: "调度优先级",
     knowledgeBases: "关联知识库 ID（可选）",
-    tools: "关联工具 ID（可选）",
-    skills: "关联 Skill ID（可选）",
+    tools: "工具 / 插件绑定",
+    skills: "Skill 绑定",
+    noTools: "暂无可用工具，请先在工具管理中启用工具。",
+    noSkills: "暂无可用 Skill，请先在 Skill 管理中启用 Skill。",
+    toolType: "类型",
+    browserProposal: "浏览器动作",
     idsHint: "多个 ID 使用英文逗号分隔",
     creating: "创建中…",
     newBaseTitle: "新建知识库",
@@ -174,8 +178,12 @@ const translations = {
     temperature: "Temperature (optional)",
     priority: "Routing priority",
     knowledgeBases: "Knowledge base IDs (optional)",
-    tools: "Tool IDs (optional)",
-    skills: "Skill IDs (optional)",
+    tools: "Tool / plugin bindings",
+    skills: "Skill bindings",
+    noTools: "No enabled tools. Enable tools in tool management first.",
+    noSkills: "No enabled Skills. Enable Skills in Skill management first.",
+    toolType: "Type",
+    browserProposal: "Browser action",
     idsHint: "Separate multiple IDs with commas",
     creating: "Creating…",
     newBaseTitle: "New knowledge base",
@@ -240,6 +248,22 @@ type Agent = {
   skillIds?: string;
 };
 
+type ToolDefinition = {
+  id: string;
+  name: string;
+  description?: string;
+  type?: string;
+  enabled: boolean;
+};
+
+type SkillDefinition = {
+  id: string;
+  name: string;
+  description?: string;
+  version?: string;
+  enabled: boolean;
+};
+
 type Base = {
   id: string;
   name: string;
@@ -292,6 +316,8 @@ function App() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [tools, setTools] = useState<ToolDefinition[]>([]);
+  const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [bases, setBases] = useState<Base[]>([]);
   const [documents, setDocuments] = useState<
     Record<string, KnowledgeDocument[]>
@@ -327,8 +353,8 @@ function App() {
   const [agentModel, setAgentModel] = useState("");
   const [agentTemperature, setAgentTemperature] = useState("");
   const [agentKnowledgeBaseIds, setAgentKnowledgeBaseIds] = useState("");
-  const [agentToolIds, setAgentToolIds] = useState("");
-  const [agentSkillIds, setAgentSkillIds] = useState("");
+  const [agentToolIds, setAgentToolIds] = useState<string[]>([]);
+  const [agentSkillIds, setAgentSkillIds] = useState<string[]>([]);
   const [agentSubmitting, setAgentSubmitting] = useState(false);
   const [agentError, setAgentError] = useState("");
   const [agentActionId, setAgentActionId] = useState<string>();
@@ -338,6 +364,22 @@ function App() {
   const [baseSubmitting, setBaseSubmitting] = useState(false);
   const [baseError, setBaseError] = useState("");
   const t = translations[language];
+
+  const parseIds = (value?: string) => {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((id): id is string => typeof id === "string");
+      }
+    } catch {
+      // Older records may use comma-separated IDs.
+    }
+    return value
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+  };
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -376,6 +418,12 @@ function App() {
     request<Agent[]>("/admin/agents")
       .then(setAgents)
       .catch(() => setAgents([]));
+    request<ToolDefinition[]>("/admin/tools")
+      .then(setTools)
+      .catch(() => setTools([]));
+    request<SkillDefinition[]>("/admin/skills")
+      .then(setSkills)
+      .catch(() => setSkills([]));
     request<Base[]>("/admin/knowledge-bases")
       .then((list) => {
         setBases(list);
@@ -465,8 +513,8 @@ function App() {
     setAgentModel("");
     setAgentTemperature("");
     setAgentKnowledgeBaseIds("");
-    setAgentToolIds("");
-    setAgentSkillIds("");
+    setAgentToolIds([]);
+    setAgentSkillIds([]);
     setAgentError("");
     setAgentDialogOpen(true);
   };
@@ -487,8 +535,8 @@ function App() {
         : String(agent.temperature),
     );
     setAgentKnowledgeBaseIds(agent.knowledgeBaseIds ?? "");
-    setAgentToolIds(agent.toolIds ?? "");
-    setAgentSkillIds(agent.skillIds ?? "");
+    setAgentToolIds(parseIds(agent.toolIds));
+    setAgentSkillIds(parseIds(agent.skillIds));
     setAgentError("");
     setAgentDialogOpen(true);
   };
@@ -535,8 +583,8 @@ function App() {
               ? Number(agentTemperature)
               : null,
             knowledgeBaseIds: agentKnowledgeBaseIds.trim(),
-            toolIds: agentToolIds.trim(),
-            skillIds: agentSkillIds.trim(),
+            toolIds: JSON.stringify(agentToolIds),
+            skillIds: JSON.stringify(agentSkillIds),
           }),
         },
       );
@@ -1261,28 +1309,120 @@ function App() {
                   placeholder={t.modelPlaceholder}
                 />
               </label>
-              {[
-                [
-                  t.knowledgeBases,
-                  agentKnowledgeBaseIds,
-                  setAgentKnowledgeBaseIds,
-                ],
-                [t.tools, agentToolIds, setAgentToolIds],
-                [t.skills, agentSkillIds, setAgentSkillIds],
-              ].map(([label, value, setter]) => (
-                <label className="field" key={label as string}>
-                  <span>{label as string}</span>
-                  <input
-                    value={value as string}
-                    onChange={(event) =>
-                      (setter as React.Dispatch<React.SetStateAction<string>>)(
-                        event.target.value,
-                      )
-                    }
-                    placeholder={t.idsHint}
-                  />
-                </label>
-              ))}
+              <label className="field">
+                <span>{t.knowledgeBases}</span>
+                <input
+                  value={agentKnowledgeBaseIds}
+                  onChange={(event) =>
+                    setAgentKnowledgeBaseIds(event.target.value)
+                  }
+                  placeholder={t.idsHint}
+                />
+              </label>
+
+              <section
+                className="binding-section"
+                aria-labelledby="tool-bindings-title"
+              >
+                <div className="binding-heading">
+                  <div>
+                    <h4 id="tool-bindings-title">{t.tools}</h4>
+                    <p>{t.browserActions}</p>
+                  </div>
+                  <span className="binding-count">{agentToolIds.length}</span>
+                </div>
+                {tools.filter((tool) => tool.enabled).length === 0 ? (
+                  <p className="binding-empty">{t.noTools}</p>
+                ) : (
+                  <div className="binding-list">
+                    {tools
+                      .filter((tool) => tool.enabled)
+                      .map((tool) => {
+                        const checked = agentToolIds.includes(tool.id);
+                        return (
+                          <label className="binding-option" key={tool.id}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setAgentToolIds((current) =>
+                                  checked
+                                    ? current.filter((id) => id !== tool.id)
+                                    : [...current, tool.id],
+                                )
+                              }
+                            />
+                            <span className="binding-copy">
+                              <span className="binding-name">{tool.name}</span>
+                              <span className="binding-meta">
+                                {tool.type === "BROWSER_PROPOSAL"
+                                  ? t.browserProposal
+                                  : (tool.type ?? t.toolType)}
+                              </span>
+                              {tool.description && (
+                                <span className="binding-description">
+                                  {tool.description}
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
+                  </div>
+                )}
+              </section>
+
+              <section
+                className="binding-section"
+                aria-labelledby="skill-bindings-title"
+              >
+                <div className="binding-heading">
+                  <div>
+                    <h4 id="skill-bindings-title">{t.skills}</h4>
+                    <p>{t.idsHint}</p>
+                  </div>
+                  <span className="binding-count">{agentSkillIds.length}</span>
+                </div>
+                {skills.filter((skill) => skill.enabled).length === 0 ? (
+                  <p className="binding-empty">{t.noSkills}</p>
+                ) : (
+                  <div className="binding-list">
+                    {skills
+                      .filter((skill) => skill.enabled)
+                      .map((skill) => {
+                        const checked = agentSkillIds.includes(skill.id);
+                        return (
+                          <label className="binding-option" key={skill.id}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setAgentSkillIds((current) =>
+                                  checked
+                                    ? current.filter((id) => id !== skill.id)
+                                    : [...current, skill.id],
+                                )
+                              }
+                            />
+                            <span className="binding-copy">
+                              <span className="binding-name">{skill.name}</span>
+                              {skill.version && (
+                                <span className="binding-meta">
+                                  v{skill.version}
+                                </span>
+                              )}
+                              {skill.description && (
+                                <span className="binding-description">
+                                  {skill.description}
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
+                  </div>
+                )}
+              </section>
               {agentError && <p className="error">{agentError}</p>}
               <div className="modal-actions">
                 <button
