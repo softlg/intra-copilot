@@ -1066,7 +1066,7 @@ function App() {
   const deleteAgent = async (agent: Agent) => {
     if (
       agent.systemAgent ||
-      ["assistant", "diagnosis", "tms-manual"].includes(agent.id)
+      ["assistant", "route-copilot"].includes(agent.id)
     ) {
       return;
     }
@@ -1091,7 +1091,7 @@ function App() {
 
   const isSystemAgent = (agent: Agent) =>
     agent.systemAgent === true ||
-    ["assistant", "diagnosis", "tms-manual"].includes(agent.id);
+    ["assistant", "route-copilot"].includes(agent.id);
 
   const addBase = () => {
     setBaseName("");
@@ -1242,7 +1242,6 @@ function App() {
         body: JSON.stringify({
           message,
           pageContext: "",
-          tmsAuthorized: false,
         }),
       }),
     );
