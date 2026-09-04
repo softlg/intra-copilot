@@ -33,6 +33,9 @@ public class DefaultAgentSeeder {
 
   private void seed(String id, String name, String description, String prompt, boolean browserActions, int priority) {
     if (definitions.existsById(id)) return;
-    definitions.save(new AgentDefinition(id, name, description, prompt, browserActions, priority));
+    AgentDefinition definition =
+        new AgentDefinition(id, name, description, prompt, browserActions, priority);
+    definition.setSystemAgent(true);
+    definitions.save(definition);
   }
 }
