@@ -52,7 +52,7 @@ public class AgentRegistry {
       throw new IllegalArgumentException("只能删除已停用的 Agent");
     }
     if (definition.isSystemAgent()) {
-      throw new IllegalArgumentException("系统 Agent 不允许删除");
+      throw new IllegalArgumentException("主 Agent 不允许删除");
     }
     definitions.delete(definition);
   }
