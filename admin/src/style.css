@@ -640,7 +640,28 @@ article p {
 
 .agent-settings-header {
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   margin-bottom: 22px;
+}
+
+.agent-settings-header > div:nth-child(2) {
+  min-width: 180px;
+  flex: 1 1 220px;
+}
+
+.agent-settings-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.agent-settings-header-actions button {
+  min-height: 34px;
+  white-space: nowrap;
 }
 
 .agent-settings-header h3 {
@@ -683,13 +704,6 @@ article p {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-muted);
-}
-
-.settings-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 18px;
 }
 
 .resource-toolbar {
@@ -1375,6 +1389,16 @@ pre {
 
   main {
     padding: 24px 18px;
+  }
+
+  .agent-settings-header {
+    align-items: flex-start;
+  }
+
+  .agent-settings-header-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
   }
 }
 

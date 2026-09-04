@@ -1247,6 +1247,11 @@ function App() {
     );
   };
 
+  const configuredAgent = agents.find((item) => item.id === agentConfigId);
+  const configuredAgentIsSystem = configuredAgent
+    ? isSystemAgent(configuredAgent)
+    : true;
+
   return (
     <div className="shell">
       <aside className={sidebarCollapsed ? "sidebar-collapsed" : undefined}>
@@ -1380,18 +1385,50 @@ function App() {
                 <h3>{agentDisplayName || agentId}</h3>
                 <p>{t.editAgentSubtitle}</p>
               </div>
-              <button
-                className="agent-test"
-                onClick={() => {
-                  const current = agents.find(
-                    (item) => item.id === agentConfigId,
-                  );
-                  if (current) openAgentTest(current);
-                }}
-                disabled={!agentEnabled}
-              >
-                {t.testAgent}
-              </button>
+              <div className="agent-settings-header-actions">
+                <button
+                  type="button"
+                  className="agent-test"
+                  onClick={() => {
+                    if (configuredAgent) openAgentTest(configuredAgent);
+                  }}
+                  disabled={!agentEnabled || !configuredAgent}
+                >
+                  {t.testAgent}
+                </button>
+                {!configuredAgentIsSystem && configuredAgent && (
+                  <button
+                    type="button"
+                    className="agent-delete"
+                    onClick={() => deleteAgent(configuredAgent)}
+                    disabled={
+                      configuredAgent.enabled ||
+                      agentActionId === configuredAgent.id
+                    }
+                    title={
+                      configuredAgent.enabled
+                        ? t.deleteAgentDisabledHint
+                        : t.deleteAgent
+                    }
+                  >
+                    {t.deleteAgent}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeAgentConfig}
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  type="submit"
+                  form="agent-settings-form"
+                  disabled={agentSubmitting}
+                >
+                  {agentSubmitting ? t.saving : t.saveAgent}
+                </button>
+              </div>
             </div>
             <div className="config-tabs">
               {(
@@ -1411,7 +1448,11 @@ function App() {
                 </button>
               ))}
             </div>
-            <form className="agent-settings-form" onSubmit={saveAgent}>
+            <form
+              id="agent-settings-form"
+              className="agent-settings-form"
+              onSubmit={saveAgent}
+            >
               {agentConfigSection === "basic" && (
                 <div className="settings-panel">
                   <label className="field">
@@ -1849,18 +1890,6 @@ function App() {
                 </div>
               )}
               {agentError && <p className="error">{agentError}</p>}
-              <div className="settings-actions">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={closeAgentConfig}
-                >
-                  {t.cancel}
-                </button>
-                <button type="submit" disabled={agentSubmitting}>
-                  {agentSubmitting ? t.saving : t.saveAgent}
-                </button>
-              </div>
             </form>
           </section>
         )}
@@ -1906,22 +1935,6 @@ function App() {
                           >
                             {agent.enabled ? t.stop : t.enable}
                           </button>
-                          {!system && (
-                            <button
-                              className="agent-delete"
-                              onClick={() => deleteAgent(agent)}
-                              disabled={
-                                agent.enabled || agentActionId === agent.id
-                              }
-                              title={
-                                agent.enabled
-                                  ? t.deleteAgentDisabledHint
-                                  : t.deleteAgent
-                              }
-                            >
-                              {t.deleteAgent}
-                            </button>
-                          )}
                           <button
                             onClick={() => openAgentSettings(agent)}
                             className="secondary agent-settings-button"
