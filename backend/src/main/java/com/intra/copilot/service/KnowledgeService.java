@@ -33,8 +33,19 @@ public class KnowledgeService implements KnowledgeRetriever {
   }
 
   public List<KnowledgeBase> listBases() { return bases.findAll(); }
-  public KnowledgeBase createBase(KnowledgeBase base) { if (base.getId() == null || base.getId().isBlank()) base.setId(UUID.randomUUID().toString()); return bases.save(base); }
-  public KnowledgeBase updateBase(String id, KnowledgeBase value) { KnowledgeBase b = bases.findById(id).orElseThrow(); b.setName(value.getName()); b.setDescription(value.getDescription()); b.setEnabled(value.isEnabled()); b.touch(); return bases.save(b); }
+  public KnowledgeBase createBase(KnowledgeBase base) {
+    String name = normalizeName(base.getName());
+    ensureNameAvailable(name, null);
+    base.setName(name);
+    if (base.getId() == null || base.getId().isBlank()) base.setId(UUID.randomUUID().toString());
+    return bases.save(base);
+  }
+  public KnowledgeBase updateBase(String id, KnowledgeBase value) {
+    KnowledgeBase b = bases.findById(id).orElseThrow();
+    String name = normalizeName(value.getName());
+    ensureNameAvailable(name, id);
+    b.setName(name); b.setDescription(value.getDescription()); b.setEnabled(value.isEnabled()); b.touch(); return bases.save(b);
+  }
   public void deleteBase(String id) { bases.deleteById(id); }
   public List<KnowledgeDocument> listDocuments(String baseId) { return documents.findAllByKnowledgeBaseIdOrderByCreatedAtDesc(baseId); }
 
@@ -71,6 +82,11 @@ public class KnowledgeService implements KnowledgeRetriever {
 
   private String extractPdf(byte[] bytes) throws IOException { try (var pdf = Loader.loadPDF(bytes)) { return new PDFTextStripper().getText(pdf); } }
   private List<String> split(String text, int size) { List<String> out = new ArrayList<>(); if (text == null) return out; for (int i=0; i<text.length(); i+=size) out.add(text.substring(i, Math.min(text.length(), i+size))); return out; }
+  private String normalizeName(String value) { if (value == null || value.isBlank()) throw new IllegalArgumentException("知识库名称不能为空"); return value.trim(); }
+  private void ensureNameAvailable(String name, String excludingId) {
+    boolean duplicate = bases.findAll().stream().anyMatch(item -> !item.getId().equals(excludingId) && item.getName() != null && item.getName().trim().equalsIgnoreCase(name));
+    if (duplicate) throw new IllegalArgumentException("知识库名称已存在");
+  }
   private record InMemoryMultipartFile(String name, String contentType, byte[] data) implements MultipartFile {
     public String getName() { return name; } public String getOriginalFilename() { return name; } public String getContentType() { return contentType; } public boolean isEmpty() { return data.length == 0; } public long getSize() { return data.length; } public byte[] getBytes() { return data; } public java.io.InputStream getInputStream() { return new java.io.ByteArrayInputStream(data); } public void transferTo(java.io.File dest) throws IOException { java.nio.file.Files.write(dest.toPath(), data); }
   }
