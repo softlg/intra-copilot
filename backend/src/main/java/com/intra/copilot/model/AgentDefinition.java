@@ -8,16 +8,18 @@ import java.time.Instant;
 public class AgentDefinition {
   @Id private String id;
   private String displayName;
-  @Lob private String description;
-  @Lob private String systemPrompt;
+  @Column(columnDefinition = "TEXT") private String description;
+  @Column(columnDefinition = "TEXT") private String systemPrompt;
   private boolean enabled = true;
+  /** True for agents shipped by the application and protected from deletion. */
+  private boolean systemAgent;
   private boolean supportsBrowserActions;
   private int priority = 100;
   private String model;
   private Double temperature;
-  @Lob private String knowledgeBaseIds = "[]";
-  @Lob private String toolIds = "[]";
-  @Lob private String skillIds = "[]";
+  @Column(columnDefinition = "TEXT") private String knowledgeBaseIds = "[]";
+  @Column(columnDefinition = "TEXT") private String toolIds = "[]";
+  @Column(columnDefinition = "TEXT") private String skillIds = "[]";
   private long version = 1;
   private Instant createdAt = Instant.now();
   private Instant updatedAt = Instant.now();
@@ -77,6 +79,14 @@ public class AgentDefinition {
 
   public void setEnabled(boolean enabled) {
     this.enabled = enabled;
+  }
+
+  public boolean isSystemAgent() {
+    return systemAgent;
+  }
+
+  public void setSystemAgent(boolean systemAgent) {
+    this.systemAgent = systemAgent;
   }
 
   public boolean isSupportsBrowserActions() {
