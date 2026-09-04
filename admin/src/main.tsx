@@ -12,6 +12,7 @@ const translations = {
     subtitle: "管理控制台",
     agents: "Agent",
     knowledge: "知识库",
+    toolsMenu: "工具 / Skill",
     router: "路由测试",
     agentConfig: "Agent 配置",
     routerTest: "主 Agent 路由测试",
@@ -124,12 +125,40 @@ const translations = {
     testing: "测试中…",
     testResponse: "Agent 回复",
     testFailed: "Agent 测试失败，请稍后重试",
+    toolsTitle: "工具 / Skill 管理",
+    toolsSubtitle: "注册可供 Agent 调用的后端 API 和操作技能。",
+    newTool: "+ 新建工具",
+    newSkill: "+ 新建 Skill",
+    tool: "工具 / 插件",
+    skill: "Skill",
+    toolName: "名称",
+    toolTypeLabel: "类型",
+    endpoint: "Endpoint（HTTPS）",
+    method: "HTTP 方法",
+    toolDescriptionPlaceholder: "说明这个工具可以完成什么操作",
+    endpointPlaceholder: "https://api.example.com/resource",
+    skillPrompt: "Skill 提示词",
+    skillPromptPlaceholder: "定义 Skill 的行为和使用边界",
+    version: "版本",
+    noResources: "暂无资源，请先创建工具或 Skill。",
+    edit: "编辑",
+    deleteResource: "删除",
+    deleteResourceConfirm: (name: string) =>
+      `确定删除“${name}”吗？此操作不可撤销。`,
+    resourceNameRequired: "请输入名称",
+    endpointRequired: "HTTP 工具必须填写 Endpoint",
+    skillPromptRequired: "Skill 提示词不能为空",
+    resourceSaveFailed: "保存资源失败，请稍后重试",
+    resourceDeleteFailed: "删除资源失败，请稍后重试",
+    saveResource: "保存",
+    createResource: "创建",
   },
   en: {
     title: "Page Assistant",
     subtitle: "Admin Console",
     agents: "Agents",
     knowledge: "Knowledge bases",
+    toolsMenu: "Tools / Skill",
     router: "Router test",
     agentConfig: "Agent configuration",
     routerTest: "Main Agent router test",
@@ -253,6 +282,33 @@ const translations = {
     testing: "Testing…",
     testResponse: "Agent response",
     testFailed: "Agent test failed. Please try again.",
+    toolsTitle: "Tools / Skill management",
+    toolsSubtitle: "Register backend APIs and skills that Agents can call.",
+    newTool: "+ New tool",
+    newSkill: "+ New Skill",
+    tool: "Tool / plugin",
+    skill: "Skill",
+    toolName: "Name",
+    toolTypeLabel: "Type",
+    endpoint: "Endpoint (HTTPS)",
+    method: "HTTP method",
+    toolDescriptionPlaceholder: "Describe what this tool can do",
+    endpointPlaceholder: "https://api.example.com/resource",
+    skillPrompt: "Skill prompt",
+    skillPromptPlaceholder: "Define the Skill behavior and boundaries",
+    version: "Version",
+    noResources: "No resources yet. Create a tool or Skill first.",
+    edit: "Edit",
+    deleteResource: "Delete",
+    deleteResourceConfirm: (name: string) =>
+      `Delete “${name}”? This cannot be undone.`,
+    resourceNameRequired: "Enter a name",
+    endpointRequired: "HTTP tools require an Endpoint",
+    skillPromptRequired: "Skill prompt is required",
+    resourceSaveFailed: "Failed to save the resource. Please try again.",
+    resourceDeleteFailed: "Failed to delete the resource. Please try again.",
+    saveResource: "Save",
+    createResource: "Create",
   },
 } as const;
 
@@ -277,6 +333,8 @@ type ToolDefinition = {
   name: string;
   description?: string;
   type?: string;
+  method?: string;
+  endpoint?: string;
   enabled: boolean;
 };
 
@@ -284,6 +342,7 @@ type SkillDefinition = {
   id: string;
   name: string;
   description?: string;
+  prompt: string;
   version?: string;
   enabled: boolean;
 };
@@ -342,6 +401,19 @@ function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
+  const [resourceDialog, setResourceDialog] = useState<"tool" | "skill">();
+  const [editingResourceId, setEditingResourceId] = useState<string>();
+  const [resourceName, setResourceName] = useState("");
+  const [resourceDescription, setResourceDescription] = useState("");
+  const [resourceType, setResourceType] = useState("BROWSER_PROPOSAL");
+  const [resourceMethod, setResourceMethod] = useState("POST");
+  const [resourceEndpoint, setResourceEndpoint] = useState("");
+  const [resourcePrompt, setResourcePrompt] = useState("");
+  const [resourceVersion, setResourceVersion] = useState("1.0.0");
+  const [resourceEnabled, setResourceEnabled] = useState(true);
+  const [resourceSubmitting, setResourceSubmitting] = useState(false);
+  const [resourceError, setResourceError] = useState("");
+  const [resourceActionId, setResourceActionId] = useState<string>();
   const [bases, setBases] = useState<Base[]>([]);
   const [documents, setDocuments] = useState<
     Record<string, KnowledgeDocument[]>
@@ -481,8 +553,145 @@ function App() {
 
   useEffect(load, []);
 
+  const openResourceDialog = (
+    kind: "tool" | "skill",
+    resource?: ToolDefinition | SkillDefinition,
+  ) => {
+    setResourceDialog(kind);
+    setEditingResourceId(resource?.id);
+    setResourceName(resource?.name ?? "");
+    setResourceDescription(resource?.description ?? "");
+    setResourceEnabled(resource?.enabled ?? true);
+    setResourceError("");
+    if (kind === "tool") {
+      const tool = resource as ToolDefinition | undefined;
+      setResourceType(tool?.type ?? "BROWSER_PROPOSAL");
+      setResourceMethod(tool?.method ?? "POST");
+      setResourceEndpoint(tool?.endpoint ?? "");
+    } else {
+      const skill = resource as SkillDefinition | undefined;
+      setResourcePrompt(skill?.prompt ?? "");
+      setResourceVersion(skill?.version ?? "1.0.0");
+    }
+  };
+
+  const closeResourceDialog = () => {
+    if (!resourceSubmitting) setResourceDialog(undefined);
+  };
+
+  const saveResource = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!resourceDialog) return;
+    const name = resourceName.trim();
+    if (!name) {
+      setResourceError(t.resourceNameRequired);
+      return;
+    }
+    if (
+      resourceDialog === "tool" &&
+      resourceType === "HTTP" &&
+      !resourceEndpoint.trim()
+    ) {
+      setResourceError(t.endpointRequired);
+      return;
+    }
+    if (resourceDialog === "skill" && !resourcePrompt.trim()) {
+      setResourceError(t.skillPromptRequired);
+      return;
+    }
+    setResourceSubmitting(true);
+    setResourceError("");
+    try {
+      const path = editingResourceId
+        ? `/admin/${resourceDialog === "tool" ? "tools" : "skills"}/${editingResourceId}`
+        : `/admin/${resourceDialog === "tool" ? "tools" : "skills"}`;
+      const body =
+        resourceDialog === "tool"
+          ? {
+              id: editingResourceId,
+              name,
+              description: resourceDescription.trim(),
+              type: resourceType,
+              method: resourceMethod,
+              endpoint: resourceEndpoint.trim() || null,
+              enabled: resourceEnabled,
+            }
+          : {
+              id: editingResourceId,
+              name,
+              description: resourceDescription.trim(),
+              prompt: resourcePrompt.trim(),
+              version: resourceVersion.trim() || "1.0.0",
+              enabled: resourceEnabled,
+            };
+      await request(path, {
+        method: editingResourceId ? "PUT" : "POST",
+        body: JSON.stringify(body),
+      });
+      setResourceDialog(undefined);
+      load();
+    } catch (error) {
+      setResourceError(
+        error instanceof Error ? error.message : t.resourceSaveFailed,
+      );
+    } finally {
+      setResourceSubmitting(false);
+    }
+  };
+
+  const toggleResource = async (
+    kind: "tool" | "skill",
+    resource: ToolDefinition | SkillDefinition,
+  ) => {
+    setResourceActionId(resource.id);
+    try {
+      await request(
+        `/admin/${kind === "tool" ? "tools" : "skills"}/${resource.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ ...resource, enabled: !resource.enabled }),
+        },
+      );
+      load();
+    } catch (error) {
+      setResourceError(
+        error instanceof Error ? error.message : t.resourceSaveFailed,
+      );
+    } finally {
+      setResourceActionId(undefined);
+    }
+  };
+
+  const deleteResource = async (
+    kind: "tool" | "skill",
+    resource: ToolDefinition | SkillDefinition,
+  ) => {
+    if (!window.confirm(t.deleteResourceConfirm(resource.name))) return;
+    setResourceActionId(resource.id);
+    try {
+      await request(
+        `/admin/${kind === "tool" ? "tools" : "skills"}/${resource.id}`,
+        {
+          method: "DELETE",
+        },
+      );
+      load();
+    } catch (error) {
+      setResourceError(
+        error instanceof Error ? error.message : t.resourceDeleteFailed,
+      );
+    } finally {
+      setResourceActionId(undefined);
+    }
+  };
+
   useEffect(() => {
-    if (!baseDialogOpen && !agentDialogOpen && !agentTestDialogOpen)
+    if (
+      !baseDialogOpen &&
+      !agentDialogOpen &&
+      !agentTestDialogOpen &&
+      !resourceDialog
+    )
       return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -495,6 +704,9 @@ function App() {
       if (agentTestDialogOpen && !agentTestSubmitting) {
         setAgentTestDialogOpen(false);
       }
+      if (resourceDialog && !resourceSubmitting) {
+        setResourceDialog(undefined);
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -505,6 +717,8 @@ function App() {
     agentTestSubmitting,
     baseDialogOpen,
     baseSubmitting,
+    resourceDialog,
+    resourceSubmitting,
   ]);
 
   const activeBase = bases.find((base) => base.id === activeBaseId);
@@ -892,11 +1106,13 @@ function App() {
         {[
           ["agents", "◆"],
           ["knowledge", "▣"],
+          ["tools", "⚒"],
           ["router", "⌁"],
         ].map(([key, icon]) => {
           const labels: Record<string, string> = {
             agents: t.agents,
             knowledge: t.knowledge,
+            tools: t.toolsMenu,
             router: t.router,
           };
           return (
@@ -923,7 +1139,9 @@ function App() {
               ? t.agentConfig
               : tab === "knowledge"
                 ? t.knowledge
-                : t.routerTest}
+                : tab === "tools"
+                  ? t.toolsTitle
+                  : t.routerTest}
           </h2>
           <div className="header-actions">
             <span className="badge">{t.localMode}</span>
@@ -1264,6 +1482,124 @@ function App() {
           </section>
         )}
 
+        {tab === "tools" && (
+          <section>
+            <div className="resource-toolbar">
+              <div>
+                <p className="muted">{t.toolsSubtitle}</p>
+              </div>
+              <div className="resource-toolbar-actions">
+                <button onClick={() => openResourceDialog("tool")}>
+                  {t.newTool}
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => openResourceDialog("skill")}
+                >
+                  {t.newSkill}
+                </button>
+              </div>
+            </div>
+            {resourceError && !resourceDialog && (
+              <p className="error page-error">{resourceError}</p>
+            )}
+            <div className="resource-section">
+              <h3>{t.tool}</h3>
+              {tools.length === 0 ? (
+                <p className="empty-documents">{t.noResources}</p>
+              ) : (
+                <div className="grid">
+                  {tools.map((tool) => (
+                    <article key={tool.id}>
+                      <div className="row">
+                        <strong>{tool.name}</strong>
+                        <span className={tool.enabled ? "ok" : "off"}>
+                          {tool.enabled ? t.enabled : t.disabled}
+                        </span>
+                      </div>
+                      <code>{tool.id}</code>
+                      <p>{tool.description || t.noDescription}</p>
+                      <div className="resource-meta">
+                        <span>{tool.type || t.toolTypeLabel}</span>
+                        {tool.method && <span>{tool.method}</span>}
+                        {tool.endpoint && <span>{tool.endpoint}</span>}
+                      </div>
+                      <div className="agent-actions">
+                        <button
+                          className="secondary"
+                          onClick={() => openResourceDialog("tool", tool)}
+                          disabled={resourceActionId === tool.id}
+                        >
+                          {t.edit}
+                        </button>
+                        <button
+                          onClick={() => toggleResource("tool", tool)}
+                          disabled={resourceActionId === tool.id}
+                        >
+                          {tool.enabled ? t.stop : t.enable}
+                        </button>
+                        <button
+                          className="agent-delete"
+                          onClick={() => deleteResource("tool", tool)}
+                          disabled={resourceActionId === tool.id}
+                        >
+                          {t.deleteResource}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="resource-section">
+              <h3>{t.skill}</h3>
+              {skills.length === 0 ? (
+                <p className="empty-documents">{t.noResources}</p>
+              ) : (
+                <div className="grid">
+                  {skills.map((skill) => (
+                    <article key={skill.id}>
+                      <div className="row">
+                        <strong>{skill.name}</strong>
+                        <span className={skill.enabled ? "ok" : "off"}>
+                          {skill.enabled ? t.enabled : t.disabled}
+                        </span>
+                      </div>
+                      <code>{skill.id}</code>
+                      <p>{skill.description || t.noDescription}</p>
+                      <div className="resource-meta">
+                        <span>v{skill.version || "1.0.0"}</span>
+                      </div>
+                      <div className="agent-actions">
+                        <button
+                          className="secondary"
+                          onClick={() => openResourceDialog("skill", skill)}
+                          disabled={resourceActionId === skill.id}
+                        >
+                          {t.edit}
+                        </button>
+                        <button
+                          onClick={() => toggleResource("skill", skill)}
+                          disabled={resourceActionId === skill.id}
+                        >
+                          {skill.enabled ? t.stop : t.enable}
+                        </button>
+                        <button
+                          className="agent-delete"
+                          onClick={() => deleteResource("skill", skill)}
+                          disabled={resourceActionId === skill.id}
+                        >
+                          {t.deleteResource}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         {tab === "router" && (
           <section>
             <textarea
@@ -1535,6 +1871,164 @@ function App() {
                     : editingAgentId
                       ? t.saveAgent
                       : t.createAgent}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {resourceDialog && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeResourceDialog();
+          }}
+        >
+          <div className="modal" role="dialog" aria-modal="true">
+            <div className="modal-header">
+              <div>
+                <h3>
+                  {editingResourceId ? t.edit : t.createResource} ·{" "}
+                  {resourceDialog === "tool" ? t.tool : t.skill}
+                </h3>
+                <p className="modal-subtitle">{t.toolsSubtitle}</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={closeResourceDialog}
+                disabled={resourceSubmitting}
+                aria-label={t.close}
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={saveResource}>
+              <label className="field">
+                <span>{t.toolName}</span>
+                <input
+                  autoFocus
+                  value={resourceName}
+                  onChange={(event) => setResourceName(event.target.value)}
+                  maxLength={100}
+                  required
+                />
+              </label>
+              <label className="field">
+                <span>{t.descriptionOptional}</span>
+                <textarea
+                  value={resourceDescription}
+                  onChange={(event) =>
+                    setResourceDescription(event.target.value)
+                  }
+                  placeholder={
+                    resourceDialog === "tool"
+                      ? t.toolDescriptionPlaceholder
+                      : t.noDescription
+                  }
+                  rows={2}
+                  maxLength={500}
+                />
+              </label>
+              {resourceDialog === "tool" ? (
+                <>
+                  <div className="field-grid">
+                    <label className="field">
+                      <span>{t.toolTypeLabel}</span>
+                      <select
+                        value={resourceType}
+                        onChange={(event) =>
+                          setResourceType(event.target.value)
+                        }
+                      >
+                        <option value="BROWSER_PROPOSAL">
+                          {t.browserProposal}
+                        </option>
+                        <option value="HTTP">HTTP API</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>{t.method}</span>
+                      <select
+                        value={resourceMethod}
+                        onChange={(event) =>
+                          setResourceMethod(event.target.value)
+                        }
+                      >
+                        {["GET", "POST", "PUT", "PATCH", "DELETE"].map(
+                          (method) => (
+                            <option key={method} value={method}>
+                              {method}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                  </div>
+                  {resourceType === "HTTP" && (
+                    <label className="field">
+                      <span>{t.endpoint}</span>
+                      <input
+                        value={resourceEndpoint}
+                        onChange={(event) =>
+                          setResourceEndpoint(event.target.value)
+                        }
+                        placeholder={t.endpointPlaceholder}
+                      />
+                    </label>
+                  )}
+                </>
+              ) : (
+                <>
+                  <label className="field">
+                    <span>{t.skillPrompt}</span>
+                    <textarea
+                      value={resourcePrompt}
+                      onChange={(event) =>
+                        setResourcePrompt(event.target.value)
+                      }
+                      placeholder={t.skillPromptPlaceholder}
+                      rows={5}
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span>{t.version}</span>
+                    <input
+                      value={resourceVersion}
+                      onChange={(event) =>
+                        setResourceVersion(event.target.value)
+                      }
+                      placeholder="1.0.0"
+                    />
+                  </label>
+                </>
+              )}
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={resourceEnabled}
+                  onChange={(event) => setResourceEnabled(event.target.checked)}
+                />
+                <span>{t.enabled}</span>
+              </label>
+              {resourceError && <p className="error">{resourceError}</p>}
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeResourceDialog}
+                  disabled={resourceSubmitting}
+                >
+                  {t.cancel}
+                </button>
+                <button type="submit" disabled={resourceSubmitting}>
+                  {resourceSubmitting
+                    ? t.saving
+                    : editingResourceId
+                      ? t.saveResource
+                      : t.createResource}
                 </button>
               </div>
             </form>

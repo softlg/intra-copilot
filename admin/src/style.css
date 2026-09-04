@@ -35,7 +35,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -614,6 +615,53 @@ article p {
   margin-top: 12px;
 }
 
+.resource-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.resource-toolbar p {
+  margin: 0;
+}
+
+.resource-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.resource-section {
+  margin-top: 26px;
+}
+
+.resource-section h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.resource-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.resource-meta span {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-delete {
   border: 1px solid #6b3441;
   background: transparent;
@@ -749,7 +797,8 @@ pre {
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   width: 100%;
   margin: 0;
   padding: 11px 12px;
@@ -758,6 +807,10 @@ pre {
   outline: none;
   background: #0f1726;
   color: #fff;
+}
+
+.field select {
+  appearance: auto;
 }
 
 .field textarea {
@@ -1024,7 +1077,8 @@ pre {
 
 :root[data-theme="light"] textarea,
 :root[data-theme="light"] .field input,
-:root[data-theme="light"] .field textarea {
+:root[data-theme="light"] .field textarea,
+:root[data-theme="light"] .field select {
   background: var(--control-bg);
   color: var(--text);
 }
