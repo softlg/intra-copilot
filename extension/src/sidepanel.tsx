@@ -1146,7 +1146,20 @@ function App() {
           const assistant = message.role === "assistant";
           return (
             <div key={index} className={"msg " + message.role}>
-              <div className="role">{assistant ? t.assistant : t.you}</div>
+              <div
+                className={"role " + (assistant ? "assistant-avatar" : "")}
+                aria-label={assistant ? t.assistant : t.you}
+                title={assistant ? t.assistant : t.you}
+              >
+                {assistant ? (
+                  <>
+                    <span aria-hidden="true">◆</span>
+                    <span className="sr-only">{t.assistant}</span>
+                  </>
+                ) : (
+                  t.you
+                )}
+              </div>
               <div className="message-stack">
                 <div className="bubble">
                   {assistant ? (
