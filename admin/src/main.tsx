@@ -200,6 +200,7 @@ const translations = {
     contextTransfer: "传递给子 Agent 的上下文",
     responseTransfer: "子 Agent 返回处理",
     routeTrail: "路由分发轨迹",
+    clientIp: "用户 IP",
     actionPending: "待处理",
     actionCompleted: "已完成",
     actionFailed: "失败",
@@ -410,6 +411,7 @@ const translations = {
     contextTransfer: "Context sent to sub-agent",
     responseTransfer: "Sub-agent response handling",
     routeTrail: "Routing trail",
+    clientIp: "Client IP",
     actionPending: "Pending",
     actionCompleted: "Completed",
     actionFailed: "Failed",
@@ -516,6 +518,7 @@ type ConversationLog = {
     intent?: string;
     contextSent?: string;
     responseContent?: string;
+    clientIp?: string;
     durationMs?: number;
     error?: string;
     createdAt?: string;
@@ -1122,10 +1125,12 @@ function App() {
   };
 
   const toggle = async (agent: Agent) => {
+    const enabled = !agent.enabled;
     await request(`/admin/agents/${agent.id}/enabled`, {
       method: "PATCH",
-      body: JSON.stringify({ enabled: !agent.enabled }),
+      body: JSON.stringify({ enabled }),
     });
+    if (agentConfigId === agent.id) setAgentEnabled(enabled);
     load();
   };
 
@@ -1452,6 +1457,16 @@ function App() {
                 <p>{t.editAgentSubtitle}</p>
               </div>
               <div className="agent-settings-header-actions">
+                {configuredAgent && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => toggle(configuredAgent)}
+                    disabled={agentActionId === configuredAgent.id}
+                  >
+                    {agentEnabled ? t.stop : t.enable}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="agent-test"
@@ -2038,12 +2053,6 @@ function App() {
                         <p>{agent.description || t.noDescription}</p>
                         <div className="agent-actions">
                           <button
-                            onClick={() => toggle(agent)}
-                            disabled={agentActionId === agent.id}
-                          >
-                            {agent.enabled ? t.stop : t.enable}
-                          </button>
-                          <button
                             onClick={() => openAgentSettings(agent)}
                             className="secondary agent-settings-button"
                             disabled={agentActionId === agent.id}
@@ -2543,6 +2552,9 @@ function App() {
                                       <span>
                                         {t.routeSource}:{" "}
                                         {item.routeSource || "-"}
+                                      </span>
+                                      <span>
+                                        {t.clientIp}: {item.clientIp || "-"}
                                       </span>
                                       <span>
                                         {t.routeTrail}:{" "}
