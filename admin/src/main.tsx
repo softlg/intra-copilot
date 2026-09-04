@@ -1901,13 +1901,6 @@ function App() {
                         <p>{agent.description || t.noDescription}</p>
                         <div className="agent-actions">
                           <button
-                            onClick={() => openAgentSettings(agent)}
-                            className="secondary"
-                            disabled={agentActionId === agent.id}
-                          >
-                            {t.settings}
-                          </button>
-                          <button
                             onClick={() => toggle(agent)}
                             disabled={agentActionId === agent.id}
                           >
@@ -1929,6 +1922,13 @@ function App() {
                               {t.deleteAgent}
                             </button>
                           )}
+                          <button
+                            onClick={() => openAgentSettings(agent)}
+                            className="secondary agent-settings-button"
+                            disabled={agentActionId === agent.id}
+                          >
+                            {t.settings}
+                          </button>
                         </div>
                       </article>
                     ))}

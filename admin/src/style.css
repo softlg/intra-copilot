@@ -624,8 +624,14 @@ article p {
 
 .agent-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
+  width: 100%;
   margin-top: 12px;
+}
+
+.agent-settings-button {
+  margin-left: auto;
 }
 
 .agent-settings-page {
