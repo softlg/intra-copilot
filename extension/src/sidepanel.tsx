@@ -110,7 +110,6 @@ const translations = {
     copyFailed: "复制失败，请手动选择文本复制。",
     pagePermission: "页面权限",
     readPage: "允许读取当前页面上下文",
-    delegateTms: "授权业务子 Agent 处理专属问题",
     permissionNote: "写入页面的操作仍会逐项请求确认。",
     actionConfirm: (type: string, reason: string, risk: string) =>
       `助手请求执行 ${type} 操作。\n原因：${reason}\n风险：${risk}\n\n是否执行？`,
@@ -209,7 +208,6 @@ const translations = {
     copyFailed: "Copy failed. Please select and copy the text manually.",
     pagePermission: "Page permissions",
     readPage: "Allow reading the current page context",
-    delegateTms: "Authorize the business sub-agent for specialized requests",
     permissionNote:
       "Write actions on the page will still ask for confirmation one by one.",
     actionConfirm: (type: string, reason: string, risk: string) =>
@@ -343,7 +341,6 @@ function App() {
     useState<ActivationMode>("manual");
   const [currentTabId, setCurrentTabId] = useState<number>();
   const [currentTabEnabled, setCurrentTabEnabled] = useState(false);
-  const [tmsAuthorized, setTmsAuthorized] = useState(false);
   const [availableTabs, setAvailableTabs] = useState<chrome.tabs.Tab[]>([]);
   const [selectedTabIds, setSelectedTabIds] = useState<number[]>([]);
   const [attachments, setAttachments] = useState<
@@ -394,12 +391,12 @@ function App() {
   }, [toolsOpen, permissionOpen]);
 
   useEffect(() => {
+    chrome.storage.local.remove("tmsAuthorized");
     chrome.storage.local.get(
       [
         "theme",
         "language",
         "readPageEnabled",
-        "tmsAuthorized",
         "activationMode",
         "pageInfoSelection",
       ],
@@ -407,7 +404,6 @@ function App() {
         theme?: Theme;
         language?: Language;
         readPageEnabled?: boolean;
-        tmsAuthorized?: boolean;
         activationMode?: ActivationMode;
         pageInfoSelection?: Partial<Record<PageInfoKey, boolean>>;
       }) => {
@@ -419,9 +415,6 @@ function App() {
         }
         if (typeof value.readPageEnabled === "boolean") {
           setReadPageEnabled(value.readPageEnabled);
-        }
-        if (typeof value.tmsAuthorized === "boolean") {
-          setTmsAuthorized(value.tmsAuthorized);
         }
         if (
           value.activationMode === "all_pages" ||
@@ -899,7 +892,6 @@ function App() {
           pageContext,
           permissions: {
             readPage: readPageEnabled,
-            delegateTms: tmsAuthorized,
           },
         }),
       });
@@ -1602,18 +1594,6 @@ function App() {
                     }}
                   />
                   {t.readPage}
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={tmsAuthorized}
-                    onChange={(event) => {
-                      const enabled = event.target.checked;
-                      setTmsAuthorized(enabled);
-                      chrome.storage.local.set({ tmsAuthorized: enabled });
-                    }}
-                  />
-                  {t.delegateTms}
                 </label>
                 <span>{t.permissionNote}</span>
               </div>
