@@ -12,7 +12,7 @@ const translations = {
     subtitle: "管理控制台",
     agents: "Agent",
     knowledge: "知识库",
-    toolsMenu: "工具 / 插件",
+    toolsMenu: "工具",
     skillsMenu: "Skill",
     skillsTitle: "Skill 管理",
     router: "路由测试",
@@ -71,7 +71,7 @@ const translations = {
     temperature: "温度（可选）",
     priority: "调度优先级",
     knowledgeBases: "关联知识库 ID（可选）",
-    tools: "工具 / 插件绑定",
+    tools: "工具绑定",
     skills: "Skill 绑定",
     noTools: "暂无可用工具，请先在工具管理中启用工具。",
     noSkills: "暂无可用 Skill，请先在 Skill 管理中启用 Skill。",
@@ -132,12 +132,13 @@ const translations = {
     backToAgents: "返回 Agent 列表",
     basicInfo: "基本信息",
     knowledgeBinding: "知识库绑定",
-    capabilityBinding: "插件 / Skill",
-    toolsTitle: "工具 / Skill 管理",
-    toolsSubtitle: "注册可供 Agent 调用的后端 API 和操作技能。",
+    capabilityBinding: "工具和 Skill",
+    toolsTitle: "工具管理",
+    toolsSubtitle: "注册可供 Agent 调用的后端 API 工具。",
+    skillsSubtitle: "注册可供 Agent 使用的提示词技能。",
     newTool: "+ 新建工具",
     newSkill: "+ 新建 Skill",
-    tool: "工具 / 插件",
+    tool: "工具",
     skill: "Skill",
     toolName: "名称",
     toolTypeLabel: "类型",
@@ -169,7 +170,7 @@ const translations = {
     subtitle: "Admin Console",
     agents: "Agents",
     knowledge: "Knowledge bases",
-    toolsMenu: "Tools / plugins",
+    toolsMenu: "Tools",
     skillsMenu: "Skill",
     skillsTitle: "Skill management",
     router: "Router test",
@@ -232,7 +233,7 @@ const translations = {
     temperature: "Temperature (optional)",
     priority: "Routing priority",
     knowledgeBases: "Knowledge base IDs (optional)",
-    tools: "Tool / plugin bindings",
+    tools: "Tool bindings",
     skills: "Skill bindings",
     noTools: "No enabled tools. Enable tools in tool management first.",
     noSkills: "No enabled Skills. Enable Skills in Skill management first.",
@@ -300,12 +301,13 @@ const translations = {
     backToAgents: "Back to Agents",
     basicInfo: "Basic information",
     knowledgeBinding: "Knowledge bases",
-    capabilityBinding: "Tools / Skill",
-    toolsTitle: "Tools / Skill management",
-    toolsSubtitle: "Register backend APIs and skills that Agents can call.",
+    capabilityBinding: "Tools and Skill",
+    toolsTitle: "Tool management",
+    toolsSubtitle: "Register backend API tools that Agents can call.",
+    skillsSubtitle: "Register prompt-based skills that Agents can use.",
     newTool: "+ New tool",
     newSkill: "+ New Skill",
-    tool: "Tool / plugin",
+    tool: "Tool",
     skill: "Skill",
     toolName: "Name",
     toolTypeLabel: "Type",
@@ -1887,7 +1889,7 @@ function App() {
         {tab === "skills" && (
           <section>
             <div className="resource-toolbar">
-              <p className="muted">{t.toolsSubtitle}</p>
+              <p className="muted">{t.skillsSubtitle}</p>
               <button onClick={() => openResourceDialog("skill")}>
                 {t.newSkill}
               </button>
@@ -2263,7 +2265,11 @@ function App() {
                   {editingResourceId ? t.edit : t.createResource} ·{" "}
                   {resourceDialog === "tool" ? t.tool : t.skill}
                 </h3>
-                <p className="modal-subtitle">{t.toolsSubtitle}</p>
+                <p className="modal-subtitle">
+                  {resourceDialog === "tool"
+                    ? t.toolsSubtitle
+                    : t.skillsSubtitle}
+                </p>
               </div>
               <button
                 className="icon-button"
