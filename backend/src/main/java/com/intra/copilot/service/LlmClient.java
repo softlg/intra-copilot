@@ -34,7 +34,7 @@ public class LlmClient {
     body.put("stream", true);
     body.put("temperature", 0.2);
     if (key == null || key.isBlank())
-      return Flux.just("[未配置 LLM_API_KEY] 后端已启动，请配置 OpenAI 兼容模型后重试。");
+      return Flux.just("[未配置 LLM_API_KEY] 后端已启用，请配置 OpenAI 兼容模型后重试。");
     return client
         .post()
         .uri("/chat/completions")
