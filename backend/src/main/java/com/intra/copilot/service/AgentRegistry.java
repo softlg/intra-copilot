@@ -37,6 +37,13 @@ public class AgentRegistry {
 
   @Transactional
   public void delete(String id) {
-    definitions.deleteById(id);
+    AgentDefinition definition =
+        definitions
+            .findById(id)
+            .orElseThrow(() -> new java.util.NoSuchElementException("Agent 不存在"));
+    if (definition.isEnabled()) {
+      throw new IllegalArgumentException("只能删除已停用的 Agent");
+    }
+    definitions.delete(definition);
   }
 }
