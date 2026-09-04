@@ -1,19 +1,19 @@
 package com.intra.copilot.model;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 import java.util.UUID;
 
-@Entity
-@Table(name = "agent_feedback")
+@TableName("agent_feedback")
 public class AgentFeedback {
-  @Id private String id = UUID.randomUUID().toString();
+  @TableId private String id = UUID.randomUUID().toString();
   private String sessionId;
   private String messageId;
   private Integer messageIndex;
   private String agentId;
   private String rating;
-  @Column(columnDefinition = "TEXT") private String comment;
+  private String comment;
   private Instant createdAt = Instant.now();
   public String getId() { return id; }
   public String getSessionId() { return sessionId; }
