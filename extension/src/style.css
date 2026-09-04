@@ -735,6 +735,14 @@ textarea {
 .send-button:disabled {
   opacity: 0.5;
 }
+.composer-hint {
+  margin: 4px 2px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: right;
+  user-select: none;
+}
 .composer-tools {
   position: relative;
   display: flex;
