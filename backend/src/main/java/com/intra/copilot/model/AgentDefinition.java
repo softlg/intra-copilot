@@ -1,26 +1,26 @@
 package com.intra.copilot.model;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 
-@Entity
-@Table(name = "agent_definition")
+@TableName("agent_definition")
 public class AgentDefinition {
-  @Id private String id;
+  @TableId private String id;
   private String displayName;
-  @Column(columnDefinition = "TEXT") private String description;
-  @Column(columnDefinition = "TEXT") private String systemPrompt;
+  private String description;
+  private String systemPrompt;
   private boolean enabled = true;
   /** True for agents shipped by the application and protected from deletion. */
   private boolean systemAgent;
   private boolean supportsBrowserActions;
   private int priority = 100;
-  @Column(columnDefinition = "TEXT") private String routingRules;
+  private String routingRules;
   private String model;
   private Double temperature;
-  @Column(columnDefinition = "TEXT") private String knowledgeBaseIds = "[]";
-  @Column(columnDefinition = "TEXT") private String toolIds = "[]";
-  @Column(columnDefinition = "TEXT") private String skillIds = "[]";
+  private String knowledgeBaseIds = "[]";
+  private String toolIds = "[]";
+  private String skillIds = "[]";
   private long version = 1;
   private Instant createdAt = Instant.now();
   private Instant updatedAt = Instant.now();
