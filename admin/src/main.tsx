@@ -34,10 +34,10 @@ const translations = {
       `确定删除 Agent“${name}”吗？此操作不可撤销。`,
     deleteAgentDisabledHint: "请先停用 Agent 后再删除",
     deleteAgentFailed: "删除 Agent 失败，请稍后重试",
-    systemAgent: "系统 Agent",
-    customAgent: "自定义 Agent",
-    systemAgentHint: "系统 Agent 由页面助手内置提供，不允许删除",
-    customAgentHint: "自定义 Agent 可按需停用后删除",
+    systemAgent: "主 Agent",
+    customAgent: "子 Agent",
+    systemAgentHint: "主 Agent 由页面助手内置提供，不允许删除",
+    customAgentHint: "子 Agent 可按需停用后删除",
     supportedDocs: "支持 Markdown、TXT、PDF 文档",
     upload: "上传文档",
     processing: "解析中…",
@@ -154,6 +154,14 @@ const translations = {
     method: "HTTP 方法",
     toolDescriptionPlaceholder: "说明这个工具可以完成什么操作",
     endpointPlaceholder: "https://api.example.com/resource",
+    mcpServerUrl: "MCP 服务器地址（HTTPS）",
+    mcpServerUrlPlaceholder: "https://mcp.example.com/mcp",
+    mcpTransport: "MCP 传输方式",
+    mcpSse: "SSE",
+    mcpStreamableHttp: "Streamable HTTP",
+    mcpAuthEnv: "认证环境变量（可选）",
+    mcpAuthEnvPlaceholder: "例如：MCP_API_TOKEN",
+    mcpServerRequired: "MCP 工具必须填写服务器地址",
     skillPrompt: "Skill 提示词",
     skillPromptPlaceholder: "定义 Skill 的行为和使用边界",
     version: "版本",
@@ -214,10 +222,11 @@ const translations = {
       `Delete Agent “${name}”? This cannot be undone.`,
     deleteAgentDisabledHint: "Disable the Agent before deleting it",
     deleteAgentFailed: "Failed to delete the Agent. Please try again.",
-    systemAgent: "System Agent",
-    customAgent: "Custom Agent",
-    systemAgentHint: "Built-in page-assistant agents cannot be deleted",
-    customAgentHint: "Custom agents can be deleted after they are disabled",
+    systemAgent: "Primary Agent",
+    customAgent: "Sub-agent",
+    systemAgentHint:
+      "Primary Agents are built into the page assistant and cannot be deleted",
+    customAgentHint: "Sub-agents can be deleted after they are disabled",
     supportedDocs: "Supports Markdown, TXT, and PDF documents",
     upload: "Upload document",
     processing: "Processing…",
@@ -345,6 +354,14 @@ const translations = {
     method: "HTTP method",
     toolDescriptionPlaceholder: "Describe what this tool can do",
     endpointPlaceholder: "https://api.example.com/resource",
+    mcpServerUrl: "MCP server URL (HTTPS)",
+    mcpServerUrlPlaceholder: "https://mcp.example.com/mcp",
+    mcpTransport: "MCP transport",
+    mcpSse: "SSE",
+    mcpStreamableHttp: "Streamable HTTP",
+    mcpAuthEnv: "Auth environment variable (optional)",
+    mcpAuthEnvPlaceholder: "e.g. MCP_API_TOKEN",
+    mcpServerRequired: "MCP tools require a server URL",
     skillPrompt: "Skill prompt",
     skillPromptPlaceholder: "Define the Skill behavior and boundaries",
     version: "Version",
@@ -402,6 +419,9 @@ type ToolDefinition = {
   type?: string;
   method?: string;
   endpoint?: string;
+  mcpServerUrl?: string;
+  mcpTransport?: string;
+  mcpAuthEnv?: string;
   enabled: boolean;
 };
 
@@ -532,6 +552,10 @@ function App() {
   const [resourceType, setResourceType] = useState("BROWSER_PROPOSAL");
   const [resourceMethod, setResourceMethod] = useState("POST");
   const [resourceEndpoint, setResourceEndpoint] = useState("");
+  const [resourceMcpServerUrl, setResourceMcpServerUrl] = useState("");
+  const [resourceMcpTransport, setResourceMcpTransport] =
+    useState("STREAMABLE_HTTP");
+  const [resourceMcpAuthEnv, setResourceMcpAuthEnv] = useState("");
   const [resourcePrompt, setResourcePrompt] = useState("");
   const [resourceVersion, setResourceVersion] = useState("1.0.0");
   const [resourceEnabled, setResourceEnabled] = useState(true);
@@ -570,7 +594,7 @@ function App() {
     "basic" | "knowledge" | "tools" | "skills"
   >("basic");
   const [agentId, setAgentId] = useState("custom-agent");
-  const [agentDisplayName, setAgentDisplayName] = useState("自定义 Agent");
+  const [agentDisplayName, setAgentDisplayName] = useState("子 Agent");
   const [agentDescription, setAgentDescription] = useState("");
   const [agentSystemPrompt, setAgentSystemPrompt] =
     useState("你是一个页面助手子 Agent。");
@@ -715,6 +739,9 @@ function App() {
       setResourceType(tool?.type ?? "BROWSER_PROPOSAL");
       setResourceMethod(tool?.method ?? "POST");
       setResourceEndpoint(tool?.endpoint ?? "");
+      setResourceMcpServerUrl(tool?.mcpServerUrl ?? "");
+      setResourceMcpTransport(tool?.mcpTransport ?? "STREAMABLE_HTTP");
+      setResourceMcpAuthEnv(tool?.mcpAuthEnv ?? "");
     } else {
       const skill = resource as SkillDefinition | undefined;
       setResourcePrompt(skill?.prompt ?? "");
@@ -742,6 +769,14 @@ function App() {
       setResourceError(t.endpointRequired);
       return;
     }
+    if (
+      resourceDialog === "tool" &&
+      resourceType === "MCP" &&
+      !resourceMcpServerUrl.trim()
+    ) {
+      setResourceError(t.mcpServerRequired);
+      return;
+    }
     if (resourceDialog === "skill" && !resourcePrompt.trim()) {
       setResourceError(t.skillPromptRequired);
       return;
@@ -761,6 +796,9 @@ function App() {
               type: resourceType,
               method: resourceMethod,
               endpoint: resourceEndpoint.trim() || null,
+              mcpServerUrl: resourceMcpServerUrl.trim() || null,
+              mcpTransport: resourceMcpTransport,
+              mcpAuthEnv: resourceMcpAuthEnv.trim() || null,
               enabled: resourceEnabled,
             }
           : {
@@ -904,7 +942,7 @@ function App() {
     setAgentConfigId(undefined);
     setEditingAgentId(undefined);
     setAgentId("custom-agent");
-    setAgentDisplayName(language === "zh" ? "自定义 Agent" : "Custom Agent");
+    setAgentDisplayName(language === "zh" ? "子 Agent" : "Sub-agent");
     setAgentDescription("");
     setAgentSystemPrompt(
       language === "zh"
@@ -2186,6 +2224,12 @@ function App() {
                         <span>{tool.type || t.toolTypeLabel}</span>
                         {tool.method && <span>{tool.method}</span>}
                         {tool.endpoint && <span>{tool.endpoint}</span>}
+                        {tool.type === "MCP" && tool.mcpTransport && (
+                          <span>{tool.mcpTransport}</span>
+                        )}
+                        {tool.type === "MCP" && tool.mcpServerUrl && (
+                          <span>{tool.mcpServerUrl}</span>
+                        )}
                       </div>
                       <div className="agent-actions">
                         <button
@@ -2556,6 +2600,28 @@ function App() {
                     <span className="detail-label">{t.endpoint}</span>
                     <code>{resourceDetails.resource.endpoint || "-"}</code>
                   </div>
+                  {resourceDetails.resource.type === "MCP" && (
+                    <>
+                      <div className="detail-full">
+                        <span className="detail-label">{t.mcpServerUrl}</span>
+                        <code>
+                          {resourceDetails.resource.mcpServerUrl || "-"}
+                        </code>
+                      </div>
+                      <div>
+                        <span className="detail-label">{t.mcpTransport}</span>
+                        <span>
+                          {resourceDetails.resource.mcpTransport || "-"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="detail-label">{t.mcpAuthEnv}</span>
+                        <code>
+                          {resourceDetails.resource.mcpAuthEnv || "-"}
+                        </code>
+                      </div>
+                    </>
+                  )}
                 </>
               ) : (
                 <>
@@ -3003,6 +3069,7 @@ function App() {
                           {t.browserProposal}
                         </option>
                         <option value="HTTP">HTTP API</option>
+                        <option value="MCP">MCP</option>
                       </select>
                     </label>
                     <label className="field">
@@ -3034,6 +3101,53 @@ function App() {
                         placeholder={t.endpointPlaceholder}
                       />
                     </label>
+                  )}
+                  {resourceType === "MCP" && (
+                    <div className="mcp-config-panel">
+                      <div className="mcp-config-heading">
+                        <strong>MCP</strong>
+                        <span>
+                          连接已注册的 MCP Server，密钥仅通过后端环境变量引用。
+                        </span>
+                      </div>
+                      <label className="field">
+                        <span>{t.mcpServerUrl}</span>
+                        <input
+                          value={resourceMcpServerUrl}
+                          onChange={(event) =>
+                            setResourceMcpServerUrl(event.target.value)
+                          }
+                          placeholder={t.mcpServerUrlPlaceholder}
+                          required
+                        />
+                      </label>
+                      <div className="field-grid">
+                        <label className="field">
+                          <span>{t.mcpTransport}</span>
+                          <select
+                            value={resourceMcpTransport}
+                            onChange={(event) =>
+                              setResourceMcpTransport(event.target.value)
+                            }
+                          >
+                            <option value="STREAMABLE_HTTP">
+                              {t.mcpStreamableHttp}
+                            </option>
+                            <option value="SSE">{t.mcpSse}</option>
+                          </select>
+                        </label>
+                        <label className="field">
+                          <span>{t.mcpAuthEnv}</span>
+                          <input
+                            value={resourceMcpAuthEnv}
+                            onChange={(event) =>
+                              setResourceMcpAuthEnv(event.target.value)
+                            }
+                            placeholder={t.mcpAuthEnvPlaceholder}
+                          />
+                        </label>
+                      </div>
+                    </div>
                   )}
                 </>
               ) : (

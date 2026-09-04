@@ -743,6 +743,30 @@ article p {
   font-size: 11px;
 }
 
+.mcp-config-panel {
+  margin: 6px 0 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-muted) 78%, #4776d0 22%);
+}
+
+.mcp-config-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.mcp-config-heading span {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
 .resource-meta span {
   max-width: 100%;
   overflow: hidden;
