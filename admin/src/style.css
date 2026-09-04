@@ -234,6 +234,143 @@ article p {
   flex-direction: column;
 }
 
+.knowledge-card-clickable {
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.knowledge-card-clickable:hover,
+.knowledge-card-clickable:focus-visible {
+  border-color: #4776d0;
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.knowledge-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.enter-button {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.knowledge-detail {
+  max-width: 760px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.detail-header h3 {
+  margin: 2px 0 5px;
+  font-size: 20px;
+}
+
+.detail-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.back-button {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.detail-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-tab {
+  margin-bottom: -1px;
+  padding: 9px 13px;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.detail-tab:hover,
+.detail-tab.active {
+  border-bottom-color: #4776d0;
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.upload-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.upload-panel h4 {
+  margin: 0 0 5px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.upload-panel p {
+  margin: 0;
+  min-height: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.empty-documents {
+  margin: 24px 0;
+  padding: 26px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+
+.detail-document-list {
+  margin-top: 18px;
+}
+
+.qa-panel {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.qa-panel .field textarea {
+  min-height: 150px;
+}
+
+.qa-top-k {
+  max-width: 260px;
+}
+
+.qa-actions {
+  margin-top: 10px;
+}
+
 .page-error {
   margin: 16px 0 0;
 }

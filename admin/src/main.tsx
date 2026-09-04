@@ -78,6 +78,19 @@ const translations = {
     dark: "深色",
     light: "浅色",
     close: "关闭",
+    enter: "进入维护",
+    back: "返回知识库",
+    maintenance: "知识维护",
+    qaSettings: "问答场景设置",
+    documentCount: (count: number) => `${count} 个文档`,
+    noDocuments: "暂无文档，请上传资料开始维护。",
+    chooseDocuments: "选择文档",
+    qaPrompt: "问答场景提示词",
+    qaPromptPlaceholder: "描述回答范围、语气和引用要求",
+    topK: "检索条数",
+    topKHint: "每次问答最多注入的相关片段数量",
+    saveSettings: "保存设置",
+    saved: "已保存",
   },
   en: {
     title: "Page Assistant",
@@ -155,6 +168,22 @@ const translations = {
     dark: "Dark",
     light: "Light",
     close: "Close",
+    enter: "Open maintenance",
+    back: "Back to knowledge bases",
+    maintenance: "Knowledge maintenance",
+    qaSettings: "Q&A scene settings",
+    documentCount: (count: number) =>
+      `${count} document${count === 1 ? "" : "s"}`,
+    noDocuments:
+      "No documents yet. Upload files to start maintaining this base.",
+    chooseDocuments: "Choose documents",
+    qaPrompt: "Q&A scene prompt",
+    qaPromptPlaceholder:
+      "Describe answer scope, tone, and citation requirements",
+    topK: "Retrieval count",
+    topKHint: "Maximum number of relevant chunks injected per question",
+    saveSettings: "Save settings",
+    saved: "Saved",
   },
 } as const;
 
@@ -182,6 +211,11 @@ type KnowledgeDocument = {
   error?: string;
   createdAt?: string;
   updatedAt?: string;
+};
+
+type QASceneSettings = {
+  prompt: string;
+  topK: number;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -217,6 +251,18 @@ function App() {
   const [uploadingBaseId, setUploadingBaseId] = useState<string>();
   const [uploadError, setUploadError] = useState("");
   const [documentActionId, setDocumentActionId] = useState<string>();
+  const [activeBaseId, setActiveBaseId] = useState<string>();
+  const [knowledgeSection, setKnowledgeSection] = useState<
+    "maintenance" | "qa"
+  >("maintenance");
+  const [qaSettings, setQaSettings] = useState<Record<string, QASceneSettings>>(
+    {},
+  );
+  const [qaSaved, setQaSaved] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({
+    current: 0,
+    total: 0,
+  });
   const [tab, setTab] = useState("agents");
   const [message, setMessage] = useState("");
   const [route, setRoute] = useState<Record<string, unknown>>();
@@ -245,6 +291,17 @@ function App() {
   useEffect(() => {
     localStorage.setItem("admin-language", language);
   }, [language]);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(
+        localStorage.getItem("admin-qa-settings") ?? "{}",
+      );
+      if (stored && typeof stored === "object") setQaSettings(stored);
+    } catch {
+      setQaSettings({});
+    }
+  }, []);
 
   useEffect(() => {
     if (!settingsOpen) return undefined;
@@ -299,6 +356,38 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [agentDialogOpen, agentSubmitting, baseDialogOpen, baseSubmitting]);
+
+  const activeBase = bases.find((base) => base.id === activeBaseId);
+  const activeQaSettings: QASceneSettings = activeBaseId
+    ? (qaSettings[activeBaseId] ?? { prompt: "", topK: 5 })
+    : { prompt: "", topK: 5 };
+
+  const openKnowledgeBase = (base: Base) => {
+    setActiveBaseId(base.id);
+    setKnowledgeSection("maintenance");
+    setUploadError("");
+    setQaSaved(false);
+  };
+
+  const closeKnowledgeBase = () => {
+    setActiveBaseId(undefined);
+    setUploadError("");
+  };
+
+  const updateQaSettings = (patch: Partial<QASceneSettings>) => {
+    if (!activeBaseId) return;
+    setQaSettings((current) => ({
+      ...current,
+      [activeBaseId]: { ...activeQaSettings, ...patch },
+    }));
+    setQaSaved(false);
+  };
+
+  const saveQaSettings = () => {
+    localStorage.setItem("admin-qa-settings", JSON.stringify(qaSettings));
+    setQaSaved(true);
+    window.setTimeout(() => setQaSaved(false), 1800);
+  };
 
   const addAgent = () => {
     setAgentId("custom-agent");
@@ -429,41 +518,53 @@ function App() {
     }
   };
 
-  const uploadDocument = async (
+  const uploadDocument = async (baseId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(
+      `${API}/admin/knowledge-bases/${baseId}/documents`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail || `上传失败（${response.status}）`);
+    }
+    return (await response.json()) as KnowledgeDocument;
+  };
+
+  const uploadDocuments = async (
     baseId: string,
-    file: File | undefined,
+    files: FileList | null,
     input: HTMLInputElement,
   ) => {
     input.value = "";
-    if (!file) return;
+    const selectedFiles = files ? Array.from(files) : [];
+    if (!selectedFiles.length) return;
     setUploadingBaseId(baseId);
     setUploadError("");
+    setUploadProgress({ current: 0, total: selectedFiles.length });
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await fetch(
-        `${API}/admin/knowledge-bases/${baseId}/documents`,
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
-      if (!response.ok) {
-        const detail = await response.text();
-        throw new Error(detail || `上传失败（${response.status}）`);
+      for (const [index, file] of selectedFiles.entries()) {
+        const document = await uploadDocument(baseId, file);
+        setDocuments((current) => ({
+          ...current,
+          [baseId]: [
+            document,
+            ...(current[baseId] ?? []).filter(
+              (item) => item.id !== document.id,
+            ),
+          ],
+        }));
+        setUploadProgress({ current: index + 1, total: selectedFiles.length });
       }
-      const document = (await response.json()) as KnowledgeDocument;
-      setDocuments((current) => ({
-        ...current,
-        [baseId]: [
-          document,
-          ...(current[baseId] ?? []).filter((item) => item.id !== document.id),
-        ],
-      }));
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : t.uploadFailed);
     } finally {
       setUploadingBaseId(undefined);
+      setUploadProgress({ current: 0, total: 0 });
     }
   };
 
@@ -662,82 +763,200 @@ function App() {
 
         {tab === "knowledge" && (
           <section>
-            <button onClick={addBase}>{t.newBase}</button>
-            {uploadError && <p className="error page-error">{uploadError}</p>}
-            <div className="grid">
-              {bases.map((base) => (
-                <article className="knowledge-card" key={base.id}>
-                  <div className="row">
-                    <strong>{base.name}</strong>
-                    <span className={base.enabled ? "ok" : "off"}>
-                      {base.enabled ? t.enabled : t.disabled}
-                    </span>
-                  </div>
-                  <p>{base.description || t.supportedDocs}</p>
-                  <code>{base.id}</code>
-                  <div className="document-upload">
-                    <label className="upload-button">
-                      {uploadingBaseId === base.id ? t.processing : t.upload}
-                      <input
-                        type="file"
-                        accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
-                        disabled={uploadingBaseId === base.id}
-                        onChange={(event) =>
-                          uploadDocument(
-                            base.id,
-                            event.target.files?.[0],
-                            event.currentTarget,
-                          )
+            {!activeBase ? (
+              <>
+                <button onClick={addBase}>{t.newBase}</button>
+                {uploadError && (
+                  <p className="error page-error">{uploadError}</p>
+                )}
+                <div className="grid">
+                  {bases.map((base) => (
+                    <article
+                      className="knowledge-card knowledge-card-clickable"
+                      key={base.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openKnowledgeBase(base)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openKnowledgeBase(base);
                         }
+                      }}
+                    >
+                      <div className="row">
+                        <strong>{base.name}</strong>
+                        <span className={base.enabled ? "ok" : "off"}>
+                          {base.enabled ? t.enabled : t.disabled}
+                        </span>
+                      </div>
+                      <p>{base.description || t.supportedDocs}</p>
+                      <code>{base.id}</code>
+                      <div className="knowledge-card-footer">
+                        <span className="upload-hint">
+                          {t.documentCount((documents[base.id] ?? []).length)}
+                        </span>
+                        <button
+                          className="enter-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openKnowledgeBase(base);
+                          }}
+                        >
+                          {t.enter}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="knowledge-detail">
+                <div className="detail-header">
+                  <button
+                    className="secondary back-button"
+                    onClick={closeKnowledgeBase}
+                  >
+                    ← {t.back}
+                  </button>
+                  <div>
+                    <h3>{activeBase.name}</h3>
+                    <p>{activeBase.description || t.supportedDocs}</p>
+                  </div>
+                </div>
+                <div className="detail-tabs" role="tablist">
+                  <button
+                    role="tab"
+                    aria-selected={knowledgeSection === "maintenance"}
+                    className={
+                      knowledgeSection === "maintenance"
+                        ? "detail-tab active"
+                        : "detail-tab"
+                    }
+                    onClick={() => setKnowledgeSection("maintenance")}
+                  >
+                    {t.maintenance}
+                  </button>
+                  <button
+                    role="tab"
+                    aria-selected={knowledgeSection === "qa"}
+                    className={
+                      knowledgeSection === "qa"
+                        ? "detail-tab active"
+                        : "detail-tab"
+                    }
+                    onClick={() => setKnowledgeSection("qa")}
+                  >
+                    {t.qaSettings}
+                  </button>
+                </div>
+                {uploadError && (
+                  <p className="error page-error">{uploadError}</p>
+                )}
+                {knowledgeSection === "maintenance" ? (
+                  <div className="maintenance-panel">
+                    <div className="upload-panel">
+                      <div>
+                        <h4>{t.maintenance}</h4>
+                        <p>{t.supportedDocs}</p>
+                      </div>
+                      <label className="upload-button">
+                        {uploadingBaseId === activeBase.id
+                          ? `${t.processing} ${uploadProgress.current}/${uploadProgress.total}`
+                          : t.chooseDocuments}
+                        <input
+                          type="file"
+                          multiple
+                          accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
+                          disabled={uploadingBaseId === activeBase.id}
+                          onChange={(event) =>
+                            uploadDocuments(
+                              activeBase.id,
+                              event.currentTarget.files,
+                              event.currentTarget,
+                            )
+                          }
+                        />
+                      </label>
+                    </div>
+                    {(documents[activeBase.id] ?? []).length === 0 ? (
+                      <p className="empty-documents">{t.noDocuments}</p>
+                    ) : (
+                      <div className="document-list detail-document-list">
+                        {(documents[activeBase.id] ?? []).map((document) => (
+                          <div className="document-item" key={document.id}>
+                            <div className="document-main">
+                              <span
+                                className="document-name"
+                                title={document.filename}
+                              >
+                                {document.filename}
+                              </span>
+                              <span
+                                className={`document-status ${document.status.toLowerCase()}`}
+                              >
+                                {documentStatus(document.status, t)}
+                              </span>
+                            </div>
+                            {document.error && (
+                              <span className="document-error">
+                                {document.error}
+                              </span>
+                            )}
+                            <div className="document-actions">
+                              <button
+                                className="document-action danger"
+                                disabled={documentActionId === document.id}
+                                onClick={() => deleteDocument(document)}
+                              >
+                                {t.delete}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="qa-panel">
+                    <label className="field">
+                      <span>{t.qaPrompt}</span>
+                      <textarea
+                        rows={7}
+                        value={activeQaSettings.prompt}
+                        onChange={(event) =>
+                          updateQaSettings({ prompt: event.target.value })
+                        }
+                        placeholder={t.qaPromptPlaceholder}
                       />
                     </label>
-                    <span className="upload-hint">{t.uploadHint}</span>
-                  </div>
-                  {(documents[base.id] ?? []).length > 0 && (
-                    <div className="document-list">
-                      {(documents[base.id] ?? []).map((document) => (
-                        <div className="document-item" key={document.id}>
-                          <div className="document-main">
-                            <span
-                              className="document-name"
-                              title={document.filename}
-                            >
-                              {document.filename}
-                            </span>
-                            <span
-                              className={`document-status ${document.status.toLowerCase()}`}
-                            >
-                              {documentStatus(document.status, t)}
-                            </span>
-                          </div>
-                          {document.error && (
-                            <span className="document-error">
-                              {document.error}
-                            </span>
-                          )}
-                          <div className="document-actions">
-                            <button
-                              className="document-action"
-                              disabled={documentActionId === document.id}
-                              onClick={() => reindexDocument(document)}
-                            >
-                              {t.reindex}
-                            </button>
-                            <button
-                              className="document-action danger"
-                              disabled={documentActionId === document.id}
-                              onClick={() => deleteDocument(document)}
-                            >
-                              {t.delete}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                    <label className="field qa-top-k">
+                      <span>{t.topK}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={activeQaSettings.topK}
+                        onChange={(event) =>
+                          updateQaSettings({
+                            topK: Math.max(
+                              1,
+                              Math.min(20, Number(event.target.value) || 1),
+                            ),
+                          })
+                        }
+                      />
+                      <small className="field-hint">{t.topKHint}</small>
+                    </label>
+                    <div className="modal-actions qa-actions">
+                      <button onClick={saveQaSettings}>
+                        {qaSaved ? `✓ ${t.saved}` : t.saveSettings}
+                      </button>
                     </div>
-                  )}
-                </article>
-              ))}
-            </div>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         )}
 
