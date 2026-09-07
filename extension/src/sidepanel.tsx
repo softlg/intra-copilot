@@ -113,6 +113,7 @@ const translations = {
     closeImagePreview: "关闭图片预览",
     like: "有帮助",
     dislike: "没帮助",
+    feedbackReasonPrompt: "请简要说明这条回答哪里需要改进（可取消）",
     copyMessage: "复制回答",
     copyCode: "复制代码",
     copied: "已复制",
@@ -216,6 +217,7 @@ const translations = {
     closeImagePreview: "Close image preview",
     like: "Helpful",
     dislike: "Not helpful",
+    feedbackReasonPrompt: "What should be improved in this answer? (optional)",
     copyMessage: "Copy answer",
     copyCode: "Copy code",
     copied: "Copied",
@@ -580,6 +582,8 @@ function App() {
   }
 
   function saveFeedback(index: number, feedback: Feedback) {
+    const comment =
+      feedback === "down" ? window.prompt(t.feedbackReasonPrompt) || "" : "";
     setMessageFeedback((current) => ({ ...current, [index]: feedback }));
     if (!session?.id) return;
     chrome.storage.local.get(["messageFeedback"], (value) => {
@@ -594,6 +598,9 @@ function App() {
       });
     });
     const target = msgs[index];
+    const userMessage =
+      [...msgs.slice(0, index)].reverse().find((item) => item.role === "user")
+        ?.content || "";
     fetch(API + "/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -603,6 +610,9 @@ function App() {
         messageIndex: index,
         agentId: target?.agentId,
         rating: feedback,
+        comment,
+        messageContent: target?.content || "",
+        userMessage,
       }),
     }).catch(() => undefined);
   }
