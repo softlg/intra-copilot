@@ -7,8 +7,8 @@ import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;
 @Mapper
 public interface DocumentChunkRepository extends BaseMapper<DocumentChunk> {
-  default DocumentChunk save(DocumentChunk value) { if (selectById(value.getId()) == null) insert(value); else updateById(value); return value; }
-  default Optional<DocumentChunk> findById(String id) { return Optional.ofNullable(selectById(id)); }
-  default void deleteAllByDocumentId(String id) { delete(Wrappers.<DocumentChunk>query().eq("document_id", id)); }
-  default List<DocumentChunk> findAllByDocumentIdOrderByChunkIndex(String id) { return selectList(Wrappers.<DocumentChunk>query().eq("document_id", id).orderByAsc("chunk_index")); }
+    default DocumentChunk save(DocumentChunk value) { if (selectById(value.getId()) == null) insert(value); else updateById(value); return value; }
+    default Optional<DocumentChunk> findById(String id) { return Optional.ofNullable(selectById(id)); }
+    default void deleteAllByDocumentId(String id) { delete(Wrappers.<DocumentChunk>query().eq("document_id", id)); }
+    default List<DocumentChunk> findAllByDocumentIdOrderByChunkIndex(String id) { return selectList(Wrappers.<DocumentChunk>query().eq("document_id", id).orderByAsc("chunk_index")); }
 }
