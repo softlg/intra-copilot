@@ -7,7 +7,7 @@ import org.mybatis.spring.annotation.MapperScan;
 @SpringBootApplication
 @MapperScan("com.intra.copilot.repo")
 public class Application {
-  public static void main(String[] args) {
-    SpringApplication.run(Application.class, args);
-  }
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
 }
