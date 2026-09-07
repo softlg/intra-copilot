@@ -12,6 +12,10 @@ spring:
   webflux:
     multipart:
       max-in-memory-size: 10MB
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 50MB
 mybatis-plus:
   mapper-locations: classpath:/mapper/**/*.xml
   configuration.map-underscore-to-camel-case: true
@@ -25,9 +29,12 @@ embedding:
   base-url: ${EMBEDDING_BASE_URL:${LLM_BASE_URL:https://api.openai.com/v1}}
   api-key: ${EMBEDDING_API_KEY:${LLM_API_KEY:}}
   model: ${EMBEDDING_MODEL:text-embedding-3-small}
+  dimension: ${EMBEDDING_DIMENSION:1536}
 rag:
   top-k: ${RAG_TOP_K:5}
   chunk-size: ${RAG_CHUNK_SIZE:1200}
+  chunk-overlap: ${RAG_CHUNK_OVERLAP:200}
+  similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.65}
   max-document-bytes: ${RAG_MAX_DOCUMENT_BYTES:10485760}
 app:
   cors-origins: ${CORS_ALLOWED_ORIGINS:chrome-extension://*,http://localhost:4174,http://127.0.0.1:4174,http://localhost:5173,http://127.0.0.1:5173}
