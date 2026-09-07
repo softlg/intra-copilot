@@ -5,6 +5,7 @@ import com.intra.copilot.model.ToolDefinition;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
 import java.net.URI;
+import java.net.InetAddress;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -75,7 +76,7 @@ public class ToolSkillAdminController {
     if (uri.getUserInfo() != null || uri.getHost() == null || uri.getRawQuery() != null && uri.getRawQuery().contains("@")) {
       throw new IllegalArgumentException("工具地址不能包含用户凭据或无效主机");
     }
-    if (!allowPrivateNetwork && isPrivate(uri.getHost())) {
+    if (!allowPrivateNetwork && (isPrivate(uri.getHost()) || resolvesToPrivateAddress(uri.getHost()))) {
       throw new IllegalArgumentException("当前配置禁止访问内网或本机地址");
     }
     if (isCloudMetadata(uri.getHost())) {
@@ -94,5 +95,16 @@ public class ToolSkillAdminController {
   private boolean isCloudMetadata(String host) {
     String h = host.toLowerCase().replace("[", "").replace("]", "");
     return h.equals("169.254.169.254") || h.equals("metadata.google.internal") || h.equals("metadata.google.com");
+  }
+  private boolean resolvesToPrivateAddress(String host) {
+    try {
+      for (InetAddress address : InetAddress.getAllByName(host)) {
+        if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress() || address.isSiteLocalAddress()) return true;
+      }
+    } catch (Exception ignored) {
+      // DNS failures are handled by the actual request; do not reject a valid
+      // public hostname merely because it is temporarily unresolvable here.
+    }
+    return false;
   }
 }
