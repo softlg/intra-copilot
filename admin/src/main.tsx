@@ -1503,7 +1503,7 @@ function App() {
     labels: (typeof translations)[Language],
   ) => {
     if (status === "READY") return labels.parsed;
-    if (status === "INDEXING") return labels.processing;
+    if (status === "INDEXING" || status === "PARSING") return labels.processing;
     if (status === "ERROR") return labels.parseFailed;
     return labels.pending;
   };
