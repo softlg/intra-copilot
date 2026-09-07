@@ -114,6 +114,17 @@ const translations = {
     documentCount: (count: number) => `${count} 个文档`,
     noDocuments: "暂无文档，请上传资料开始维护。",
     chooseDocuments: "选择文档",
+    viewDocument: "查看详情",
+    documentDetails: "文档详情",
+    documentSize: "文件大小",
+    documentHash: "文件指纹",
+    documentChunks: "内容分块",
+    loading: "加载中…",
+    retrievalTest: "检索测试",
+    retrievalPlaceholder: "输入问题，测试知识库召回结果",
+    runRetrieval: "开始检索",
+    retrievalEmpty: "暂无命中内容",
+    retrievalFailed: "检索失败，请检查 Embedding 配置",
     qaPrompt: "问答场景提示词",
     qaPromptPlaceholder: "描述回答范围、语气和引用要求",
     topK: "检索条数",
@@ -330,6 +341,17 @@ const translations = {
     noDocuments:
       "No documents yet. Upload files to start maintaining this base.",
     chooseDocuments: "Choose documents",
+    viewDocument: "View details",
+    documentDetails: "Document details",
+    documentSize: "File size",
+    documentHash: "File fingerprint",
+    documentChunks: "Content chunks",
+    loading: "Loading…",
+    retrievalTest: "Retrieval test",
+    retrievalPlaceholder: "Enter a question to test retrieval",
+    runRetrieval: "Run retrieval",
+    retrievalEmpty: "No matching content",
+    retrievalFailed: "Retrieval failed. Check the Embedding configuration.",
     qaPrompt: "Q&A scene prompt",
     qaPromptPlaceholder:
       "Describe answer scope, tone, and citation requirements",
@@ -502,8 +524,26 @@ type KnowledgeDocument = {
   mediaType?: string;
   status: "PENDING" | "INDEXING" | "READY" | "ERROR" | string;
   error?: string;
+  fileHash?: string;
+  sizeBytes?: number;
   createdAt?: string;
   updatedAt?: string;
+};
+
+type DocumentChunk = {
+  id: string;
+  documentId: string;
+  chunkIndex: number;
+  content: string;
+  pageNumber?: number;
+};
+
+type RetrievalResult = {
+  documentId: string;
+  filename: string;
+  pageNumber?: number;
+  content: string;
+  distance: number;
 };
 
 type QASceneSettings = {
@@ -615,6 +655,15 @@ function App() {
   const [uploadingBaseId, setUploadingBaseId] = useState<string>();
   const [uploadError, setUploadError] = useState("");
   const [documentActionId, setDocumentActionId] = useState<string>();
+  const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument>();
+  const [documentChunks, setDocumentChunks] = useState<DocumentChunk[]>([]);
+  const [chunksLoading, setChunksLoading] = useState(false);
+  const [retrievalQuery, setRetrievalQuery] = useState("");
+  const [retrievalResults, setRetrievalResults] = useState<RetrievalResult[]>(
+    [],
+  );
+  const [retrievalLoading, setRetrievalLoading] = useState(false);
+  const [retrievalError, setRetrievalError] = useState("");
   const [activeBaseId, setActiveBaseId] = useState<string>();
   const [editingBase, setEditingBase] = useState(false);
   const [baseDraftName, setBaseDraftName] = useState("");
@@ -1000,6 +1049,11 @@ function App() {
   const closeKnowledgeBase = () => {
     setActiveBaseId(undefined);
     setEditingBase(false);
+    setSelectedDocument(undefined);
+    setDocumentChunks([]);
+    setRetrievalResults([]);
+    setRetrievalQuery("");
+    setRetrievalError("");
     setUploadError("");
   };
 
@@ -1398,6 +1452,49 @@ function App() {
       setUploadError(error instanceof Error ? error.message : t.deleteFailed);
     } finally {
       setDocumentActionId(undefined);
+    }
+  };
+
+  const openDocumentDetails = async (document: KnowledgeDocument) => {
+    if (!activeBaseId) return;
+    setSelectedDocument(document);
+    setDocumentChunks([]);
+    setChunksLoading(true);
+    try {
+      const result = await request<DocumentChunk[]>(
+        `/admin/knowledge-bases/${activeBaseId}/documents/${document.id}/chunks`,
+      );
+      setDocumentChunks(result);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : t.uploadFailed);
+    } finally {
+      setChunksLoading(false);
+    }
+  };
+
+  const runRetrieval = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!activeBaseId || !retrievalQuery.trim()) return;
+    setRetrievalLoading(true);
+    setRetrievalError("");
+    try {
+      const result = await request<RetrievalResult[]>(
+        `/admin/knowledge-bases/${activeBaseId}/search`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            query: retrievalQuery.trim(),
+            topK: activeQaSettings.topK,
+          }),
+        },
+      );
+      setRetrievalResults(result);
+    } catch (error) {
+      setRetrievalError(
+        error instanceof Error ? error.message : t.retrievalFailed,
+      );
+    } finally {
+      setRetrievalLoading(false);
     }
   };
 
@@ -2431,6 +2528,66 @@ function App() {
                         />
                       </label>
                     </div>
+                    <section className="knowledge-retrieval-panel">
+                      <div className="knowledge-retrieval-heading">
+                        <div>
+                          <h4>{t.retrievalTest}</h4>
+                          <p>{t.retrievalPlaceholder}</p>
+                        </div>
+                        <span className="binding-count">
+                          {activeQaSettings.topK}
+                        </span>
+                      </div>
+                      <form
+                        className="knowledge-retrieval-form"
+                        onSubmit={runRetrieval}
+                      >
+                        <input
+                          value={retrievalQuery}
+                          onChange={(event) =>
+                            setRetrievalQuery(event.target.value)
+                          }
+                          placeholder={t.retrievalPlaceholder}
+                          aria-label={t.retrievalTest}
+                        />
+                        <button
+                          type="submit"
+                          disabled={retrievalLoading || !retrievalQuery.trim()}
+                        >
+                          {retrievalLoading ? t.loading : t.runRetrieval}
+                        </button>
+                      </form>
+                      {retrievalError && (
+                        <p className="error">{retrievalError}</p>
+                      )}
+                      {!retrievalLoading &&
+                        retrievalQuery.trim() &&
+                        retrievalResults.length === 0 &&
+                        !retrievalError && (
+                          <p className="binding-empty">{t.retrievalEmpty}</p>
+                        )}
+                      {retrievalResults.length > 0 && (
+                        <div className="retrieval-results">
+                          {retrievalResults.map((result, index) => (
+                            <article
+                              className="retrieval-result"
+                              key={`${result.documentId}-${index}`}
+                            >
+                              <div className="retrieval-result-meta">
+                                <strong>{result.filename}</strong>
+                                <span>
+                                  {result.pageNumber
+                                    ? `第 ${result.pageNumber} 页 · `
+                                    : ""}
+                                  {(1 - result.distance).toFixed(3)}
+                                </span>
+                              </div>
+                              <p>{result.content}</p>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </section>
                     {activeDocuments.length === 0 ? (
                       <p className="empty-documents">{t.noDocuments}</p>
                     ) : filteredDocuments.length === 0 ? (
@@ -2458,6 +2615,19 @@ function App() {
                               </span>
                             )}
                             <div className="document-actions">
+                              <button
+                                className="document-action"
+                                onClick={() => openDocumentDetails(document)}
+                              >
+                                {t.viewDocument}
+                              </button>
+                              <button
+                                className="document-action"
+                                disabled={documentActionId === document.id}
+                                onClick={() => reindexDocument(document)}
+                              >
+                                {t.reindex}
+                              </button>
                               <button
                                 className="document-action danger"
                                 disabled={documentActionId === document.id}
@@ -2917,6 +3087,71 @@ function App() {
             <button type="button" onClick={dismissPromptError}>
               {t.close}
             </button>
+          </div>
+        </div>
+      )}
+
+      {selectedDocument && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget)
+              setSelectedDocument(undefined);
+          }}
+        >
+          <div
+            className="modal document-details-modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header">
+              <div>
+                <h3>{selectedDocument.filename}</h3>
+                <p className="modal-subtitle">{t.documentDetails}</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => setSelectedDocument(undefined)}
+                aria-label={t.close}
+              >
+                ×
+              </button>
+            </div>
+            <div className="document-detail-meta">
+              <span>{documentStatus(selectedDocument.status, t)}</span>
+              {selectedDocument.sizeBytes !== undefined && (
+                <span>
+                  {t.documentSize}:{" "}
+                  {(selectedDocument.sizeBytes / 1024).toFixed(1)} KB
+                </span>
+              )}
+              {selectedDocument.fileHash && (
+                <code title={selectedDocument.fileHash}>
+                  {t.documentHash}: {selectedDocument.fileHash.slice(0, 16)}…
+                </code>
+              )}
+            </div>
+            <h4>{t.documentChunks}</h4>
+            {chunksLoading ? (
+              <p className="binding-empty">{t.loading}</p>
+            ) : documentChunks.length === 0 ? (
+              <p className="binding-empty">{t.retrievalEmpty}</p>
+            ) : (
+              <div className="chunk-list">
+                {documentChunks.map((chunk) => (
+                  <article className="chunk-item" key={chunk.id}>
+                    <div>
+                      <strong>#{chunk.chunkIndex + 1}</strong>
+                      {chunk.pageNumber ? (
+                        <span> · 第 {chunk.pageNumber} 页</span>
+                      ) : null}
+                    </div>
+                    <pre>{chunk.content}</pre>
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

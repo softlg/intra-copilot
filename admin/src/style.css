@@ -600,6 +600,137 @@ article p {
   background: var(--surface-muted);
 }
 
+.knowledge-retrieval-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.knowledge-retrieval-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.knowledge-retrieval-heading h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.knowledge-retrieval-heading p {
+  margin: 0;
+  min-height: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.knowledge-retrieval-form {
+  display: flex;
+  gap: 8px;
+}
+
+.knowledge-retrieval-form input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 10px;
+  outline: none;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.knowledge-retrieval-form button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.retrieval-results {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.retrieval-result {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.retrieval-result-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.retrieval-result-meta strong {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.retrieval-result p {
+  margin: 8px 0 0;
+  min-height: 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.document-details-modal {
+  width: min(760px, 100%);
+}
+
+.document-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chunk-list {
+  display: grid;
+  gap: 10px;
+  max-height: 52vh;
+  overflow: auto;
+}
+
+.chunk-item {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.chunk-item > div {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chunk-item pre {
+  max-height: 220px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
 .qa-panel .field textarea {
   min-height: 150px;
 }
