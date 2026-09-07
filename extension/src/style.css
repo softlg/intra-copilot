@@ -1,6 +1,9 @@
 * {
   box-sizing: border-box;
 }
+html {
+  height: 100%;
+}
 :root {
   --page-bg: #f8fafc;
   --surface: #ffffff;
@@ -44,6 +47,8 @@
 }
 body {
   margin: 0;
+  height: 100vh;
+  overflow: hidden;
   background: var(--page-bg);
   color: var(--text);
   font-family:
@@ -55,6 +60,8 @@ body {
 }
 .app {
   height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -192,8 +199,11 @@ small {
 }
 main {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 16px;
+  overscroll-behavior: contain;
 }
 .empty {
   color: var(--muted);
@@ -591,6 +601,11 @@ main {
   outline: none;
 }
 footer {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 5;
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
   padding: 12px 14px;
   background: var(--surface);
   border-top: 1px solid var(--border);
