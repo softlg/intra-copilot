@@ -15,6 +15,31 @@ const translations = {
     toolsMenu: "工具",
     skillsMenu: "Skill",
     skillsTitle: "Skill 管理",
+    hooksMenu: "钩子",
+    hooksTitle: "钩子管理",
+    hooksSubtitle: "在 Agent 执行前运行权限、页面上下文和内容校验规则。",
+    newHook: "+ 新建钩子",
+    editHook: "编辑钩子",
+    hookName: "名称",
+    hookNameRequired: "请输入钩子名称",
+    hookDescription: "描述（可选）",
+    hookDescriptionPlaceholder: "说明这个钩子保护什么操作",
+    hookPhase: "执行阶段",
+    preAgent: "Agent 执行前",
+    hookRuleType: "校验规则",
+    requirePermission: "需要页面权限",
+    requirePageContext: "需要页面上下文",
+    keywordBlock: "关键词拦截",
+    maxMessageLength: "消息长度限制",
+    hookRuleConfig: "规则配置（JSON）",
+    hookRuleConfigPlaceholder: '{"permission":"readPage"}',
+    hookFailureMessage: "拒绝提示",
+    hookFailureMessagePlaceholder: "未通过校验时返回给用户的提示",
+    hookPriority: "优先级",
+    hookDeleteConfirm: (name: string) => `确定删除钩子“${name}”吗？`,
+    hookSaveFailed: "保存钩子失败，请检查配置后重试",
+    hookDeleteFailed: "删除钩子失败，请稍后重试",
+    noHooks: "暂无钩子，请先创建校验规则。",
     router: "路由测试",
     agentRatings: "评分/巡检",
     ratingsSubtitle: "记录用户赞/踩反馈，分析低评分原因并生成 Agent 改进建议。",
@@ -50,7 +75,20 @@ const translations = {
     delete: "删除",
     deleteConfirm: (name: string) => `确定删除文档“${name}”吗？`,
     routerPlaceholder: "输入一条消息测试路由",
+    routerContextPlaceholder: "页面上下文（可选）",
     testRoute: "测试路由",
+    smartAnalyze: "智能分析",
+    analyzing: "分析中…",
+    routeChain: "完整调用链路",
+    routeChainEmpty: "先运行一次路由测试查看调用链路。",
+    routeAnalysis: "智能分析结果",
+    routeAnalysisFailed: "智能分析失败，请稍后重试",
+    routeInput: "接收用户请求",
+    routeIntent: "主 Agent 意图识别",
+    routeDispatch: "路由分发",
+    routeHooks: "Agent 执行前钩子校验",
+    hookPassed: "通过",
+    hookRejected: "拦截",
     newAgentTitle: "新建 Agent",
     newAgentSubtitle: "先填写基础信息，创建后可在设置中配置能力和关联资源。",
     agentId: "Agent ID",
@@ -245,6 +283,33 @@ const translations = {
     toolsMenu: "Tools",
     skillsMenu: "Skill",
     skillsTitle: "Skill management",
+    hooksMenu: "Hooks",
+    hooksTitle: "Hook management",
+    hooksSubtitle:
+      "Run permission, page-context, and content validation before an Agent works.",
+    newHook: "+ New hook",
+    editHook: "Edit hook",
+    hookName: "Name",
+    hookNameRequired: "Enter a hook name",
+    hookDescription: "Description (optional)",
+    hookDescriptionPlaceholder: "Describe what this hook protects",
+    hookPhase: "Execution phase",
+    preAgent: "Before Agent execution",
+    hookRuleType: "Validation rule",
+    requirePermission: "Require page permission",
+    requirePageContext: "Require page context",
+    keywordBlock: "Block keywords",
+    maxMessageLength: "Message length limit",
+    hookRuleConfig: "Rule configuration (JSON)",
+    hookRuleConfigPlaceholder: '{"permission":"readPage"}',
+    hookFailureMessage: "Rejection message",
+    hookFailureMessagePlaceholder: "Message shown when validation fails",
+    hookPriority: "Priority",
+    hookDeleteConfirm: (name: string) => `Delete hook “${name}”?`,
+    hookSaveFailed:
+      "Failed to save the hook. Check the configuration and try again.",
+    hookDeleteFailed: "Failed to delete the hook. Please try again.",
+    noHooks: "No hooks yet. Create a validation rule first.",
     router: "Router test",
     agentRatings: "Ratings / inspection",
     ratingsSubtitle:
@@ -283,7 +348,20 @@ const translations = {
     delete: "Delete",
     deleteConfirm: (name: string) => `Delete “${name}”?`,
     routerPlaceholder: "Enter a message to test routing",
+    routerContextPlaceholder: "Page context (optional)",
     testRoute: "Test route",
+    smartAnalyze: "Smart analysis",
+    analyzing: "Analyzing…",
+    routeChain: "Complete call chain",
+    routeChainEmpty: "Run a route test to view the complete call chain.",
+    routeAnalysis: "Smart analysis",
+    routeAnalysisFailed: "Smart analysis failed. Please try again.",
+    routeInput: "Receive user request",
+    routeIntent: "Primary Agent intent recognition",
+    routeDispatch: "Route dispatch",
+    routeHooks: "Pre-Agent hook validation",
+    hookPassed: "Passed",
+    hookRejected: "Blocked",
     newAgentTitle: "New Agent",
     newAgentSubtitle:
       "Enter the basic information first; configure capabilities and resources after creation.",
@@ -522,6 +600,18 @@ type SkillDefinition = {
   enabled: boolean;
 };
 
+type HookDefinition = {
+  id: string;
+  name: string;
+  description?: string;
+  phase: string;
+  ruleType: string;
+  ruleConfig: string;
+  failureMessage?: string;
+  priority: number;
+  enabled: boolean;
+};
+
 type ResourceDetails =
   | { kind: "tool"; resource: ToolDefinition }
   | { kind: "skill"; resource: SkillDefinition };
@@ -665,6 +755,7 @@ function App() {
     useState<string>();
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
+  const [hooks, setHooks] = useState<HookDefinition[]>([]);
   const [feedback, setFeedback] = useState<AgentFeedback[]>([]);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary>();
   const [resourceDialog, setResourceDialog] = useState<"tool" | "skill">();
@@ -687,6 +778,19 @@ function App() {
   const [resourceDetails, setResourceDetails] = useState<
     ResourceDetails | undefined
   >();
+  const [hookDialogOpen, setHookDialogOpen] = useState(false);
+  const [editingHookId, setEditingHookId] = useState<string>();
+  const [hookName, setHookName] = useState("");
+  const [hookDescription, setHookDescription] = useState("");
+  const [hookRuleType, setHookRuleType] = useState("REQUIRE_PERMISSION");
+  const [hookRuleConfig, setHookRuleConfig] = useState(
+    '{"permission":"readPage"}',
+  );
+  const [hookFailureMessage, setHookFailureMessage] = useState("");
+  const [hookPriority, setHookPriority] = useState(100);
+  const [hookEnabled, setHookEnabled] = useState(true);
+  const [hookSubmitting, setHookSubmitting] = useState(false);
+  const [hookActionId, setHookActionId] = useState<string>();
   const [bases, setBases] = useState<Base[]>([]);
   const [documents, setDocuments] = useState<
     Record<string, KnowledgeDocument[]>
@@ -709,7 +813,7 @@ function App() {
   const [baseDraftDescription, setBaseDraftDescription] = useState("");
   const [baseSaving, setBaseSaving] = useState(false);
   const [knowledgeSection, setKnowledgeSection] = useState<
-    "maintenance" | "qa"
+    "maintenance" | "qa" | "retrieval"
   >("maintenance");
   const [qaSettings, setQaSettings] = useState<Record<string, QASceneSettings>>(
     {},
@@ -723,7 +827,10 @@ function App() {
   const [menuSearch, setMenuSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
+  const [routePageContext, setRoutePageContext] = useState("");
   const [route, setRoute] = useState<Record<string, unknown>>();
+  const [routeAnalysis, setRouteAnalysis] = useState("");
+  const [routeAnalyzing, setRouteAnalyzing] = useState(false);
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
   const [editingAgentId, setEditingAgentId] = useState<string>();
   const [agentConfigId, setAgentConfigId] = useState<string>();
@@ -835,6 +942,9 @@ function App() {
     request<SkillDefinition[]>("/admin/skills")
       .then(setSkills)
       .catch(() => setSkills([]));
+    request<HookDefinition[]>("/admin/hooks")
+      .then(setHooks)
+      .catch(() => setHooks([]));
     request<AgentFeedback[]>("/admin/agent-feedback")
       .then(setFeedback)
       .catch(() => setFeedback([]));
@@ -1037,12 +1147,103 @@ function App() {
     }
   };
 
+  const openHookDialog = (hook?: HookDefinition) => {
+    setEditingHookId(hook?.id);
+    setHookName(hook?.name ?? "");
+    setHookDescription(hook?.description ?? "");
+    setHookRuleType(hook?.ruleType ?? "REQUIRE_PERMISSION");
+    setHookRuleConfig(hook?.ruleConfig ?? '{"permission":"readPage"}');
+    setHookFailureMessage(hook?.failureMessage ?? "");
+    setHookPriority(hook?.priority ?? 100);
+    setHookEnabled(hook?.enabled ?? true);
+    setHookDialogOpen(true);
+  };
+
+  const saveHook = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!hookName.trim()) return setResourceError(t.hookNameRequired);
+    try {
+      JSON.parse(hookRuleConfig || "{}");
+    } catch {
+      return setResourceError(t.hookRuleConfig);
+    }
+    setHookSubmitting(true);
+    setResourceError("");
+    try {
+      const payload = {
+        id: editingHookId,
+        name: hookName.trim(),
+        description: hookDescription.trim(),
+        phase: "PRE_AGENT",
+        ruleType: hookRuleType,
+        ruleConfig: hookRuleConfig.trim() || "{}",
+        failureMessage: hookFailureMessage.trim(),
+        priority: Math.max(0, Math.min(10000, Number(hookPriority) || 0)),
+        enabled: hookEnabled,
+      };
+      const saved = await request<HookDefinition>(
+        editingHookId ? `/admin/hooks/${editingHookId}` : "/admin/hooks",
+        {
+          method: editingHookId ? "PUT" : "POST",
+          body: JSON.stringify(payload),
+        },
+      );
+      setHooks((current) =>
+        editingHookId
+          ? current.map((item) => (item.id === saved.id ? saved : item))
+          : [saved, ...current],
+      );
+      setHookDialogOpen(false);
+    } catch (error) {
+      setResourceError(
+        error instanceof Error ? error.message : t.hookSaveFailed,
+      );
+    } finally {
+      setHookSubmitting(false);
+    }
+  };
+
+  const toggleHook = async (hook: HookDefinition) => {
+    setHookActionId(hook.id);
+    try {
+      const updated = await request<HookDefinition>(`/admin/hooks/${hook.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...hook, enabled: !hook.enabled }),
+      });
+      setHooks((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+    } catch (error) {
+      setResourceError(
+        error instanceof Error ? error.message : t.hookSaveFailed,
+      );
+    } finally {
+      setHookActionId(undefined);
+    }
+  };
+
+  const deleteHook = async (hook: HookDefinition) => {
+    if (!window.confirm(t.hookDeleteConfirm(hook.name))) return;
+    setHookActionId(hook.id);
+    try {
+      await request(`/admin/hooks/${hook.id}`, { method: "DELETE" });
+      setHooks((current) => current.filter((item) => item.id !== hook.id));
+    } catch (error) {
+      setResourceError(
+        error instanceof Error ? error.message : t.hookDeleteFailed,
+      );
+    } finally {
+      setHookActionId(undefined);
+    }
+  };
+
   useEffect(() => {
     if (
       !baseDialogOpen &&
       !agentDialogOpen &&
       !agentTestDialogOpen &&
-      !resourceDialog
+      !resourceDialog &&
+      !hookDialogOpen
     )
       return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1059,6 +1260,9 @@ function App() {
       if (resourceDialog && !resourceSubmitting) {
         setResourceDialog(undefined);
       }
+      if (hookDialogOpen && !hookSubmitting) {
+        setHookDialogOpen(false);
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -1071,6 +1275,8 @@ function App() {
     baseSubmitting,
     resourceDialog,
     resourceSubmitting,
+    hookDialogOpen,
+    hookSubmitting,
   ]);
 
   const activeBase = bases.find((base) => base.id === activeBaseId);
@@ -1427,8 +1633,8 @@ function App() {
     files: FileList | null,
     input: HTMLInputElement,
   ) => {
-    input.value = "";
     const selectedFiles = files ? Array.from(files) : [];
+    input.value = "";
     if (!selectedFiles.length) return;
     setUploadingBaseId(baseId);
     setUploadError("");
@@ -1552,15 +1758,40 @@ function App() {
 
   const testRoute = async () => {
     if (!message.trim()) return;
+    setRouteAnalysis("");
     setRoute(
       await request<Record<string, unknown>>("/admin/router/test", {
         method: "POST",
         body: JSON.stringify({
-          message,
-          pageContext: "",
+          message: message.trim(),
+          pageContext: routePageContext.trim(),
         }),
       }),
     );
+  };
+
+  const analyzeRoute = async () => {
+    if (!route || !message.trim()) return;
+    setRouteAnalyzing(true);
+    setRouteAnalysis("");
+    try {
+      const result = await request<{ analysis: string }>(
+        "/admin/router/analyze",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            message: message.trim(),
+            pageContext: routePageContext.trim(),
+            route,
+          }),
+        },
+      );
+      setRouteAnalysis(result.analysis);
+    } catch {
+      setRouteAnalysis(t.routeAnalysisFailed);
+    } finally {
+      setRouteAnalyzing(false);
+    }
   };
 
   const configuredAgent = agents.find((item) => item.id === agentConfigId);
@@ -1608,6 +1839,15 @@ function App() {
   const filteredSkills = skills.filter((skill) =>
     matchesSearch(skill.name, skill.id, skill.description, skill.prompt),
   );
+  const filteredHooks = hooks.filter((hook) =>
+    matchesSearch(
+      hook.name,
+      hook.id,
+      hook.description,
+      hook.ruleType,
+      hook.ruleConfig,
+    ),
+  );
   const filteredFeedback = feedback.filter((item) =>
     matchesSearch(
       item.agentId,
@@ -1648,6 +1888,7 @@ function App() {
           ["knowledge", "▣"],
           ["tools", "⚒"],
           ["skills", "✦"],
+          ["hooks", "⚑"],
           ["ratings", "★"],
           ["conversation-logs", "☷"],
           ["router", "⌁"],
@@ -1657,6 +1898,7 @@ function App() {
             knowledge: t.knowledge,
             tools: t.toolsMenu,
             skills: t.skillsMenu,
+            hooks: t.hooksMenu,
             ratings: t.agentRatings,
             "conversation-logs": t.conversationLogs,
             router: t.router,
@@ -1691,11 +1933,13 @@ function App() {
                     ? t.toolsTitle
                     : tab === "skills"
                       ? t.skillsTitle
-                      : tab === "ratings"
-                        ? t.agentRatings
-                        : tab === "conversation-logs"
-                          ? t.conversationLogs
-                          : t.routerTest}
+                      : tab === "hooks"
+                        ? t.hooksTitle
+                        : tab === "ratings"
+                          ? t.agentRatings
+                          : tab === "conversation-logs"
+                            ? t.conversationLogs
+                            : t.routerTest}
           </h2>
           <div className="header-actions">
             <span className="badge">{t.localMode}</span>
@@ -2358,7 +2602,9 @@ function App() {
 
         {tab === "agents" && (
           <section>
-            <button onClick={addAgent}>{t.newAgent}</button>
+            <button type="button" onClick={addAgent}>
+              {t.newAgent}
+            </button>
             {([true, false] as const).map((system) => {
               const group = filteredAgents.filter(
                 (agent) => isSystemAgent(agent) === system,
@@ -2543,6 +2789,18 @@ function App() {
                   >
                     {t.qaSettings}
                   </button>
+                  <button
+                    role="tab"
+                    aria-selected={knowledgeSection === "retrieval"}
+                    className={
+                      knowledgeSection === "retrieval"
+                        ? "detail-tab active"
+                        : "detail-tab"
+                    }
+                    onClick={() => setKnowledgeSection("retrieval")}
+                  >
+                    {t.retrievalTest}
+                  </button>
                 </div>
                 {knowledgeSection === "maintenance" ? (
                   <div className="maintenance-panel">
@@ -2570,66 +2828,6 @@ function App() {
                         />
                       </label>
                     </div>
-                    <section className="knowledge-retrieval-panel">
-                      <div className="knowledge-retrieval-heading">
-                        <div>
-                          <h4>{t.retrievalTest}</h4>
-                          <p>{t.retrievalPlaceholder}</p>
-                        </div>
-                        <span className="binding-count">
-                          {activeQaSettings.topK}
-                        </span>
-                      </div>
-                      <form
-                        className="knowledge-retrieval-form"
-                        onSubmit={runRetrieval}
-                      >
-                        <input
-                          value={retrievalQuery}
-                          onChange={(event) =>
-                            setRetrievalQuery(event.target.value)
-                          }
-                          placeholder={t.retrievalPlaceholder}
-                          aria-label={t.retrievalTest}
-                        />
-                        <button
-                          type="submit"
-                          disabled={retrievalLoading || !retrievalQuery.trim()}
-                        >
-                          {retrievalLoading ? t.loading : t.runRetrieval}
-                        </button>
-                      </form>
-                      {retrievalError && (
-                        <p className="error">{retrievalError}</p>
-                      )}
-                      {!retrievalLoading &&
-                        retrievalQuery.trim() &&
-                        retrievalResults.length === 0 &&
-                        !retrievalError && (
-                          <p className="binding-empty">{t.retrievalEmpty}</p>
-                        )}
-                      {retrievalResults.length > 0 && (
-                        <div className="retrieval-results">
-                          {retrievalResults.map((result, index) => (
-                            <article
-                              className="retrieval-result"
-                              key={`${result.documentId}-${index}`}
-                            >
-                              <div className="retrieval-result-meta">
-                                <strong>{result.filename}</strong>
-                                <span>
-                                  {result.pageNumber
-                                    ? `第 ${result.pageNumber} 页 · `
-                                    : ""}
-                                  {(1 - result.distance).toFixed(3)}
-                                </span>
-                              </div>
-                              <p>{result.content}</p>
-                            </article>
-                          ))}
-                        </div>
-                      )}
-                    </section>
                     {activeDocuments.length === 0 ? (
                       <p className="empty-documents">{t.noDocuments}</p>
                     ) : filteredDocuments.length === 0 ? (
@@ -2683,7 +2881,7 @@ function App() {
                       </div>
                     )}
                   </div>
-                ) : (
+                ) : knowledgeSection === "qa" ? (
                   <div className="qa-panel">
                     <label className="field">
                       <span>{t.qaPrompt}</span>
@@ -2715,6 +2913,67 @@ function App() {
                       <small className="field-hint">{t.topKHint}</small>
                     </label>
                   </div>
+                ) : (
+                  <section className="knowledge-retrieval-panel">
+                    <div className="knowledge-retrieval-heading">
+                      <div>
+                        <h4>{t.retrievalTest}</h4>
+                        <p>{t.retrievalPlaceholder}</p>
+                      </div>
+                      <span className="binding-count">
+                        {activeQaSettings.topK}
+                      </span>
+                    </div>
+                    <form
+                      className="knowledge-retrieval-form"
+                      onSubmit={runRetrieval}
+                    >
+                      <input
+                        value={retrievalQuery}
+                        onChange={(event) =>
+                          setRetrievalQuery(event.target.value)
+                        }
+                        placeholder={t.retrievalPlaceholder}
+                        aria-label={t.retrievalTest}
+                      />
+                      <button
+                        type="submit"
+                        disabled={retrievalLoading || !retrievalQuery.trim()}
+                      >
+                        {retrievalLoading ? t.loading : t.runRetrieval}
+                      </button>
+                    </form>
+                    {retrievalError && (
+                      <p className="error">{retrievalError}</p>
+                    )}
+                    {!retrievalLoading &&
+                      retrievalQuery.trim() &&
+                      retrievalResults.length === 0 &&
+                      !retrievalError && (
+                        <p className="binding-empty">{t.retrievalEmpty}</p>
+                      )}
+                    {retrievalResults.length > 0 && (
+                      <div className="retrieval-results">
+                        {retrievalResults.map((result, index) => (
+                          <article
+                            className="retrieval-result"
+                            key={`${result.documentId}-${index}`}
+                          >
+                            <div className="retrieval-result-meta">
+                              <strong>{result.filename}</strong>
+                              <span>
+                                {result.pageNumber
+                                  ? `第 ${result.pageNumber} 页 · `
+                                  : ""}
+                                {(1 - result.distance).toFixed(3)}
+                              </span>
+                            </div>
+                            <p>{result.content}</p>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </section>
                 )}
               </div>
             )}
@@ -2848,6 +3107,69 @@ function App() {
                 </div>
               )}
             </div>
+          </section>
+        )}
+
+        {tab === "hooks" && (
+          <section>
+            <div className="resource-toolbar">
+              <p className="muted">{t.hooksSubtitle}</p>
+              <button type="button" onClick={() => openHookDialog()}>
+                {t.newHook}
+              </button>
+            </div>
+            {hooks.length === 0 ? (
+              <p className="empty-documents">{t.noHooks}</p>
+            ) : filteredHooks.length === 0 ? (
+              <p className="empty-documents">{t.noSearchResults}</p>
+            ) : (
+              <div className="grid">
+                {filteredHooks.map((hook) => (
+                  <article key={hook.id}>
+                    <div className="row">
+                      <strong>{hook.name}</strong>
+                      <span className={hook.enabled ? "ok" : "off"}>
+                        {hook.enabled ? t.enabled : t.disabled}
+                      </span>
+                    </div>
+                    <code>{hook.id}</code>
+                    <p>{hook.description || t.noDescription}</p>
+                    <div className="resource-meta">
+                      <span>{t.preAgent}</span>
+                      <span>{hook.ruleType}</span>
+                      <span>
+                        {t.hookPriority}: {hook.priority}
+                      </span>
+                    </div>
+                    <div className="agent-actions">
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => openHookDialog(hook)}
+                        disabled={hookActionId === hook.id}
+                      >
+                        {t.edit}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleHook(hook)}
+                        disabled={hookActionId === hook.id}
+                      >
+                        {hook.enabled ? t.stop : t.enable}
+                      </button>
+                      <button
+                        type="button"
+                        className="agent-delete"
+                        onClick={() => deleteHook(hook)}
+                        disabled={hookActionId === hook.id}
+                      >
+                        {t.deleteResource}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -3172,14 +3494,150 @@ function App() {
         )}
 
         {tab === "router" && (
-          <section>
-            <textarea
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              placeholder={t.routerPlaceholder}
-            />
-            <button onClick={testRoute}>{t.testRoute}</button>
-            {route && <pre>{JSON.stringify(route, null, 2)}</pre>}
+          <section className="router-test-page">
+            <div className="router-test-form">
+              <textarea
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
+                placeholder={t.routerPlaceholder}
+                rows={4}
+              />
+              <textarea
+                value={routePageContext}
+                onChange={(event) => setRoutePageContext(event.target.value)}
+                placeholder={t.routerContextPlaceholder}
+                rows={3}
+              />
+              <div className="router-test-actions">
+                <button
+                  type="button"
+                  onClick={testRoute}
+                  disabled={!message.trim()}
+                >
+                  {t.testRoute}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={analyzeRoute}
+                  disabled={!route || routeAnalyzing}
+                >
+                  {routeAnalyzing ? t.analyzing : t.smartAnalyze}
+                </button>
+              </div>
+            </div>
+            {!route ? (
+              <p className="empty-documents">{t.routeChainEmpty}</p>
+            ) : (
+              <>
+                <div className="router-result-summary">
+                  <div>
+                    <span>{t.route}</span>
+                    <strong>
+                      {String(route.displayName ?? route.agentId ?? "-")}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>{t.confidence}</span>
+                    <strong>
+                      {route.confidence == null
+                        ? "-"
+                        : `${Math.round(Number(route.confidence) * 100)}%`}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>{t.routeSource}</span>
+                    <strong>{String(route.routeSource ?? "-")}</strong>
+                  </div>
+                </div>
+                <section className="router-chain-panel">
+                  <h3>{t.routeChain}</h3>
+                  <div className="router-chain">
+                    {(
+                      (route.steps as
+                        Array<Record<string, unknown>> | undefined) ?? []
+                    ).map((step, index) => {
+                      const details =
+                        (step.details as Record<string, unknown> | undefined) ??
+                        {};
+                      const type = String(step.type ?? "");
+                      const title =
+                        type === "input"
+                          ? t.routeInput
+                          : type === "intent"
+                            ? t.routeIntent
+                            : type === "dispatch"
+                              ? t.routeDispatch
+                              : type === "hooks"
+                                ? t.routeHooks
+                                : String(step.title ?? type);
+                      const checks = Array.isArray(details.checks)
+                        ? (details.checks as Array<Record<string, unknown>>)
+                        : [];
+                      return (
+                        <div
+                          className="router-chain-step"
+                          key={`${type}-${index}`}
+                        >
+                          <span className="router-chain-index">
+                            {index + 1}
+                          </span>
+                          <div className="router-chain-content">
+                            <strong>{title}</strong>
+                            {type === "intent" && (
+                              <p>
+                                {String(details.intent ?? route.reason ?? "-")}
+                              </p>
+                            )}
+                            {type === "dispatch" && (
+                              <p>
+                                {String(
+                                  details.displayName ??
+                                    route.displayName ??
+                                    details.agentId ??
+                                    "-",
+                                )}
+                              </p>
+                            )}
+                            {type === "input" && (
+                              <p>
+                                {details.pageContextIncluded
+                                  ? "✓ 页面上下文"
+                                  : "— 无页面上下文"}
+                              </p>
+                            )}
+                            {type === "hooks" &&
+                              (checks.length === 0 ? (
+                                <p>{t.hookPassed}</p>
+                              ) : (
+                                <div className="router-hook-checks">
+                                  {checks.map((check) => (
+                                    <span
+                                      className={check.passed ? "ok" : "off"}
+                                      key={String(check.hookId)}
+                                    >
+                                      {String(check.hookName)} ·{" "}
+                                      {check.passed
+                                        ? t.hookPassed
+                                        : t.hookRejected}
+                                    </span>
+                                  ))}
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+                {routeAnalysis && (
+                  <section className="router-analysis">
+                    <h3>{t.routeAnalysis}</h3>
+                    <p>{routeAnalysis}</p>
+                  </section>
+                )}
+              </>
+            )}
           </section>
         )}
       </main>
@@ -3359,6 +3817,143 @@ function App() {
                 <p>{resourceDetails.resource.description || t.noDescription}</p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {hookDialogOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !hookSubmitting) {
+              setHookDialogOpen(false);
+            }
+          }}
+        >
+          <div className="modal" role="dialog" aria-modal="true">
+            <div className="modal-header">
+              <div>
+                <h3>{editingHookId ? t.editHook : t.newHook}</h3>
+                <p className="modal-subtitle">{t.hooksSubtitle}</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setHookDialogOpen(false)}
+                disabled={hookSubmitting}
+                aria-label={t.close}
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={saveHook}>
+              <label className="field">
+                <span>{t.hookName}</span>
+                <input
+                  value={hookName}
+                  onChange={(event) => setHookName(event.target.value)}
+                  required
+                  maxLength={160}
+                />
+              </label>
+              <label className="field">
+                <span>{t.hookDescription}</span>
+                <textarea
+                  value={hookDescription}
+                  onChange={(event) => setHookDescription(event.target.value)}
+                  placeholder={t.hookDescriptionPlaceholder}
+                  rows={2}
+                  maxLength={500}
+                />
+              </label>
+              <div className="field-grid">
+                <label className="field">
+                  <span>{t.hookRuleType}</span>
+                  <select
+                    value={hookRuleType}
+                    onChange={(event) => {
+                      const type = event.target.value;
+                      setHookRuleType(type);
+                      if (type === "REQUIRE_PERMISSION") {
+                        setHookRuleConfig('{"permission":"readPage"}');
+                      } else if (type === "KEYWORD_BLOCK") {
+                        setHookRuleConfig('{"keywords":["delete","export"]}');
+                      } else if (type === "MAX_MESSAGE_LENGTH") {
+                        setHookRuleConfig('{"maxLength":4000}');
+                      } else {
+                        setHookRuleConfig("{}");
+                      }
+                    }}
+                  >
+                    <option value="REQUIRE_PERMISSION">
+                      {t.requirePermission}
+                    </option>
+                    <option value="REQUIRE_PAGE_CONTEXT">
+                      {t.requirePageContext}
+                    </option>
+                    <option value="KEYWORD_BLOCK">{t.keywordBlock}</option>
+                    <option value="MAX_MESSAGE_LENGTH">
+                      {t.maxMessageLength}
+                    </option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>{t.hookPriority}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10000}
+                    value={hookPriority}
+                    onChange={(event) =>
+                      setHookPriority(Number(event.target.value) || 0)
+                    }
+                  />
+                </label>
+              </div>
+              <label className="field">
+                <span>{t.hookRuleConfig}</span>
+                <textarea
+                  value={hookRuleConfig}
+                  onChange={(event) => setHookRuleConfig(event.target.value)}
+                  placeholder={t.hookRuleConfigPlaceholder}
+                  rows={3}
+                  spellCheck={false}
+                />
+              </label>
+              <label className="field">
+                <span>{t.hookFailureMessage}</span>
+                <input
+                  value={hookFailureMessage}
+                  onChange={(event) =>
+                    setHookFailureMessage(event.target.value)
+                  }
+                  placeholder={t.hookFailureMessagePlaceholder}
+                  maxLength={300}
+                />
+              </label>
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={hookEnabled}
+                  onChange={(event) => setHookEnabled(event.target.checked)}
+                />
+                <span>{t.enabled}</span>
+              </label>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setHookDialogOpen(false)}
+                  disabled={hookSubmitting}
+                >
+                  {t.cancel}
+                </button>
+                <button type="submit" disabled={hookSubmitting}>
+                  {hookSubmitting ? t.saving : t.save}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
