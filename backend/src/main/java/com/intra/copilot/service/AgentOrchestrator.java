@@ -36,16 +36,13 @@ public class AgentOrchestrator {
     this.llm = llm;
   }
 
-  public RoutingResult route(
-      String text, String pageContext, List<Map<String, String>> history) {
+  public RoutingResult route(String text, String pageContext, List<Map<String, String>> history) {
     String prompt = routingPrompt();
     String input =
-        "用户消息：\n"
-            + text
-            + "\n\n页面上下文（可能为空）：\n"
-            + (pageContext == null ? "" : pageContext);
+        "用户消息：\n" + text + "\n\n页面上下文（可能为空）：\n" + (pageContext == null ? "" : pageContext);
     try {
-      Optional<String> response = llm.complete(prompt, history, input).blockOptional(Duration.ofSeconds(8));
+      Optional<String> response =
+          llm.complete(prompt, history, input).blockOptional(Duration.ofSeconds(8));
       if (response.isPresent()) {
         RoutingResult parsed = parse(response.get());
         if (parsed != null && parsed.confidence() >= MIN_CONFIDENCE) return parsed;
@@ -54,13 +51,7 @@ public class AgentOrchestrator {
       // Fall through to deterministic routing when the model is unavailable.
     }
     Agent fallback = rules.route(text);
-    return new RoutingResult(
-        fallback,
-        fallback.id(),
-        0.7,
-        "规则兜底路由",
-        "rules",
-        false);
+    return new RoutingResult(fallback, fallback.id(), 0.7, "规则兜底路由", "rules", false);
   }
 
   public Agent resolve(String id) {
@@ -90,13 +81,7 @@ public class AgentOrchestrator {
       if (targetId.isBlank() || "router".equals(targetId)) return null;
       Agent target = resolve(targetId);
       if (target.id().equals("assistant") && !targetId.equals("assistant")) return null;
-      return new RoutingResult(
-          target,
-          target.id(),
-          confidence,
-          reason,
-          "llm",
-          clarification);
+      return new RoutingResult(target, target.id(), confidence, reason, "llm", clarification);
     } catch (Exception ignored) {
       return null;
     }
@@ -113,10 +98,17 @@ public class AgentOrchestrator {
     }
     for (AgentDefinition definition : registry.enabledDefinitions()) {
       if ("route-copilot".equals(definition.getId())) continue;
-      available.append("- ").append(definition.getId()).append(": ").append(definition.getDescription()).append('\n');
+      available
+          .append("- ")
+          .append(definition.getId())
+          .append(": ")
+          .append(definition.getDescription())
+          .append('\n');
     }
     return "你是 Intra route Copilot，只负责识别用户意图并选择一个后台 Agent。\n"
-        + (routingRules == null || routingRules.isBlank() ? "" : "管理员配置的意图路由规则（优先遵循）：\n" + routingRules + "\n")
+        + (routingRules == null || routingRules.isBlank()
+            ? ""
+            : "管理员配置的意图路由规则（优先遵循）：\n" + routingRules + "\n")
         + "可选 Agent：\n"
         + available
         + "只输出 JSON，不要 Markdown：{\"targetAgentId\":\"...\",\"confidence\":0到1,\"reason\":\"...\",\"needsClarification\":false}。"

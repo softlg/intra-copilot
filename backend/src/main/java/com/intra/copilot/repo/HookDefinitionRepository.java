@@ -1,24 +1,24 @@
 package com.intra.copilot.repo;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.intra.copilot.model.ToolDefinition;
+import com.intra.copilot.model.HookDefinition;
 import java.util.List;
 import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;
 
 @Mapper
-public interface ToolDefinitionRepository extends BaseMapper<ToolDefinition> {
-  default ToolDefinition save(ToolDefinition value) {
+public interface HookDefinitionRepository extends BaseMapper<HookDefinition> {
+  default HookDefinition save(HookDefinition value) {
     if (selectById(value.getId()) == null) insert(value);
     else updateById(value);
     return value;
   }
 
-  default Optional<ToolDefinition> findById(String id) {
+  default Optional<HookDefinition> findById(String id) {
     return Optional.ofNullable(selectById(id));
   }
 
-  default List<ToolDefinition> findAll() {
+  default List<HookDefinition> findAll() {
     return selectList(null);
   }
 }

@@ -5,14 +5,17 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 import java.util.UUID;
 
-@TableName("skill_definition")
-public class SkillDefinition {
+/** A validation hook evaluated immediately before an Agent starts working. */
+@TableName("hook_definition")
+public class HookDefinition {
   @TableId private String id = UUID.randomUUID().toString();
   private String name;
   private String description;
-  private String prompt;
-  private String toolIds = "[]";
-  private String version = "1.0.0";
+  private String phase = "PRE_AGENT";
+  private String ruleType = "REQUIRE_PERMISSION";
+  private String ruleConfig = "{}";
+  private String failureMessage;
+  private int priority = 100;
   private boolean enabled = true;
   private Instant createdAt = Instant.now();
   private Instant updatedAt = Instant.now();
@@ -21,8 +24,8 @@ public class SkillDefinition {
     return id;
   }
 
-  public void setId(String id) {
-    this.id = id;
+  public void setId(String value) {
+    id = value;
   }
 
   public String getName() {
@@ -41,28 +44,44 @@ public class SkillDefinition {
     description = value;
   }
 
-  public String getPrompt() {
-    return prompt;
+  public String getPhase() {
+    return phase;
   }
 
-  public void setPrompt(String value) {
-    prompt = value;
+  public void setPhase(String value) {
+    phase = value;
   }
 
-  public String getToolIds() {
-    return toolIds;
+  public String getRuleType() {
+    return ruleType;
   }
 
-  public void setToolIds(String value) {
-    toolIds = value;
+  public void setRuleType(String value) {
+    ruleType = value;
   }
 
-  public String getVersion() {
-    return version;
+  public String getRuleConfig() {
+    return ruleConfig;
   }
 
-  public void setVersion(String value) {
-    version = value;
+  public void setRuleConfig(String value) {
+    ruleConfig = value;
+  }
+
+  public String getFailureMessage() {
+    return failureMessage;
+  }
+
+  public void setFailureMessage(String value) {
+    failureMessage = value;
+  }
+
+  public int getPriority() {
+    return priority;
+  }
+
+  public void setPriority(int value) {
+    priority = value;
   }
 
   public boolean isEnabled() {

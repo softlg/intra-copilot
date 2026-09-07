@@ -755,6 +755,8 @@ article p {
 }
 
 .upload-button {
+  position: relative;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   border-radius: 7px;
@@ -770,7 +772,12 @@ article p {
 }
 
 .upload-button input {
-  display: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  opacity: 0;
 }
 
 .upload-hint {
@@ -1033,6 +1040,119 @@ article p {
   justify-content: flex-end;
 }
 
+.router-test-page {
+  display: grid;
+  gap: 20px;
+}
+
+.router-test-form {
+  display: grid;
+  gap: 10px;
+}
+
+.router-test-form textarea {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+}
+
+.router-test-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.router-result-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.router-result-summary > div,
+.router-chain-panel,
+.router-analysis {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.router-result-summary span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.router-result-summary strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.router-chain-panel h3,
+.router-analysis h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.router-chain {
+  display: grid;
+  gap: 10px;
+}
+
+.router-chain-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.router-chain-index {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: #203252;
+  color: #93b4ec;
+  font-size: 12px;
+}
+
+.router-chain-content {
+  min-width: 0;
+  padding: 2px 0 8px;
+  border-bottom: 1px dashed var(--border);
+}
+
+.router-chain-step:last-child .router-chain-content {
+  border-bottom: 0;
+}
+
+.router-chain-content p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.router-hook-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.router-hook-checks span {
+  font-size: 11px;
+}
+
+.router-analysis p {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.65;
+}
+
 .resource-section {
   margin-top: 26px;
 }
@@ -1095,6 +1215,96 @@ article p {
 .feedback-card {
   display: grid;
   gap: 8px;
+}
+.feedback-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.feedback-summary-card,
+.feedback-guidance,
+.feedback-reasons {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.feedback-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+}
+.feedback-summary-card span,
+.feedback-summary-card strong {
+  color: var(--muted);
+  font-size: 12px;
+}
+.feedback-summary-card strong {
+  color: var(--text);
+  font-size: 22px;
+}
+.feedback-summary-card.positive strong {
+  color: #16a34a;
+}
+.feedback-summary-card.negative strong {
+  color: #dc2626;
+}
+.feedback-guidance,
+.feedback-reasons {
+  margin: 12px 0;
+  padding: 14px;
+}
+.feedback-guidance h3,
+.feedback-reasons h3 {
+  margin: 0 0 9px;
+  font-size: 14px;
+}
+.feedback-guidance ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text);
+  line-height: 1.7;
+}
+.feedback-reason-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+}
+.feedback-reason-row strong {
+  color: var(--muted);
+}
+.feedback-comment {
+  margin: 9px 0 0;
+  padding: 9px 10px;
+  border-left: 3px solid #dc2626;
+  border-radius: 0 6px 6px 0;
+  background: var(--page-bg);
+  color: var(--text);
+  line-height: 1.55;
+}
+.feedback-context {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.feedback-context summary {
+  cursor: pointer;
+  color: var(--text);
+}
+.feedback-context p {
+  margin: 8px 0 0;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+@media (max-width: 760px) {
+  .feedback-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .feedback-card small {
@@ -1808,6 +2018,10 @@ pre {
 
   .menu-refresh-button {
     min-width: 72px;
+  }
+
+  .router-result-summary {
+    grid-template-columns: 1fr;
   }
 
   .agent-settings-header {

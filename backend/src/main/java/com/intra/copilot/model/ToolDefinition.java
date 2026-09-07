@@ -13,8 +13,12 @@ public class ToolDefinition {
   private String type = "BROWSER_PROPOSAL";
   private String method;
   private String endpoint;
-  /** MCP server endpoint used when type is MCP. Credentials are referenced by environment variable name. */
+  /**
+   * MCP server endpoint used when type is MCP. Credentials are referenced by environment variable
+   * name.
+   */
   private String mcpServerUrl;
+
   private String mcpTransport = "STREAMABLE_HTTP";
   private String mcpAuthEnv;
   private String parameterSchema = "{}";
@@ -24,33 +28,119 @@ public class ToolDefinition {
   private Instant createdAt = Instant.now();
   private Instant updatedAt = Instant.now();
 
-  public String getId() { return id; }
-  public void setId(String id) { this.id = id; }
-  public String getName() { return name; }
-  public void setName(String value) { name = value; }
-  public String getDescription() { return description; }
-  public void setDescription(String value) { description = value; }
-  public String getType() { return type; }
-  public void setType(String value) { type = value; }
-  public String getMethod() { return method; }
-  public void setMethod(String value) { method = value; }
-  public String getEndpoint() { return endpoint; }
-  public void setEndpoint(String value) { endpoint = value; }
-  public String getMcpServerUrl() { return mcpServerUrl; }
-  public void setMcpServerUrl(String value) { mcpServerUrl = value; }
-  public String getMcpTransport() { return mcpTransport; }
-  public void setMcpTransport(String value) { mcpTransport = value; }
-  public String getMcpAuthEnv() { return mcpAuthEnv; }
-  public void setMcpAuthEnv(String value) { mcpAuthEnv = value; }
-  public String getParameterSchema() { return parameterSchema; }
-  public void setParameterSchema(String value) { parameterSchema = value; }
-  public String getAllowedDomains() { return allowedDomains; }
-  public void setAllowedDomains(String value) { allowedDomains = value; }
-  public Integer getTimeoutMs() { return timeoutMs; }
-  public void setTimeoutMs(Integer value) { timeoutMs = value; }
-  public boolean isEnabled() { return enabled; }
-  public void setEnabled(boolean value) { enabled = value; }
-  public Instant getCreatedAt() { return createdAt; }
-  public Instant getUpdatedAt() { return updatedAt; }
-  public void touch() { updatedAt = Instant.now(); }
+  public String getId() {
+    return id;
+  }
+
+  public void setId(String id) {
+    this.id = id;
+  }
+
+  public String getName() {
+    return name;
+  }
+
+  public void setName(String value) {
+    name = value;
+  }
+
+  public String getDescription() {
+    return description;
+  }
+
+  public void setDescription(String value) {
+    description = value;
+  }
+
+  public String getType() {
+    return type;
+  }
+
+  public void setType(String value) {
+    type = value;
+  }
+
+  public String getMethod() {
+    return method;
+  }
+
+  public void setMethod(String value) {
+    method = value;
+  }
+
+  public String getEndpoint() {
+    return endpoint;
+  }
+
+  public void setEndpoint(String value) {
+    endpoint = value;
+  }
+
+  public String getMcpServerUrl() {
+    return mcpServerUrl;
+  }
+
+  public void setMcpServerUrl(String value) {
+    mcpServerUrl = value;
+  }
+
+  public String getMcpTransport() {
+    return mcpTransport;
+  }
+
+  public void setMcpTransport(String value) {
+    mcpTransport = value;
+  }
+
+  public String getMcpAuthEnv() {
+    return mcpAuthEnv;
+  }
+
+  public void setMcpAuthEnv(String value) {
+    mcpAuthEnv = value;
+  }
+
+  public String getParameterSchema() {
+    return parameterSchema;
+  }
+
+  public void setParameterSchema(String value) {
+    parameterSchema = value;
+  }
+
+  public String getAllowedDomains() {
+    return allowedDomains;
+  }
+
+  public void setAllowedDomains(String value) {
+    allowedDomains = value;
+  }
+
+  public Integer getTimeoutMs() {
+    return timeoutMs;
+  }
+
+  public void setTimeoutMs(Integer value) {
+    timeoutMs = value;
+  }
+
+  public boolean isEnabled() {
+    return enabled;
+  }
+
+  public void setEnabled(boolean value) {
+    enabled = value;
+  }
+
+  public Instant getCreatedAt() {
+    return createdAt;
+  }
+
+  public Instant getUpdatedAt() {
+    return updatedAt;
+  }
+
+  public void touch() {
+    updatedAt = Instant.now();
+  }
 }

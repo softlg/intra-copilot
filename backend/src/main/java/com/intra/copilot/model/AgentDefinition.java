@@ -13,6 +13,7 @@ public class AgentDefinition {
   private boolean enabled = true;
   /** True for agents shipped by the application and protected from deletion. */
   private boolean systemAgent;
+
   private boolean supportsBrowserActions;
   private int priority = 100;
   private String routingRules;

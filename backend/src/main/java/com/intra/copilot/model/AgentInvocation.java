@@ -60,14 +60,37 @@ public class AgentInvocation {
     routeReason = value;
   }
 
-  public String getIntent() { return intent; }
-  public void setIntent(String value) { intent = value; }
-  public String getContextSent() { return contextSent; }
-  public void setContextSent(String value) { contextSent = value; }
-  public String getResponseContent() { return responseContent; }
-  public void setResponseContent(String value) { responseContent = value; }
-  public String getClientIp() { return clientIp; }
-  public void setClientIp(String value) { clientIp = value; }
+  public String getIntent() {
+    return intent;
+  }
+
+  public void setIntent(String value) {
+    intent = value;
+  }
+
+  public String getContextSent() {
+    return contextSent;
+  }
+
+  public void setContextSent(String value) {
+    contextSent = value;
+  }
+
+  public String getResponseContent() {
+    return responseContent;
+  }
+
+  public void setResponseContent(String value) {
+    responseContent = value;
+  }
+
+  public String getClientIp() {
+    return clientIp;
+  }
+
+  public void setClientIp(String value) {
+    clientIp = value;
+  }
 
   public Double getConfidence() {
     return confidence;

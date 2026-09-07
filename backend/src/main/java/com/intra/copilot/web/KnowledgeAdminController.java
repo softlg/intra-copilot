@@ -1,10 +1,10 @@
 package com.intra.copilot.web;
 
-import com.intra.copilot.model.KnowledgeBase;
 import com.intra.copilot.model.DocumentChunk;
+import com.intra.copilot.model.KnowledgeBase;
 import com.intra.copilot.model.KnowledgeDocument;
-import com.intra.copilot.service.KnowledgeService;
 import com.intra.copilot.service.KnowledgeRetriever;
+import com.intra.copilot.service.KnowledgeService;
 import java.io.IOException;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -16,21 +16,80 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/v1/admin/knowledge-bases")
 public class KnowledgeAdminController {
   private final KnowledgeService service;
-  public KnowledgeAdminController(KnowledgeService service) { this.service = service; }
-  @GetMapping public List<KnowledgeBase> list() { return service.listBases(); }
-  @PostMapping @ResponseStatus(HttpStatus.CREATED) public KnowledgeBase create(@RequestBody KnowledgeBase b) { if (b.getName() == null || b.getName().isBlank()) throw new IllegalArgumentException("知识库名称不能为空"); return service.createBase(b); }
-  @PutMapping("/{id}") public KnowledgeBase update(@PathVariable String id, @RequestBody KnowledgeBase b) { return service.updateBase(id, b); }
-  @DeleteMapping("/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void delete(@PathVariable String id) { service.deleteBase(id); }
-  @GetMapping("/{id}/documents") public List<KnowledgeDocument> documents(@PathVariable String id) { return service.listDocuments(id); }
-  @GetMapping("/{id}/documents/{documentId}") public KnowledgeDocument document(@PathVariable String id, @PathVariable String documentId) { return service.getDocument(id, documentId); }
-  @GetMapping("/{id}/documents/{documentId}/chunks") public List<DocumentChunk> chunks(@PathVariable String id, @PathVariable String documentId) { return service.listChunks(id, documentId); }
-  @PostMapping("/{id}/search") public List<KnowledgeRetriever.Result> search(@PathVariable String id, @RequestBody SearchRequest request) { if (request.query() == null || request.query().isBlank()) throw new IllegalArgumentException("检索问题不能为空"); return service.searchBase(id, request.query(), request.topK() == null ? 5 : request.topK()); }
-  @PostMapping(value = "/{id}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE) public KnowledgeDocument upload(@PathVariable String id, @RequestPart("file") MultipartFile file) throws IOException { return service.upload(id, file); }
+
+  public KnowledgeAdminController(KnowledgeService service) {
+    this.service = service;
+  }
+
+  @GetMapping
+  public List<KnowledgeBase> list() {
+    return service.listBases();
+  }
+
+  @PostMapping
+  @ResponseStatus(HttpStatus.CREATED)
+  public KnowledgeBase create(@RequestBody KnowledgeBase b) {
+    if (b.getName() == null || b.getName().isBlank())
+      throw new IllegalArgumentException("知识库名称不能为空");
+    return service.createBase(b);
+  }
+
+  @PutMapping("/{id}")
+  public KnowledgeBase update(@PathVariable String id, @RequestBody KnowledgeBase b) {
+    return service.updateBase(id, b);
+  }
+
+  @DeleteMapping("/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void delete(@PathVariable String id) {
+    service.deleteBase(id);
+  }
+
+  @GetMapping("/{id}/documents")
+  public List<KnowledgeDocument> documents(@PathVariable String id) {
+    return service.listDocuments(id);
+  }
+
+  @GetMapping("/{id}/documents/{documentId}")
+  public KnowledgeDocument document(@PathVariable String id, @PathVariable String documentId) {
+    return service.getDocument(id, documentId);
+  }
+
+  @GetMapping("/{id}/documents/{documentId}/chunks")
+  public List<DocumentChunk> chunks(@PathVariable String id, @PathVariable String documentId) {
+    return service.listChunks(id, documentId);
+  }
+
+  @PostMapping("/{id}/search")
+  public List<KnowledgeRetriever.Result> search(
+      @PathVariable String id, @RequestBody SearchRequest request) {
+    if (request.query() == null || request.query().isBlank())
+      throw new IllegalArgumentException("检索问题不能为空");
+    return service.searchBase(id, request.query(), request.topK() == null ? 5 : request.topK());
+  }
+
+  @PostMapping(value = "/{id}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public KnowledgeDocument upload(@PathVariable String id, @RequestPart("file") MultipartFile file)
+      throws IOException {
+    return service.upload(id, file);
+  }
+
   @PostMapping(value = "/{id}/documents/batch", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-  public List<KnowledgeDocument> uploadBatch(@PathVariable String id, @RequestPart("files") MultipartFile[] files) throws IOException {
+  public List<KnowledgeDocument> uploadBatch(
+      @PathVariable String id, @RequestPart("files") MultipartFile[] files) throws IOException {
     return service.upload(id, files);
   }
-  @PostMapping("/documents/{documentId}/reindex") public KnowledgeDocument reindex(@PathVariable String documentId) throws IOException { return service.reindex(documentId); }
-  @DeleteMapping("/documents/{documentId}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteDocument(@PathVariable String documentId) { service.deleteDocument(documentId); }
+
+  @PostMapping("/documents/{documentId}/reindex")
+  public KnowledgeDocument reindex(@PathVariable String documentId) throws IOException {
+    return service.reindex(documentId);
+  }
+
+  @DeleteMapping("/documents/{documentId}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void deleteDocument(@PathVariable String documentId) {
+    service.deleteDocument(documentId);
+  }
+
   public record SearchRequest(String query, Integer topK) {}
 }

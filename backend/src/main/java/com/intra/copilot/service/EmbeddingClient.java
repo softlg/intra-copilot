@@ -1,55 +1,41 @@
 package com.intra.copilot.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
 
+/** Embedding gateway backed by Spring AI's provider-neutral EmbeddingModel. */
 @Service
 public class EmbeddingClient {
-  private final WebClient client;
-  private final String model;
-  private final String key;
+  private final EmbeddingModel embeddingModel;
   private final int dimension;
-  private final ObjectMapper json = new ObjectMapper();
+  private final String apiKey;
 
   public EmbeddingClient(
-      @Value("${embedding.base-url}") String base,
-      @Value("${embedding.model}") String model,
-      @Value("${embedding.api-key:}") String key,
+      EmbeddingModel embeddingModel,
+      @Value("${spring.ai.openai.embedding.api-key:${spring.ai.openai.api-key:}}") String apiKey,
       @Value("${embedding.dimension:1536}") int dimension) {
-    this.client = WebClient.builder().baseUrl(base).build();
-    this.model = model;
-    this.key = key;
+    this.embeddingModel = embeddingModel;
+    this.apiKey = apiKey;
     this.dimension = dimension;
   }
 
   public List<Double> embed(String text) {
-    if (key == null || key.isBlank()) throw new IllegalStateException("未配置 EMBEDDING_API_KEY");
-    String raw =
-        client
-            .post()
-            .uri("/embeddings")
-            .contentType(MediaType.APPLICATION_JSON)
-            .headers(headers -> headers.setBearerAuth(key))
-            .bodyValue(java.util.Map.of("model", model, "input", text))
-            .retrieve()
-            .bodyToMono(String.class)
-            .block(java.time.Duration.ofSeconds(30));
-    try {
-      JsonNode values = json.readTree(raw).path("data").path(0).path("embedding");
-      List<Double> vector = new ArrayList<>();
-      values.forEach(value -> vector.add(value.asDouble()));
-      if (vector.isEmpty()) throw new IllegalStateException("Embedding 服务返回空向量");
-      if (vector.size() != dimension) throw new IllegalStateException("Embedding 维度不匹配：期望 " + dimension + "，实际 " + vector.size());
-      return vector;
-    } catch (Exception error) {
-      throw new IllegalStateException("无法解析 Embedding 响应", error);
+    if (apiKey == null || apiKey.isBlank()) {
+      throw new IllegalStateException("未配置 EMBEDDING_API_KEY 或 LLM_API_KEY");
     }
+    float[] values = embeddingModel.embed(text == null ? "" : text);
+    if (values == null || values.length == 0) {
+      throw new IllegalStateException("Embedding 服务返回空向量");
+    }
+    if (values.length != dimension) {
+      throw new IllegalStateException("Embedding 维度不匹配：期望 " + dimension + "，实际 " + values.length);
+    }
+    List<Double> vector = new ArrayList<>(values.length);
+    for (float value : values) vector.add((double) value);
+    return vector;
   }
 
   public static String literal(List<Double> vector) {

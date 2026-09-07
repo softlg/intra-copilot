@@ -24,8 +24,20 @@ public class DefaultAgentSeeder {
   @EventListener(ApplicationReadyEvent.class)
   public void seed() {
     removeLegacyAgents();
-    seed(general.id(), general.displayName(), general.description(), general.systemPrompt(), general.supportsBrowserActions(), 100);
-    seed(routeCopilot.id(), routeCopilot.displayName(), routeCopilot.description(), routeCopilot.systemPrompt(), routeCopilot.supportsBrowserActions(), 10);
+    seed(
+        general.id(),
+        general.displayName(),
+        general.description(),
+        general.systemPrompt(),
+        general.supportsBrowserActions(),
+        100);
+    seed(
+        routeCopilot.id(),
+        routeCopilot.displayName(),
+        routeCopilot.description(),
+        routeCopilot.systemPrompt(),
+        routeCopilot.supportsBrowserActions(),
+        10);
   }
 
   private void removeLegacyAgents() {
@@ -33,7 +45,13 @@ public class DefaultAgentSeeder {
     definitions.deleteById("tms-manual");
   }
 
-  private void seed(String id, String name, String description, String prompt, boolean browserActions, int priority) {
+  private void seed(
+      String id,
+      String name,
+      String description,
+      String prompt,
+      boolean browserActions,
+      int priority) {
     if (definitions.existsById(id)) return;
     AgentDefinition definition =
         new AgentDefinition(id, name, description, prompt, browserActions, priority);

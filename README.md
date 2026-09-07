@@ -1,6 +1,6 @@
 # intra-copilot
 
-浏览器内的页面助手（Chrome/Edge Chromium MV3 + Spring Boot）。
+浏览器内的页面助手（Chrome/Edge Chromium MV3 + Spring Boot + Spring AI）。
 
 ## 启动后端
 
@@ -12,6 +12,8 @@ mvn spring-boot:run
 ```
 
 后端默认监听 `http://127.0.0.1:8080`，数据存储在 PostgreSQL。复制 `.env.example` 中的数据库、模型和 RAG 配置到环境变量后再启动。
+
+后端模型调用统一通过 Spring AI OpenAI Starter，兼容 OpenAI API 及兼容协议服务。聊天模型使用 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`，Embedding 使用 `EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY`、`EMBEDDING_MODEL`；业务 Agent 不直接拼接模型 HTTP 请求。
 
 如需迁移旧 SQLite 数据，先启动 PostgreSQL 并让 Flyway 完成建表，再安装 `psycopg[binary]`，执行 `python backend/scripts/migrate-sqlite-to-postgres.py --sqlite backend/intra-copilot.db`。迁移脚本不会修改源文件。
 

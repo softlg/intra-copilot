@@ -2,6 +2,19 @@ server:
   port: 8080
   address: 127.0.0.1
 spring:
+  ai:
+    openai:
+      base-url: https://api.openai.com/v1
+      api-key: replace-me
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.2
+      embedding:
+        base-url: https://api.openai.com/v1
+        api-key: replace-me
+        options:
+          model: text-embedding-3-small
   datasource:
     url: jdbc:postgresql://127.0.0.1:5432/intra_copilot
     username: intra
@@ -10,14 +23,7 @@ spring:
     enabled: true
 mybatis-plus:
   configuration.map-underscore-to-camel-case: true
-llm:
-  base-url: https://api.openai.com/v1
-  api-key: replace-me
-  model: gpt-4o-mini
 embedding:
-  base-url: https://api.openai.com/v1
-  api-key: replace-me
-  model: text-embedding-3-small
   dimension: 1536
 rag:
   top-k: 5
@@ -25,6 +31,10 @@ rag:
   chunk-overlap: 200
   similarity-threshold: 0.65
   max-document-bytes: 10485760
+tools:
+  # Set to false in public deployments to enforce HTTPS-only, public endpoints.
+  allow-http: true
+  allow-private-network: true
 app:
   # 管理端开发服务器默认使用 4174；插件来源请替换为实际扩展 ID。
   cors-origins: chrome-extension://YOUR_EXTENSION_ID,http://localhost:4174,http://127.0.0.1:4174

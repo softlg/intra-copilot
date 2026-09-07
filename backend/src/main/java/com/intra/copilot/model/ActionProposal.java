@@ -7,7 +7,9 @@ import java.util.UUID;
 
 @TableName("action_proposal")
 public class ActionProposal {
-  @TableId("action_id") private String actionId = UUID.randomUUID().toString();
+  @TableId("action_id")
+  private String actionId = UUID.randomUUID().toString();
+
   private String conversationId;
   private String type;
   private String target;

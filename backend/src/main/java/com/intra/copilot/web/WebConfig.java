@@ -1,9 +1,9 @@
 package com.intra.copilot.web;
 
+import java.util.Arrays;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.*;
-import java.util.Arrays;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
