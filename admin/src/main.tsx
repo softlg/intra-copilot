@@ -16,7 +16,8 @@ const translations = {
     skillsMenu: "Skill",
     skillsTitle: "Skill 管理",
     router: "路由测试",
-    agentRatings: "Agent 评分",
+    agentRatings: "评分/巡检",
+    ratingsSubtitle: "记录用户赞/踩反馈，分析低评分原因并生成 Agent 改进建议。",
     conversationLogs: "对话日志",
     conversationLogsSubtitle: "按会话查看用户消息、路由和 Agent 执行过程。",
     agentConfig: "Agent 配置",
@@ -209,6 +210,14 @@ const translations = {
     ratingUp: "赞",
     ratingDown: "踩",
     noFeedback: "暂无评分反馈。用户在插件中点击赞/踩后会显示在这里。",
+    totalFeedback: "总反馈",
+    satisfactionRate: "满意度",
+    downReasons: "踩反馈原因",
+    improvementSuggestions: "改进指导建议",
+    feedbackContext: "反馈上下文",
+    userQuestion: "用户问题",
+    assistantAnswer: "Agent 回复",
+    noReason: "未填写原因",
     noConversationLogs:
       "暂无对话日志。用户从浏览器插件发起对话后会显示在这里。",
     userMessage: "用户",
@@ -237,7 +246,9 @@ const translations = {
     skillsMenu: "Skill",
     skillsTitle: "Skill management",
     router: "Router test",
-    agentRatings: "Agent ratings",
+    agentRatings: "Ratings / inspection",
+    ratingsSubtitle:
+      "Record user up/down feedback, analyze low ratings, and guide Agent improvements.",
     conversationLogs: "Conversation logs",
     conversationLogsSubtitle:
       "Review user messages, routing, and Agent execution by session.",
@@ -443,6 +454,14 @@ const translations = {
     ratingUp: "Up",
     ratingDown: "Down",
     noFeedback: "No feedback yet. Ratings from the extension will appear here.",
+    totalFeedback: "Total feedback",
+    satisfactionRate: "Satisfaction",
+    downReasons: "Down-rating reasons",
+    improvementSuggestions: "Improvement guidance",
+    feedbackContext: "Feedback context",
+    userQuestion: "User question",
+    assistantAnswer: "Agent answer",
+    noReason: "No reason provided",
     noConversationLogs:
       "No conversation logs yet. Logs will appear after users chat from the extension.",
     userMessage: "User",
@@ -515,7 +534,18 @@ type AgentFeedback = {
   agentId?: string;
   rating: "up" | "down";
   comment?: string;
+  messageContent?: string;
+  userMessage?: string;
   createdAt?: string;
+};
+type FeedbackSummary = {
+  total: number;
+  up: number;
+  down: number;
+  satisfactionRate: number;
+  byAgent: Record<string, number>;
+  downReasons: Record<string, number>;
+  suggestions: string[];
 };
 
 type Base = {
@@ -636,6 +666,7 @@ function App() {
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [feedback, setFeedback] = useState<AgentFeedback[]>([]);
+  const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary>();
   const [resourceDialog, setResourceDialog] = useState<"tool" | "skill">();
   const [editingResourceId, setEditingResourceId] = useState<string>();
   const [resourceName, setResourceName] = useState("");
@@ -807,6 +838,9 @@ function App() {
     request<AgentFeedback[]>("/admin/agent-feedback")
       .then(setFeedback)
       .catch(() => setFeedback([]));
+    request<FeedbackSummary>("/admin/agent-feedback/summary")
+      .then(setFeedbackSummary)
+      .catch(() => setFeedbackSummary(undefined));
     request<Base[]>("/admin/knowledge-bases")
       .then((list) => {
         setBases(list);
@@ -2819,7 +2853,51 @@ function App() {
 
         {tab === "ratings" && (
           <section>
-            <p className="muted">{t.noFeedback}</p>
+            <p className="muted">{t.ratingsSubtitle}</p>
+            {feedbackSummary && (
+              <div className="feedback-summary-grid">
+                <div className="feedback-summary-card">
+                  <span>{t.totalFeedback}</span>
+                  <strong>{feedbackSummary.total}</strong>
+                </div>
+                <div className="feedback-summary-card">
+                  <span>{t.satisfactionRate}</span>
+                  <strong>{feedbackSummary.satisfactionRate}%</strong>
+                </div>
+                <div className="feedback-summary-card positive">
+                  <span>{t.ratingUp}</span>
+                  <strong>{feedbackSummary.up}</strong>
+                </div>
+                <div className="feedback-summary-card negative">
+                  <span>{t.ratingDown}</span>
+                  <strong>{feedbackSummary.down}</strong>
+                </div>
+              </div>
+            )}
+            {feedbackSummary && feedbackSummary.suggestions.length > 0 && (
+              <div className="feedback-guidance">
+                <h3>{t.improvementSuggestions}</h3>
+                <ul>
+                  {feedbackSummary.suggestions.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {feedbackSummary &&
+              Object.keys(feedbackSummary.downReasons).length > 0 && (
+                <div className="feedback-reasons">
+                  <h3>{t.downReasons}</h3>
+                  {Object.entries(feedbackSummary.downReasons).map(
+                    ([reason, count]) => (
+                      <div className="feedback-reason-row" key={reason}>
+                        <span>{reason}</span>
+                        <strong>{count}</strong>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
             {feedback.length === 0 ? (
               <p className="empty-documents">{t.noFeedback}</p>
             ) : filteredFeedback.length === 0 ? (
@@ -2835,6 +2913,29 @@ function App() {
                       </span>
                     </div>
                     <code>{item.sessionId || item.messageId || ""}</code>
+                    {item.comment && (
+                      <p className="feedback-comment">{item.comment}</p>
+                    )}
+                    {(item.userMessage || item.messageContent) && (
+                      <details className="feedback-context">
+                        <summary>{t.feedbackContext}</summary>
+                        {item.userMessage && (
+                          <p>
+                            <strong>{t.userQuestion}：</strong>
+                            {item.userMessage}
+                          </p>
+                        )}
+                        {item.messageContent && (
+                          <p>
+                            <strong>{t.assistantAnswer}：</strong>
+                            {item.messageContent}
+                          </p>
+                        )}
+                      </details>
+                    )}
+                    {!item.comment && item.rating === "down" && (
+                      <p className="muted">{t.noReason}</p>
+                    )}
                     {item.createdAt && (
                       <small>{new Date(item.createdAt).toLocaleString()}</small>
                     )}
