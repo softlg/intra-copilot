@@ -1,17 +1,17 @@
 package com.intra.copilot.agent;
 
 public interface Agent {
-  String id();
+    String id();
 
-  String displayName();
+    String displayName();
 
-  String description();
+    String description();
 
-  boolean supportsBrowserActions();
+    boolean supportsBrowserActions();
 
-  String systemPrompt();
+    String systemPrompt();
 
-  default boolean matches(String text) {
-    return false;
-  }
+    default boolean matches(String text) {
+        return false;
+    }
 }
