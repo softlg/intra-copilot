@@ -174,12 +174,16 @@ const translations = {
     skill: "Skill",
     toolName: "名称",
     toolTypeLabel: "类型",
-    endpoint: "Endpoint（HTTPS）",
+    endpoint: "Endpoint（HTTP / HTTPS）",
     method: "HTTP 方法",
     toolDescriptionPlaceholder: "说明这个工具可以完成什么操作",
-    endpointPlaceholder: "https://api.example.com/resource",
-    mcpServerUrl: "MCP 服务器地址（HTTPS）",
-    mcpServerUrlPlaceholder: "https://mcp.example.com/mcp",
+    endpointPlaceholder:
+      "http://127.0.0.1:8080/api 或 https://api.example.com/resource",
+    endpointHint:
+      "支持 HTTP/HTTPS 及本机、内网服务；生产环境建议关闭非安全访问。",
+    mcpServerUrl: "MCP 服务器地址（HTTP / HTTPS）",
+    mcpServerUrlPlaceholder:
+      "http://127.0.0.1:3000/mcp 或 https://mcp.example.com/mcp",
     mcpTransport: "MCP 传输方式",
     mcpSse: "SSE",
     mcpStreamableHttp: "Streamable HTTP",
@@ -404,12 +408,16 @@ const translations = {
     skill: "Skill",
     toolName: "Name",
     toolTypeLabel: "Type",
-    endpoint: "Endpoint (HTTPS)",
+    endpoint: "Endpoint (HTTP / HTTPS)",
     method: "HTTP method",
     toolDescriptionPlaceholder: "Describe what this tool can do",
-    endpointPlaceholder: "https://api.example.com/resource",
-    mcpServerUrl: "MCP server URL (HTTPS)",
-    mcpServerUrlPlaceholder: "https://mcp.example.com/mcp",
+    endpointPlaceholder:
+      "http://127.0.0.1:8080/api or https://api.example.com/resource",
+    endpointHint:
+      "HTTP/HTTPS and local or private services are supported; disable insecure access in production.",
+    mcpServerUrl: "MCP server URL (HTTP / HTTPS)",
+    mcpServerUrlPlaceholder:
+      "http://127.0.0.1:3000/mcp or https://mcp.example.com/mcp",
     mcpTransport: "MCP transport",
     mcpSse: "SSE",
     mcpStreamableHttp: "Streamable HTTP",
@@ -3705,6 +3713,7 @@ function App() {
                         }
                         placeholder={t.endpointPlaceholder}
                       />
+                      <small className="field-hint">{t.endpointHint}</small>
                     </label>
                   )}
                   {resourceType === "MCP" && (
