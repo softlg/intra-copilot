@@ -773,15 +773,35 @@ footer {
   pointer-events: none;
 }
 textarea {
-  flex: 1;
+  display: block;
+  width: 100%;
   resize: none;
   height: 44px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 10px;
+  padding: 9px 10px 19px;
   background: var(--control-bg);
   color: var(--text);
   font: inherit;
+}
+.composer-input-shell {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.composer-inline-hint {
+  position: absolute;
+  right: 9px;
+  bottom: 5px;
+  max-width: calc(100% - 18px);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.1;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
 }
 .send-button {
   width: 58px;
@@ -805,14 +825,6 @@ textarea {
 }
 .send-button:disabled {
   opacity: 0.5;
-}
-.composer-hint {
-  margin: 4px 2px 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.3;
-  text-align: right;
-  user-select: none;
 }
 .composer-tools {
   position: relative;

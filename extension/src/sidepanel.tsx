@@ -1674,20 +1674,29 @@ function App() {
                 )}
               </div>
             )}
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onPaste={onInputPaste}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
-                  event.preventDefault();
-                  send();
-                }
-              }}
-              placeholder={t.inputPlaceholder}
-              aria-label={t.chatInput}
-            />
+            <div className="composer-input-shell">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onPaste={onInputPaste}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder={t.inputPlaceholder}
+                aria-label={t.chatInput}
+              />
+              <span className="composer-inline-hint" aria-hidden="true">
+                {t.shiftEnterHint}
+              </span>
+            </div>
             <button
               className={"send-button" + (busy ? " stop-button" : "")}
               onClick={busy ? stopGeneration : send}
@@ -1697,7 +1706,6 @@ function App() {
               {busy ? "■" : t.send}
             </button>
           </div>
-          <div className="composer-hint">{t.shiftEnterHint}</div>
           <div className="composer-tools" ref={composerToolsRef}>
             <button
               className="tool-button"
