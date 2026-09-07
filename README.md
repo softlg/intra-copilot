@@ -40,7 +40,7 @@ $env:VITE_API_BASE="http://127.0.0.1:8080/api/v1"
 npm run dev
 ```
 
-生产构建使用 `npm run build`，默认访问 `http://127.0.0.1:4174`。管理 API 在无登录 MVP 中仅建议绑定本机或内网地址，并通过 `CORS_ALLOWED_ORIGINS` 限制来源。
+生产构建使用 `npm run build`，默认访问 `http://127.0.0.1:4174`。管理 API 在无登录 MVP 中仅建议绑定本机或内网地址，并通过 `CORS_ALLOWED_ORIGINS` 限制来源。若管理端使用 Vite 默认端口 4174，请将 `http://localhost:4174,http://127.0.0.1:4174` 加入该变量。
 
 ### 管理 API
 

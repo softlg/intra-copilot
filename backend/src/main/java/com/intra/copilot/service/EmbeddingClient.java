@@ -14,15 +14,18 @@ public class EmbeddingClient {
   private final WebClient client;
   private final String model;
   private final String key;
+  private final int dimension;
   private final ObjectMapper json = new ObjectMapper();
 
   public EmbeddingClient(
       @Value("${embedding.base-url}") String base,
       @Value("${embedding.model}") String model,
-      @Value("${embedding.api-key:}") String key) {
+      @Value("${embedding.api-key:}") String key,
+      @Value("${embedding.dimension:1536}") int dimension) {
     this.client = WebClient.builder().baseUrl(base).build();
     this.model = model;
     this.key = key;
+    this.dimension = dimension;
   }
 
   public List<Double> embed(String text) {
@@ -42,7 +45,7 @@ public class EmbeddingClient {
       List<Double> vector = new ArrayList<>();
       values.forEach(value -> vector.add(value.asDouble()));
       if (vector.isEmpty()) throw new IllegalStateException("Embedding 服务返回空向量");
-      if (vector.size() != 1536) throw new IllegalStateException("当前 pgvector 需要 1536 维 Embedding");
+      if (vector.size() != dimension) throw new IllegalStateException("Embedding 维度不匹配：期望 " + dimension + "，实际 " + vector.size());
       return vector;
     } catch (Exception error) {
       throw new IllegalStateException("无法解析 Embedding 响应", error);

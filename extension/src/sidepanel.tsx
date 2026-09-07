@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import rehypeHighlight from "rehype-highlight";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import "./style.css";
 
 const API = "http://localhost:8080/api/v1";
@@ -7,7 +10,14 @@ type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
 type Feedback = "up" | "down";
-type Msg = { role: string; content: string; id?: string };
+type Msg = {
+  role: string;
+  content: string;
+  id?: string;
+  agentId?: string;
+  imageData?: string[];
+  stopped?: boolean;
+};
 type PageInfoKey = "url" | "title" | "selection" | "visibleText" | "domSummary";
 const PAGE_INFO_KEYS: PageInfoKey[] = [
   "url",
@@ -66,11 +76,12 @@ const translations = {
     renameFailed: "修改会话名称失败",
     deleteFailed: "删除会话失败",
     createFailed: "创建会话失败",
-    backendError: "无法连接后端，请确认 Spring Boot 已启动。",
+    backendError: "无法连接后端，请确认 Spring Boot 已启用。",
     requestFailed: "请求失败",
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
     inputPlaceholder: "描述问题或输入你的需求…",
+    shiftEnterHint: "按 Shift+Enter 换行",
     chatInput: "聊天输入框",
     send: "发送",
     stop: "停止生成",
@@ -84,6 +95,7 @@ const translations = {
     attachFile: "上传文件",
     attachmentMenu: "附加文件",
     screenshot: "从屏幕上选择",
+    screenshotSelectHint: "拖动鼠标框选需要截图的页面区域，松开完成",
     pageInfo: "页面信息",
     pageInfoHint: "选择要随消息发送的页面信息",
     pageInfoUrl: "当前网址",
@@ -102,11 +114,13 @@ const translations = {
     like: "有帮助",
     dislike: "没帮助",
     copyMessage: "复制回答",
+    copyCode: "复制代码",
     copied: "已复制",
     copyFailed: "复制失败，请手动选择文本复制。",
+    editResend: "重新编辑并发送",
+    imageOnly: "图片",
     pagePermission: "页面权限",
     readPage: "允许读取当前页面上下文",
-    delegateTms: "授权业务子 Agent 处理专属问题",
     permissionNote: "写入页面的操作仍会逐项请求确认。",
     actionConfirm: (type: string, reason: string, risk: string) =>
       `助手请求执行 ${type} 操作。\n原因：${reason}\n风险：${risk}\n\n是否执行？`,
@@ -161,11 +175,12 @@ const translations = {
     deleteFailed: "Failed to delete chat",
     createFailed: "Failed to create chat",
     backendError:
-      "Unable to connect to the backend. Please make sure Spring Boot is running.",
+      "Unable to connect to the backend. Please make sure Spring Boot is enabled.",
     requestFailed: "Request failed",
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
     inputPlaceholder: "Describe the problem or enter your request…",
+    shiftEnterHint: "Press Shift+Enter for a new line",
     chatInput: "Chat input",
     send: "Send",
     stop: "Stop generating",
@@ -180,6 +195,8 @@ const translations = {
     attachFile: "Upload file",
     attachmentMenu: "Attachments",
     screenshot: "Select from screen",
+    screenshotSelectHint:
+      "Drag to select the page area to capture, then release",
     pageInfo: "Page info",
     pageInfoHint: "Choose page information to include with the message",
     pageInfoUrl: "Current URL",
@@ -200,11 +217,13 @@ const translations = {
     like: "Helpful",
     dislike: "Not helpful",
     copyMessage: "Copy answer",
+    copyCode: "Copy code",
     copied: "Copied",
     copyFailed: "Copy failed. Please select and copy the text manually.",
+    editResend: "Edit and resend",
+    imageOnly: "Image",
     pagePermission: "Page permissions",
     readPage: "Allow reading the current page context",
-    delegateTms: "Authorize the business sub-agent for specialized requests",
     permissionNote:
       "Write actions on the page will still ask for confirmation one by one.",
     actionConfirm: (type: string, reason: string, risk: string) =>
@@ -220,42 +239,89 @@ function isDefaultSessionTitle(title: unknown) {
   );
 }
 
-function renderInlineMarkdown(value: string) {
-  return value
-    .split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g)
-    .map((part, index) => {
-      if (part.startsWith("**") && part.endsWith("**")) {
-        return <strong key={index}>{part.slice(2, -2)}</strong>;
-      }
-      if (part.startsWith("`") && part.endsWith("`")) {
-        return <code key={index}>{part.slice(1, -1)}</code>;
-      }
-      if (part.startsWith("*") && part.endsWith("*")) {
-        return <em key={index}>{part.slice(1, -1)}</em>;
-      }
-      return <React.Fragment key={index}>{part}</React.Fragment>;
-    });
+type AssistantMarkdownProps = {
+  content: string;
+  messageIndex: number;
+  copiedCode?: string;
+  onCopyCode: (code: string, codeId: string) => void;
+  copyCodeLabel: string;
+  copiedLabel: string;
+};
+type CodeElementProps = {
+  className?: string;
+  children?: React.ReactNode;
+};
+
+function getRenderedText(value: React.ReactNode): string {
+  if (typeof value === "string" || typeof value === "number")
+    return String(value);
+  if (Array.isArray(value)) return value.map(getRenderedText).join("");
+  if (React.isValidElement<{ children?: React.ReactNode }>(value)) {
+    return getRenderedText(value.props.children);
+  }
+  return "";
 }
 
-function renderAssistantMessage(content: string) {
-  return content.split("\n").map((line, index) => {
-    const trimmed = line.trim();
-    if (!trimmed) return <div className="assistant-spacer" key={index} />;
-    const heading = trimmed.match(/^#{1,3}\s+(.+)$/);
-    if (heading) {
-      return <h3 key={index}>{renderInlineMarkdown(heading[1])}</h3>;
-    }
-    const listItem = trimmed.match(/^(?:[-*]|\d+\.)\s+(.+)$/);
-    if (listItem) {
-      return (
-        <div className="assistant-list-item" key={index}>
-          <span aria-hidden="true">•</span>
-          <span>{renderInlineMarkdown(listItem[1])}</span>
-        </div>
-      );
-    }
-    return <p key={index}>{renderInlineMarkdown(line)}</p>;
-  });
+function AssistantMarkdown({
+  content,
+  messageIndex,
+  copiedCode,
+  onCopyCode,
+  copyCodeLabel,
+  copiedLabel,
+}: AssistantMarkdownProps) {
+  let codeBlockIndex = 0;
+  return (
+    <ReactMarkdown
+      skipHtml
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeHighlight]}
+      components={{
+        code({ className, children, ...props }) {
+          return (
+            <code className={className} {...props}>
+              {children}
+            </code>
+          );
+        },
+        pre({ children }) {
+          const codeElement = React.Children.toArray(children).find((child) =>
+            React.isValidElement(child),
+          ) as React.ReactElement<CodeElementProps> | undefined;
+          const code = getRenderedText(codeElement?.props.children).replace(
+            /\n$/,
+            "",
+          );
+          const className = codeElement?.props.className;
+          const language =
+            className?.match(/language-([\w+-]+)/)?.[1]?.toLowerCase() ||
+            "text";
+          const codeId = `${messageIndex}:${codeBlockIndex++}`;
+          const isCopied = copiedCode === codeId;
+          return (
+            <div className="code-block">
+              <div className="code-toolbar">
+                <span className="code-language">{language}</span>
+                <button
+                  type="button"
+                  className="code-copy-button"
+                  onClick={() => onCopyCode(code, codeId)}
+                  title={isCopied ? copiedLabel : copyCodeLabel}
+                  aria-label={isCopied ? copiedLabel : copyCodeLabel}
+                >
+                  {isCopied ? "✓" : "⧉"}{" "}
+                  {isCopied ? copiedLabel : copyCodeLabel}
+                </button>
+              </div>
+              <pre>{codeElement ?? <code>{children}</code>}</pre>
+            </div>
+          );
+        },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
 }
 
 function App() {
@@ -266,6 +332,7 @@ function App() {
     Record<number, Feedback>
   >({});
   const [copiedMessage, setCopiedMessage] = useState<number>();
+  const [copiedCode, setCopiedCode] = useState<string>();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -290,13 +357,22 @@ function App() {
     useState<ActivationMode>("manual");
   const [currentTabId, setCurrentTabId] = useState<number>();
   const [currentTabEnabled, setCurrentTabEnabled] = useState(false);
-  const [tmsAuthorized, setTmsAuthorized] = useState(false);
   const [availableTabs, setAvailableTabs] = useState<chrome.tabs.Tab[]>([]);
   const [selectedTabIds, setSelectedTabIds] = useState<number[]>([]);
   const [attachments, setAttachments] = useState<
     { name: string; size: number; type: string; url: string }[]
   >([]);
   const [screenshot, setScreenshot] = useState<string>();
+  const [screenshotSelection, setScreenshotSelection] = useState<string>();
+  const [selectionRect, setSelectionRect] = useState({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
+  const selectionStart = useRef<{ x: number; y: number } | undefined>(
+    undefined,
+  );
   const [previewImage, setPreviewImage] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -304,6 +380,7 @@ function App() {
   const [editingSessionId, setEditingSessionId] = useState<string>();
   const [editingTitle, setEditingTitle] = useState("");
   const composerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerToolsRef = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -341,12 +418,12 @@ function App() {
   }, [toolsOpen, permissionOpen]);
 
   useEffect(() => {
+    chrome.storage.local.remove("tmsAuthorized");
     chrome.storage.local.get(
       [
         "theme",
         "language",
         "readPageEnabled",
-        "tmsAuthorized",
         "activationMode",
         "pageInfoSelection",
       ],
@@ -354,7 +431,6 @@ function App() {
         theme?: Theme;
         language?: Language;
         readPageEnabled?: boolean;
-        tmsAuthorized?: boolean;
         activationMode?: ActivationMode;
         pageInfoSelection?: Partial<Record<PageInfoKey, boolean>>;
       }) => {
@@ -366,9 +442,6 @@ function App() {
         }
         if (typeof value.readPageEnabled === "boolean") {
           setReadPageEnabled(value.readPageEnabled);
-        }
-        if (typeof value.tmsAuthorized === "boolean") {
-          setTmsAuthorized(value.tmsAuthorized);
         }
         if (
           value.activationMode === "all_pages" ||
@@ -474,6 +547,18 @@ function App() {
         messageFeedback: { ...all, [session.id]: sessionFeedback },
       });
     });
+    const target = msgs[index];
+    fetch(API + "/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.id,
+        messageId: target?.id,
+        messageIndex: index,
+        agentId: target?.agentId,
+        rating: feedback,
+      }),
+    }).catch(() => undefined);
   }
 
   async function copyMessage(content: string, index: number) {
@@ -484,6 +569,22 @@ function App() {
         () =>
           setCopiedMessage((current) =>
             current === index ? undefined : current,
+          ),
+        1600,
+      );
+    } catch {
+      setError(t.copyFailed);
+    }
+  }
+
+  async function copyCode(content: string, codeId: string) {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedCode(codeId);
+      window.setTimeout(
+        () =>
+          setCopiedCode((current) =>
+            current === codeId ? undefined : current,
           ),
         1600,
       );
@@ -724,11 +825,73 @@ function App() {
         }
         throw Error(t.screenshotFailed);
       }
-      setScreenshot(result.dataUrl);
+      setScreenshotSelection(result.dataUrl);
+      setSelectionRect({ x: 0, y: 0, width: 0, height: 0 });
       setToolsOpen(false);
     } catch (error) {
       setError((error as Error).message || t.screenshotFailed);
     }
+  }
+
+  function updateSelection(event: React.PointerEvent<HTMLDivElement>) {
+    if (!selectionStart.current) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
+    const y = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
+    const start = selectionStart.current;
+    setSelectionRect({
+      x: Math.min(start.x, x),
+      y: Math.min(start.y, y),
+      width: Math.abs(x - start.x),
+      height: Math.abs(y - start.y),
+    });
+  }
+
+  function finishSelection(event: React.PointerEvent<HTMLDivElement>) {
+    if (!selectionStart.current || !screenshotSelection) return;
+    updateSelection(event);
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const start = selectionStart.current;
+    const endX = Math.max(
+      0,
+      Math.min(bounds.width, event.clientX - bounds.left),
+    );
+    const endY = Math.max(
+      0,
+      Math.min(bounds.height, event.clientY - bounds.top),
+    );
+    const rect = {
+      x: Math.min(start.x, endX),
+      y: Math.min(start.y, endY),
+      width: Math.abs(endX - start.x),
+      height: Math.abs(endY - start.y),
+    };
+    selectionStart.current = undefined;
+    if (rect.width < 5 || rect.height < 5) return;
+    const image = new Image();
+    image.onload = () => {
+      const scaleX = image.naturalWidth / bounds.width;
+      const scaleY = image.naturalHeight / bounds.height;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(rect.width * scaleX));
+      canvas.height = Math.max(1, Math.round(rect.height * scaleY));
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.drawImage(
+        image,
+        rect.x * scaleX,
+        rect.y * scaleY,
+        rect.width * scaleX,
+        rect.height * scaleY,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+      setScreenshot(canvas.toDataURL("image/png"));
+      setScreenshotSelection(undefined);
+    };
+    image.src = screenshotSelection;
   }
 
   function markGenerationStopped() {
@@ -743,22 +906,89 @@ function App() {
       next[index] = {
         ...last,
         content: last.content ? `${last.content}\n\n${t.stopped}` : t.stopped,
+        stopped: true,
       };
       return next;
     });
   }
 
+  async function dataUrlFromObjectUrl(url: string): Promise<string> {
+    if (url.startsWith("data:")) return url;
+    const blob = await fetch(url).then((response) => {
+      if (!response.ok) throw Error("图片读取失败");
+      return response.blob();
+    });
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error || Error("图片读取失败"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function restoreImageAttachments(images: string[]) {
+    const restored = await Promise.all(
+      images.map(async (data, index) => {
+        const blob = await fetch(data).then((response) => response.blob());
+        return {
+          name: `image-${index + 1}.png`,
+          size: blob.size,
+          type: blob.type || "image/png",
+          url: URL.createObjectURL(blob),
+        };
+      }),
+    );
+    setAttachments(restored);
+  }
+
+  async function editAndResend(message: Msg, messageIndex: number) {
+    if (busy) return;
+    setInput(message.content.replace(new RegExp(`\\n\\n${t.stopped}$`), ""));
+    setScreenshot(undefined);
+    setAttachments([]);
+    setMsgs((items) => items.slice(0, messageIndex));
+    if (message.imageData?.length) {
+      try {
+        await restoreImageAttachments(message.imageData);
+      } catch {
+        setError(t.copyFailed);
+      }
+    }
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }
+
   async function send() {
-    if (!input.trim() || busy || !session) return;
+    if (
+      (!input.trim() && !attachments.length && !screenshot) ||
+      busy ||
+      !session
+    )
+      return;
     const controller = new AbortController();
     abortControllerRef.current = controller;
     const text = input.trim();
+    const pendingAttachments = attachments;
+    const pendingScreenshot = screenshot;
+    let imageData: string[] = [];
+    try {
+      imageData = await Promise.all([
+        ...pendingAttachments
+          .filter((attachment) => attachment.type.startsWith("image/"))
+          .map((attachment) => dataUrlFromObjectUrl(attachment.url)),
+        ...(pendingScreenshot ? [dataUrlFromObjectUrl(pendingScreenshot)] : []),
+      ]);
+    } catch {
+      setError(t.copyFailed);
+      return;
+    }
     setInput("");
+    setAttachments([]);
+    setScreenshot(undefined);
     setBusy(true);
     setError("");
     setMsgs((items) => [
       ...items,
-      { role: "user", content: text },
+      { role: "user", content: text, imageData },
       { role: "assistant", content: "" },
     ]);
 
@@ -814,11 +1044,11 @@ function App() {
         body: JSON.stringify({
           sessionId: session.id,
           message: text,
+          images: imageData,
           agentId: null,
           pageContext,
           permissions: {
             readPage: readPageEnabled,
-            delegateTms: tmsAuthorized,
           },
         }),
       });
@@ -1065,21 +1295,74 @@ function App() {
           const assistant = message.role === "assistant";
           return (
             <div key={index} className={"msg " + message.role}>
-              <div className="role">{assistant ? t.assistant : t.you}</div>
+              <div
+                className={"role " + (assistant ? "assistant-avatar" : "")}
+                aria-label={assistant ? t.assistant : t.you}
+                title={assistant ? t.assistant : t.you}
+              >
+                {assistant ? (
+                  <>
+                    <span aria-hidden="true">◆</span>
+                    <span className="sr-only">{t.assistant}</span>
+                  </>
+                ) : (
+                  t.you
+                )}
+              </div>
               <div className="message-stack">
                 <div className="bubble">
+                  {!assistant && message.imageData?.length ? (
+                    <div className="message-images">
+                      {message.imageData.map((image, imageIndex) => (
+                        <button
+                          type="button"
+                          className="message-image-button"
+                          key={`${index}-${imageIndex}`}
+                          onClick={() => setPreviewImage(image)}
+                          title={t.imagePreview}
+                          aria-label={t.imagePreview}
+                        >
+                          <img src={image} alt={t.imageOnly} />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   {assistant ? (
                     message.content ? (
                       <div className="assistant-content">
-                        {renderAssistantMessage(message.content)}
+                        <AssistantMarkdown
+                          content={message.content}
+                          messageIndex={index}
+                          copiedCode={copiedCode}
+                          onCopyCode={copyCode}
+                          copyCodeLabel={t.copyCode}
+                          copiedLabel={t.copied}
+                        />
                       </div>
                     ) : (
                       <span className="thinking-indicator">{t.thinking}</span>
                     )
                   ) : (
-                    message.content || t.thinking
+                    message.content ||
+                    (message.imageData?.length ? t.imageOnly : t.thinking)
                   )}
                 </div>
+                {!assistant &&
+                  index < msgs.length - 1 &&
+                  msgs[index + 1]?.role === "assistant" &&
+                  msgs[index + 1]?.stopped && (
+                    <div className="message-actions user-message-actions">
+                      <button
+                        type="button"
+                        className="message-action edit-resend-action"
+                        onClick={() => editAndResend(message, index)}
+                        title={t.editResend}
+                        aria-label={t.editResend}
+                      >
+                        ↻ {t.editResend}
+                      </button>
+                    </div>
+                  )}
                 {assistant && message.content && (
                   <div className="message-actions" aria-label="Message actions">
                     <button
@@ -1346,6 +1629,7 @@ function App() {
               </div>
             )}
             <textarea
+              ref={textareaRef}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onPaste={onInputPaste}
@@ -1367,6 +1651,7 @@ function App() {
               {busy ? "■" : t.send}
             </button>
           </div>
+          <div className="composer-hint">{t.shiftEnterHint}</div>
           <div className="composer-tools" ref={composerToolsRef}>
             <button
               className="tool-button"
@@ -1502,18 +1787,6 @@ function App() {
                   />
                   {t.readPage}
                 </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={tmsAuthorized}
-                    onChange={(event) => {
-                      const enabled = event.target.checked;
-                      setTmsAuthorized(enabled);
-                      chrome.storage.local.set({ tmsAuthorized: enabled });
-                    }}
-                  />
-                  {t.delegateTms}
-                </label>
                 <span>{t.permissionNote}</span>
               </div>
             )}
@@ -1539,6 +1812,55 @@ function App() {
               ×
             </button>
             <img src={previewImage} alt={t.imagePreview} />
+          </div>
+        </div>
+      )}
+      {screenshotSelection && (
+        <div className="screenshot-selection-overlay">
+          <div className="screenshot-selection-dialog">
+            <div className="screenshot-selection-toolbar">
+              <strong>{t.screenshot}</strong>
+              <span>{t.screenshotSelectHint}</span>
+              <button
+                type="button"
+                className="image-preview-close"
+                onClick={() => setScreenshotSelection(undefined)}
+                aria-label={t.cancel}
+              >
+                ×
+              </button>
+            </div>
+            <div
+              className="screenshot-selection-canvas"
+              onPointerDown={(event) => {
+                const bounds = event.currentTarget.getBoundingClientRect();
+                selectionStart.current = {
+                  x: event.clientX - bounds.left,
+                  y: event.clientY - bounds.top,
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
+                updateSelection(event);
+              }}
+              onPointerMove={updateSelection}
+              onPointerUp={finishSelection}
+            >
+              <img
+                src={screenshotSelection}
+                alt={t.screenshot}
+                draggable={false}
+              />
+              {selectionRect.width > 0 && selectionRect.height > 0 && (
+                <div
+                  className="screenshot-selection-box"
+                  style={{
+                    left: selectionRect.x,
+                    top: selectionRect.y,
+                    width: selectionRect.width,
+                    height: selectionRect.height,
+                  }}
+                />
+              )}
+            </div>
           </div>
         </div>
       )}

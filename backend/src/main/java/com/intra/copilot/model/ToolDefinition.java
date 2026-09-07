@@ -1,20 +1,24 @@
 package com.intra.copilot.model;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 import java.util.UUID;
 
-@Entity
-@Table(name = "tool_definition")
+@TableName("tool_definition")
 public class ToolDefinition {
-  @Id private String id = UUID.randomUUID().toString();
+  @TableId private String id = UUID.randomUUID().toString();
   private String name;
-  @Column(columnDefinition = "TEXT") private String description;
+  private String description;
   private String type = "BROWSER_PROPOSAL";
   private String method;
-  @Column(columnDefinition = "TEXT") private String endpoint;
-  @Column(columnDefinition = "TEXT") private String parameterSchema = "{}";
-  @Column(columnDefinition = "TEXT") private String allowedDomains = "[]";
+  private String endpoint;
+  /** MCP server endpoint used when type is MCP. Credentials are referenced by environment variable name. */
+  private String mcpServerUrl;
+  private String mcpTransport = "STREAMABLE_HTTP";
+  private String mcpAuthEnv;
+  private String parameterSchema = "{}";
+  private String allowedDomains = "[]";
   private Integer timeoutMs = 10000;
   private boolean enabled = true;
   private Instant createdAt = Instant.now();
@@ -32,6 +36,12 @@ public class ToolDefinition {
   public void setMethod(String value) { method = value; }
   public String getEndpoint() { return endpoint; }
   public void setEndpoint(String value) { endpoint = value; }
+  public String getMcpServerUrl() { return mcpServerUrl; }
+  public void setMcpServerUrl(String value) { mcpServerUrl = value; }
+  public String getMcpTransport() { return mcpTransport; }
+  public void setMcpTransport(String value) { mcpTransport = value; }
+  public String getMcpAuthEnv() { return mcpAuthEnv; }
+  public void setMcpAuthEnv(String value) { mcpAuthEnv = value; }
   public String getParameterSchema() { return parameterSchema; }
   public void setParameterSchema(String value) { parameterSchema = value; }
   public String getAllowedDomains() { return allowedDomains; }

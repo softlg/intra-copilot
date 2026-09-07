@@ -11,8 +11,12 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "highlight.js": "^11.11.1",
+    "rehype-highlight": "^7.0.2",
     "react": "latest",
     "react-dom": "latest",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "typescript": "latest",
     "vite": "latest"
   },

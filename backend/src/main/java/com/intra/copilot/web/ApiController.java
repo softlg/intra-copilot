@@ -4,6 +4,7 @@ import com.intra.copilot.agent.*;
 import com.intra.copilot.model.*;
 import com.intra.copilot.service.ChatService;
 import java.util.*;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
@@ -14,35 +15,25 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ApiController {
   private final ChatService chat;
   private final GeneralAgent general;
-  private final DiagnosisAgent diagnosis;
-  private final TmsManualAgent tms;
+  private final RouteCopilotAgent routeCopilot;
 
-  public ApiController(ChatService c, GeneralAgent g, DiagnosisAgent d, TmsManualAgent t) {
+  public ApiController(ChatService c, GeneralAgent g, RouteCopilotAgent routeCopilot) {
     chat = c;
     general = g;
-    diagnosis = d;
-    tms = t;
+    this.routeCopilot = routeCopilot;
   }
 
   @GetMapping("/agents")
   public List<Map<String, Object>> agents() {
     return List.of(
         Map.of(
-            "id",
-            general.id(),
-            "displayName",
-            general.displayName(),
-            "description",
-            general.description()),
-        Map.of("id", "router", "displayName", "自动分发", "description", "根据问题选择最合适的 Agent"),
+            "id", routeCopilot.id(),
+            "displayName", routeCopilot.displayName(),
+            "description", routeCopilot.description()),
         Map.of(
-            "id",
-            diagnosis.id(),
-            "displayName",
-            diagnosis.displayName(),
-            "description",
-            diagnosis.description()),
-        Map.of("id", tms.id(), "displayName", tms.displayName(), "description", tms.description()));
+            "id", general.id(),
+            "displayName", general.displayName(),
+            "description", general.description()));
   }
 
   @PostMapping("/sessions")
@@ -78,12 +69,14 @@ public class ApiController {
       String message,
       String agentId,
       String pageContext,
-      Map<String, Boolean> permissions) {}
+      Map<String, Boolean> permissions,
+      List<String> images) {}
 
   @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-  public SseEmitter stream(@RequestBody ChatRequest req) {
+  public SseEmitter stream(@RequestBody ChatRequest req, HttpServletRequest request) {
     return chat.chat(
-        req.sessionId(), req.message(), req.agentId(), req.pageContext(), req.permissions());
+        req.sessionId(), req.message(), req.agentId(), req.pageContext(), req.permissions(), req.images(),
+        request.getRemoteAddr());
   }
 
   public record ActionResult(String status, String result) {}

@@ -1,19 +1,21 @@
 package com.intra.copilot.model;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 import java.util.UUID;
 
-@Entity
-@Table(name = "knowledge_document")
+@TableName("knowledge_document")
 public class KnowledgeDocument {
-  @Id private String id = UUID.randomUUID().toString();
+  @TableId private String id = UUID.randomUUID().toString();
   private String knowledgeBaseId;
   private String filename;
   private String mediaType;
   private String status = "PENDING";
-  @Column(columnDefinition = "TEXT") private String content;
-  @Column(columnDefinition = "TEXT") private String error;
+  private String content;
+  private String error;
+  private String fileHash;
+  private Long sizeBytes;
   private Instant createdAt = Instant.now();
   private Instant updatedAt = Instant.now();
 
@@ -30,6 +32,10 @@ public class KnowledgeDocument {
   public void setContent(String value) { content = value; }
   public String getError() { return error; }
   public void setError(String value) { error = value; }
+  public String getFileHash() { return fileHash; }
+  public void setFileHash(String value) { fileHash = value; }
+  public Long getSizeBytes() { return sizeBytes; }
+  public void setSizeBytes(Long value) { sizeBytes = value; }
   public Instant getCreatedAt() { return createdAt; }
   public Instant getUpdatedAt() { return updatedAt; }
   public void touch() { updatedAt = Instant.now(); }

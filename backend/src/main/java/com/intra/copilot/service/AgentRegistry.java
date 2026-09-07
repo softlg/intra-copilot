@@ -31,12 +31,29 @@ public class AgentRegistry {
 
   @Transactional
   public AgentDefinition save(AgentDefinition definition) {
-    if (definitions.existsById(definition.getId())) definition.touch();
+    AgentDefinition existing = definitions.findById(definition.getId()).orElse(null);
+    if (existing != null) {
+      // The system/custom classification is immutable after creation.
+      definition.setSystemAgent(existing.isSystemAgent());
+      definition.touch();
+    } else {
+      definition.setSystemAgent(false);
+    }
     return definitions.save(definition);
   }
 
   @Transactional
   public void delete(String id) {
-    definitions.deleteById(id);
+    AgentDefinition definition =
+        definitions
+            .findById(id)
+            .orElseThrow(() -> new java.util.NoSuchElementException("Agent 不存在"));
+    if (definition.isEnabled()) {
+      throw new IllegalArgumentException("只能删除已停用的 Agent");
+    }
+    if (definition.isSystemAgent()) {
+      throw new IllegalArgumentException("主 Agent 不允许删除");
+    }
+    definitions.delete(definition);
   }
 }

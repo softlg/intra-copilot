@@ -1,21 +1,25 @@
 package com.intra.copilot.model;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 import java.util.UUID;
 
-@Entity
-@Table(name = "agent_invocation")
+@TableName("agent_invocation")
 public class AgentInvocation {
-  @Id private String id = UUID.randomUUID().toString();
+  @TableId private String id = UUID.randomUUID().toString();
   private String conversationId;
   private String requestedAgentId;
   private String selectedAgentId;
-  @Column(columnDefinition = "TEXT") private String routeReason;
+  private String routeReason;
+  private String intent;
+  private String contextSent;
+  private String responseContent;
+  private String clientIp;
   private Double confidence;
   private String routeSource;
   private Long durationMs;
-  @Column(columnDefinition = "TEXT") private String error;
+  private String error;
   private Integer inputTokens;
   private Integer outputTokens;
   private Instant createdAt = Instant.now();
@@ -55,6 +59,15 @@ public class AgentInvocation {
   public void setRouteReason(String value) {
     routeReason = value;
   }
+
+  public String getIntent() { return intent; }
+  public void setIntent(String value) { intent = value; }
+  public String getContextSent() { return contextSent; }
+  public void setContextSent(String value) { contextSent = value; }
+  public String getResponseContent() { return responseContent; }
+  public void setResponseContent(String value) { responseContent = value; }
+  public String getClientIp() { return clientIp; }
+  public void setClientIp(String value) { clientIp = value; }
 
   public Double getConfidence() {
     return confidence;
