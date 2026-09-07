@@ -1,26 +1,32 @@
 package com.intra.copilot.service;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.content.Media;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.util.MimeTypeUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+/** Spring AI backed model gateway shared by routing and all agents. */
 @Service
 public class LlmClient {
-  private final WebClient client;
-  private final String model;
-  private final String key;
+  private final ChatModel chatModel;
+  private final String apiKey;
 
-  public LlmClient(
-      @Value("${llm.base-url}") String base,
-      @Value("${llm.model}") String model,
-      @Value("${llm.api-key:}") String key) {
-    this.model = model;
-    this.key = key;
-    this.client = WebClient.builder().baseUrl(base).build();
+  public LlmClient(ChatModel chatModel, @Value("${spring.ai.openai.api-key:}") String apiKey) {
+    this.chatModel = chatModel;
+    this.apiKey = apiKey;
   }
 
   public Flux<String> stream(String system, List<Map<String, String>> history, String user) {
@@ -29,105 +35,85 @@ public class LlmClient {
 
   public Flux<String> stream(
       String system, List<Map<String, String>> history, String user, List<String> images) {
-    List<Map<String, Object>> messages = new ArrayList<>();
-    messages.add(Map.of("role", "system", "content", system));
-    history.forEach(item -> messages.add(Map.of("role", item.get("role"), "content", item.get("content"))));
-    List<Map<String, Object>> content = new ArrayList<>();
-    content.add(Map.of("type", "text", "text", user));
-    if (images != null) {
-      images.forEach(
-          image ->
-              content.add(
-                  Map.of(
-                      "type", "image_url",
-                      "image_url", Map.of("url", image))));
-    }
-    messages.add(Map.of("role", "user", "content", content));
-    Map<String, Object> body = new HashMap<>();
-    body.put("model", model);
-    body.put("messages", messages);
-    body.put("stream", true);
-    body.put("temperature", 0.2);
-    if (key == null || key.isBlank())
+    if (apiKey == null || apiKey.isBlank()) {
       return Flux.just("[未配置 LLM_API_KEY] 后端已启用，请配置 OpenAI 兼容模型后重试。");
-    return client
-        .post()
-        .uri("/chat/completions")
-        .contentType(MediaType.APPLICATION_JSON)
-        .headers(h -> h.setBearerAuth(key))
-        .bodyValue(body)
-        .retrieve()
-        .bodyToFlux(String.class)
-        .map(this::extract)
-        .filter(s -> !s.isBlank())
-        .onErrorResume(e -> Flux.just("模型请求失败：" + e.getMessage()));
+    }
+    try {
+      return chatModel
+          .stream(new Prompt(messages(system, history, user, images)))
+          .map(this::textOf)
+          .filter(text -> text != null && !text.isBlank())
+          .onErrorResume(error -> Flux.just("模型请求失败：" + safeMessage(error)));
+    } catch (Exception error) {
+      return Flux.just("模型请求失败：" + safeMessage(error));
+    }
   }
 
   public Mono<String> complete(String system, List<Map<String, String>> history, String user) {
-    List<Map<String, String>> messages = new ArrayList<>();
-    messages.add(Map.of("role", "system", "content", system));
-    messages.addAll(history);
-    messages.add(Map.of("role", "user", "content", user));
-    Map<String, Object> body = new HashMap<>();
-    body.put("model", model);
-    body.put("messages", messages);
-    body.put("stream", false);
-    body.put("temperature", 0.0);
-    if (key == null || key.isBlank()) return Mono.empty();
-    return client
-        .post()
-        .uri("/chat/completions")
-        .contentType(MediaType.APPLICATION_JSON)
-        .headers(h -> h.setBearerAuth(key))
-        .bodyValue(body)
-        .retrieve()
-        .bodyToMono(String.class)
-        .map(this::extractFullContent)
-        .filter(s -> !s.isBlank())
-        .onErrorResume(e -> Mono.empty());
+    if (apiKey == null || apiKey.isBlank()) return Mono.empty();
+    return Mono.fromCallable(
+            () ->
+                chatModel.call(
+                    new Prompt(
+                        messages(system, history, user, List.of()),
+                        OpenAiChatOptions.builder().temperature(0.0).build())))
+        .map(this::textOf)
+        .filter(text -> text != null && !text.isBlank())
+        .onErrorResume(error -> Mono.empty());
   }
 
-  private String extractFullContent(String raw) {
-    try {
-      int marker = raw.indexOf("\"content\":");
-      if (marker < 0) return "";
-      int start = raw.indexOf('"', marker + 10);
-      if (start < 0) return "";
-      StringBuilder value = new StringBuilder();
-      boolean escaped = false;
-      for (int i = start + 1; i < raw.length(); i++) {
-        char current = raw.charAt(i);
-        if (escaped) {
-          value.append(switch (current) {
-            case 'n' -> '\n';
-            case 'r' -> '\r';
-            case 't' -> '\t';
-            default -> current;
-          });
-          escaped = false;
-        } else if (current == '\\') {
-          escaped = true;
-        } else if (current == '"') {
-          break;
-        } else {
-          value.append(current);
+  private List<Message> messages(
+      String system, List<Map<String, String>> history, String user, List<String> images) {
+    List<Message> messages = new ArrayList<>();
+    messages.add(new SystemMessage(system == null ? "" : system));
+    if (history != null) {
+      for (Map<String, String> item : history) {
+        String role = item.getOrDefault("role", "user");
+        String content = item.getOrDefault("content", "");
+        messages.add(
+            "assistant".equals(role) ? new AssistantMessage(content) : new UserMessage(content));
+      }
+    }
+    String prompt = user == null ? "" : user;
+    if (images == null || images.isEmpty()) {
+      messages.add(new UserMessage(prompt));
+    } else {
+      List<Media> media = new ArrayList<>();
+      for (String image : images) {
+        if (image == null || !image.startsWith("data:image/")) continue;
+        int separator = image.indexOf(';');
+        String mime = separator > 0 ? image.substring(5, separator) : "image/png";
+        try {
+          media.add(
+              Media.builder()
+                  .mimeType(MimeTypeUtils.parseMimeType(mime))
+                  .data(java.net.URI.create(image))
+                  .build());
+        } catch (IllegalArgumentException ignored) {
+          // Ignore malformed image data and keep the text prompt usable.
         }
       }
-      return value.toString();
-    } catch (Exception ignored) {
-      return "";
+      messages.add(
+          media.isEmpty()
+              ? new UserMessage(prompt)
+              : UserMessage.builder().text(prompt).media(media).build());
     }
+    return messages;
   }
 
-  private String extract(String raw) {
-    try {
-      int i = raw.indexOf("\"content\":\"");
-      if (i < 0) return "";
-      String s = raw.substring(i + 11);
-      int end = s.indexOf('"');
-      return s.substring(0, end).replace("\\n", "\n").replace("\\\"", "\"");
-    } catch (Exception e) {
+  private String safeMessage(Throwable error) {
+    return error.getMessage() == null || error.getMessage().isBlank()
+        ? error.getClass().getSimpleName()
+        : error.getMessage();
+  }
+
+  private String textOf(ChatResponse response) {
+    if (response == null
+        || response.getResult() == null
+        || response.getResult().getOutput() == null) {
       return "";
     }
+    String text = response.getResult().getOutput().getText();
+    return text == null ? "" : text;
   }
 }
