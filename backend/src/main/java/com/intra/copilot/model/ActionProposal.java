@@ -7,92 +7,92 @@ import java.util.UUID;
 
 @TableName("action_proposal")
 public class ActionProposal {
-  @TableId("action_id")
-  private String actionId = UUID.randomUUID().toString();
+    @TableId("action_id")
+    private String actionId = UUID.randomUUID().toString();
 
-  private String conversationId;
-  private String type;
-  private String target;
-  private String arguments;
-  private String reason;
-  private String risk;
-  private Instant expiresAt;
-  private String status = "PENDING";
-  private String result;
+    private String conversationId;
+    private String type;
+    private String target;
+    private String arguments;
+    private String reason;
+    private String risk;
+    private Instant expiresAt;
+    private String status = "PENDING";
+    private String result;
 
-  public String getActionId() {
-    return actionId;
-  }
+    public String getActionId() {
+        return actionId;
+    }
 
-  public String getConversationId() {
-    return conversationId;
-  }
+    public String getConversationId() {
+        return conversationId;
+    }
 
-  public void setConversationId(String v) {
-    conversationId = v;
-  }
+    public void setConversationId(String v) {
+        conversationId = v;
+    }
 
-  public String getType() {
-    return type;
-  }
+    public String getType() {
+        return type;
+    }
 
-  public void setType(String v) {
-    type = v;
-  }
+    public void setType(String v) {
+        type = v;
+    }
 
-  public String getTarget() {
-    return target;
-  }
+    public String getTarget() {
+        return target;
+    }
 
-  public void setTarget(String v) {
-    target = v;
-  }
+    public void setTarget(String v) {
+        target = v;
+    }
 
-  public String getArguments() {
-    return arguments;
-  }
+    public String getArguments() {
+        return arguments;
+    }
 
-  public void setArguments(String v) {
-    arguments = v;
-  }
+    public void setArguments(String v) {
+        arguments = v;
+    }
 
-  public String getReason() {
-    return reason;
-  }
+    public String getReason() {
+        return reason;
+    }
 
-  public void setReason(String v) {
-    reason = v;
-  }
+    public void setReason(String v) {
+        reason = v;
+    }
 
-  public String getRisk() {
-    return risk;
-  }
+    public String getRisk() {
+        return risk;
+    }
 
-  public void setRisk(String v) {
-    risk = v;
-  }
+    public void setRisk(String v) {
+        risk = v;
+    }
 
-  public Instant getExpiresAt() {
-    return expiresAt;
-  }
+    public Instant getExpiresAt() {
+        return expiresAt;
+    }
 
-  public void setExpiresAt(Instant v) {
-    expiresAt = v;
-  }
+    public void setExpiresAt(Instant v) {
+        expiresAt = v;
+    }
 
-  public String getStatus() {
-    return status;
-  }
+    public String getStatus() {
+        return status;
+    }
 
-  public void setStatus(String v) {
-    status = v;
-  }
+    public void setStatus(String v) {
+        status = v;
+    }
 
-  public String getResult() {
-    return result;
-  }
+    public String getResult() {
+        return result;
+    }
 
-  public void setResult(String v) {
-    result = v;
-  }
+    public void setResult(String v) {
+        result = v;
+    }
 }

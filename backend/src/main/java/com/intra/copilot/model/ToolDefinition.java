@@ -7,140 +7,140 @@ import java.util.UUID;
 
 @TableName("tool_definition")
 public class ToolDefinition {
-  @TableId private String id = UUID.randomUUID().toString();
-  private String name;
-  private String description;
-  private String type = "BROWSER_PROPOSAL";
-  private String method;
-  private String endpoint;
-  /**
-   * MCP server endpoint used when type is MCP. Credentials are referenced by environment variable
-   * name.
-   */
-  private String mcpServerUrl;
+    @TableId private String id = UUID.randomUUID().toString();
+    private String name;
+    private String description;
+    private String type = "BROWSER_PROPOSAL";
+    private String method;
+    private String endpoint;
+    /**
+     * MCP server endpoint used when type is MCP. Credentials are referenced by environment variable
+     * name.
+     */
+    private String mcpServerUrl;
 
-  private String mcpTransport = "STREAMABLE_HTTP";
-  private String mcpAuthEnv;
-  private String parameterSchema = "{}";
-  private String allowedDomains = "[]";
-  private Integer timeoutMs = 10000;
-  private boolean enabled = true;
-  private Instant createdAt = Instant.now();
-  private Instant updatedAt = Instant.now();
+    private String mcpTransport = "STREAMABLE_HTTP";
+    private String mcpAuthEnv;
+    private String parameterSchema = "{}";
+    private String allowedDomains = "[]";
+    private Integer timeoutMs = 10000;
+    private boolean enabled = true;
+    private Instant createdAt = Instant.now();
+    private Instant updatedAt = Instant.now();
 
-  public String getId() {
-    return id;
-  }
+    public String getId() {
+        return id;
+    }
 
-  public void setId(String id) {
-    this.id = id;
-  }
+    public void setId(String id) {
+        this.id = id;
+    }
 
-  public String getName() {
-    return name;
-  }
+    public String getName() {
+        return name;
+    }
 
-  public void setName(String value) {
-    name = value;
-  }
+    public void setName(String value) {
+        name = value;
+    }
 
-  public String getDescription() {
-    return description;
-  }
+    public String getDescription() {
+        return description;
+    }
 
-  public void setDescription(String value) {
-    description = value;
-  }
+    public void setDescription(String value) {
+        description = value;
+    }
 
-  public String getType() {
-    return type;
-  }
+    public String getType() {
+        return type;
+    }
 
-  public void setType(String value) {
-    type = value;
-  }
+    public void setType(String value) {
+        type = value;
+    }
 
-  public String getMethod() {
-    return method;
-  }
+    public String getMethod() {
+        return method;
+    }
 
-  public void setMethod(String value) {
-    method = value;
-  }
+    public void setMethod(String value) {
+        method = value;
+    }
 
-  public String getEndpoint() {
-    return endpoint;
-  }
+    public String getEndpoint() {
+        return endpoint;
+    }
 
-  public void setEndpoint(String value) {
-    endpoint = value;
-  }
+    public void setEndpoint(String value) {
+        endpoint = value;
+    }
 
-  public String getMcpServerUrl() {
-    return mcpServerUrl;
-  }
+    public String getMcpServerUrl() {
+        return mcpServerUrl;
+    }
 
-  public void setMcpServerUrl(String value) {
-    mcpServerUrl = value;
-  }
+    public void setMcpServerUrl(String value) {
+        mcpServerUrl = value;
+    }
 
-  public String getMcpTransport() {
-    return mcpTransport;
-  }
+    public String getMcpTransport() {
+        return mcpTransport;
+    }
 
-  public void setMcpTransport(String value) {
-    mcpTransport = value;
-  }
+    public void setMcpTransport(String value) {
+        mcpTransport = value;
+    }
 
-  public String getMcpAuthEnv() {
-    return mcpAuthEnv;
-  }
+    public String getMcpAuthEnv() {
+        return mcpAuthEnv;
+    }
 
-  public void setMcpAuthEnv(String value) {
-    mcpAuthEnv = value;
-  }
+    public void setMcpAuthEnv(String value) {
+        mcpAuthEnv = value;
+    }
 
-  public String getParameterSchema() {
-    return parameterSchema;
-  }
+    public String getParameterSchema() {
+        return parameterSchema;
+    }
 
-  public void setParameterSchema(String value) {
-    parameterSchema = value;
-  }
+    public void setParameterSchema(String value) {
+        parameterSchema = value;
+    }
 
-  public String getAllowedDomains() {
-    return allowedDomains;
-  }
+    public String getAllowedDomains() {
+        return allowedDomains;
+    }
 
-  public void setAllowedDomains(String value) {
-    allowedDomains = value;
-  }
+    public void setAllowedDomains(String value) {
+        allowedDomains = value;
+    }
 
-  public Integer getTimeoutMs() {
-    return timeoutMs;
-  }
+    public Integer getTimeoutMs() {
+        return timeoutMs;
+    }
 
-  public void setTimeoutMs(Integer value) {
-    timeoutMs = value;
-  }
+    public void setTimeoutMs(Integer value) {
+        timeoutMs = value;
+    }
 
-  public boolean isEnabled() {
-    return enabled;
-  }
+    public boolean isEnabled() {
+        return enabled;
+    }
 
-  public void setEnabled(boolean value) {
-    enabled = value;
-  }
+    public void setEnabled(boolean value) {
+        enabled = value;
+    }
 
-  public Instant getCreatedAt() {
-    return createdAt;
-  }
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 
-  public Instant getUpdatedAt() {
-    return updatedAt;
-  }
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
 
-  public void touch() {
-    updatedAt = Instant.now();
-  }
+    public void touch() {
+        updatedAt = Instant.now();
+    }
 }

@@ -8,17 +8,17 @@ import org.apache.ibatis.annotations.Mapper;
 
 @Mapper
 public interface HookDefinitionRepository extends BaseMapper<HookDefinition> {
-  default HookDefinition save(HookDefinition value) {
-    if (selectById(value.getId()) == null) insert(value);
-    else updateById(value);
-    return value;
-  }
+    default HookDefinition save(HookDefinition value) {
+        if (selectById(value.getId()) == null) insert(value);
+        else updateById(value);
+        return value;
+    }
 
-  default Optional<HookDefinition> findById(String id) {
-    return Optional.ofNullable(selectById(id));
-  }
+    default Optional<HookDefinition> findById(String id) {
+        return Optional.ofNullable(selectById(id));
+    }
 
-  default List<HookDefinition> findAll() {
-    return selectList(null);
-  }
+    default List<HookDefinition> findAll() {
+        return selectList(null);
+    }
 }

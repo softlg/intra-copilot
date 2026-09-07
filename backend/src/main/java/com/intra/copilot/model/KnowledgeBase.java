@@ -7,56 +7,56 @@ import java.util.UUID;
 
 @TableName("knowledge_base")
 public class KnowledgeBase {
-  @TableId private String id = UUID.randomUUID().toString();
-  private String name;
-  private String description;
-  private boolean enabled = true;
-  private Instant createdAt = Instant.now();
-  private Instant updatedAt = Instant.now();
+    @TableId private String id = UUID.randomUUID().toString();
+    private String name;
+    private String description;
+    private boolean enabled = true;
+    private Instant createdAt = Instant.now();
+    private Instant updatedAt = Instant.now();
 
-  public KnowledgeBase() {}
+    public KnowledgeBase() {}
 
-  public String getId() {
-    return id;
-  }
+    public String getId() {
+        return id;
+    }
 
-  public void setId(String id) {
-    this.id = id;
-  }
+    public void setId(String id) {
+        this.id = id;
+    }
 
-  public String getName() {
-    return name;
-  }
+    public String getName() {
+        return name;
+    }
 
-  public void setName(String name) {
-    this.name = name;
-  }
+    public void setName(String name) {
+        this.name = name;
+    }
 
-  public String getDescription() {
-    return description;
-  }
+    public String getDescription() {
+        return description;
+    }
 
-  public void setDescription(String description) {
-    this.description = description;
-  }
+    public void setDescription(String description) {
+        this.description = description;
+    }
 
-  public boolean isEnabled() {
-    return enabled;
-  }
+    public boolean isEnabled() {
+        return enabled;
+    }
 
-  public void setEnabled(boolean enabled) {
-    this.enabled = enabled;
-  }
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
 
-  public Instant getCreatedAt() {
-    return createdAt;
-  }
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 
-  public Instant getUpdatedAt() {
-    return updatedAt;
-  }
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
 
-  public void touch() {
-    updatedAt = Instant.now();
-  }
+    public void touch() {
+        updatedAt = Instant.now();
+    }
 }
