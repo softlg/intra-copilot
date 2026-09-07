@@ -1,6 +1,16 @@
 * {
   box-sizing: border-box;
 }
+html {
+  height: 100%;
+  overflow: hidden;
+}
+#root {
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
 :root {
   --page-bg: #f8fafc;
   --surface: #ffffff;
@@ -44,6 +54,9 @@
 }
 body {
   margin: 0;
+  height: 100%;
+  min-height: 100vh;
+  overflow: hidden;
   background: var(--page-bg);
   color: var(--text);
   font-family:
@@ -55,10 +68,13 @@ body {
 }
 .app {
   height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 header {
+  flex: 0 0 auto;
   padding: 16px 18px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -150,12 +166,16 @@ small {
   opacity: 0.5;
 }
 .session-tabs {
+  flex: 0 0 auto;
   display: flex;
   gap: 6px;
   overflow-x: auto;
   padding: 8px 14px 0;
   background: var(--surface);
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+.session-tabs::-webkit-scrollbar {
+  display: none;
 }
 .session-tab {
   flex: 0 0 auto;
@@ -190,10 +210,23 @@ small {
   font-size: 12px;
   outline: none;
 }
+.content-area {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
 main {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 16px;
+  overscroll-behavior: contain;
+}
+.content-area > .error {
+  flex: 0 0 auto;
 }
 .empty {
   color: var(--muted);
@@ -252,11 +285,11 @@ main {
   background: var(--border);
 }
 .bubble {
-  max-width: min(92%, 620px);
-  padding: 12px 15px;
-  border-radius: 4px 15px 15px 15px;
+  max-width: min(100%, 720px);
+  padding: 13px 16px;
+  border-radius: 5px 16px 16px 16px;
   white-space: pre-wrap;
-  line-height: 1.6;
+  line-height: 1.65;
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: 0 3px 12px #0f172a0d;
@@ -277,7 +310,7 @@ main {
   box-shadow: 0 5px 16px #0f172a14;
 }
 .user .bubble {
-  border-radius: 15px 4px 15px 15px;
+  border-radius: 16px 5px 16px 16px;
   background: #2563eb;
   color: white;
   border-color: #2563eb;
@@ -305,11 +338,13 @@ main {
   object-fit: contain;
 }
 .assistant-content {
+  min-width: 0;
   font-size: 13px;
+  line-height: 1.75;
   overflow-wrap: anywhere;
 }
 .assistant-content p {
-  margin: 0 0 9px;
+  margin: 0 0 11px;
 }
 .assistant-content p:last-child {
   margin-bottom: 0;
@@ -317,12 +352,19 @@ main {
 .assistant-content h1,
 .assistant-content h2,
 .assistant-content h3 {
-  margin: 0 0 9px;
+  margin: 17px 0 9px;
   color: var(--text);
   line-height: 1.4;
 }
+.assistant-content h1:first-child,
+.assistant-content h2:first-child,
+.assistant-content h3:first-child {
+  margin-top: 0;
+}
 .assistant-content h1 {
-  font-size: 16px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--assistant-border);
+  font-size: 17px;
 }
 .assistant-content h2 {
   font-size: 15px;
@@ -336,13 +378,41 @@ main {
   padding-left: 20px;
 }
 .assistant-content li {
-  margin: 4px 0;
+  margin: 5px 0;
 }
 .assistant-content blockquote {
-  margin: 0 0 10px;
-  padding: 4px 0 4px 12px;
+  margin: 10px 0 12px;
+  padding: 8px 12px;
   border-left: 3px solid var(--assistant-border);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--assistant-border) 22%, transparent);
   color: var(--muted);
+}
+.assistant-content hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--assistant-border);
+}
+.assistant-content a {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.assistant-content a:hover {
+  color: #1d4ed8;
+}
+.assistant-content .markdown-image {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  margin: 10px 0 12px;
+  border: 1px solid var(--assistant-border);
+  border-radius: 8px;
+  object-fit: contain;
+}
+.assistant-content strong {
+  color: var(--text);
+  font-weight: 700;
 }
 .assistant-content p code,
 .assistant-content li code {
@@ -350,17 +420,51 @@ main {
   border: 1px solid var(--assistant-border);
   border-radius: 4px;
   background: var(--page-bg);
-  color: #c2410c;
+  color: #b45309;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 0.9em;
 }
 .code-block {
+  width: 100%;
   min-width: 0;
   margin: 10px 0 12px;
   overflow: hidden;
   border: 1px solid var(--code-border);
   border-radius: 8px;
   background: var(--code-bg);
+}
+.markdown-table-wrap {
+  max-width: 100%;
+  margin: 10px 0 13px;
+  overflow-x: auto;
+  border: 1px solid var(--assistant-border);
+  border-radius: 8px;
+}
+.assistant-content table {
+  width: 100%;
+  min-width: 360px;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: normal;
+}
+.assistant-content th,
+.assistant-content td {
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--assistant-border);
+  text-align: left;
+  vertical-align: top;
+}
+.assistant-content th {
+  background: var(--page-bg);
+  color: var(--text);
+  font-weight: 650;
+}
+.assistant-content tr:last-child td {
+  border-bottom: 0;
+}
+.assistant-content input[type="checkbox"] {
+  margin-right: 6px;
+  accent-color: #2563eb;
 }
 .code-toolbar {
   display: flex;
@@ -445,7 +549,7 @@ main {
   gap: 2px;
   margin-top: 4px;
   padding-left: 4px;
-  opacity: 0;
+  opacity: 0.72;
   transition: opacity 0.15s ease;
 }
 .msg.assistant:hover .message-actions,
@@ -520,6 +624,12 @@ main {
   outline: none;
 }
 footer {
+  min-width: 0;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 5;
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
   padding: 12px 14px;
   background: var(--surface);
   border-top: 1px solid var(--border);
@@ -702,15 +812,34 @@ footer {
   pointer-events: none;
 }
 textarea {
-  flex: 1;
+  display: block;
+  width: 100%;
+  overflow-y: auto;
   resize: none;
   height: 44px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 10px;
+  padding: 9px 10px 19px;
   background: var(--control-bg);
   color: var(--text);
   font: inherit;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+textarea::-webkit-scrollbar {
+  width: 6px;
+}
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+textarea::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--border);
+}
+.composer-input-shell {
+  position: relative;
+  flex: 1;
+  min-width: 0;
 }
 .send-button {
   width: 58px;
@@ -734,14 +863,6 @@ textarea {
 }
 .send-button:disabled {
   opacity: 0.5;
-}
-.composer-hint {
-  margin: 4px 2px 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.3;
-  text-align: right;
-  user-select: none;
 }
 .composer-tools {
   position: relative;

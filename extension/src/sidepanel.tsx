@@ -81,7 +81,6 @@ const translations = {
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
     inputPlaceholder: "描述问题或输入你的需求…",
-    shiftEnterHint: "按 Shift+Enter 换行",
     chatInput: "聊天输入框",
     send: "发送",
     stop: "停止生成",
@@ -113,6 +112,7 @@ const translations = {
     closeImagePreview: "关闭图片预览",
     like: "有帮助",
     dislike: "没帮助",
+    feedbackReasonPrompt: "请简要说明这条回答哪里需要改进（可取消）",
     copyMessage: "复制回答",
     copyCode: "复制代码",
     copied: "已复制",
@@ -180,7 +180,6 @@ const translations = {
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
     inputPlaceholder: "Describe the problem or enter your request…",
-    shiftEnterHint: "Press Shift+Enter for a new line",
     chatInput: "Chat input",
     send: "Send",
     stop: "Stop generating",
@@ -216,6 +215,7 @@ const translations = {
     closeImagePreview: "Close image preview",
     like: "Helpful",
     dislike: "Not helpful",
+    feedbackReasonPrompt: "What should be improved in this answer? (optional)",
     copyMessage: "Copy answer",
     copyCode: "Copy code",
     copied: "Copied",
@@ -260,6 +260,27 @@ function getRenderedText(value: React.ReactNode): string {
     return getRenderedText(value.props.children);
   }
   return "";
+}
+
+/**
+ * Models occasionally omit the space/newline that Markdown requires for a
+ * heading (for example `###标题` or `... ###下一步`).  Normalise only the
+ * prose portions, leaving fenced code untouched, so streamed responses remain
+ * readable without changing the actual message text copied by the user.
+ */
+function normalizeAssistantMarkdown(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .split("```")
+    .map((part, index) => {
+      if (index % 2 === 1) return part;
+      return part
+        .replace(/(^|\n)([ \t]*#{1,6})(?=\S)/g, "$1$2 ")
+        .replace(/([^\n])\s+(#{1,6})(?=\S)/g, "$1\n$2 ")
+        .replace(/([。！？.!?])\s+(?=(?:\d+\.|[-*•])\s*)/g, "$1\n")
+        .replace(/([^\n])\s+(?=\|[^\n]+\|\s*\n)/g, "$1\n");
+    })
+    .join("```");
 }
 
 function AssistantMarkdown({
@@ -317,9 +338,34 @@ function AssistantMarkdown({
             </div>
           );
         },
+        a({ href, children, ...props }) {
+          return (
+            <a href={href} target="_blank" rel="noreferrer" {...props}>
+              {children}
+            </a>
+          );
+        },
+        table({ children }) {
+          return (
+            <div className="markdown-table-wrap">
+              <table>{children}</table>
+            </div>
+          );
+        },
+        img({ src, alt }) {
+          if (!src || !/^https?:\/\//i.test(src)) return null;
+          return (
+            <img
+              className="markdown-image"
+              src={src}
+              alt={alt ?? ""}
+              loading="lazy"
+            />
+          );
+        },
       }}
     >
-      {content}
+      {normalizeAssistantMarkdown(content)}
     </ReactMarkdown>
   );
 }
@@ -534,6 +580,8 @@ function App() {
   }
 
   function saveFeedback(index: number, feedback: Feedback) {
+    const comment =
+      feedback === "down" ? window.prompt(t.feedbackReasonPrompt) || "" : "";
     setMessageFeedback((current) => ({ ...current, [index]: feedback }));
     if (!session?.id) return;
     chrome.storage.local.get(["messageFeedback"], (value) => {
@@ -548,6 +596,9 @@ function App() {
       });
     });
     const target = msgs[index];
+    const userMessage =
+      [...msgs.slice(0, index)].reverse().find((item) => item.role === "user")
+        ?.content || "";
     fetch(API + "/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -557,6 +608,9 @@ function App() {
         messageIndex: index,
         agentId: target?.agentId,
         rating: feedback,
+        comment,
+        messageContent: target?.content || "",
+        userMessage,
       }),
     }).catch(() => undefined);
   }
@@ -1289,125 +1343,146 @@ function App() {
           })(),
         )}
       </nav>
-      <main>
-        {msgs.length === 0 && <div className="empty">{t.empty}</div>}
-        {msgs.map((message, index) => {
-          const assistant = message.role === "assistant";
-          return (
-            <div key={index} className={"msg " + message.role}>
-              <div
-                className={"role " + (assistant ? "assistant-avatar" : "")}
-                aria-label={assistant ? t.assistant : t.you}
-                title={assistant ? t.assistant : t.you}
-              >
-                {assistant ? (
-                  <>
-                    <span aria-hidden="true">◆</span>
-                    <span className="sr-only">{t.assistant}</span>
-                  </>
-                ) : (
-                  t.you
-                )}
-              </div>
-              <div className="message-stack">
-                <div className="bubble">
-                  {!assistant && message.imageData?.length ? (
-                    <div className="message-images">
-                      {message.imageData.map((image, imageIndex) => (
-                        <button
-                          type="button"
-                          className="message-image-button"
-                          key={`${index}-${imageIndex}`}
-                          onClick={() => setPreviewImage(image)}
-                          title={t.imagePreview}
-                          aria-label={t.imagePreview}
-                        >
-                          <img src={image} alt={t.imageOnly} />
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
+      <div className="content-area">
+        <main>
+          {msgs.length === 0 && <div className="empty">{t.empty}</div>}
+          {msgs.map((message, index) => {
+            const assistant = message.role === "assistant";
+            return (
+              <div key={index} className={"msg " + message.role}>
+                <div
+                  className={"role " + (assistant ? "assistant-avatar" : "")}
+                  aria-label={assistant ? t.assistant : t.you}
+                  title={assistant ? t.assistant : t.you}
+                >
                   {assistant ? (
-                    message.content ? (
-                      <div className="assistant-content">
-                        <AssistantMarkdown
-                          content={message.content}
-                          messageIndex={index}
-                          copiedCode={copiedCode}
-                          onCopyCode={copyCode}
-                          copyCodeLabel={t.copyCode}
-                          copiedLabel={t.copied}
-                        />
-                      </div>
-                    ) : (
-                      <span className="thinking-indicator">{t.thinking}</span>
-                    )
+                    <>
+                      <span aria-hidden="true">◆</span>
+                      <span className="sr-only">{t.assistant}</span>
+                    </>
                   ) : (
-                    message.content ||
-                    (message.imageData?.length ? t.imageOnly : t.thinking)
+                    t.you
                   )}
                 </div>
-                {!assistant &&
-                  index < msgs.length - 1 &&
-                  msgs[index + 1]?.role === "assistant" &&
-                  msgs[index + 1]?.stopped && (
-                    <div className="message-actions user-message-actions">
+                <div className="message-stack">
+                  <div className="bubble">
+                    {!assistant && message.imageData?.length ? (
+                      <div className="message-images">
+                        {message.imageData.map((image, imageIndex) => (
+                          <button
+                            type="button"
+                            className="message-image-button"
+                            key={`${index}-${imageIndex}`}
+                            onClick={() => setPreviewImage(image)}
+                            title={t.imagePreview}
+                            aria-label={t.imagePreview}
+                          >
+                            <img src={image} alt={t.imageOnly} />
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    {assistant ? (
+                      message.content ? (
+                        <div className="assistant-content">
+                          <AssistantMarkdown
+                            content={message.content}
+                            messageIndex={index}
+                            copiedCode={copiedCode}
+                            onCopyCode={copyCode}
+                            copyCodeLabel={t.copyCode}
+                            copiedLabel={t.copied}
+                          />
+                        </div>
+                      ) : (
+                        <span className="thinking-indicator">{t.thinking}</span>
+                      )
+                    ) : (
+                      message.content ||
+                      (message.imageData?.length ? t.imageOnly : t.thinking)
+                    )}
+                  </div>
+                  {!assistant &&
+                    index < msgs.length - 1 &&
+                    msgs[index + 1]?.role === "assistant" &&
+                    msgs[index + 1]?.stopped && (
+                      <div className="message-actions user-message-actions">
+                        <button
+                          type="button"
+                          className="message-action edit-resend-action"
+                          onClick={() => editAndResend(message, index)}
+                          title={t.editResend}
+                          aria-label={t.editResend}
+                        >
+                          ↻ {t.editResend}
+                        </button>
+                      </div>
+                    )}
+                  {assistant && message.content && (
+                    <div
+                      className="message-actions"
+                      aria-label="Message actions"
+                    >
                       <button
                         type="button"
-                        className="message-action edit-resend-action"
-                        onClick={() => editAndResend(message, index)}
-                        title={t.editResend}
-                        aria-label={t.editResend}
+                        className={
+                          "message-action " +
+                          (messageFeedback[index] === "up" ? "selected" : "")
+                        }
+                        onClick={() => saveFeedback(index, "up")}
+                        title={t.like}
+                        aria-label={t.like}
                       >
-                        ↻ {t.editResend}
+                        ♡
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          "message-action " +
+                          (messageFeedback[index] === "down" ? "selected" : "")
+                        }
+                        onClick={() => saveFeedback(index, "down")}
+                        title={t.dislike}
+                        aria-label={t.dislike}
+                      >
+                        ♧
+                      </button>
+                      <button
+                        type="button"
+                        className="message-action"
+                        onClick={() => copyMessage(message.content, index)}
+                        title={
+                          copiedMessage === index ? t.copied : t.copyMessage
+                        }
+                        aria-label={
+                          copiedMessage === index ? t.copied : t.copyMessage
+                        }
+                      >
+                        {copiedMessage === index ? "✓" : "⧉"}
                       </button>
                     </div>
                   )}
-                {assistant && message.content && (
-                  <div className="message-actions" aria-label="Message actions">
-                    <button
-                      type="button"
-                      className={
-                        "message-action " +
-                        (messageFeedback[index] === "up" ? "selected" : "")
-                      }
-                      onClick={() => saveFeedback(index, "up")}
-                      title={t.like}
-                      aria-label={t.like}
-                    >
-                      ♡
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        "message-action " +
-                        (messageFeedback[index] === "down" ? "selected" : "")
-                      }
-                      onClick={() => saveFeedback(index, "down")}
-                      title={t.dislike}
-                      aria-label={t.dislike}
-                    >
-                      ♧
-                    </button>
-                    <button
-                      type="button"
-                      className="message-action"
-                      onClick={() => copyMessage(message.content, index)}
-                      title={copiedMessage === index ? t.copied : t.copyMessage}
-                      aria-label={
-                        copiedMessage === index ? t.copied : t.copyMessage
-                      }
-                    >
-                      {copiedMessage === index ? "✓" : "⧉"}
-                    </button>
-                  </div>
-                )}
+                </div>
               </div>
-            </div>
-          );
-        })}
-        <div ref={end} />
-      </main>
+            );
+          })}
+          <div ref={end} />
+        </main>
+        {error && (
+          <div className="error" role="alert">
+            <span className="error-message">{error}</span>
+            <button
+              type="button"
+              className="error-dismiss"
+              onClick={() => setError("")}
+              title={t.dismissError}
+              aria-label={t.dismissError}
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </div>
       {historyOpen && (
         <div className="history-overlay" onClick={() => setHistoryOpen(false)}>
           <aside
@@ -1556,20 +1631,6 @@ function App() {
           </aside>
         </div>
       )}
-      {error && (
-        <div className="error" role="alert">
-          <span className="error-message">{error}</span>
-          <button
-            type="button"
-            className="error-dismiss"
-            onClick={() => setError("")}
-            title={t.dismissError}
-            aria-label={t.dismissError}
-          >
-            ×
-          </button>
-        </div>
-      )}
       <footer>
         <div className="composer" ref={composerRef}>
           <div className="composer-row">
@@ -1628,20 +1689,26 @@ function App() {
                 )}
               </div>
             )}
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onPaste={onInputPaste}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
-                  event.preventDefault();
-                  send();
-                }
-              }}
-              placeholder={t.inputPlaceholder}
-              aria-label={t.chatInput}
-            />
+            <div className="composer-input-shell">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onPaste={onInputPaste}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder={t.inputPlaceholder}
+                aria-label={t.chatInput}
+              />
+            </div>
             <button
               className={"send-button" + (busy ? " stop-button" : "")}
               onClick={busy ? stopGeneration : send}
@@ -1651,7 +1718,6 @@ function App() {
               {busy ? "■" : t.send}
             </button>
           </div>
-          <div className="composer-hint">{t.shiftEnterHint}</div>
           <div className="composer-tools" ref={composerToolsRef}>
             <button
               className="tool-button"
