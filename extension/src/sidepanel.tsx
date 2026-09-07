@@ -10,7 +10,14 @@ type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
 type Feedback = "up" | "down";
-type Msg = { role: string; content: string; id?: string; agentId?: string };
+type Msg = {
+  role: string;
+  content: string;
+  id?: string;
+  agentId?: string;
+  imageData?: string[];
+  stopped?: boolean;
+};
 type PageInfoKey = "url" | "title" | "selection" | "visibleText" | "domSummary";
 const PAGE_INFO_KEYS: PageInfoKey[] = [
   "url",
@@ -74,6 +81,7 @@ const translations = {
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
     inputPlaceholder: "描述问题或输入你的需求…",
+    shiftEnterHint: "按 Shift+Enter 换行",
     chatInput: "聊天输入框",
     send: "发送",
     stop: "停止生成",
@@ -109,6 +117,8 @@ const translations = {
     copyCode: "复制代码",
     copied: "已复制",
     copyFailed: "复制失败，请手动选择文本复制。",
+    editResend: "重新编辑并发送",
+    imageOnly: "图片",
     pagePermission: "页面权限",
     readPage: "允许读取当前页面上下文",
     permissionNote: "写入页面的操作仍会逐项请求确认。",
@@ -170,6 +180,7 @@ const translations = {
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
     inputPlaceholder: "Describe the problem or enter your request…",
+    shiftEnterHint: "Press Shift+Enter for a new line",
     chatInput: "Chat input",
     send: "Send",
     stop: "Stop generating",
@@ -209,6 +220,8 @@ const translations = {
     copyCode: "Copy code",
     copied: "Copied",
     copyFailed: "Copy failed. Please select and copy the text manually.",
+    editResend: "Edit and resend",
+    imageOnly: "Image",
     pagePermission: "Page permissions",
     readPage: "Allow reading the current page context",
     permissionNote:
@@ -247,6 +260,27 @@ function getRenderedText(value: React.ReactNode): string {
     return getRenderedText(value.props.children);
   }
   return "";
+}
+
+/**
+ * Models occasionally omit the space/newline that Markdown requires for a
+ * heading (for example `###标题` or `... ###下一步`).  Normalise only the
+ * prose portions, leaving fenced code untouched, so streamed responses remain
+ * readable without changing the actual message text copied by the user.
+ */
+function normalizeAssistantMarkdown(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .split("```")
+    .map((part, index) => {
+      if (index % 2 === 1) return part;
+      return part
+        .replace(/(^|\n)([ \t]*#{1,6})(?=\S)/g, "$1$2 ")
+        .replace(/([^\n])\s+(#{1,6})(?=\S)/g, "$1\n$2 ")
+        .replace(/([。！？.!?])\s+(?=(?:\d+\.|[-*•])\s*)/g, "$1\n")
+        .replace(/([^\n])\s+(?=\|[^\n]+\|\s*\n)/g, "$1\n");
+    })
+    .join("```");
 }
 
 function AssistantMarkdown({
@@ -304,9 +338,34 @@ function AssistantMarkdown({
             </div>
           );
         },
+        a({ href, children, ...props }) {
+          return (
+            <a href={href} target="_blank" rel="noreferrer" {...props}>
+              {children}
+            </a>
+          );
+        },
+        table({ children }) {
+          return (
+            <div className="markdown-table-wrap">
+              <table>{children}</table>
+            </div>
+          );
+        },
+        img({ src, alt }) {
+          if (!src || !/^https?:\/\//i.test(src)) return null;
+          return (
+            <img
+              className="markdown-image"
+              src={src}
+              alt={alt ?? ""}
+              loading="lazy"
+            />
+          );
+        },
       }}
     >
-      {content}
+      {normalizeAssistantMarkdown(content)}
     </ReactMarkdown>
   );
 }
@@ -367,6 +426,7 @@ function App() {
   const [editingSessionId, setEditingSessionId] = useState<string>();
   const [editingTitle, setEditingTitle] = useState("");
   const composerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerToolsRef = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -892,22 +952,89 @@ function App() {
       next[index] = {
         ...last,
         content: last.content ? `${last.content}\n\n${t.stopped}` : t.stopped,
+        stopped: true,
       };
       return next;
     });
   }
 
+  async function dataUrlFromObjectUrl(url: string): Promise<string> {
+    if (url.startsWith("data:")) return url;
+    const blob = await fetch(url).then((response) => {
+      if (!response.ok) throw Error("图片读取失败");
+      return response.blob();
+    });
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error || Error("图片读取失败"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function restoreImageAttachments(images: string[]) {
+    const restored = await Promise.all(
+      images.map(async (data, index) => {
+        const blob = await fetch(data).then((response) => response.blob());
+        return {
+          name: `image-${index + 1}.png`,
+          size: blob.size,
+          type: blob.type || "image/png",
+          url: URL.createObjectURL(blob),
+        };
+      }),
+    );
+    setAttachments(restored);
+  }
+
+  async function editAndResend(message: Msg, messageIndex: number) {
+    if (busy) return;
+    setInput(message.content.replace(new RegExp(`\\n\\n${t.stopped}$`), ""));
+    setScreenshot(undefined);
+    setAttachments([]);
+    setMsgs((items) => items.slice(0, messageIndex));
+    if (message.imageData?.length) {
+      try {
+        await restoreImageAttachments(message.imageData);
+      } catch {
+        setError(t.copyFailed);
+      }
+    }
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }
+
   async function send() {
-    if (!input.trim() || busy || !session) return;
+    if (
+      (!input.trim() && !attachments.length && !screenshot) ||
+      busy ||
+      !session
+    )
+      return;
     const controller = new AbortController();
     abortControllerRef.current = controller;
     const text = input.trim();
+    const pendingAttachments = attachments;
+    const pendingScreenshot = screenshot;
+    let imageData: string[] = [];
+    try {
+      imageData = await Promise.all([
+        ...pendingAttachments
+          .filter((attachment) => attachment.type.startsWith("image/"))
+          .map((attachment) => dataUrlFromObjectUrl(attachment.url)),
+        ...(pendingScreenshot ? [dataUrlFromObjectUrl(pendingScreenshot)] : []),
+      ]);
+    } catch {
+      setError(t.copyFailed);
+      return;
+    }
     setInput("");
+    setAttachments([]);
+    setScreenshot(undefined);
     setBusy(true);
     setError("");
     setMsgs((items) => [
       ...items,
-      { role: "user", content: text },
+      { role: "user", content: text, imageData },
       { role: "assistant", content: "" },
     ]);
 
@@ -963,6 +1090,7 @@ function App() {
         body: JSON.stringify({
           sessionId: session.id,
           message: text,
+          images: imageData,
           agentId: null,
           pageContext,
           permissions: {
@@ -1229,6 +1357,22 @@ function App() {
               </div>
               <div className="message-stack">
                 <div className="bubble">
+                  {!assistant && message.imageData?.length ? (
+                    <div className="message-images">
+                      {message.imageData.map((image, imageIndex) => (
+                        <button
+                          type="button"
+                          className="message-image-button"
+                          key={`${index}-${imageIndex}`}
+                          onClick={() => setPreviewImage(image)}
+                          title={t.imagePreview}
+                          aria-label={t.imagePreview}
+                        >
+                          <img src={image} alt={t.imageOnly} />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   {assistant ? (
                     message.content ? (
                       <div className="assistant-content">
@@ -1245,9 +1389,26 @@ function App() {
                       <span className="thinking-indicator">{t.thinking}</span>
                     )
                   ) : (
-                    message.content || t.thinking
+                    message.content ||
+                    (message.imageData?.length ? t.imageOnly : t.thinking)
                   )}
                 </div>
+                {!assistant &&
+                  index < msgs.length - 1 &&
+                  msgs[index + 1]?.role === "assistant" &&
+                  msgs[index + 1]?.stopped && (
+                    <div className="message-actions user-message-actions">
+                      <button
+                        type="button"
+                        className="message-action edit-resend-action"
+                        onClick={() => editAndResend(message, index)}
+                        title={t.editResend}
+                        aria-label={t.editResend}
+                      >
+                        ↻ {t.editResend}
+                      </button>
+                    </div>
+                  )}
                 {assistant && message.content && (
                   <div className="message-actions" aria-label="Message actions">
                     <button
@@ -1514,6 +1675,7 @@ function App() {
               </div>
             )}
             <textarea
+              ref={textareaRef}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onPaste={onInputPaste}
@@ -1535,6 +1697,7 @@ function App() {
               {busy ? "■" : t.send}
             </button>
           </div>
+          <div className="composer-hint">{t.shiftEnterHint}</div>
           <div className="composer-tools" ref={composerToolsRef}>
             <button
               className="tool-button"
