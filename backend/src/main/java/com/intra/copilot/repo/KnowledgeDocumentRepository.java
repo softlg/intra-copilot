@@ -12,4 +12,7 @@ public interface KnowledgeDocumentRepository extends BaseMapper<KnowledgeDocumen
   default KnowledgeDocument save(KnowledgeDocument value) { if (selectById(value.getId()) == null) insert(value); else updateById(value); return value; }
   default Optional<KnowledgeDocument> findById(String id) { return Optional.ofNullable(selectById(id)); }
   default List<KnowledgeDocument> findAllByKnowledgeBaseIdOrderByCreatedAtDesc(String knowledgeBaseId) { return selectList(Wrappers.<KnowledgeDocument>query().eq("knowledge_base_id", knowledgeBaseId).orderByDesc("created_at")); }
+  default Optional<KnowledgeDocument> findByKnowledgeBaseIdAndFileHash(String knowledgeBaseId, String fileHash) {
+    return Optional.ofNullable(selectOne(Wrappers.<KnowledgeDocument>query().eq("knowledge_base_id", knowledgeBaseId).eq("file_hash", fileHash).last("LIMIT 1")));
+  }
 }
