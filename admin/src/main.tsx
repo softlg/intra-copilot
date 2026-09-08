@@ -45,6 +45,12 @@ const translations = {
     mcpSaveFailed: "保存 MCP 服务失败，请稍后重试",
     mcpDeleteConfirm: (name: string) => `确定删除 MCP 服务“${name}”吗？`,
     mcpDeleted: (name: string) => `MCP 服务“${name}”已删除`,
+    mcpErrorDetail: "错误详情",
+    mcpErrorHint: "完整错误信息，可用于排查问题。点击复制或重新检查。",
+    mcpErrorTooltip: "点击查看完整错误信息",
+    copied: "已复制到剪贴板",
+    copyFailed: "复制失败，请手动选择",
+    copy: "复制",
     confirmDeleteTitle: "确认删除",
     cancelLabel: "取消",
     deleteAgentEnabled: "该 Agent 处于启用状态，请先停用后再删除",
@@ -401,6 +407,13 @@ const translations = {
     mcpSaveFailed: "Failed to save the MCP service. Please try again.",
     mcpDeleteConfirm: (name: string) => `Delete MCP service “${name}”?`,
     mcpDeleted: (name: string) => `MCP service “${name}” deleted`,
+    mcpErrorDetail: "Error details",
+    mcpErrorHint:
+      "Full error output. Copy to share or retry the health check below.",
+    mcpErrorTooltip: "Click to view the full error",
+    copied: "Copied to clipboard",
+    copyFailed: "Copy failed. Select the text manually.",
+    copy: "Copy",
     confirmDeleteTitle: "Confirm delete",
     cancelLabel: "Cancel",
     deleteAgentEnabled: "This agent is enabled. Stop it before deleting.",
@@ -1110,6 +1123,7 @@ function App() {
   const [mcpSubmitting, setMcpSubmitting] = useState(false);
   const [mcpActionId, setMcpActionId] = useState<string>();
   const [mcpDetails, setMcpDetails] = useState<McpServer>();
+  const [mcpErrorDetail, setMcpErrorDetail] = useState<McpServer | null>(null);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [hooks, setHooks] = useState<HookDefinition[]>([]);
   const [feedback, setFeedback] = useState<AgentFeedback[]>([]);
@@ -1664,6 +1678,21 @@ function App() {
     if (status === "DEGRADED") return t.mcpStatusDegraded;
     if (status === "UNHEALTHY") return t.mcpStatusUnhealthy;
     return t.mcpStatusUnknown;
+  };
+
+  const truncateError = (text: string, maxLength = 80) => {
+    const flat = text.replace(/\s+/g, " ").trim();
+    if (flat.length <= maxLength) return flat;
+    return `${flat.slice(0, maxLength - 1)}…`;
+  };
+
+  const copyMcpError = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(t.copied);
+    } catch {
+      toast.error(t.copyFailed);
+    }
   };
 
   const openResourceDialog = (
@@ -4353,9 +4382,24 @@ function App() {
                     </div>
                     <div className="mcp-row-actions">
                       {server.lastError && (
-                        <span className="document-error mcp-row-error">
-                          {server.lastError}
-                        </span>
+                        <Tooltip
+                          placement="top"
+                          content={t.mcpErrorTooltip}
+                        >
+                          <button
+                            type="button"
+                            className="mcp-row-error-trigger"
+                            onClick={() => setMcpErrorDetail(server)}
+                            aria-label={t.mcpErrorDetail}
+                          >
+                            <span className="mcp-row-error-icon" aria-hidden="true">
+                              ⚠
+                            </span>
+                            <span className="mcp-row-error-summary">
+                              {truncateError(server.lastError)}
+                            </span>
+                          </button>
+                        </Tooltip>
                       )}
                       <button
                         className="secondary"
@@ -5931,6 +5975,69 @@ function App() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {mcpErrorDetail && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setMcpErrorDetail(null);
+          }}
+        >
+          <div
+            className="modal mcp-error-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mcp-error-title"
+          >
+            <div className="modal-header">
+              <div>
+                <h3 id="mcp-error-title">
+                  {mcpErrorDetail.name} · {t.mcpErrorDetail}
+                </h3>
+                <p className="modal-subtitle">
+                  {t.mcpLastChecked}
+                  {mcpErrorDetail.lastCheckedAt
+                    ? `: ${new Date(mcpErrorDetail.lastCheckedAt).toLocaleString()}`
+                    : `: ${t.mcpStatusUnknown}`}
+                </p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => setMcpErrorDetail(null)}
+                aria-label={t.close}
+              >
+                ×
+              </button>
+            </div>
+            <p className="mcp-error-hint">{t.mcpErrorHint}</p>
+            <pre className="mcp-error-body">{mcpErrorDetail.lastError}</pre>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => copyMcpError(mcpErrorDetail.lastError ?? "")}
+              >
+                {t.copy}
+              </button>
+              <button
+                type="button"
+                disabled={mcpActionId === mcpErrorDetail.id}
+                onClick={async () => {
+                  await checkMcpHealth(mcpErrorDetail);
+                  setMcpErrorDetail((current) => {
+                    if (!current) return current;
+                    const next = mcpServers.find((s) => s.id === current.id);
+                    return next ?? current;
+                  });
+                }}
+              >
+                {mcpActionId === mcpErrorDetail.id ? t.loading : t.mcpHealth}
+              </button>
+            </div>
           </div>
         </div>
       )}

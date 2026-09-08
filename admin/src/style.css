@@ -2633,3 +2633,61 @@ pre {
 :root[data-theme="light"] .modal-subtitle {
   color: #64748b;
 }
+
+.mcp-row-error-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 10px;
+  background: rgba(239, 100, 100, 0.08);
+  border: 1px solid rgba(239, 100, 100, 0.4);
+  color: #f48a8a;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mcp-row-error-trigger:hover {
+  background: rgba(239, 100, 100, 0.15);
+}
+
+.mcp-row-error-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.mcp-row-error-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-error-modal {
+  width: min(640px, 92vw);
+}
+
+.mcp-error-hint {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mcp-error-body {
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: #f48a8a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0 0 16px;
+}
