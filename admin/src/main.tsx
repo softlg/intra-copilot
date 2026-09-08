@@ -234,6 +234,8 @@ const translations = {
     topK: "检索条数",
     topKHint: "每次问答最多注入的相关片段数量",
     saveSettings: "保存设置",
+    savingSettings: "保存中…",
+    saved: "已保存",
     save: "保存",
     saved: "已保存",
     collapseSidebar: "收缩菜单栏",
@@ -621,6 +623,8 @@ const translations = {
     topK: "Retrieval count",
     topKHint: "Maximum number of relevant chunks injected per question",
     saveSettings: "Save settings",
+    savingSettings: "Saving…",
+    saved: "Saved",
     save: "Save",
     saved: "Saved",
     collapseSidebar: "Collapse menu",
@@ -4077,7 +4081,11 @@ function App() {
                     onClick={saveKnowledgeSettings}
                     disabled={baseSaving}
                   >
-                    {qaSaved ? `✓ ${t.saved}` : t.saveSettings}
+                    {baseSaving
+                      ? t.savingSettings
+                      : qaSaved
+                      ? `✓ ${t.saved}`
+                      : t.saveSettings}
                   </button>
                 </div>
                 <div className="detail-tabs" role="tablist">
