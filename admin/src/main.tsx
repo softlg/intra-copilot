@@ -1823,20 +1823,34 @@ function App() {
   };
 
   const toggleMcpServer = async (server: McpServer) => {
+    const original = server.enabled;
+    setMcpServers((items) =>
+      items.map((item) =>
+        item.id === server.id ? { ...item, enabled: !original } : item,
+      ),
+    );
     setMcpActionId(server.id);
     try {
       const updated = await request<McpServer>(
         `/admin/mcp-servers/${server.id}`,
         {
           method: "PUT",
-          body: JSON.stringify({ ...server, enabled: !server.enabled }),
+          body: JSON.stringify({ ...server, enabled: !original }),
         },
       );
       setMcpServers((items) =>
         items.map((item) => (item.id === updated.id ? updated : item)),
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t.mcpSaveFailed);
+      // 乐观更新回滚
+      setMcpServers((items) =>
+        items.map((item) =>
+          item.id === server.id ? { ...item, enabled: original } : item,
+        ),
+      );
+      toast.error(
+        error instanceof Error ? error.message : t.mcpSaveFailed,
+      );
     } finally {
       setMcpActionId(undefined);
     }
@@ -2026,18 +2040,46 @@ function App() {
     kind: "tool" | "skill",
     resource: ToolDefinition | SkillDefinition,
   ) => {
+    const original = resource.enabled;
+    if (kind === "tool") {
+      setTools((items) =>
+        items.map((item) =>
+          item.id === resource.id ? { ...item, enabled: !original } : item,
+        ),
+      );
+    } else {
+      setSkills((items) =>
+        items.map((item) =>
+          item.id === resource.id ? { ...item, enabled: !original } : item,
+        ),
+      );
+    }
     setResourceActionId(resource.id);
     try {
       await request(
         `/admin/${kind === "tool" ? "tools" : "skills"}/${resource.id}`,
         {
           method: "PUT",
-          body: JSON.stringify({ ...resource, enabled: !resource.enabled }),
+          body: JSON.stringify({ ...resource, enabled: !original }),
         },
       );
       if (kind === "tool") loadTools();
       else loadSkills();
     } catch (error) {
+      // 乐观更新回滚
+      if (kind === "tool") {
+        setTools((items) =>
+          items.map((item) =>
+            item.id === resource.id ? { ...item, enabled: original } : item,
+          ),
+        );
+      } else {
+        setSkills((items) =>
+          items.map((item) =>
+            item.id === resource.id ? { ...item, enabled: original } : item,
+          ),
+        );
+      }
       toast.error(
         error instanceof Error ? error.message : t.resourceSaveFailed,
       );
@@ -2145,16 +2187,28 @@ function App() {
   };
 
   const toggleHook = async (hook: HookDefinition) => {
+    const original = hook.enabled;
+    setHooks((current) =>
+      current.map((item) =>
+        item.id === hook.id ? { ...item, enabled: !original } : item,
+      ),
+    );
     setHookActionId(hook.id);
     try {
       const updated = await request<HookDefinition>(`/admin/hooks/${hook.id}`, {
         method: "PUT",
-        body: JSON.stringify({ ...hook, enabled: !hook.enabled }),
+        body: JSON.stringify({ ...hook, enabled: !original }),
       });
       setHooks((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
     } catch (error) {
+      // 乐观更新回滚
+      setHooks((current) =>
+        current.map((item) =>
+          item.id === hook.id ? { ...item, enabled: original } : item,
+        ),
+      );
       toast.error(error instanceof Error ? error.message : t.hookSaveFailed);
     } finally {
       setHookActionId(undefined);
