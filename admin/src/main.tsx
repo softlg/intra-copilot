@@ -2541,9 +2541,7 @@ function App() {
     return {
       ...config,
       items: filteredAgents.filter((agent) =>
-        config.role === "MAIN"
-          ? agentRoleOf(agent) === "MAIN" || isSystemAgent(agent)
-          : agentRoleOf(agent) === config.role,
+        agentRoleOf(agent) === config.role,
       ),
     };
   })();
