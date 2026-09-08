@@ -51,6 +51,8 @@ const translations = {
     mcpErrorTooltip: "点击查看完整错误信息",
     copied: "已复制到剪贴板",
     copyFailed: "复制失败，请手动选择",
+    routeCopy: "复制路由结果",
+    routeCopied: "路由结果已复制到剪贴板",
     copy: "复制",
     confirmDeleteTitle: "确认删除",
     cancelLabel: "取消",
@@ -436,6 +438,8 @@ const translations = {
     mcpErrorTooltip: "Click to view the full error",
     copied: "Copied to clipboard",
     copyFailed: "Copy failed. Select the text manually.",
+    routeCopy: "Copy route result",
+    routeCopied: "Route result copied to clipboard",
     copy: "Copy",
     confirmDeleteTitle: "Confirm delete",
     cancelLabel: "Cancel",
@@ -5335,6 +5339,33 @@ function App() {
                     <span>{t.routeSource}</span>
                     <strong>{String(route.routeSource ?? "-")}</strong>
                   </div>
+                  <button
+                    type="button"
+                    className="router-copy"
+                    onClick={() => {
+                      try {
+                        const json = JSON.stringify(route, null, 2);
+                        const done = navigator.clipboard?.writeText(json);
+                        if (done && typeof (done as Promise<void>).then === "function") {
+                          (done as Promise<void>).then(() =>
+                            toast.success(t.routeCopied),
+                          );
+                        } else {
+                          toast.success(t.routeCopied);
+                        }
+                      } catch (error) {
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : t.copyFailed,
+                        );
+                      }
+                    }}
+                    aria-label={t.routeCopy}
+                    title={t.routeCopy}
+                  >
+                    ⧉ {t.routeCopy}
+                  </button>
                 </div>
                 <section className="router-chain-panel">
                   <h3>{t.routeChain}</h3>

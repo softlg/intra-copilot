@@ -1373,8 +1373,16 @@ article p {
 
 .router-result-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   gap: 10px;
+  align-items: end;
+}
+
+.router-copy {
+  align-self: end;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
 }
 
 .router-result-summary > div,
