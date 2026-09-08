@@ -7,6 +7,9 @@
     sans-serif;
   color: #f1f5fb;
   background: #0b1220;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
   --page-bg: #0b1220;
   --surface: #111c2e;
   --surface-muted: #080f1c;
@@ -42,6 +45,9 @@ body {
   margin: 0;
   background: var(--page-bg);
   color: var(--text);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 button,
@@ -260,11 +266,29 @@ main {
   flex: 1;
   min-width: 0;
   padding: 32px;
+  animation: tab-fade-in 0.18s ease-out;
+}
+
+@keyframes tab-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 main > section {
   width: 100%;
   max-width: 1200px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  main {
+    animation: none;
+  }
 }
 
 .header-actions {
