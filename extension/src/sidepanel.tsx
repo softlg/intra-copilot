@@ -80,8 +80,10 @@ const translations = {
     requestFailed: "请求失败",
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
-    inputPlaceholder: "描述问题或输入你的需求…",
+    inputPlaceholder: "描述问题或输入你的需求,Shift+Enter换行...",
     chatInput: "聊天输入框",
+    expandComposer: "展开输入框",
+    collapseComposer: "收起输入框",
     send: "发送",
     stop: "停止生成",
     addTools: "添加插件或附件",
@@ -181,6 +183,8 @@ const translations = {
     rejected: "Rejected by user",
     inputPlaceholder: "Describe the problem or enter your request…",
     chatInput: "Chat input",
+    expandComposer: "Expand input",
+    collapseComposer: "Collapse input",
     send: "Send",
     stop: "Stop generating",
     addTools: "Add plugin or attachment",
@@ -268,8 +272,19 @@ function getRenderedText(value: React.ReactNode): string {
  * prose portions, leaving fenced code untouched, so streamed responses remain
  * readable without changing the actual message text copied by the user.
  */
-function normalizeAssistantMarkdown(value: string): string {
+function decodeAssistantEscapes(value: string): string {
   return value
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) =>
+      String.fromCharCode(parseInt(hex, 16)),
+    )
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"');
+}
+
+function normalizeAssistantMarkdown(value: string): string {
+  return decodeAssistantEscapes(value)
     .replace(/\r\n?/g, "\n")
     .split("```")
     .map((part, index) => {
@@ -377,9 +392,12 @@ function App() {
   const [messageFeedback, setMessageFeedback] = useState<
     Record<number, Feedback>
   >({});
+  const [feedbackDialogIndex, setFeedbackDialogIndex] = useState<number>();
+  const [feedbackComment, setFeedbackComment] = useState("");
   const [copiedMessage, setCopiedMessage] = useState<number>();
   const [copiedCode, setCopiedCode] = useState<string>();
   const [input, setInput] = useState("");
+  const [composerExpanded, setComposerExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [theme, setTheme] = useState<Theme>("system");
@@ -428,6 +446,7 @@ function App() {
   const composerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerToolsRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -436,7 +455,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: "smooth" });
+    const messageList = mainRef.current;
+    if (!messageList) return;
+    messageList.scrollTo({
+      top: messageList.scrollHeight,
+      behavior: "smooth",
+    });
   }, [msgs]);
 
   useEffect(() => {
@@ -579,9 +603,12 @@ function App() {
     });
   }
 
-  function saveFeedback(index: number, feedback: Feedback) {
-    const comment =
-      feedback === "down" ? window.prompt(t.feedbackReasonPrompt) || "" : "";
+  function saveFeedback(index: number, feedback: Feedback, comment = "") {
+    if (feedback === "down" && feedbackDialogIndex !== index && !comment) {
+      setFeedbackDialogIndex(index);
+      setFeedbackComment("");
+      return;
+    }
     setMessageFeedback((current) => ({ ...current, [index]: feedback }));
     if (!session?.id) return;
     chrome.storage.local.get(["messageFeedback"], (value) => {
@@ -613,6 +640,13 @@ function App() {
         userMessage,
       }),
     }).catch(() => undefined);
+  }
+
+  function submitFeedbackComment() {
+    if (feedbackDialogIndex == null) return;
+    const index = feedbackDialogIndex;
+    saveFeedback(index, "down", feedbackComment.trim());
+    setFeedbackDialogIndex(undefined);
   }
 
   async function copyMessage(content: string, index: number) {
@@ -1343,8 +1377,15 @@ function App() {
           })(),
         )}
       </nav>
-      <div className="content-area">
-        <main>
+      <div
+        className={
+          "content-area" +
+          (attachments.length > 0 || screenshot || composerExpanded
+            ? " composer-tall"
+            : "")
+        }
+      >
+        <main ref={mainRef}>
           {msgs.length === 0 && <div className="empty">{t.empty}</div>}
           {msgs.map((message, index) => {
             const assistant = message.role === "assistant";
@@ -1426,26 +1467,28 @@ function App() {
                       <button
                         type="button"
                         className={
-                          "message-action " +
+                          "message-action feedback-action feedback-up " +
                           (messageFeedback[index] === "up" ? "selected" : "")
                         }
                         onClick={() => saveFeedback(index, "up")}
                         title={t.like}
                         aria-label={t.like}
+                        aria-pressed={messageFeedback[index] === "up"}
                       >
-                        ♡
+                        👍
                       </button>
                       <button
                         type="button"
                         className={
-                          "message-action " +
+                          "message-action feedback-action feedback-down " +
                           (messageFeedback[index] === "down" ? "selected" : "")
                         }
                         onClick={() => saveFeedback(index, "down")}
                         title={t.dislike}
                         aria-label={t.dislike}
+                        aria-pressed={messageFeedback[index] === "down"}
                       >
-                        ♧
+                        👎
                       </button>
                       <button
                         type="button"
@@ -1632,7 +1675,10 @@ function App() {
         </div>
       )}
       <footer>
-        <div className="composer" ref={composerRef}>
+        <div
+          className={"composer" + (composerExpanded ? " expanded" : "")}
+          ref={composerRef}
+        >
           <div className="composer-row">
             {(attachments.length > 0 || screenshot) && (
               <div className="composer-previews">
@@ -1690,6 +1736,17 @@ function App() {
               </div>
             )}
             <div className="composer-input-shell">
+              <button
+                type="button"
+                className="composer-expand-button"
+                onClick={() => setComposerExpanded((expanded) => !expanded)}
+                title={composerExpanded ? t.collapseComposer : t.expandComposer}
+                aria-label={
+                  composerExpanded ? t.collapseComposer : t.expandComposer
+                }
+              >
+                {composerExpanded ? "↙" : "↗"}
+              </button>
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -1859,6 +1916,49 @@ function App() {
           </div>
         </div>
       </footer>
+      {feedbackDialogIndex != null && (
+        <div
+          className="feedback-overlay"
+          onClick={() => setFeedbackDialogIndex(undefined)}
+        >
+          <div
+            className="feedback-dialog"
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="feedback-dialog-icon" aria-hidden="true">
+              👎
+            </div>
+            <div className="feedback-dialog-title">{t.dislike}</div>
+            <div className="feedback-dialog-hint">{t.feedbackReasonPrompt}</div>
+            <textarea
+              autoFocus
+              value={feedbackComment}
+              onChange={(event) => setFeedbackComment(event.target.value)}
+              className="feedback-dialog-input"
+              rows={3}
+              aria-label={t.feedbackReasonPrompt}
+            />
+            <div className="feedback-dialog-actions">
+              <button
+                type="button"
+                className="feedback-cancel-button"
+                onClick={() => setFeedbackDialogIndex(undefined)}
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                className="feedback-submit-button"
+                onClick={submitFeedbackComment}
+              >
+                {t.save}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {previewImage && (
         <div
           className="image-preview-overlay"

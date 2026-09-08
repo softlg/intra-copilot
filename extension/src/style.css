@@ -55,7 +55,7 @@ html {
 body {
   margin: 0;
   height: 100%;
-  min-height: 100vh;
+  min-height: 0;
   overflow: hidden;
   background: var(--page-bg);
   color: var(--text);
@@ -67,13 +67,18 @@ body {
     sans-serif;
 }
 .app {
-  height: 100vh;
+  /* Keep the page itself inside the side-panel viewport. The composer is
+     fixed independently, while this column owns the chat scroll area. */
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
-header {
+.app > header {
   flex: 0 0 auto;
   padding: 16px 18px;
   background: var(--surface);
@@ -216,13 +221,15 @@ small {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+  padding-bottom: 0;
 }
-main {
+.content-area > main {
   flex: 1;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 16px;
+  padding: 22px 14px 96px;
+  scroll-padding-bottom: 12px;
   overscroll-behavior: contain;
 }
 .content-area > .error {
@@ -237,7 +244,8 @@ main {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 16px 0;
+  width: 100%;
+  margin: 12px 0;
 }
 .msg.user {
   flex-direction: row-reverse;
@@ -285,35 +293,48 @@ main {
   background: var(--border);
 }
 .bubble {
-  max-width: min(100%, 720px);
-  padding: 13px 16px;
+  width: 100%;
+  max-width: 720px;
+  padding: 10px 14px;
   border-radius: 5px 16px 16px 16px;
   white-space: pre-wrap;
-  line-height: 1.65;
+  line-height: 1.5;
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: 0 3px 12px #0f172a0d;
+  overflow-wrap: anywhere;
 }
 .message-stack {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: calc(100% - 36px);
+  max-width: min(720px, calc(100% - 36px));
   flex-direction: column;
   align-items: flex-start;
 }
 .user .message-stack {
   align-items: flex-end;
+  width: auto;
+  max-width: min(78%, 560px);
+  flex: 0 1 auto;
 }
 .assistant .bubble {
+  padding: 10px 14px;
+  white-space: normal;
   background: var(--assistant-bg);
   border-color: var(--assistant-border);
   box-shadow: 0 5px 16px #0f172a14;
 }
 .user .bubble {
+  width: auto;
+  max-width: 100%;
   border-radius: 16px 5px 16px 16px;
   background: #2563eb;
   color: white;
   border-color: #2563eb;
+}
+.assistant .message-stack {
+  align-items: stretch;
 }
 .message-images {
   display: flex;
@@ -339,12 +360,12 @@ main {
 }
 .assistant-content {
   min-width: 0;
-  font-size: 13px;
-  line-height: 1.75;
+  font-size: 12px;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 .assistant-content p {
-  margin: 0 0 11px;
+  margin: 0 0 7px;
 }
 .assistant-content p:last-child {
   margin-bottom: 0;
@@ -352,7 +373,9 @@ main {
 .assistant-content h1,
 .assistant-content h2,
 .assistant-content h3 {
-  margin: 17px 0 9px;
+  margin: 12px 0 6px;
+  padding-left: 9px;
+  border-left: 3px solid #60a5fa;
   color: var(--text);
   line-height: 1.4;
 }
@@ -374,14 +397,14 @@ main {
 }
 .assistant-content ul,
 .assistant-content ol {
-  margin: 0 0 10px;
+  margin: 0 0 7px;
   padding-left: 20px;
 }
 .assistant-content li {
-  margin: 5px 0;
+  margin: 3px 0;
 }
 .assistant-content blockquote {
-  margin: 10px 0 12px;
+  margin: 7px 0 9px;
   padding: 8px 12px;
   border-left: 3px solid var(--assistant-border);
   border-radius: 0 6px 6px 0;
@@ -389,7 +412,7 @@ main {
   color: var(--muted);
 }
 .assistant-content hr {
-  margin: 16px 0;
+  margin: 10px 0;
   border: 0;
   border-top: 1px solid var(--assistant-border);
 }
@@ -427,7 +450,7 @@ main {
 .code-block {
   width: 100%;
   min-width: 0;
-  margin: 10px 0 12px;
+  margin: 7px 0 9px;
   overflow: hidden;
   border: 1px solid var(--code-border);
   border-radius: 8px;
@@ -435,7 +458,7 @@ main {
 }
 .markdown-table-wrap {
   max-width: 100%;
-  margin: 10px 0 13px;
+  margin: 7px 0 9px;
   overflow-x: auto;
   border: 1px solid var(--assistant-border);
   border-radius: 8px;
@@ -558,14 +581,29 @@ main {
   opacity: 1;
 }
 .user-message-actions {
+  width: 100%;
   justify-content: flex-end;
   padding-right: 4px;
 }
 .edit-resend-action {
-  width: auto;
-  min-width: 32px;
-  padding: 0 7px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  min-width: max-content;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.edit-resend-action:hover {
+  border-color: #93c5fd;
+  background: var(--page-bg);
+  color: #2563eb;
 }
 .message-action {
   display: inline-grid;
@@ -584,6 +622,44 @@ main {
 .message-action.selected {
   background: var(--page-bg);
   color: #2563eb;
+}
+.feedback-action {
+  width: 30px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font-size: 16px;
+  filter: saturate(0.72);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    filter 0.15s ease,
+    transform 0.15s ease;
+}
+.feedback-action:hover {
+  filter: saturate(1);
+  transform: translateY(-1px);
+}
+.feedback-action.selected {
+  filter: saturate(1);
+  font-size: 17px;
+  transform: translateY(-1px);
+}
+.feedback-up.selected {
+  border-color: #93c5fd;
+  background: #dbeafe;
+}
+.feedback-down.selected {
+  border-color: #fda4af;
+  background: #ffe4e6;
+}
+:root[data-theme="dark"] .feedback-up.selected {
+  border-color: #2563eb;
+  background: #1e3a5f;
+}
+:root[data-theme="dark"] .feedback-down.selected {
+  border-color: #be123c;
+  background: #4c1d2b;
 }
 .error {
   display: flex;
@@ -623,13 +699,88 @@ main {
   background: #fecdd3;
   outline: none;
 }
-footer {
+.feedback-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #02061799;
+}
+.feedback-dialog {
+  width: min(360px, 100%);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 18px 50px #0007;
+}
+.feedback-dialog-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 10px;
+  place-items: center;
+  border-radius: 10px;
+  background: #fef3c7;
+  font-size: 20px;
+}
+.feedback-dialog-title {
+  font-size: 16px;
+  font-weight: 650;
+}
+.feedback-dialog-hint {
+  margin: 5px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.feedback-dialog-input {
+  width: 100%;
+  min-height: 76px;
+  height: auto;
+  padding: 9px 10px;
+  resize: vertical;
+  font-size: 12px;
+}
+.feedback-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.feedback-dialog-actions button {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.feedback-cancel-button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+}
+.feedback-submit-button {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+.app > footer {
   min-width: 0;
-  flex: 0 0 auto;
-  position: relative;
+  min-height: 0;
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 5;
   max-height: min(42vh, 360px);
-  overflow-y: auto;
+  /* Popovers open upward from the toolbar and must not be clipped by the
+     fixed composer container. */
+  overflow: visible;
   padding: 12px 14px;
   background: var(--surface);
   border-top: 1px solid var(--border);
@@ -820,6 +971,7 @@ textarea {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 9px 10px 19px;
+  padding-right: 38px;
   background: var(--control-bg);
   color: var(--text);
   font: inherit;
@@ -840,6 +992,32 @@ textarea::-webkit-scrollbar-thumb {
   position: relative;
   flex: 1;
   min-width: 0;
+}
+.composer-expand-button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 1;
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.composer-expand-button:hover,
+.composer-expand-button:focus-visible {
+  background: var(--page-bg);
+  color: var(--text);
+  outline: none;
+}
+.composer.expanded textarea {
+  height: 180px;
 }
 .send-button {
   width: 58px;

@@ -17,7 +17,6 @@ const ball = shadow.querySelector(".ball") as HTMLElement;
 const mini = shadow.querySelector(".mini") as HTMLButtonElement;
 let language: Language = "zh";
 let pageEnabled = false;
-
 function setPageEnabled(enabled: boolean) {
   pageEnabled = enabled;
   root.style.display = enabled ? "block" : "none";
