@@ -30,4 +30,15 @@ public interface ConversationRepository extends BaseMapper<Conversation> {
                         .orderByAsc("sort_order")
                         .orderByDesc("updated_at"));
     }
+
+    default List<Conversation> findBySessionId(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return findAllByOrderByUpdatedAtDesc();
+        }
+        return selectList(
+                Wrappers.<Conversation>query()
+                        .like("id", sessionId.trim())
+                        .orderByAsc("sort_order")
+                        .orderByDesc("updated_at"));
+    }
 }

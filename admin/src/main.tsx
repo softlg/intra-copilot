@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import Pagination from "./components/Pagination";
 
 const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8080/api/v1";
 type Language = "zh" | "en";
@@ -335,6 +336,21 @@ const translations = {
     actionPending: "待处理",
     actionCompleted: "已完成",
     actionFailed: "失败",
+    conversationSessionId: "会话 ID",
+    conversationSessionIdPlaceholder: "输入会话 ID 查询",
+    conversationTitle: "标题",
+    updatedAt: "更新时间",
+    messageCount: "消息数",
+    detail: "详情",
+    query: "查询",
+    reset: "重置",
+    perPage: "每页",
+    prevPage: "上一页",
+    nextPage: "下一页",
+    paginationTotal: (total: number) => `共 ${total} 条`,
+    paginationPosition: (page: number, totalPages: number) =>
+      `第 ${page} / ${totalPages} 页`,
+    conversationDetailTitle: "会话详情",
   },
   en: {
     title: "Page Assistant",
@@ -686,6 +702,21 @@ const translations = {
     actionPending: "Pending",
     actionCompleted: "Completed",
     actionFailed: "Failed",
+    conversationSessionId: "Session ID",
+    conversationSessionIdPlaceholder: "Enter session ID",
+    conversationTitle: "Title",
+    updatedAt: "Updated at",
+    messageCount: "Messages",
+    detail: "Details",
+    query: "Search",
+    reset: "Reset",
+    perPage: "per page",
+    prevPage: "Previous",
+    nextPage: "Next",
+    paginationTotal: (total: number) => `Total ${total} items`,
+    paginationPosition: (page: number, totalPages: number) =>
+      `Page ${page} / ${totalPages}`,
+    conversationDetailTitle: "Conversation detail",
   },
 } as const;
 
@@ -924,6 +955,21 @@ type ConversationLog = {
   }[];
 };
 
+type ConversationLogSummary = {
+  id: string;
+  title: string;
+  createdAt?: string;
+  updatedAt?: string;
+  messageCount: number;
+};
+
+type ConversationLogPage = {
+  items: ConversationLogSummary[];
+  total: number;
+  page: number;
+  size: number;
+};
+
 type AgentPreset = {
   id: string;
   displayName: string;
@@ -1012,11 +1058,20 @@ function App() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [conversationLogs, setConversationLogs] = useState<ConversationLog[]>(
-    [],
-  );
-  const [selectedConversationLogId, setSelectedConversationLogId] =
-    useState<string>();
+  const [conversationLogs, setConversationLogs] = useState<
+    ConversationLogSummary[]
+  >([]);
+  const [conversationTotal, setConversationTotal] = useState(0);
+  const [conversationPage, setConversationPage] = useState(1);
+  const [conversationPageSize, setConversationPageSize] = useState(30);
+  const [conversationSessionId, setConversationSessionId] = useState("");
+  const [conversationSessionIdDraft, setConversationSessionIdDraft] =
+    useState("");
+  const [conversationLoading, setConversationLoading] = useState(false);
+  const [conversationDetail, setConversationDetail] = useState<ConversationLog>();
+  const [conversationDetailOpen, setConversationDetailOpen] = useState(false);
+  const [conversationDetailLoading, setConversationDetailLoading] =
+    useState(false);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
@@ -1245,16 +1300,42 @@ function App() {
   };
 
   const loadConversationLogs = () => {
-    request<ConversationLog[]>("/admin/conversation-logs")
-      .then((logs) => {
-        setConversationLogs(logs);
-        setSelectedConversationLogId((current) =>
-          current && logs.some((log) => log.id === current)
-            ? current
-            : logs[0]?.id,
-        );
+    setConversationLoading(true);
+    const params = new URLSearchParams({
+      page: String(conversationPage),
+      size: String(conversationPageSize),
+    });
+    if (conversationSessionId.trim()) {
+      params.set("sessionId", conversationSessionId.trim());
+    }
+    request<ConversationLogPage>(
+      `/admin/conversation-logs?${params.toString()}`,
+    )
+      .then((data) => {
+        setConversationLogs(data.items);
+        setConversationTotal(data.total);
+        // 过滤或翻页后当前页可能超出范围，回退到最后一页
+        if (data.items.length === 0 && data.total > 0 && data.page > 1) {
+          setConversationPage(
+            Math.max(1, Math.ceil(data.total / data.size)),
+          );
+        }
       })
-      .catch(() => setConversationLogs([]));
+      .catch(() => {
+        setConversationLogs([]);
+        setConversationTotal(0);
+      })
+      .finally(() => setConversationLoading(false));
+  };
+
+  const openConversationDetail = (id: string) => {
+    setConversationDetail(undefined);
+    setConversationDetailOpen(true);
+    setConversationDetailLoading(true);
+    request<ConversationLog>(`/admin/conversation-logs/${id}`)
+      .then(setConversationDetail)
+      .catch(() => setConversationDetail(undefined))
+      .finally(() => setConversationDetailLoading(false));
   };
 
   const loadTools = () => {
@@ -1354,10 +1435,15 @@ function App() {
       ensureResourceLoaded("hooks", loadHooks);
     } else if (tab === "ratings") {
       ensureResourceLoaded("feedback", loadFeedback);
-    } else if (tab === "conversation-logs") {
-      ensureResourceLoaded("conversation-logs", loadConversationLogs);
     }
   }, [tab]);
+
+  // 对话日志：进入页面或翻页/改每页条数/切换过滤条件时重新拉取
+  useEffect(() => {
+    if (tab !== "conversation-logs") return;
+    loadConversationLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, conversationPage, conversationPageSize, conversationSessionId]);
 
   useEffect(() => {
     if (!activeBaseId) {
@@ -2560,13 +2646,6 @@ function App() {
       item.messageId,
       item.rating,
       item.comment,
-    ),
-  );
-  const filteredConversationLogs = conversationLogs.filter((log) =>
-    matchesSearch(
-      log.id,
-      log.title,
-      ...log.messages.flatMap((item) => [item.content, item.agentId]),
     ),
   );
   const agentListTab = (() => {
@@ -4523,228 +4602,325 @@ function App() {
         )}
 
         {tab === "conversation-logs" && (
-          <section className="conversation-logs-page">
-            <p className="muted">{t.conversationLogsSubtitle}</p>
-            {conversationLogs.length === 0 ? (
-              <p className="empty-documents">{t.noConversationLogs}</p>
-            ) : filteredConversationLogs.length === 0 ? (
-              <p className="empty-documents">{t.noSearchResults}</p>
-            ) : (
-              <div className="conversation-log-list">
-                {filteredConversationLogs.map((log) => {
-                  const selected = selectedConversationLogId === log.id;
-                  return (
-                    <article
-                      className={
-                        selected
-                          ? "conversation-log-card selected"
-                          : "conversation-log-card"
+          <>
+            <section className="conversation-logs-page">
+              <p className="muted">{t.conversationLogsSubtitle}</p>
+
+              <div className="conversation-filter" role="search">
+                <label className="conversation-filter-field">
+                  <span>{t.conversationSessionId}</span>
+                  <input
+                    type="text"
+                    value={conversationSessionIdDraft}
+                    onChange={(event) =>
+                      setConversationSessionIdDraft(event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        setConversationSessionId(
+                          conversationSessionIdDraft.trim(),
+                        );
+                        setConversationPage(1);
                       }
-                      key={log.id}
-                    >
-                      <button
-                        type="button"
-                        className="conversation-log-heading"
-                        onClick={() =>
-                          setSelectedConversationLogId((current) =>
-                            current === log.id ? undefined : log.id,
-                          )
-                        }
-                        aria-expanded={selected}
-                        aria-label={log.title || log.id}
-                      >
-                        <span>
-                          <strong>{log.title || log.id}</strong>
-                          <code>{log.id}</code>
-                        </span>
-                        <span className="conversation-log-meta">
-                          <span
-                            className="conversation-log-chevron"
-                            aria-hidden="true"
-                          >
-                            {selected ? "▾" : "▸"}
-                          </span>
-                          {log.updatedAt
-                            ? new Date(log.updatedAt).toLocaleString()
-                            : "-"}
-                          <span>{log.messages.length} 条消息</span>
-                        </span>
-                      </button>
-                      {selected && (
-                        <div className="conversation-log-body">
-                          <section>
-                            <h4>
-                              {t.userMessage} / {t.assistantMessage}
-                            </h4>
-                            <div className="conversation-log-messages">
-                              {log.messages.length === 0 ? (
-                                <p className="binding-empty">-</p>
-                              ) : (
-                                log.messages.map((item) => (
-                                  <div
-                                    className={
-                                      item.role === "user"
-                                        ? "conversation-log-message user"
-                                        : "conversation-log-message assistant"
-                                    }
-                                    key={item.id}
-                                  >
-                                    <div className="conversation-log-message-meta">
-                                      <strong>
-                                        {item.role === "user"
-                                          ? t.userMessage
-                                          : t.assistantMessage}
-                                      </strong>
-                                      {item.agentId && (
-                                        <code>{item.agentId}</code>
-                                      )}
-                                      {item.createdAt && (
-                                        <small>
-                                          {new Date(
-                                            item.createdAt,
-                                          ).toLocaleString()}
-                                        </small>
-                                      )}
-                                    </div>
-                                    <p>{item.content || "-"}</p>
-                                    {item.contextSummary && (
-                                      <details>
-                                        <summary>Context</summary>
-                                        <pre>{item.contextSummary}</pre>
-                                      </details>
-                                    )}
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          </section>
-                          <section>
-                            <h4>{t.invocationDetails}</h4>
-                            {log.invocations.length === 0 ? (
-                              <p className="binding-empty">-</p>
-                            ) : (
-                              <div className="conversation-log-invocations">
-                                {log.invocations.map((item) => (
-                                  <div
-                                    className="conversation-log-invocation"
-                                    key={item.id}
-                                  >
-                                    <div className="conversation-log-message-meta">
-                                      <strong>
-                                        {item.selectedAgentId || "-"}
-                                      </strong>
-                                      {item.createdAt && (
-                                        <small>
-                                          {new Date(
-                                            item.createdAt,
-                                          ).toLocaleString()}
-                                        </small>
-                                      )}
-                                    </div>
-                                    <div className="conversation-log-fields">
-                                      <span>
-                                        {t.route}:{" "}
-                                        {item.requestedAgentId || "auto"}
-                                      </span>
-                                      <span>
-                                        {t.confidence}:{" "}
-                                        {item.confidence == null
-                                          ? "-"
-                                          : item.confidence.toFixed(2)}
-                                      </span>
-                                      <span>
-                                        {t.duration}:{" "}
-                                        {item.durationMs == null
-                                          ? "-"
-                                          : `${item.durationMs} ms`}
-                                      </span>
-                                      <span>
-                                        {t.routeSource}:{" "}
-                                        {item.routeSource || "-"}
-                                      </span>
-                                      <span>
-                                        {t.clientIp}: {item.clientIp || "-"}
-                                      </span>
-                                      <span>
-                                        {t.routeTrail}:{" "}
-                                        {item.requestedAgentId || "auto"} →{" "}
-                                        {item.selectedAgentId || "-"}
-                                      </span>
-                                    </div>
-                                    <div className="conversation-log-trace">
-                                      <div>
-                                        <strong>{t.intentResult}</strong>
-                                        <p>
-                                          {item.intent ||
-                                            item.routeReason ||
-                                            "-"}
-                                        </p>
-                                      </div>
-                                      <div>
-                                        <strong>{t.contextTransfer}</strong>
-                                        <pre>{item.contextSent || "-"}</pre>
-                                      </div>
-                                      <div>
-                                        <strong>{t.responseTransfer}</strong>
-                                        <pre>{item.responseContent || "-"}</pre>
-                                      </div>
-                                    </div>
-                                    {item.routeReason && (
-                                      <p>{item.routeReason}</p>
-                                    )}
-                                    {item.error && (
-                                      <p className="error">{item.error}</p>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </section>
-                          <section>
-                            <h4>{t.actionDetails}</h4>
-                            {log.actions.length === 0 ? (
-                              <p className="binding-empty">-</p>
-                            ) : (
-                              <div className="conversation-log-invocations">
-                                {log.actions.map((item) => (
-                                  <div
-                                    className="conversation-log-invocation"
-                                    key={item.actionId}
-                                  >
-                                    <div className="conversation-log-message-meta">
-                                      <strong>{item.type || "-"}</strong>
-                                      <span
-                                        className={
-                                          item.status === "COMPLETED"
-                                            ? "ok"
-                                            : item.status === "FAILED"
-                                              ? "off"
-                                              : "badge"
-                                        }
-                                      >
-                                        {item.status === "COMPLETED"
-                                          ? t.actionCompleted
-                                          : item.status === "FAILED"
-                                            ? t.actionFailed
-                                            : t.actionPending}
-                                      </span>
-                                    </div>
-                                    <code>{item.target || item.actionId}</code>
-                                    {item.reason && <p>{item.reason}</p>}
-                                    {item.result && <pre>{item.result}</pre>}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </section>
-                        </div>
+                    }}
+                    placeholder={t.conversationSessionIdPlaceholder}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConversationSessionId(
+                      conversationSessionIdDraft.trim(),
+                    );
+                    setConversationPage(1);
+                  }}
+                >
+                  {t.query}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setConversationSessionIdDraft("");
+                    setConversationSessionId("");
+                    setConversationPage(1);
+                  }}
+                >
+                  {t.reset}
+                </button>
+              </div>
+
+              {conversationLoading ? (
+                <p className="empty-documents">{t.loading}</p>
+              ) : conversationLogs.length === 0 ? (
+                <p className="empty-documents">
+                  {conversationSessionId
+                    ? t.noSearchResults
+                    : t.noConversationLogs}
+                </p>
+              ) : (
+                <>
+                  <div className="conversation-table-wrap">
+                    <table className="conversation-table">
+                      <thead>
+                        <tr>
+                          <th>{t.conversationSessionId}</th>
+                          <th>{t.conversationTitle}</th>
+                          <th>{t.updatedAt}</th>
+                          <th>{t.messageCount}</th>
+                          <th className="conversation-table-actions">
+                            {t.detail}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {conversationLogs.map((log) => (
+                          <tr key={log.id}>
+                            <td>
+                              <code className="conversation-id">{log.id}</code>
+                            </td>
+                            <td>{log.title || "-"}</td>
+                            <td>
+                              {log.updatedAt
+                                ? new Date(log.updatedAt).toLocaleString()
+                                : "-"}
+                            </td>
+                            <td>{log.messageCount}</td>
+                            <td className="conversation-table-actions">
+                              <button
+                                type="button"
+                                className="secondary"
+                                onClick={() => openConversationDetail(log.id)}
+                              >
+                                {t.detail}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <Pagination
+                    page={conversationPage}
+                    pageSize={conversationPageSize}
+                    total={conversationTotal}
+                    labels={{
+                      total: t.paginationTotal,
+                      pageSize: t.perPage,
+                      position: t.paginationPosition,
+                      prev: t.prevPage,
+                      next: t.nextPage,
+                    }}
+                    onPageChange={setConversationPage}
+                    onPageSizeChange={(size) => {
+                      setConversationPageSize(size);
+                      setConversationPage(1);
+                    }}
+                  />
+                </>
+              )}
+            </section>
+
+            {conversationDetailOpen && (
+              <div
+                className="conversation-detail-overlay"
+                onClick={() => setConversationDetailOpen(false)}
+              >
+                <div
+                  className="conversation-detail-panel"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="conversation-detail-head">
+                    <div>
+                      <h3>
+                        {conversationDetail?.title ||
+                          conversationDetail?.id ||
+                          t.conversationDetailTitle}
+                      </h3>
+                      {conversationDetail && (
+                        <code>{conversationDetail.id}</code>
                       )}
-                    </article>
-                  );
-                })}
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => setConversationDetailOpen(false)}
+                    >
+                      {t.close}
+                    </button>
+                  </div>
+
+                  {conversationDetailLoading ? (
+                    <p className="empty-documents">{t.loading}</p>
+                  ) : !conversationDetail ? (
+                    <p className="empty-documents">{t.noSearchResults}</p>
+                  ) : (
+                    <div className="conversation-log-body conversation-detail-body">
+                      <section>
+                        <h4>
+                          {t.userMessage} / {t.assistantMessage}
+                        </h4>
+                        <div className="conversation-log-messages">
+                          {conversationDetail.messages.length === 0 ? (
+                            <p className="binding-empty">-</p>
+                          ) : (
+                            conversationDetail.messages.map((item) => (
+                              <div
+                                className={
+                                  item.role === "user"
+                                    ? "conversation-log-message user"
+                                    : "conversation-log-message assistant"
+                                }
+                                key={item.id}
+                              >
+                                <div className="conversation-log-message-meta">
+                                  <strong>
+                                    {item.role === "user"
+                                      ? t.userMessage
+                                      : t.assistantMessage}
+                                  </strong>
+                                  {item.agentId && (
+                                    <code>{item.agentId}</code>
+                                  )}
+                                  {item.createdAt && (
+                                    <small>
+                                      {new Date(
+                                        item.createdAt,
+                                      ).toLocaleString()}
+                                    </small>
+                                  )}
+                                </div>
+                                <p>{item.content || "-"}</p>
+                                {item.contextSummary && (
+                                  <details>
+                                    <summary>Context</summary>
+                                    <pre>{item.contextSummary}</pre>
+                                  </details>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </section>
+                      <section>
+                        <h4>{t.invocationDetails}</h4>
+                        {conversationDetail.invocations.length === 0 ? (
+                          <p className="binding-empty">-</p>
+                        ) : (
+                          <div className="conversation-log-invocations">
+                            {conversationDetail.invocations.map((item) => (
+                              <div
+                                className="conversation-log-invocation"
+                                key={item.id}
+                              >
+                                <div className="conversation-log-message-meta">
+                                  <strong>{item.selectedAgentId || "-"}</strong>
+                                  {item.createdAt && (
+                                    <small>
+                                      {new Date(
+                                        item.createdAt,
+                                      ).toLocaleString()}
+                                    </small>
+                                  )}
+                                </div>
+                                <div className="conversation-log-fields">
+                                  <span>
+                                    {t.route}: {item.requestedAgentId || "auto"}
+                                  </span>
+                                  <span>
+                                    {t.confidence}:{" "}
+                                    {item.confidence == null
+                                      ? "-"
+                                      : item.confidence.toFixed(2)}
+                                  </span>
+                                  <span>
+                                    {t.duration}:{" "}
+                                    {item.durationMs == null
+                                      ? "-"
+                                      : `${item.durationMs} ms`}
+                                  </span>
+                                  <span>
+                                    {t.routeSource}: {item.routeSource || "-"}
+                                  </span>
+                                  <span>
+                                    {t.clientIp}: {item.clientIp || "-"}
+                                  </span>
+                                  <span>
+                                    {t.routeTrail}:{" "}
+                                    {item.requestedAgentId || "auto"} →{" "}
+                                    {item.selectedAgentId || "-"}
+                                  </span>
+                                </div>
+                                <div className="conversation-log-trace">
+                                  <div>
+                                    <strong>{t.intentResult}</strong>
+                                    <p>
+                                      {item.intent ||
+                                        item.routeReason ||
+                                        "-"}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <strong>{t.contextTransfer}</strong>
+                                    <pre>{item.contextSent || "-"}</pre>
+                                  </div>
+                                  <div>
+                                    <strong>{t.responseTransfer}</strong>
+                                    <pre>{item.responseContent || "-"}</pre>
+                                  </div>
+                                </div>
+                                {item.routeReason && <p>{item.routeReason}</p>}
+                                {item.error && (
+                                  <p className="error">{item.error}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                      <section>
+                        <h4>{t.actionDetails}</h4>
+                        {conversationDetail.actions.length === 0 ? (
+                          <p className="binding-empty">-</p>
+                        ) : (
+                          <div className="conversation-log-invocations">
+                            {conversationDetail.actions.map((item) => (
+                              <div
+                                className="conversation-log-invocation"
+                                key={item.actionId}
+                              >
+                                <div className="conversation-log-message-meta">
+                                  <strong>{item.type || "-"}</strong>
+                                  <span
+                                    className={
+                                      item.status === "COMPLETED"
+                                        ? "ok"
+                                        : item.status === "FAILED"
+                                          ? "off"
+                                          : "badge"
+                                    }
+                                  >
+                                    {item.status === "COMPLETED"
+                                      ? t.actionCompleted
+                                      : item.status === "FAILED"
+                                        ? t.actionFailed
+                                        : t.actionPending}
+                                  </span>
+                                </div>
+                                <code>{item.target || item.actionId}</code>
+                                {item.reason && <p>{item.reason}</p>}
+                                {item.result && <pre>{item.result}</pre>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
-          </section>
+          </>
         )}
 
         {tab === "router" && (

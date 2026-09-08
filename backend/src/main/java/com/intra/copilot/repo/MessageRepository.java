@@ -25,4 +25,8 @@ public interface MessageRepository extends BaseMapper<Message> {
     default List<Message> findByConversationIdOrderByCreatedAtAsc(String id) {
         return selectList(Wrappers.<Message>query().eq("conversation_id", id).orderByAsc("created_at"));
     }
+
+    default long countByConversationId(String conversationId) {
+        return selectCount(Wrappers.<Message>query().eq("conversation_id", conversationId));
+    }
 }

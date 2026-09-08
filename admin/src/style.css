@@ -1820,6 +1820,133 @@ article p {
   overflow-wrap: anywhere;
 }
 
+/* 对话日志：查询栏 + 表格 + 详情弹层 */
+.conversation-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 14px 0 18px;
+}
+
+.conversation-filter-field {
+  display: grid;
+  flex: 1;
+  min-width: 220px;
+  gap: 6px;
+}
+
+.conversation-filter-field span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.conversation-filter-field input {
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.conversation-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.conversation-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.conversation-table th,
+.conversation-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.conversation-table thead th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface-muted);
+}
+
+.conversation-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.conversation-table tbody tr:hover td {
+  background: var(--surface-hover);
+}
+
+.conversation-table-actions {
+  width: 90px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.conversation-id {
+  display: inline-block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* 详情弹层 */
+.conversation-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 20px;
+  background: rgb(0 0 0 / 55%);
+  overflow-y: auto;
+}
+
+.conversation-detail-panel {
+  width: min(960px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+}
+
+.conversation-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.conversation-detail-head h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.conversation-detail-head code {
+  color: var(--muted);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.conversation-detail-body {
+  padding: 18px 20px;
+  border-top: 0;
+}
+
 .agent-delete {
   border: 1px solid #6b3441;
   background: transparent;
