@@ -24,6 +24,10 @@ public interface ConversationRepository extends BaseMapper<Conversation> {
     }
 
     default List<Conversation> findAllByOrderByUpdatedAtDesc() {
-        return selectList(Wrappers.<Conversation>query().orderByDesc("updated_at"));
+        // sort_order 优先（拖拽排序），NULL 兜底到 updated_at 倒序。
+        return selectList(
+                Wrappers.<Conversation>query()
+                        .orderByAsc("sort_order")
+                        .orderByDesc("updated_at"));
     }
 }

@@ -77,6 +77,7 @@ const translations = {
     renameFailed: "修改会话名称失败",
     deleteFailed: "删除会话失败",
     createFailed: "创建会话失败",
+    reorderFailed: "调整会话顺序失败",
     backendError: "无法连接后端，请确认 Spring Boot 已启用。",
     requestFailed: "请求失败",
     invalidAction: "操作提案格式无效",
@@ -188,6 +189,7 @@ const translations = {
     renameFailed: "Failed to rename chat",
     deleteFailed: "Failed to delete chat",
     createFailed: "Failed to create chat",
+    reorderFailed: "Failed to reorder chats",
     backendError:
       "Unable to connect to the backend. Please make sure Spring Boot is enabled.",
     requestFailed: "Request failed",
@@ -467,6 +469,14 @@ function App() {
   const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
   const [editingSessionId, setEditingSessionId] = useState<string>();
   const [editingTitle, setEditingTitle] = useState("");
+  // 拖拽排序：draggingId 为正在拖动的会话 id；dropTarget 为插入目标
+  // { id, before } 表示「插到 id 之前」（before=true）或「之后」（before=false）。
+  const [draggingSessionId, setDraggingSessionId] = useState<string>();
+  const [dropTarget, setDropTarget] = useState<{
+    id: string;
+    before: boolean;
+  }>();
+  const reorderRef = useRef<string[] | null>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerToolsRef = useRef<HTMLDivElement>(null);
@@ -816,6 +826,77 @@ function App() {
         ? t.defaultSession(1)
         : conversation.title,
     );
+  }
+
+  // ===== 拖拽排序 =====
+  function beginDrag(conversation: any, event: React.DragEvent) {
+    event.dataTransfer.effectAllowed = "move";
+    // Firefox 需要 setData 才会启动拖拽。
+    event.dataTransfer.setData("text/plain", conversation.id);
+    setDraggingSessionId(conversation.id);
+  }
+
+  function endDrag() {
+    setDraggingSessionId(undefined);
+    setDropTarget(undefined);
+  }
+
+  // 计算插入位置：draggingId 拖到 targetId 处，根据鼠标在上半/下半决定 before/after。
+  function updateDropTarget(
+    targetId: string,
+    event: React.DragEvent<HTMLElement>,
+  ) {
+    if (!draggingSessionId || draggingSessionId === targetId) {
+      setDropTarget(undefined);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const before = event.clientY < rect.top + rect.height / 2;
+    setDropTarget({ id: targetId, before });
+  }
+
+  async function dropOnSession(targetId: string, before: boolean) {
+    if (!draggingSessionId || draggingSessionId === targetId) {
+      endDrag();
+      return;
+    }
+    const dragged = draggingSessionId;
+    const previousOrder = sessions.map((s) => s.id);
+
+    // 先记下旧顺序用于失败回滚。
+    reorderRef.current = previousOrder;
+
+    // 计算新顺序：把 dragged 移到 target 的前/后。
+    const without = sessions.filter((s) => s.id !== dragged);
+    const targetIndex = without.findIndex((s) => s.id === targetId);
+    if (targetIndex < 0) {
+      endDrag();
+      return;
+    }
+    const insertAt = before ? targetIndex : targetIndex + 1;
+    const reordered = [...without];
+    const draggedSession = sessions.find((s) => s.id === dragged);
+    if (draggedSession) reordered.splice(insertAt, 0, draggedSession);
+
+    // 乐观更新本地顺序。
+    setSessions(reordered);
+
+    try {
+      const response = await fetch(API + "/sessions/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: reordered.map((s) => s.id) }),
+      });
+      if (!response.ok) throw Error(t.reorderFailed);
+      reorderRef.current = null;
+    } catch (e) {
+      // 失败回滚到拖拽前顺序。
+      if (reorderRef.current) setSessions(previousOrder);
+      reorderRef.current = null;
+      setError(t.reorderFailed);
+    } finally {
+      endDrag();
+    }
   }
 
   function cancelRename() {
@@ -1430,12 +1511,22 @@ function App() {
         {sessions.map((conversation, index) =>
           (() => {
             const editing = editingSessionId === conversation.id;
+            const isDropBefore =
+              dropTarget != null &&
+              dropTarget.id === conversation.id &&
+              dropTarget.before;
+            const isDropAfter =
+              dropTarget != null &&
+              dropTarget.id === conversation.id &&
+              !dropTarget.before;
             return (
               <button
                 key={conversation.id}
                 className={
                   "session-tab " +
-                  (conversation.id === session?.id ? "active" : "")
+                  (conversation.id === session?.id ? "active" : "") +
+                  (isDropBefore ? " drop-before" : "") +
+                  (isDropAfter ? " drop-after" : "")
                 }
                 onClick={() => {
                   if (!editing) select(conversation);
@@ -1444,6 +1535,25 @@ function App() {
                   event.preventDefault();
                   event.stopPropagation();
                   beginRename(conversation);
+                }}
+                draggable={!editing}
+                onDragStart={(event) => beginDrag(conversation, event)}
+                onDragEnd={endDrag}
+                onDragOver={(event) => {
+                  if (!editing) {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    updateDropTarget(conversation.id, event);
+                  }
+                }}
+                onDragLeave={(event) => {
+                  if (dropTarget?.id === conversation.id)
+                    setDropTarget(undefined);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (dropTarget != null && dropTarget.id === conversation.id)
+                    dropOnSession(conversation.id, dropTarget.before);
                 }}
                 title={t.editTitle}
               >
@@ -1736,18 +1846,50 @@ function App() {
               )}
               {sessions.map((conversation, index) => {
                 const editing = editingSessionId === conversation.id;
+                const isDropBefore =
+                  dropTarget != null &&
+                  dropTarget.id === conversation.id &&
+                  dropTarget.before;
+                const isDropAfter =
+                  dropTarget != null &&
+                  dropTarget.id === conversation.id &&
+                  !dropTarget.before;
                 return (
                   <div
                     key={conversation.id}
                     className={
                       "history-item " +
-                      (conversation.id === session?.id ? "active" : "")
+                      (conversation.id === session?.id ? "active" : "") +
+                      (isDropBefore ? " drop-before" : "") +
+                      (isDropAfter ? " drop-after" : "")
                     }
                     onClick={() => {
                       if (!editing) {
                         select(conversation);
                         setHistoryOpen(false);
                       }
+                    }}
+                    draggable={!editing}
+                    onDragStart={(event) => beginDrag(conversation, event)}
+                    onDragEnd={endDrag}
+                    onDragOver={(event) => {
+                      if (!editing) {
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        updateDropTarget(conversation.id, event);
+                      }
+                    }}
+                    onDragLeave={(event) => {
+                      if (dropTarget?.id === conversation.id)
+                        setDropTarget(undefined);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (
+                        dropTarget != null &&
+                        dropTarget.id === conversation.id
+                      )
+                        dropOnSession(conversation.id, dropTarget.before);
                     }}
                   >
                     <input

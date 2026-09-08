@@ -64,6 +64,14 @@ public class ApiController {
         return chat.rename(id, req == null ? null : req.title());
     }
 
+    public record ReorderSessionsRequest(List<String> orderedIds) {}
+
+    @PostMapping("/sessions/reorder")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void reorder(@RequestBody ReorderSessionsRequest req) {
+        chat.reorder(req == null ? null : req.orderedIds());
+    }
+
     @DeleteMapping("/sessions/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable String id) {

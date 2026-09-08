@@ -15,6 +15,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Service
 public class ChatService {
+        // 会话拖拽排序的 sort_order 步长。步长足够大时，绝大多数插入无需重排；
+        // 相邻项间距耗尽时才触发全量重排。
+        private static final long SORT_STEP = 1024L;
+
         private final ConversationRepository conversations;
         private final MessageRepository messages;
         private final ActionProposalRepository actions;
@@ -48,11 +52,30 @@ public class ChatService {
         }
 
         public Conversation create() {
-                return conversations.save(new Conversation());
+                Conversation conversation = new Conversation();
+                conversation.setSortOrder(nextSortOrder());
+                return conversations.save(conversation);
         }
 
         public List<Conversation> list() {
                 return conversations.findAllByOrderByUpdatedAtDesc();
+        }
+
+        // 新会话放在列表最前（sort_order 最小）。取当前最小 sort_order 减步长，
+        // 避免每次插入都重排整张表。
+        private long nextSortOrder() {
+                List<Conversation> all = conversations.findAllByOrderByUpdatedAtDesc();
+                long min = Long.MAX_VALUE;
+                boolean hasSort = false;
+                for (Conversation c : all) {
+                        Long so = c.getSortOrder();
+                        if (so != null) {
+                                min = Math.min(min, so);
+                                hasSort = true;
+                        }
+                }
+                if (!hasSort) return 0L;
+                return min - SORT_STEP;
         }
 
         public List<Message> history(String id) {
@@ -79,6 +102,99 @@ public class ChatService {
                 messages.deleteByConversationId(id);
                 actions.deleteByConversationId(id);
                 conversations.deleteById(id);
+        }
+
+        // 按前端给定的 id 顺序重排会话。采用「取相邻 sort_order 中间值」策略，
+        // 当相邻间距耗尽（无法再取中间值）时，退化为对当前顺序全量重写 sort_order。
+        @Transactional
+        public void reorder(List<String> orderedIds) {
+                if (orderedIds == null || orderedIds.isEmpty()) return;
+
+                List<Conversation> current = conversations.findAllByOrderByUpdatedAtDesc();
+                Map<String, Conversation> byId = new HashMap<>();
+                for (Conversation c : current) byId.put(c.getId(), c);
+
+                // 只接受真实存在的会话 id，保持给定顺序。
+                List<Conversation> ordered = new ArrayList<>();
+                for (String id : orderedIds) {
+                        Conversation c = byId.get(id);
+                        if (c != null) ordered.add(c);
+                }
+                if (ordered.isEmpty()) return;
+
+                // 找出当前排序下未被前端提及的会话（防御：若前端列表不完整，追加到末尾）。
+                Set<String> mentioned = new HashSet<>(orderedIds);
+                for (Conversation c : current) {
+                        if (!mentioned.contains(c.getId())) ordered.add(c);
+                }
+
+                // 尝试用中间值策略：给定顺序里，为每项计算一个位于左右邻居之间的 sort_order。
+                // 若出现相邻间距无法容纳（<=0），标记需要重排。
+                boolean needRebalance = assignSortOrders(ordered);
+                if (needRebalance) {
+                        for (int i = 0; i < ordered.size(); i++) {
+                                ordered.get(i).setSortOrder((long) i * SORT_STEP);
+                        }
+                }
+
+                for (Conversation c : ordered) {
+                        conversations.save(c);
+                }
+        }
+
+        // 返回 true 表示需要全量重排（间距耗尽）。
+        private boolean assignSortOrders(List<Conversation> ordered) {
+                int n = ordered.size();
+                long[] result = new long[n];
+                // 每个位置的可取值区间 [lo, hi)，初始为全开区间。
+                long lo = Long.MIN_VALUE;
+                long hi = Long.MAX_VALUE;
+
+                // 从左到右贪心：新位置 i 的 sort_order 应大于左邻、小于右邻（右邻尚未确定，
+                // 故右边界用宽松值）。真正的约束来自「相对顺序 + 现有值」。
+                // 简化：按比例线性外推——先看现有值范围，若现有值都在 [min,max]，
+                // 则新序列落在 [min, max] 内等距分布；间距 < 1 时判定耗尽。
+                Long min = null, max = null;
+                for (Conversation c : ordered) {
+                        Long so = c.getSortOrder();
+                        if (so != null) {
+                                if (min == null || so < min) min = so;
+                                if (max == null || so > max) max = so;
+                        }
+                }
+
+                if (min == null) {
+                        // 全部无 sort_order，直接等距赋值，无需重排。
+                        for (int i = 0; i < n; i++) result[i] = (long) i * SORT_STEP;
+                        for (int i = 0; i < n; i++) ordered.get(i).setSortOrder(result[i]);
+                        return false;
+                }
+
+                // 现有值范围 [min, max]。理想情况下把 n 项等距放进这个范围。
+                // 若范围放不下（n 太大或范围太窄），标记需要重排。
+                double span = (double) (max - min);
+                if (span + 1 < n) {
+                        // 范围容不下 n 个不同整数，必须全量重排。
+                        return true;
+                }
+
+                // 等距分布：步长 = span / (n-1)（n>1 时）。
+                if (n == 1) {
+                        ordered.get(0).setSortOrder(min);
+                        return false;
+                }
+
+                double step = span / (n - 1);
+                for (int i = 0; i < n; i++) {
+                        double v = min + step * i;
+                        result[i] = (long) Math.round(v);
+                }
+                // 检查是否产生了重复值（rounding 导致），有则视为需要重排。
+                for (int i = 1; i < n; i++) {
+                        if (result[i] <= result[i - 1]) return true;
+                }
+                for (int i = 0; i < n; i++) ordered.get(i).setSortOrder(result[i]);
+                return false;
         }
 
         public SseEmitter chat(

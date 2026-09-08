@@ -11,6 +11,7 @@ public class Conversation {
     private String title = "新会话";
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
+    private Long sortOrder;
 
     public String getId() {
         return id;
@@ -34,5 +35,13 @@ public class Conversation {
 
     public void touch() {
         updatedAt = Instant.now();
+    }
+
+    public Long getSortOrder() {
+        return sortOrder;
+    }
+
+    public void setSortOrder(Long v) {
+        sortOrder = v;
     }
 }

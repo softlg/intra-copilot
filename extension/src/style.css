@@ -70,8 +70,8 @@ body {
     sans-serif;
 }
 .app {
-  /* Keep the page itself inside the side-panel viewport. The composer is
-     fixed independently, while this column owns the chat scroll area. */
+  /* Keep the page itself inside the side-panel viewport. This column owns
+     the chat scroll area; footer participates in the flex column. */
   position: fixed;
   inset: 0;
   width: 100%;
@@ -205,6 +205,12 @@ small {
   background: var(--page-bg);
   color: var(--text);
   font-weight: 600;
+}
+.session-tab.drop-before {
+  box-shadow: -2px 0 0 0 #2563eb;
+}
+.session-tab.drop-after {
+  box-shadow: 2px 0 0 0 #2563eb;
 }
 .session-tab-input {
   width: 120px;
@@ -1368,6 +1374,12 @@ textarea::-webkit-scrollbar-thumb {
   :root[data-theme="system"] .history-item.active {
     background: #1e3a5f;
   }
+}
+.history-item.drop-before {
+  box-shadow: 0 -2px 0 0 #2563eb;
+}
+.history-item.drop-after {
+  box-shadow: 0 2px 0 0 #2563eb;
 }
 .history-item-title {
   flex: 1;
