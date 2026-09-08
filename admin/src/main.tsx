@@ -226,9 +226,13 @@ const translations = {
     baseNamePlaceholder: "例如：产品操作手册",
     baseDescription: "描述",
     baseDescriptionPlaceholder: "简要说明这个知识库的内容",
-    doubleClickToEdit: "双击名称或描述进行编辑",
+    doubleClickToEdit: "点击名称或描述即可编辑",
     createBase: "创建知识库",
     baseNameRequired: "请输入知识库名称",
+    baseSaveFailed: "知识库保存失败",
+    baseEditNameHint: "点击名称进行编辑",
+    baseEditDescriptionHint: "点击描述进行编辑",
+    baseNameEmptyHint: "未命名知识库",
     agentIdInvalid: "Agent ID 只能使用 2-128 位小写字母、数字和连字符",
     agentNameRequired: "Agent 名称不能为空",
     promptRequired: "系统提示词不能为空",
@@ -644,9 +648,13 @@ const translations = {
     baseNamePlaceholder: "e.g. Product operation manual",
     baseDescription: "Description",
     baseDescriptionPlaceholder: "Briefly describe this knowledge base",
-    doubleClickToEdit: "Double-click the name or description to edit",
+    doubleClickToEdit: "Click the name or description to edit",
     createBase: "Create knowledge base",
     baseNameRequired: "Enter a knowledge base name",
+    baseSaveFailed: "Failed to save knowledge base",
+    baseEditNameHint: "Click to edit name",
+    baseEditDescriptionHint: "Click to edit description",
+    baseNameEmptyHint: "Untitled knowledge base",
     agentIdInvalid:
       "Agent ID must be 2-128 lowercase letters, numbers, or hyphens",
     agentNameRequired: "Agent name is required",
@@ -4378,46 +4386,29 @@ function App() {
                   >
                     ← {t.back}
                   </button>
-                  <div
-                    className="knowledge-detail-title"
-                    onDoubleClick={beginBaseEdit}
-                  >
-                    {editingBase ? (
-                      <div className="knowledge-inline-edit">
-                        <input
-                          value={baseDraftName}
-                          onChange={(event) =>
-                            setBaseDraftName(event.target.value)
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") cancelBaseEdit();
-                          }}
-                          autoFocus
-                          maxLength={160}
-                          aria-label={t.baseName}
-                        />
-                        <textarea
-                          value={baseDraftDescription}
-                          onChange={(event) =>
-                            setBaseDraftDescription(event.target.value)
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") cancelBaseEdit();
-                          }}
-                          rows={2}
-                          maxLength={500}
-                          aria-label={t.baseDescription}
-                        />
-                      </div>
-                    ) : (
-                      <>
-                        <h3>{activeBase.name}</h3>
-                        <p>{activeBase.description || t.supportedDocs}</p>
-                        <small className="field-hint">
-                          {t.doubleClickToEdit}
-                        </small>
-                      </>
-                    )}
+                  <div className="knowledge-detail-title">
+                    <InlineEditable
+                      value={activeBase.name}
+                      onSave={(next) => saveBaseField("name", next)}
+                      placeholder={t.baseNameEmptyHint}
+                      maxLength={160}
+                      required
+                      variant="title"
+                      ariaLabel={t.baseName}
+                      editHint={t.baseEditNameHint}
+                      wrap
+                    />
+                    <InlineEditable
+                      value={activeBase.description ?? ""}
+                      onSave={(next) => saveBaseField("description", next)}
+                      placeholder={t.baseDescriptionPlaceholder}
+                      maxLength={500}
+                      multiline
+                      variant="body"
+                      ariaLabel={t.baseDescription}
+                      editHint={t.baseEditDescriptionHint}
+                      wrap
+                    />
                   </div>
                   <button
                     type="button"

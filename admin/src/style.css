@@ -544,34 +544,30 @@ article p {
   min-width: 0;
   flex: 1;
   cursor: text;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.knowledge-detail-title:not(:has(.knowledge-inline-edit)):hover {
-  border-radius: 8px;
-  background: var(--surface-muted);
-}
-
-.knowledge-inline-edit {
-  display: grid;
-  gap: 8px;
-  width: min(100%, 560px);
-}
-
-.knowledge-inline-edit input,
-.knowledge-inline-edit textarea {
-  width: 100%;
-  border: 1px solid #344560;
-  border-radius: 8px;
-  padding: 9px 11px;
-  outline: none;
-  background: var(--control-bg);
+.knowledge-detail-title .inline-editable-title {
+  font-size: 1.25rem;
+  font-weight: 600;
   color: var(--text);
 }
 
-.knowledge-inline-edit input:focus,
-.knowledge-inline-edit textarea:focus {
-  border-color: #4776d0;
-  box-shadow: 0 0 0 2px rgb(71 118 208 / 18%);
+.knowledge-detail-title .inline-editable-body {
+  color: var(--text-muted, #8a96a8);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.knowledge-detail-title:not(:has(.inline-editable-editing)) {
+  border-radius: 8px;
+  padding: 2px 0;
+}
+
+.knowledge-detail-title:not(:has(.inline-editable-editing)):hover {
+  background: var(--surface-muted);
 }
 
 .qa-header-save {

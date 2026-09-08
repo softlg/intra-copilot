@@ -1,0 +1,148 @@
+.inline-editable {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 6px;
+  transition:
+    background-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.inline-editable-display {
+  cursor: text;
+  padding: 2px 8px;
+  margin: -2px -8px;
+}
+
+.inline-editable-display:hover {
+  background: var(--surface-muted);
+}
+
+.inline-editable-display:focus-visible {
+  outline: 2px solid var(--accent, #4776d0);
+  outline-offset: 2px;
+  background: var(--surface-muted);
+}
+
+.inline-editable-display .inline-editable-pencil {
+  opacity: 0;
+  color: var(--text-muted, #8a96a8);
+  font-size: 0.85em;
+  line-height: inherit;
+  transition:
+    opacity 0.16s ease,
+    color 0.16s ease;
+  align-self: center;
+}
+
+.inline-editable-display:hover .inline-editable-pencil,
+.inline-editable-display:focus-visible .inline-editable-pencil {
+  opacity: 0.7;
+}
+
+.inline-editable-placeholder {
+  color: var(--text-muted, #8a96a8);
+  font-style: italic;
+}
+
+.inline-editable-value {
+  word-break: break-word;
+}
+
+.inline-editable-title {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.inline-editable-title .inline-editable-value,
+.inline-editable-title .inline-editable-placeholder {
+  line-height: 1.3;
+}
+
+.inline-editable-subtitle {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.inline-editable-body {
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.inline-editable-editing {
+  align-items: stretch;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+
+.inline-editable-editing input,
+.inline-editable-editing textarea {
+  width: 100%;
+  border: 1px solid #4776d0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(71 118 208 / 18%);
+  resize: vertical;
+  min-height: 36px;
+}
+
+.inline-editable-editing textarea {
+  min-height: 64px;
+  line-height: 1.45;
+}
+
+.inline-editable-error input,
+.inline-editable-error textarea {
+  border-color: #d0455a;
+  box-shadow: 0 0 0 2px rgb(208 69 90 / 18%);
+}
+
+.inline-editable-error-text {
+  align-self: center;
+  color: #d0455a;
+  font-size: 0.85rem;
+}
+
+.inline-editable-spinner {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted, #8a96a8);
+  font-size: 0.9em;
+  animation: inline-editable-pulse 1.1s ease-in-out infinite;
+}
+
+.inline-editable-disabled {
+  cursor: default;
+}
+
+.inline-editable-disabled:hover {
+  background: transparent;
+}
+
+@keyframes inline-editable-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inline-editable {
+    transition: none;
+  }
+  .inline-editable-spinner {
+    animation: none;
+  }
+}
