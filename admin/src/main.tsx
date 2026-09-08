@@ -167,6 +167,8 @@ const translations = {
     displayName: "显示名称",
     displayNamePlaceholder: "例如：发布助手",
     descriptionOptional: "描述（可选）",
+    descriptionLabel: "描述",
+    descriptionRequired: "请填写描述",
     agentDescriptionPlaceholder: "简要说明这个 Agent 负责处理什么问题",
     systemPrompt: "系统提示词",
     systemPromptPlaceholder: "定义 Agent 的角色、边界和回答方式",
@@ -557,6 +559,8 @@ const translations = {
     displayName: "Display name",
     displayNamePlaceholder: "e.g. Release assistant",
     descriptionOptional: "Description (optional)",
+    descriptionLabel: "Description",
+    descriptionRequired: "Description is required",
     agentDescriptionPlaceholder: "Briefly describe what this Agent handles",
     systemPrompt: "System prompt",
     systemPromptPlaceholder:
@@ -1816,6 +1820,10 @@ function App() {
       setResourceError(t.resourceNameRequired);
       return;
     }
+    if (!resourceDescription.trim()) {
+      setResourceError(t.descriptionRequired);
+      return;
+    }
     const resourceNames =
       resourceDialog === "tool"
         ? tools.map((item) => ({ id: item.id, name: item.name }))
@@ -1963,6 +1971,7 @@ function App() {
   const saveHook = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!hookName.trim()) return setResourceError(t.hookNameRequired);
+    if (!hookDescription.trim()) return setResourceError(t.descriptionRequired);
     try {
       JSON.parse(hookRuleConfig || "{}");
     } catch {
@@ -5613,7 +5622,12 @@ function App() {
                 />
               </label>
               <label className="field">
-                <span>{t.hookDescription}</span>
+                <span>
+                  {t.hookDescription}
+                  <span className="required-mark" aria-hidden="true">
+                    *
+                  </span>
+                </span>
                 <textarea
                   value={hookDescription}
                   onChange={(event) => setHookDescription(event.target.value)}
@@ -6369,7 +6383,12 @@ function App() {
                 />
               </label>
               <label className="field">
-                <span>{t.descriptionOptional}</span>
+                <span>
+                  {t.descriptionLabel}
+                  <span className="required-mark" aria-hidden="true">
+                    *
+                  </span>
+                </span>
                 <textarea
                   value={resourceDescription}
                   onChange={(event) =>
