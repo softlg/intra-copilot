@@ -4719,9 +4719,6 @@ function App() {
                             {t.deleteResource}
                           </button>
                         )}
-                        >
-                          {t.deleteResource}
-                        </button>
                       </div>
                     </article>
                   ))}
