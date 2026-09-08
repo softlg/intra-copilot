@@ -1691,7 +1691,7 @@ function App() {
 
   const deleteMcpServer = async (server: McpServer) => {
     if (server.enabled) {
-      setResourceError(t.deleteDisabledEnabled);
+      toast.warning(t.deleteDisabledEnabled);
       return;
     }
     askConfirm({
@@ -1708,10 +1708,9 @@ function App() {
           if (mcpDetails?.id === server.id) setMcpDetails(undefined);
           toast.success(t.mcpDeleted(server.name));
         } catch (error) {
-          setResourceError(
+          toast.error(
             error instanceof Error ? error.message : t.resourceDeleteFailed,
           );
-          throw error;
         } finally {
           setMcpActionId(undefined);
         }
@@ -1733,7 +1732,7 @@ function App() {
         items.map((item) => (item.id === updated.id ? updated : item)),
       );
     } catch (error) {
-      setResourceError(
+      toast.error(
         error instanceof Error ? error.message : t.mcpSaveFailed,
       );
     } finally {
@@ -1889,7 +1888,7 @@ function App() {
       if (kind === "tool") loadTools();
       else loadSkills();
     } catch (error) {
-      setResourceError(
+      toast.error(
         error instanceof Error ? error.message : t.resourceSaveFailed,
       );
     } finally {
@@ -1902,7 +1901,7 @@ function App() {
     resource: ToolDefinition | SkillDefinition,
   ) => {
     if (resource.enabled) {
-      setResourceError(t.deleteDisabledEnabled);
+      toast.warning(t.deleteDisabledEnabled);
       return;
     }
     askConfirm({
@@ -1926,10 +1925,9 @@ function App() {
             kind === "tool" ? t.toolDeleted(resource.name) : t.skillDeleted(resource.name),
           );
         } catch (error) {
-          setResourceError(
+          toast.error(
             error instanceof Error ? error.message : t.resourceDeleteFailed,
           );
-          throw error;
         } finally {
           setResourceActionId(undefined);
         }
@@ -2004,7 +2002,7 @@ function App() {
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
     } catch (error) {
-      setResourceError(
+      toast.error(
         error instanceof Error ? error.message : t.hookSaveFailed,
       );
     } finally {
@@ -2014,7 +2012,7 @@ function App() {
 
   const deleteHook = async (hook: HookDefinition) => {
     if (hook.enabled) {
-      setResourceError(t.deleteDisabledEnabled);
+      toast.warning(t.deleteDisabledEnabled);
       return;
     }
     askConfirm({
@@ -2030,10 +2028,9 @@ function App() {
           setHooks((current) => current.filter((item) => item.id !== hook.id));
           toast.success(t.hookDeleted(hook.name));
         } catch (error) {
-          setResourceError(
+          toast.error(
             error instanceof Error ? error.message : t.hookDeleteFailed,
           );
-          throw error;
         } finally {
           setHookActionId(undefined);
         }
@@ -2590,10 +2587,9 @@ function App() {
           if (agentConfigId === agent.id) closeAgentConfig();
           toast.success(t.agentDeleted(agent.displayName));
         } catch (error) {
-          setAgentError(
+          toast.error(
             error instanceof Error ? error.message : t.deleteAgentFailed,
           );
-          throw error;
         } finally {
           setAgentActionId(undefined);
         }
@@ -2733,7 +2729,6 @@ function App() {
       tone: "danger",
       onConfirm: async () => {
         setDocumentActionId(document.id);
-        setUploadError("");
         try {
           await request(`/admin/knowledge-bases/documents/${document.id}`, {
             method: "DELETE",
@@ -2746,8 +2741,7 @@ function App() {
           }));
           toast.success(t.documentDeleted(document.filename));
         } catch (error) {
-          setUploadError(error instanceof Error ? error.message : t.deleteFailed);
-          throw error;
+          toast.error(error instanceof Error ? error.message : t.deleteFailed);
         } finally {
           setDocumentActionId(undefined);
         }
