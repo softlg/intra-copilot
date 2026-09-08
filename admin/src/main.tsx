@@ -3916,7 +3916,7 @@ function App() {
                           {agent.enabled ? t.enabled : t.disabled}
                         </span>
                       </div>
-                      <code>{agent.id}</code>
+                      <TruncatedId value={agent.id} label="Agent ID" />
                       {parent && (
                         <p className="agent-parent">
                           {t.parentAgent}：{parent.displayName}
@@ -3974,7 +3974,7 @@ function App() {
                         </span>
                       </div>
                       <p>{base.description || t.supportedDocs}</p>
-                      <code>{base.id}</code>
+                      <TruncatedId value={base.id} label="Knowledge base ID" />
                       <div className="knowledge-card-footer">
                         <span className="upload-hint">
                           {t.documentCount((documents[base.id] ?? []).length)}
@@ -4584,7 +4584,7 @@ function App() {
                           {tool.enabled ? t.enabled : t.disabled}
                         </span>
                       </div>
-                      <code>{tool.id}</code>
+                      <TruncatedId value={tool.id} label="Tool ID" />
                       <p>{tool.description || t.noDescription}</p>
                       <div className="resource-meta">
                         <span>{tool.type || t.toolTypeLabel}</span>
@@ -4677,7 +4677,7 @@ function App() {
                           {skill.enabled ? t.enabled : t.disabled}
                         </span>
                       </div>
-                      <code>{skill.id}</code>
+                      <TruncatedId value={skill.id} label="Skill ID" />
                       <p>{skill.description || t.noDescription}</p>
                       <div className="resource-meta">
                         <span>v{skill.version || "1.0.0"}</span>
@@ -4753,7 +4753,7 @@ function App() {
                         {hook.enabled ? t.enabled : t.disabled}
                       </span>
                     </div>
-                    <code>{hook.id}</code>
+                    <TruncatedId value={hook.id} label="Hook ID" />
                     <p>{hook.description || t.noDescription}</p>
                     <div className="resource-meta">
                       <span>{t.preAgent}</span>
