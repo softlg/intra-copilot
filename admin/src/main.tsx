@@ -257,9 +257,6 @@ const translations = {
     noKnowledgeBases: "暂无可用知识库，请先创建知识库。",
     search: "搜索",
     searchPlaceholder: "搜索名称、ID或描述",
-    menuSearchPlaceholder: "搜索当前菜单内容",
-    refresh: "刷新",
-    refreshing: "刷新中…",
     statusFilter: "状态筛选",
     allStatuses: "全部状态",
     noSearchResults: "没有匹配的结果。",
@@ -610,9 +607,6 @@ const translations = {
     noKnowledgeBases: "No knowledge bases available. Create one first.",
     search: "Search",
     searchPlaceholder: "Search by name, ID, or description",
-    menuSearchPlaceholder: "Search this menu",
-    refresh: "Refresh",
-    refreshing: "Refreshing…",
     statusFilter: "Status filter",
     allStatuses: "All statuses",
     noSearchResults: "No matching results.",
@@ -1106,11 +1100,9 @@ function App() {
     () => localStorage.getItem("admin-agent-menu-open") !== "false",
   );
   const [agentReturnTab, setAgentReturnTab] = useState("agents");
-  const [menuSearch, setMenuSearch] = useState("");
   const [resourceStatus, setResourceStatus] = useState<
     "all" | "enabled" | "disabled"
   >("all");
-  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
   const [routePageContext, setRoutePageContext] = useState("");
   const [route, setRoute] = useState<Record<string, unknown>>();
@@ -1318,16 +1310,6 @@ function App() {
       .then(setEmbeddingConfig)
       .catch(() => setEmbeddingConfig(undefined));
   }, [activeBaseId]);
-
-  useEffect(() => {
-    setMenuSearch("");
-  }, [tab, activeBaseId]);
-
-  const refresh = () => {
-    setRefreshing(true);
-    load();
-    window.setTimeout(() => setRefreshing(false), 700);
-  };
 
   const openMcpDialog = (server?: McpServer) => {
     setEditingMcpId(server?.id);
@@ -2468,15 +2450,7 @@ function App() {
     setUploadError("");
     setResourceError("");
   };
-  const query = menuSearch.trim().toLowerCase();
-  const matchesSearch = (...values: unknown[]) =>
-    !query ||
-    values.some(
-      (value) =>
-        value !== undefined &&
-        value !== null &&
-        String(value).toLowerCase().includes(query),
-    );
+  const matchesSearch = (..._values: unknown[]) => true;
   const filteredAgents = agents.filter((agent) =>
     matchesSearch(agent.displayName, agent.id, agent.description),
   );
@@ -2559,9 +2533,6 @@ function App() {
       ),
     };
   })();
-
-  const showMenuToolbar =
-    tab !== "router" && tab !== "agent-settings" && tab !== "mcp-servers";
 
   return (
     <div className="shell">
@@ -2752,43 +2723,6 @@ function App() {
             )}
           </div>
         </header>
-
-        {showMenuToolbar && (
-          <div className="menu-toolbar" role="search">
-            <div className="menu-search-control">
-              <span className="menu-search-icon" aria-hidden="true">
-                ⌕
-              </span>
-              <input
-                type="search"
-                value={menuSearch}
-                onChange={(event) => setMenuSearch(event.target.value)}
-                placeholder={t.menuSearchPlaceholder}
-                aria-label={t.search}
-              />
-              {menuSearch && (
-                <button
-                  type="button"
-                  className="menu-search-clear"
-                  onClick={() => setMenuSearch("")}
-                  aria-label={t.close}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-            <button
-              type="button"
-              className="secondary menu-refresh-button"
-              onClick={refresh}
-              disabled={refreshing}
-              title={refreshing ? t.refreshing : t.refresh}
-            >
-              <span aria-hidden="true">↻</span>
-              {refreshing ? t.refreshing : t.refresh}
-            </button>
-          </div>
-        )}
 
         {tab === "agent-settings" && agentConfigId && (
           <section className="agent-settings-page">
