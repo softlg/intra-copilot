@@ -2,6 +2,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import Pagination from "./components/Pagination";
+import { ToastContainer, toast } from "./components/Toast";
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { Tooltip } from "./components/Tooltip";
+import { TruncatedId } from "./components/TruncatedId";
+import { FieldHint } from "./components/FieldHint";
+import { Dropdown } from "./components/Dropdown";
+import { StatusBadge, type StatusKind } from "./components/StatusBadge";
 
 const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8080/api/v1";
 type Language = "zh" | "en";
@@ -2678,6 +2685,7 @@ function App() {
 
   return (
     <div className="shell">
+      <ToastContainer />
       <aside className={sidebarCollapsed ? "sidebar-collapsed" : undefined}>
         <div className="sidebar-header">
           <div className="sidebar-brand">

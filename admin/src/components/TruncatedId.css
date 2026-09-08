@@ -1,0 +1,66 @@
+.truncated-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.truncated-id-short {
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  font-size: 11px;
+  background: var(--control-bg, #0f1929);
+  border: 1px solid var(--border, #263852);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.truncated-id-copy {
+  background: transparent;
+  color: var(--muted-subtle, #8797ae);
+  padding: 0;
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.truncated-id-copy:hover {
+  background: var(--surface-hover, #18263d);
+  color: var(--text, #f1f5fb);
+}
+
+.truncated-id-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 320px;
+  word-break: break-all;
+}
+
+.truncated-id-tooltip .truncated-id-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-subtle, #8797ae);
+}
+
+.truncated-id-tooltip code {
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  font-size: 11px;
+  color: var(--text, #f1f5fb);
+  word-break: break-all;
+}

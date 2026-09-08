@@ -1,0 +1,33 @@
+.field-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted-subtle, #8797ae);
+}
+
+.field-hint-info {
+  color: var(--muted-subtle, #8797ae);
+}
+
+.field-hint-warning {
+  color: #e9b46e;
+}
+
+.field-hint-error {
+  color: #f48a8a;
+}
+
+.field-hint code {
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  font-size: 11px;
+  background: var(--control-bg, #0f1929);
+  border: 1px solid var(--border, #263852);
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--text, #f1f5fb);
+}
