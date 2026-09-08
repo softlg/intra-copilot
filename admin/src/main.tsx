@@ -66,6 +66,11 @@ const translations = {
     skillDeleted: (name: string) => `Skill “${name}”已删除`,
     hookDeleted: (name: string) => `钩子 “${name}”已删除`,
     documentDeleted: (name: string) => `文档 “${name}”已删除`,
+    toolActions: "工具操作",
+    skillActions: "技能操作",
+    hookActions: "钩子操作",
+    moreActions: "更多操作",
+    resourceActionFailed: "操作失败，请稍后重试",
     toolsMenu: "工具",
     skillsMenu: "Skill",
     skillsTitle: "Skill 管理",
@@ -441,6 +446,11 @@ const translations = {
     skillDeleted: (name: string) => `Skill “${name}” deleted`,
     hookDeleted: (name: string) => `Hook “${name}” deleted`,
     documentDeleted: (name: string) => `Document “${name}” deleted`,
+    toolActions: "Tool actions",
+    skillActions: "Skill actions",
+    hookActions: "Hook actions",
+    moreActions: "More actions",
+    resourceActionFailed: "Action failed, please retry later.",
     toolsMenu: "Tools",
     skillsMenu: "Skill",
     skillsTitle: "Skill management",
@@ -4599,35 +4609,25 @@ function App() {
                         >
                           {t.edit}
                         </button>
-                        <button
-                          onClick={() => toggleResource("tool", tool)}
-                          disabled={resourceActionId === tool.id}
-                        >
-                          {tool.enabled ? t.stop : t.enable}
-                        </button>
-                        {tool.enabled ? (
-                          <Tooltip
-                            placement="top"
-                            content={t.deleteDisabledEnabled}
-                          >
-                            <button
-                              className="agent-delete"
-                              onClick={() => deleteResource("tool", tool)}
-                              disabled
-                              aria-label={t.deleteDisabledEnabled}
-                            >
-                              {t.deleteResource}
-                            </button>
-                          </Tooltip>
-                        ) : (
-                          <button
-                            className="agent-delete"
-                            onClick={() => deleteResource("tool", tool)}
-                            disabled={resourceActionId === tool.id}
-                          >
-                            {t.deleteResource}
-                          </button>
-                        )}
+                        <Dropdown
+                          ariaLabel={t.toolActions}
+                          trigger={<span className="dropdown-trigger-glyph">⋯</span>}
+                          items={[
+                            {
+                              key: "toggle",
+                              label: tool.enabled ? t.stop : t.enable,
+                              onSelect: () => toggleResource("tool", tool),
+                              disabled: resourceActionId === tool.id,
+                            },
+                            {
+                              key: "delete",
+                              label: t.deleteResource,
+                              onSelect: () => deleteResource("tool", tool),
+                              disabled: tool.enabled,
+                              tone: "danger",
+                            },
+                          ]}
+                        />
                       </div>
                     </article>
                   ))}
