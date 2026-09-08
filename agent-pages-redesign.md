@@ -250,11 +250,11 @@ agentChildIds.map((childAgentId, index) => ({
 
 ### P1 — 做完才好用
 
-4. 领域 Agent 卡片显示处理策略与子 Agent 数量；子 Agent 卡片显示所属领域 Agent。
+4. ✅ 子 Agent 卡片已显示所属领域 Agent；领域 Agent 卡片显示处理策略与子 Agent 数量待做。
 5. 领域 Agent 详情页「处理策略 + 子 Agent 调度」合并展示，并显式标注调度优先级顺序。
-6. 新建子 Agent 强制选择父领域 Agent。
+6. ✅ 新建子 Agent 强制选择父领域 Agent。已做：新建弹窗显示「父领域 Agent」必填选择框，`addAgent("SUB")` 自动预选第一个启用的 DOMAIN，保存前前端预校验。
 7. 卡片标注「用户可选 / 内部节点」；通用 Agent 详情隐藏不生效的调度配置，避免误导。
-8. Agent 一级菜单点击一级按钮自身可切换展开/收起（默认展开），状态持久化到 localStorage；右侧 caret 单独保留作为显式折叠/展开入口；进入二级页面时若菜单是收起状态自动展开。
+8. ✅ Agent 一级菜单点击一级按钮自身可切换展开/收起（默认展开），状态持久化到 localStorage；右侧 caret 单独保留作为显式折叠/展开入口；进入二级页面时若菜单是收起状态自动展开。
 
 ### P2 — 锦上添花
 
@@ -303,3 +303,15 @@ agentChildIds.map((childAgentId, index) => ({
 - 新建按钮按所在页面预置角色（`AGENT_PRESETS` 提供 MAIN / GENERAL / DOMAIN / SUB 的默认 ID、名称与系统提示词）。
 - 从详情页返回时回到进入前的列表页（`agentReturnTab`）。
 - 子 Agent 卡片显示所属领域 Agent 名称。
+
+### 8.4 子 Agent 新建时强制选择父领域 Agent（P1-6）
+
+- 问题根因：新建弹窗缺少「父领域 Agent」输入，`addAgent("SUB")` 默认把 `agentParentId` 置空；保存时后端按调度树合约打回「子 Agent 必须绑定领域 Agent」。
+- 修复：新建弹窗增加「Agent 类型」选择（GENERAL / DOMAIN / SUB）和「父领域 Agent」必填下拉（仅 SUB 时显示），标红星并前端预校验；`addAgent("SUB")` 与切换 role 到 SUB 时自动预选第一个启用的 DOMAIN；保存前验证父级存在且 role=DOMAIN。
+- 样式：`.field span` 改为 `.field > span`，新增 `.required-mark` 红色星号，适配 light/dark 主题。
+
+### 8.5 Agent 一级菜单点击展开/收起（P1-8）
+
+- `agentMenuOpen` 持久化到 `localStorage["admin-agent-menu-open"]`，默认展开。
+- 一级按钮点击智能切换：已在系统 Agent 页则只切换 menu，否则跳转并展开；caret 按钮独立保留。
+- 监听 tab：进入二级页面时若菜单收起自动展开。

@@ -2059,11 +2059,16 @@ pre {
   gap: 12px;
 }
 
-.field span {
+.field > span {
   display: block;
   margin-bottom: 8px;
   color: #cbd6e8;
   font-size: 13px;
+}
+
+.required-mark {
+  color: #f87171;
+  margin-left: 4px;
 }
 
 .field-hint {
@@ -2559,7 +2564,7 @@ pre {
 }
 
 :root[data-theme="light"] .document-name,
-:root[data-theme="light"] .field span,
+:root[data-theme="light"] .field > span,
 :root[data-theme="light"] .checkbox-field {
   color: #334155;
 }

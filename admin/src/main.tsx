@@ -166,6 +166,7 @@ const translations = {
     agentIdInvalid: "Agent ID 只能使用 2-128 位小写字母、数字和连字符",
     agentNameRequired: "Agent 名称不能为空",
     promptRequired: "系统提示词不能为空",
+    parentAgentRequired: "子 Agent 必须选择一个启用的领域 Agent 作为父级",
     createAgentFailed: "创建 Agent 失败，请稍后重试",
     createBaseFailed: "创建知识库失败，请稍后重试",
     uploadFailed: "上传文档失败，请稍后重试",
@@ -511,6 +512,7 @@ const translations = {
       "Agent ID must be 2-128 lowercase letters, numbers, or hyphens",
     agentNameRequired: "Agent name is required",
     promptRequired: "System prompt is required",
+    parentAgentRequired: "A sub-agent must select an enabled domain Agent as its parent",
     createAgentFailed: "Failed to create Agent. Please try again.",
     createBaseFailed: "Failed to create knowledge base. Please try again.",
     uploadFailed: "Failed to upload document. Please try again.",
@@ -1911,7 +1913,12 @@ function App() {
     setAgentPriority(100);
     setAgentRoutingRules("");
     setAgentRole(role);
-    setAgentParentId("");
+    setAgentParentId(
+      role === "SUB"
+        ? agents.find((item) => item.role === "DOMAIN" && item.enabled)?.id ??
+            ""
+        : "",
+    );
     setAgentHandlingMode("AUTO");
     setAgentReturnMode("CHILD_DIRECT");
     setAgentChildIds([]);
@@ -2049,6 +2056,19 @@ function App() {
     }
     if (!systemPrompt) {
       setAgentError(t.promptRequired);
+      return;
+    }
+    if (
+      agentRole === "SUB" &&
+      (!agentParentId.trim() ||
+        !agents.some(
+          (item) =>
+            item.id === agentParentId.trim() &&
+            item.role === "DOMAIN" &&
+            item.enabled,
+        ))
+    ) {
+      setAgentError(t.parentAgentRequired);
       return;
     }
 
@@ -5191,6 +5211,57 @@ function App() {
                   <span>{t.agentId}</span>
                   <input value={agentId} disabled />
                   <small className="field-hint">{t.agentIdHint}</small>
+                </label>
+              )}
+              <label className="field">
+                <span>{t.agentRole}</span>
+                <select
+                  value={agentRole}
+                  onChange={(event) => {
+                    const role = event.target.value;
+                    setAgentRole(role);
+                    if (role === "SUB") {
+                      setAgentParentId(
+                        agents.find(
+                          (item) => item.role === "DOMAIN" && item.enabled,
+                        )?.id ?? "",
+                      );
+                    } else {
+                      setAgentParentId("");
+                    }
+                  }}
+                >
+                  <option value="GENERAL">{t.roleGeneral}</option>
+                  <option value="DOMAIN">{t.roleDomain}</option>
+                  <option value="SUB">{t.roleSub}</option>
+                </select>
+              </label>
+              {agentRole === "SUB" && (
+                <label className="field">
+                  <span>
+                    {t.parentAgent}
+                    <span aria-hidden="true" className="required-mark">
+                      *
+                    </span>
+                  </span>
+                  <select
+                    value={agentParentId}
+                    onChange={(event) => setAgentParentId(event.target.value)}
+                    required
+                  >
+                    <option value="" disabled>
+                      —
+                    </option>
+                    {agents
+                      .filter(
+                        (item) => item.role === "DOMAIN" && item.enabled,
+                      )
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.displayName}
+                        </option>
+                      ))}
+                  </select>
                 </label>
               )}
               <label className="field">
