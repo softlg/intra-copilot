@@ -12,6 +12,30 @@ const translations = {
     subtitle: "管理控制台",
     agents: "Agent",
     knowledge: "知识库",
+    mcpServers: "MCP 服务",
+    mcpServersTitle: "MCP 服务管理",
+    mcpServersSubtitle: "注册 MCP Server，查看健康状态、接口数量和能力详情。",
+    newMcpServer: "+ 新建 MCP 服务",
+    mcpServerName: "服务名称",
+    mcpServerUrlLabel: "服务地址",
+    mcpTransportLabel: "传输方式",
+    mcpAuthEnvLabel: "认证环境变量（可选）",
+    mcpAuthEnvHint: "仅保存环境变量名称，不保存密钥本身。",
+    mcpDescriptionPlaceholder: "说明这个 MCP 服务提供的能力",
+    mcpHealth: "检查健康",
+    mcpInterfaces: "个接口",
+    mcpDetails: "接口详情",
+    mcpStatusUnknown: "未检查",
+    mcpStatusHealthy: "健康",
+    mcpStatusDegraded: "部分可用",
+    mcpStatusUnhealthy: "不可用",
+    mcpLastChecked: "最近检查",
+    mcpLatency: "响应耗时",
+    mcpCapabilities: "服务能力",
+    mcpNoInterfaces: "暂无接口信息，请先执行健康检查。",
+    mcpCheckFailed: "健康检查失败，请确认服务地址和权限。",
+    mcpSaveFailed: "保存 MCP 服务失败，请稍后重试",
+    mcpDeleteConfirm: (name: string) => `确定删除 MCP 服务“${name}”吗？`,
     toolsMenu: "工具",
     skillsMenu: "Skill",
     skillsTitle: "Skill 管理",
@@ -188,6 +212,27 @@ const translations = {
     backToAgents: "返回 Agent 列表",
     basicInfo: "基本信息",
     intentRouting: "意图路由",
+    agentRole: "Agent 类型",
+    roleMain: "主 Agent",
+    roleGeneral: "通用 Agent",
+    roleDomain: "领域 Agent",
+    roleSub: "子 Agent",
+    parentAgent: "父领域 Agent",
+    handlingMode: "处理策略",
+    directMode: "直接处理",
+    delegateMode: "指派子 Agent",
+    autoMode: "自动决策",
+    returnMode: "返回策略",
+    childDirectMode: "直接返回子 Agent 结果",
+    domainSummaryMode: "由领域 Agent 总结",
+    childBinding: "子 Agent 绑定",
+    noChildAgents: "暂无可用子 Agent",
+    versions: "版本发布",
+    draft: "草稿",
+    published: "已发布",
+    publish: "发布配置",
+    rollback: "回滚",
+    publishedVersion: "当前发布版本",
     intentRoutingHint:
       "配置主 Agent 如何识别意图、选择子 Agent，以及处理低置信度请求。",
     routingRules: "指派规则",
@@ -200,6 +245,8 @@ const translations = {
     menuSearchPlaceholder: "搜索当前菜单内容",
     refresh: "刷新",
     refreshing: "刷新中…",
+    statusFilter: "状态筛选",
+    allStatuses: "全部状态",
     noSearchResults: "没有匹配的结果。",
     viewDetails: "查看详情",
     resourceDetails: "资源详情",
@@ -280,6 +327,33 @@ const translations = {
     subtitle: "Admin Console",
     agents: "Agents",
     knowledge: "Knowledge bases",
+    mcpServers: "MCP services",
+    mcpServersTitle: "MCP service management",
+    mcpServersSubtitle:
+      "Register MCP Servers and inspect health, interface count, and capabilities.",
+    newMcpServer: "+ New MCP service",
+    mcpServerName: "Service name",
+    mcpServerUrlLabel: "Server URL",
+    mcpTransportLabel: "Transport",
+    mcpAuthEnvLabel: "Auth environment variable (optional)",
+    mcpAuthEnvHint:
+      "Only the environment variable name is stored; secrets stay on the backend.",
+    mcpDescriptionPlaceholder:
+      "Describe the capabilities provided by this MCP service",
+    mcpHealth: "Check health",
+    mcpInterfaces: "interfaces",
+    mcpDetails: "Interface details",
+    mcpStatusUnknown: "Not checked",
+    mcpStatusHealthy: "Healthy",
+    mcpStatusDegraded: "Degraded",
+    mcpStatusUnhealthy: "Unavailable",
+    mcpLastChecked: "Last checked",
+    mcpLatency: "Latency",
+    mcpCapabilities: "Capabilities",
+    mcpNoInterfaces: "No interface data. Run a health check first.",
+    mcpCheckFailed: "Health check failed. Verify the URL and permissions.",
+    mcpSaveFailed: "Failed to save the MCP service. Please try again.",
+    mcpDeleteConfirm: (name: string) => `Delete MCP service “${name}”?`,
     toolsMenu: "Tools",
     skillsMenu: "Skill",
     skillsTitle: "Skill management",
@@ -472,6 +546,27 @@ const translations = {
     backToAgents: "Back to Agents",
     basicInfo: "Basic information",
     intentRouting: "Intent routing",
+    agentRole: "Agent type",
+    roleMain: "Main Agent",
+    roleGeneral: "General Agent",
+    roleDomain: "Domain Agent",
+    roleSub: "Sub-agent",
+    parentAgent: "Parent domain Agent",
+    handlingMode: "Handling strategy",
+    directMode: "Handle directly",
+    delegateMode: "Delegate to sub-agent",
+    autoMode: "Automatic decision",
+    returnMode: "Return strategy",
+    childDirectMode: "Return sub-agent result",
+    domainSummaryMode: "Summarize with domain Agent",
+    childBinding: "Sub-agent bindings",
+    noChildAgents: "No available sub-agents",
+    versions: "Version publishing",
+    draft: "Draft",
+    published: "Published",
+    publish: "Publish configuration",
+    rollback: "Rollback",
+    publishedVersion: "Published version",
     intentRoutingHint:
       "Configure how the primary Agent identifies intent, selects sub-agents, and handles low-confidence requests.",
     routingRules: "Assignment rules",
@@ -484,6 +579,8 @@ const translations = {
     menuSearchPlaceholder: "Search this menu",
     refresh: "Refresh",
     refreshing: "Refreshing…",
+    statusFilter: "Status filter",
+    allStatuses: "All statuses",
     noSearchResults: "No matching results.",
     viewDetails: "View details",
     resourceDetails: "Resource details",
@@ -565,7 +662,13 @@ type Agent = {
   id: string;
   displayName: string;
   description?: string;
+  role?: "MAIN" | "GENERAL" | "DOMAIN" | "SUB" | string;
+  parentAgentId?: string;
+  handlingMode?: "DIRECT" | "DELEGATE" | "AUTO" | string;
+  returnMode?: "CHILD_DIRECT" | "DOMAIN_SUMMARY" | string;
   enabled: boolean;
+  published?: boolean;
+  publishedVersion?: number;
   systemPrompt: string;
   systemAgent?: boolean;
   supportsBrowserActions?: boolean;
@@ -576,6 +679,25 @@ type Agent = {
   knowledgeBaseIds?: string;
   toolIds?: string;
   skillIds?: string;
+};
+
+type AgentConfigVersion = {
+  id: string;
+  agentId: string;
+  version: number;
+  status: string;
+  snapshot?: string;
+  releaseNote?: string;
+  createdAt?: string;
+};
+
+type AgentChildBinding = {
+  id: string;
+  parentAgentId: string;
+  childAgentId: string;
+  priority?: number;
+  routingRule?: string;
+  enabled: boolean;
 };
 
 type ToolDefinition = {
@@ -589,6 +711,30 @@ type ToolDefinition = {
   mcpTransport?: string;
   mcpAuthEnv?: string;
   enabled: boolean;
+};
+
+type McpInterface = {
+  name?: string;
+  description?: string;
+  inputSchema?: unknown;
+  [key: string]: unknown;
+};
+
+type McpServer = {
+  id: string;
+  name: string;
+  description?: string;
+  serverUrl: string;
+  transport: "SSE" | "STREAMABLE_HTTP" | string;
+  authEnv?: string;
+  enabled: boolean;
+  status?: "UNKNOWN" | "HEALTHY" | "DEGRADED" | "UNHEALTHY" | string;
+  interfaceCount?: number;
+  interfacesJson?: string;
+  capabilitiesJson?: string;
+  lastError?: string;
+  lastCheckedAt?: string;
+  lastLatencyMs?: number;
 };
 
 type SkillDefinition = {
@@ -643,7 +789,12 @@ type Base = {
   name: string;
   description?: string;
   enabled: boolean;
+  embeddingProfileId?: string;
 };
+type EmbeddingProfile = { id: string; name: string; provider: string; model: string; dimension: number; enabled: boolean; defaultProfile: boolean; configVersion?: string };
+type EmbeddingConfig = { profile: EmbeddingProfile; inheritedOrResolved: boolean };
+type EmbeddingValidation = { reachable: boolean; profile: EmbeddingProfile; actualDimension?: number; latencyMs: number; error?: string };
+type KnowledgeDiagnostics = { issues: string[]; documentCount: number; errorCount: number; embeddingTableExists: boolean };
 
 type KnowledgeDocument = {
   id: string;
@@ -754,6 +905,18 @@ function App() {
   const [selectedConversationLogId, setSelectedConversationLogId] =
     useState<string>();
   const [tools, setTools] = useState<ToolDefinition[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
+  const [editingMcpId, setEditingMcpId] = useState<string>();
+  const [mcpName, setMcpName] = useState("");
+  const [mcpDescription, setMcpDescription] = useState("");
+  const [mcpServerUrl, setMcpServerUrl] = useState("");
+  const [mcpTransport, setMcpTransport] = useState("STREAMABLE_HTTP");
+  const [mcpAuthEnv, setMcpAuthEnv] = useState("");
+  const [mcpEnabled, setMcpEnabled] = useState(true);
+  const [mcpSubmitting, setMcpSubmitting] = useState(false);
+  const [mcpActionId, setMcpActionId] = useState<string>();
+  const [mcpDetails, setMcpDetails] = useState<McpServer>();
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [hooks, setHooks] = useState<HookDefinition[]>([]);
   const [feedback, setFeedback] = useState<AgentFeedback[]>([]);
@@ -765,10 +928,6 @@ function App() {
   const [resourceType, setResourceType] = useState("BROWSER_PROPOSAL");
   const [resourceMethod, setResourceMethod] = useState("POST");
   const [resourceEndpoint, setResourceEndpoint] = useState("");
-  const [resourceMcpServerUrl, setResourceMcpServerUrl] = useState("");
-  const [resourceMcpTransport, setResourceMcpTransport] =
-    useState("STREAMABLE_HTTP");
-  const [resourceMcpAuthEnv, setResourceMcpAuthEnv] = useState("");
   const [resourcePrompt, setResourcePrompt] = useState("");
   const [resourceVersion, setResourceVersion] = useState("1.0.0");
   const [resourceEnabled, setResourceEnabled] = useState(true);
@@ -825,6 +984,9 @@ function App() {
   });
   const [tab, setTab] = useState("agents");
   const [menuSearch, setMenuSearch] = useState("");
+  const [resourceStatus, setResourceStatus] = useState<
+    "all" | "enabled" | "disabled"
+  >("all");
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
   const [routePageContext, setRoutePageContext] = useState("");
@@ -835,7 +997,14 @@ function App() {
   const [editingAgentId, setEditingAgentId] = useState<string>();
   const [agentConfigId, setAgentConfigId] = useState<string>();
   const [agentConfigSection, setAgentConfigSection] = useState<
-    "basic" | "routing" | "knowledge" | "tools" | "skills"
+    | "basic"
+    | "routing"
+    | "strategy"
+    | "children"
+    | "knowledge"
+    | "tools"
+    | "skills"
+    | "versions"
   >("basic");
   const [agentId, setAgentId] = useState("custom-agent");
   const [agentDisplayName, setAgentDisplayName] = useState("子 Agent");
@@ -846,6 +1015,13 @@ function App() {
   const [agentEnabled, setAgentEnabled] = useState(true);
   const [agentPriority, setAgentPriority] = useState(100);
   const [agentRoutingRules, setAgentRoutingRules] = useState("");
+  const [agentRole, setAgentRole] = useState("DOMAIN");
+  const [agentParentId, setAgentParentId] = useState("");
+  const [agentHandlingMode, setAgentHandlingMode] = useState("AUTO");
+  const [agentReturnMode, setAgentReturnMode] = useState("CHILD_DIRECT");
+  const [agentChildIds, setAgentChildIds] = useState<string[]>([]);
+  const [agentChildSearch, setAgentChildSearch] = useState("");
+  const [agentVersions, setAgentVersions] = useState<AgentConfigVersion[]>([]);
   const [agentModel, setAgentModel] = useState("");
   const [agentTemperature, setAgentTemperature] = useState("");
   const [agentKnowledgeBaseIds, setAgentKnowledgeBaseIds] = useState("");
@@ -869,6 +1045,11 @@ function App() {
   const [baseDescription, setBaseDescription] = useState("");
   const [baseSubmitting, setBaseSubmitting] = useState(false);
   const [baseError, setBaseError] = useState("");
+  const [embeddingProfiles, setEmbeddingProfiles] = useState<EmbeddingProfile[]>([]);
+  const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig>();
+  const [embeddingValidation, setEmbeddingValidation] = useState<EmbeddingValidation>();
+  const [embeddingSaving, setEmbeddingSaving] = useState(false);
+  const [knowledgeDiagnostics, setKnowledgeDiagnostics] = useState<KnowledgeDiagnostics>();
   const t = translations[language];
 
   const parseIds = (value?: string) => {
@@ -939,6 +1120,9 @@ function App() {
     request<ToolDefinition[]>("/admin/tools")
       .then(setTools)
       .catch(() => setTools([]));
+    request<McpServer[]>("/admin/mcp-servers")
+      .then(setMcpServers)
+      .catch(() => setMcpServers([]));
     request<SkillDefinition[]>("/admin/skills")
       .then(setSkills)
       .catch(() => setSkills([]));
@@ -973,9 +1157,15 @@ function App() {
         setBases([]);
         setDocuments({});
       });
+    request<EmbeddingProfile[]>("/admin/embedding-profiles").then(setEmbeddingProfiles).catch(() => setEmbeddingProfiles([]));
   };
 
   useEffect(load, []);
+
+  useEffect(() => {
+    if (!activeBaseId) { setEmbeddingConfig(undefined); return; }
+    request<EmbeddingConfig>(`/admin/knowledge-bases/${activeBaseId}/embedding-config`).then(setEmbeddingConfig).catch(() => setEmbeddingConfig(undefined));
+  }, [activeBaseId]);
 
   useEffect(() => {
     setMenuSearch("");
@@ -985,6 +1175,140 @@ function App() {
     setRefreshing(true);
     load();
     window.setTimeout(() => setRefreshing(false), 700);
+  };
+
+  const openMcpDialog = (server?: McpServer) => {
+    setEditingMcpId(server?.id);
+    setMcpName(server?.name ?? "");
+    setMcpDescription(server?.description ?? "");
+    setMcpServerUrl(server?.serverUrl ?? "");
+    setMcpTransport(server?.transport ?? "STREAMABLE_HTTP");
+    setMcpAuthEnv(server?.authEnv ?? "");
+    setMcpEnabled(server?.enabled ?? true);
+    setResourceError("");
+    setMcpDialogOpen(true);
+  };
+
+  const closeMcpDialog = () => {
+    if (!mcpSubmitting) setMcpDialogOpen(false);
+  };
+
+  const saveMcpServer = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = mcpName.trim();
+    const url = mcpServerUrl.trim();
+    if (!name) return setResourceError(t.resourceNameRequired);
+    if (!url) return setResourceError(t.mcpServerRequired);
+    if (
+      mcpServers.some(
+        (item) =>
+          item.id !== editingMcpId &&
+          normalizedName(item.name) === normalizedName(name),
+      )
+    ) {
+      return setResourceError(t.nameExists);
+    }
+    setMcpSubmitting(true);
+    setResourceError("");
+    try {
+      const path = editingMcpId
+        ? `/admin/mcp-servers/${editingMcpId}`
+        : "/admin/mcp-servers";
+      await request(path, {
+        method: editingMcpId ? "PUT" : "POST",
+        body: JSON.stringify({
+          id: editingMcpId,
+          name,
+          description: mcpDescription.trim(),
+          serverUrl: url,
+          transport: mcpTransport,
+          authEnv: mcpAuthEnv.trim() || null,
+          enabled: mcpEnabled,
+        }),
+      });
+      setMcpDialogOpen(false);
+      load();
+    } catch (error) {
+      setResourceError(
+        error instanceof Error ? error.message : t.mcpSaveFailed,
+      );
+    } finally {
+      setMcpSubmitting(false);
+    }
+  };
+
+  const checkMcpHealth = async (server: McpServer) => {
+    setMcpActionId(server.id);
+    try {
+      const updated = await request<McpServer>(
+        `/admin/mcp-servers/${server.id}/health`,
+        { method: "POST" },
+      );
+      setMcpServers((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      if (mcpDetails?.id === updated.id) setMcpDetails(updated);
+    } catch (error) {
+      setResourceError(
+        error instanceof Error ? error.message : t.mcpCheckFailed,
+      );
+    } finally {
+      setMcpActionId(undefined);
+    }
+  };
+
+  const deleteMcpServer = async (server: McpServer) => {
+    if (!window.confirm(t.mcpDeleteConfirm(server.name))) return;
+    setMcpActionId(server.id);
+    try {
+      await request(`/admin/mcp-servers/${server.id}`, { method: "DELETE" });
+      setMcpServers((items) => items.filter((item) => item.id !== server.id));
+      if (mcpDetails?.id === server.id) setMcpDetails(undefined);
+    } catch (error) {
+      setResourceError(
+        error instanceof Error ? error.message : t.resourceDeleteFailed,
+      );
+    } finally {
+      setMcpActionId(undefined);
+    }
+  };
+
+  const toggleMcpServer = async (server: McpServer) => {
+    setMcpActionId(server.id);
+    try {
+      const updated = await request<McpServer>(
+        `/admin/mcp-servers/${server.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ ...server, enabled: !server.enabled }),
+        },
+      );
+      setMcpServers((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+    } catch (error) {
+      setResourceError(
+        error instanceof Error ? error.message : t.mcpSaveFailed,
+      );
+    } finally {
+      setMcpActionId(undefined);
+    }
+  };
+
+  const parseMcpInterfaces = (server: McpServer): McpInterface[] => {
+    try {
+      const parsed = JSON.parse(server.interfacesJson ?? "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const mcpStatusLabel = (status?: string) => {
+    if (status === "HEALTHY") return t.mcpStatusHealthy;
+    if (status === "DEGRADED") return t.mcpStatusDegraded;
+    if (status === "UNHEALTHY") return t.mcpStatusUnhealthy;
+    return t.mcpStatusUnknown;
   };
 
   const openResourceDialog = (
@@ -1002,9 +1326,6 @@ function App() {
       setResourceType(tool?.type ?? "BROWSER_PROPOSAL");
       setResourceMethod(tool?.method ?? "POST");
       setResourceEndpoint(tool?.endpoint ?? "");
-      setResourceMcpServerUrl(tool?.mcpServerUrl ?? "");
-      setResourceMcpTransport(tool?.mcpTransport ?? "STREAMABLE_HTTP");
-      setResourceMcpAuthEnv(tool?.mcpAuthEnv ?? "");
     } else {
       const skill = resource as SkillDefinition | undefined;
       setResourcePrompt(skill?.prompt ?? "");
@@ -1046,14 +1367,6 @@ function App() {
       setResourceError(t.endpointRequired);
       return;
     }
-    if (
-      resourceDialog === "tool" &&
-      resourceType === "MCP" &&
-      !resourceMcpServerUrl.trim()
-    ) {
-      setResourceError(t.mcpServerRequired);
-      return;
-    }
     if (resourceDialog === "skill" && !resourcePrompt.trim()) {
       setResourceError(t.skillPromptRequired);
       return;
@@ -1073,9 +1386,6 @@ function App() {
               type: resourceType,
               method: resourceMethod,
               endpoint: resourceEndpoint.trim() || null,
-              mcpServerUrl: resourceMcpServerUrl.trim() || null,
-              mcpTransport: resourceMcpTransport,
-              mcpAuthEnv: resourceMcpAuthEnv.trim() || null,
               enabled: resourceEnabled,
             }
           : {
@@ -1243,7 +1553,8 @@ function App() {
       !agentDialogOpen &&
       !agentTestDialogOpen &&
       !resourceDialog &&
-      !hookDialogOpen
+      !hookDialogOpen &&
+      !mcpDialogOpen
     )
       return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1263,6 +1574,9 @@ function App() {
       if (hookDialogOpen && !hookSubmitting) {
         setHookDialogOpen(false);
       }
+      if (mcpDialogOpen && !mcpSubmitting) {
+        setMcpDialogOpen(false);
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -1277,6 +1591,8 @@ function App() {
     resourceSubmitting,
     hookDialogOpen,
     hookSubmitting,
+    mcpDialogOpen,
+    mcpSubmitting,
   ]);
 
   const activeBase = bases.find((base) => base.id === activeBaseId);
@@ -1367,6 +1683,33 @@ function App() {
     saveQaSettings();
   };
 
+  const saveEmbeddingConfig = async (profileId: string) => {
+    if (!activeBaseId) return;
+    setEmbeddingSaving(true); setUploadError("");
+    try {
+      const config = await request<EmbeddingConfig>(`/admin/knowledge-bases/${activeBaseId}/embedding-config`, { method: "PUT", body: JSON.stringify({ profileId: profileId || null }) });
+      setEmbeddingConfig(config); setEmbeddingValidation(undefined);
+      setBases((items) => items.map((item) => item.id === activeBaseId ? { ...item, embeddingProfileId: profileId || undefined } : item));
+    } catch (error) { setUploadError(error instanceof Error ? error.message : "Embedding 配置保存失败"); }
+    finally { setEmbeddingSaving(false); }
+  };
+
+  const validateEmbeddingConfig = async () => {
+    if (!activeBaseId) return;
+    setEmbeddingSaving(true); setUploadError("");
+    try { setEmbeddingValidation(await request<EmbeddingValidation>(`/admin/knowledge-bases/${activeBaseId}/embedding-config/validate`, { method: "POST" })); }
+    catch (error) { setUploadError(error instanceof Error ? error.message : "Embedding 配置检测失败"); }
+    finally { setEmbeddingSaving(false); }
+  };
+
+  const runKnowledgeDiagnostics = async () => {
+    if (!activeBaseId) return;
+    setEmbeddingSaving(true);
+    try { setKnowledgeDiagnostics(await request<KnowledgeDiagnostics>(`/admin/knowledge-bases/${activeBaseId}/diagnostics`)); }
+    catch (error) { setUploadError(error instanceof Error ? error.message : "知识库诊断失败"); }
+    finally { setEmbeddingSaving(false); }
+  };
+
   const addAgent = () => {
     setAgentConfigId(undefined);
     setEditingAgentId(undefined);
@@ -1382,6 +1725,13 @@ function App() {
     setAgentEnabled(true);
     setAgentPriority(100);
     setAgentRoutingRules("");
+    setAgentRole("DOMAIN");
+    setAgentParentId("");
+    setAgentHandlingMode("AUTO");
+    setAgentReturnMode("CHILD_DIRECT");
+    setAgentChildIds([]);
+    setAgentChildSearch("");
+    setAgentVersions([]);
     setAgentModel("");
     setAgentTemperature("");
     setAgentKnowledgeBaseIds("");
@@ -1407,6 +1757,18 @@ function App() {
     setAgentEnabled(agent.enabled);
     setAgentPriority(agent.priority ?? 100);
     setAgentRoutingRules(agent.routingRules ?? "");
+    setAgentRole(agent.role ?? (agent.systemAgent ? "MAIN" : "DOMAIN"));
+    setAgentParentId(agent.parentAgentId ?? "");
+    setAgentHandlingMode(agent.handlingMode ?? "AUTO");
+    setAgentReturnMode(agent.returnMode ?? "CHILD_DIRECT");
+    setAgentChildSearch("");
+    setAgentChildIds([]);
+    request<AgentChildBinding[]>(`/admin/agents/${agent.id}/children`)
+      .then((items) => setAgentChildIds(items.map((item) => item.childAgentId)))
+      .catch(() => setAgentChildIds([]));
+    request<AgentConfigVersion[]>(`/admin/agents/${agent.id}/versions`)
+      .then(setAgentVersions)
+      .catch(() => setAgentVersions([]));
     setAgentModel(agent.model ?? "");
     setAgentTemperature(
       agent.temperature === undefined || agent.temperature === null
@@ -1491,7 +1853,7 @@ function App() {
     setAgentSubmitting(true);
     setAgentError("");
     try {
-      await request(
+      const savedAgent = await request<Agent>(
         editingAgentId ? `/admin/agents/${editingAgentId}` : "/admin/agents",
         {
           method: editingAgentId ? "PUT" : "POST",
@@ -1500,6 +1862,10 @@ function App() {
             displayName,
             description: agentDescription.trim(),
             systemPrompt,
+            role: agentRole,
+            parentAgentId: agentParentId.trim() || null,
+            handlingMode: agentHandlingMode,
+            returnMode: agentReturnMode,
             enabled: agentEnabled,
             priority: Math.max(0, Math.min(10000, Number(agentPriority) || 0)),
             routingRules: agentRoutingRules.trim() || null,
@@ -1514,12 +1880,67 @@ function App() {
           }),
         },
       );
+      if (agentRole === "DOMAIN" && savedAgent?.id) {
+        await request(`/admin/agents/${savedAgent.id}/children`, {
+          method: "PUT",
+          body: JSON.stringify(
+            agentChildIds.map((childAgentId, index) => ({
+              childAgentId,
+              priority: index * 10,
+              enabled: true,
+            })),
+          ),
+        });
+      }
       setAgentDialogOpen(false);
       load();
     } catch (error) {
       setAgentError(
         error instanceof Error ? error.message : t.createAgentFailed,
       );
+    } finally {
+      setAgentSubmitting(false);
+    }
+  };
+
+  const publishAgent = async () => {
+    if (!configuredAgent) return;
+    setAgentSubmitting(true);
+    setAgentError("");
+    try {
+      await request(`/admin/agents/${configuredAgent.id}/publish`, {
+        method: "POST",
+        body: JSON.stringify({ releaseNote: "后台配置发布" }),
+      });
+      load();
+      setAgentVersions(
+        await request<AgentConfigVersion[]>(
+          `/admin/agents/${configuredAgent.id}/versions`,
+        ),
+      );
+    } catch (error) {
+      setAgentError(error instanceof Error ? error.message : t.saveAgent);
+    } finally {
+      setAgentSubmitting(false);
+    }
+  };
+
+  const rollbackAgent = async (version: number) => {
+    if (!configuredAgent) return;
+    setAgentSubmitting(true);
+    try {
+      await request(`/admin/agents/${configuredAgent.id}/rollback`, {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      });
+      load();
+      setAgentVersions(
+        await request<AgentConfigVersion[]>(
+          `/admin/agents/${configuredAgent.id}/versions`,
+        ),
+      );
+    } catch (error) {
+      setAgentError(error instanceof Error ? error.message : t.saveAgent);
     } finally {
       setAgentSubmitting(false);
     }
@@ -1826,18 +2247,25 @@ function App() {
   const filteredDocuments = activeDocuments.filter((document) =>
     matchesSearch(document.filename, document.id, document.status),
   );
-  const filteredTools = tools.filter((tool) =>
-    matchesSearch(
-      tool.name,
-      tool.id,
-      tool.description,
-      tool.type,
-      tool.endpoint,
-      tool.mcpServerUrl,
-    ),
+  const filteredTools = tools.filter(
+    (tool) =>
+      (resourceStatus === "all" ||
+        (resourceStatus === "enabled" ? tool.enabled : !tool.enabled)) &&
+      matchesSearch(
+        tool.name,
+        tool.id,
+        tool.description,
+        tool.type,
+        tool.endpoint,
+        tool.mcpServerUrl,
+      ),
   );
-  const filteredSkills = skills.filter((skill) =>
-    matchesSearch(skill.name, skill.id, skill.description, skill.prompt),
+  const filteredMcpServers = mcpServers;
+  const filteredSkills = skills.filter(
+    (skill) =>
+      (resourceStatus === "all" ||
+        (resourceStatus === "enabled" ? skill.enabled : !skill.enabled)) &&
+      matchesSearch(skill.name, skill.id, skill.description, skill.prompt),
   );
   const filteredHooks = hooks.filter((hook) =>
     matchesSearch(
@@ -1864,7 +2292,8 @@ function App() {
       ...log.messages.flatMap((item) => [item.content, item.agentId]),
     ),
   );
-  const showMenuToolbar = tab !== "router" && tab !== "agent-settings";
+  const showMenuToolbar =
+    tab !== "router" && tab !== "agent-settings" && tab !== "mcp-servers";
 
   return (
     <div className="shell">
@@ -1886,6 +2315,7 @@ function App() {
         {[
           ["agents", "◆"],
           ["knowledge", "▣"],
+          ["mcp-servers", "⌘"],
           ["tools", "⚒"],
           ["skills", "✦"],
           ["hooks", "⚑"],
@@ -1896,6 +2326,7 @@ function App() {
           const labels: Record<string, string> = {
             agents: t.agents,
             knowledge: t.knowledge,
+            "mcp-servers": t.mcpServers,
             tools: t.toolsMenu,
             skills: t.skillsMenu,
             hooks: t.hooksMenu,
@@ -1929,17 +2360,19 @@ function App() {
                 ? t.agentSettingsPage
                 : tab === "knowledge"
                   ? t.knowledge
-                  : tab === "tools"
-                    ? t.toolsTitle
-                    : tab === "skills"
-                      ? t.skillsTitle
-                      : tab === "hooks"
-                        ? t.hooksTitle
-                        : tab === "ratings"
-                          ? t.agentRatings
-                          : tab === "conversation-logs"
-                            ? t.conversationLogs
-                            : t.routerTest}
+                  : tab === "mcp-servers"
+                    ? t.mcpServersTitle
+                    : tab === "tools"
+                      ? t.toolsTitle
+                      : tab === "skills"
+                        ? t.skillsTitle
+                        : tab === "hooks"
+                          ? t.hooksTitle
+                          : tab === "ratings"
+                            ? t.agentRatings
+                            : tab === "conversation-logs"
+                              ? t.conversationLogs
+                              : t.routerTest}
           </h2>
           <div className="header-actions">
             <span className="badge">{t.localMode}</span>
@@ -2099,12 +2532,19 @@ function App() {
               {(
                 [
                   ["basic", t.basicInfo],
-                  ...(agentConfigId === "route-copilot"
+                  ...(agentRole === "MAIN"
                     ? ([["routing", t.intentRouting]] as const)
+                    : []),
+                  ...(agentRole === "DOMAIN"
+                    ? ([
+                        ["strategy", t.handlingMode],
+                        ["children", t.childBinding],
+                      ] as const)
                     : []),
                   ["knowledge", t.knowledgeBinding],
                   ["tools", t.tools],
                   ["skills", t.skills],
+                  ["versions", t.versions],
                 ] as const
               ).map(([key, label]) => (
                 <button
@@ -2128,6 +2568,46 @@ function App() {
                     <input value={agentId} disabled />
                     <small className="field-hint">{t.agentIdHint}</small>
                   </label>
+                  <div className="field-grid">
+                    <label className="field">
+                      <span>{t.agentRole}</span>
+                      <select
+                        value={agentRole}
+                        onChange={(event) => setAgentRole(event.target.value)}
+                        disabled={configuredAgentIsSystem}
+                      >
+                        <option value="GENERAL">{t.roleGeneral}</option>
+                        <option value="DOMAIN">{t.roleDomain}</option>
+                        <option value="SUB">{t.roleSub}</option>
+                        {configuredAgentIsSystem && (
+                          <option value="MAIN">{t.roleMain}</option>
+                        )}
+                      </select>
+                    </label>
+                    {agentRole === "SUB" && (
+                      <label className="field">
+                        <span>{t.parentAgent}</span>
+                        <select
+                          value={agentParentId}
+                          onChange={(event) =>
+                            setAgentParentId(event.target.value)
+                          }
+                        >
+                          <option value="">—</option>
+                          {agents
+                            .filter(
+                              (item) =>
+                                item.role === "DOMAIN" && item.enabled,
+                            )
+                            .map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.displayName}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    )}
+                  </div>
                   <label className="field">
                     <span>{t.displayName}</span>
                     <input
@@ -2218,7 +2698,7 @@ function App() {
                 </div>
               )}
               {agentConfigSection === "routing" &&
-                agentConfigId === "route-copilot" && (
+                agentRole === "MAIN" && (
                   <div className="settings-panel routing-panel">
                     <div className="binding-heading">
                       <div>
@@ -2256,6 +2736,56 @@ function App() {
                     </div>
                   </div>
                 )}
+              {agentConfigSection === "strategy" && agentRole === "DOMAIN" && (
+                <div className="settings-panel">
+                  <div className="binding-heading">
+                    <div>
+                      <h4>{t.handlingMode}</h4>
+                      <p>{t.intentRoutingHint}</p>
+                    </div>
+                  </div>
+                  <label className="field">
+                    <span>{t.handlingMode}</span>
+                    <select value={agentHandlingMode} onChange={(event) => setAgentHandlingMode(event.target.value)}>
+                      <option value="DIRECT">{t.directMode}</option>
+                      <option value="DELEGATE">{t.delegateMode}</option>
+                      <option value="AUTO">{t.autoMode}</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>{t.returnMode}</span>
+                    <select value={agentReturnMode} onChange={(event) => setAgentReturnMode(event.target.value)}>
+                      <option value="CHILD_DIRECT">{t.childDirectMode}</option>
+                      <option value="DOMAIN_SUMMARY">{t.domainSummaryMode}</option>
+                    </select>
+                  </label>
+                </div>
+              )}
+              {agentConfigSection === "children" && agentRole === "DOMAIN" && (
+                <div className="settings-panel">
+                  <div className="binding-heading">
+                    <div><h4>{t.childBinding}</h4><p>{t.idsHint}</p></div>
+                    <span className="binding-count">{agentChildIds.length}</span>
+                  </div>
+                  <label className="binding-search">
+                    <span className="sr-only">{t.search}</span>
+                    <input type="search" value={agentChildSearch} onChange={(event) => setAgentChildSearch(event.target.value)} placeholder={t.searchPlaceholder} />
+                  </label>
+                  <div className="binding-list">
+                    {agents.filter((item) => item.role === "SUB" && item.enabled).filter((item) => {
+                      const query = agentChildSearch.trim().toLowerCase();
+                      return !query || [item.id, item.displayName, item.description ?? ""].some((value) => value.toLowerCase().includes(query));
+                    }).map((item) => {
+                      const checked = agentChildIds.includes(item.id);
+                      return <label className="binding-option" key={item.id}>
+                        <input type="checkbox" checked={checked} onChange={() => setAgentChildIds((current) => checked ? current.filter((id) => id !== item.id) : [...current, item.id])} />
+                        <span className="binding-copy"><span className="binding-name">{item.displayName}</span><span className="binding-meta">{item.id}</span>{item.description && <span className="binding-description">{item.description}</span>}</span>
+                      </label>;
+                    })}
+                  </div>
+                  {agents.filter((item) => item.role === "SUB" && item.enabled).length === 0 && <p className="binding-empty">{t.noChildAgents}</p>}
+                </div>
+              )}
               {agentConfigSection === "knowledge" && (
                 <div className="settings-panel">
                   <div className="binding-heading">
@@ -2596,6 +3126,12 @@ function App() {
                   )}
                 </div>
               )}
+              {agentConfigSection === "versions" && (
+                <div className="settings-panel">
+                  <div className="binding-heading"><div><h4>{t.versions}</h4><p>{t.publishedVersion}: {configuredAgent?.publishedVersion ?? 0}</p></div><button type="button" onClick={publishAgent} disabled={agentSubmitting}>{agentSubmitting ? t.saving : t.publish}</button></div>
+                  {agentVersions.length === 0 ? <p className="binding-empty">{t.draft}</p> : <div className="version-list">{agentVersions.map((version) => <div className="version-row" key={version.id}><div><strong>v{version.version}</strong><span className="binding-meta">{version.status === "PUBLISHED" ? t.published : t.draft}</span>{version.releaseNote && <p>{version.releaseNote}</p>}</div>{version.status !== "PUBLISHED" && <button type="button" className="secondary" onClick={() => rollbackAgent(version.version)} disabled={agentSubmitting}>{t.rollback}</button>}</div>)}</div>}
+                </div>
+              )}
             </form>
           </section>
         )}
@@ -2804,6 +3340,29 @@ function App() {
                 </div>
                 {knowledgeSection === "maintenance" ? (
                   <div className="maintenance-panel">
+                    <section className="knowledge-config-panel" aria-labelledby="embedding-config-title">
+                      <div className="knowledge-config-heading">
+                        <div>
+                          <h4 id="embedding-config-title">{language === "zh" ? "Embedding 配置" : "Embedding configuration"}</h4>
+                          <p>{language === "zh" ? "未单独配置时继承系统默认模型。保存前可调用服务验证实际维度。" : "Inherit the system default unless overridden for this knowledge base."}</p>
+                        </div>
+                        <span className={embeddingValidation?.reachable === false ? "off" : "ok"}>{embeddingConfig?.profile?.dimension ? `${embeddingConfig.profile.dimension}D` : "-"}</span>
+                      </div>
+                      <label className="field">
+                        <span>{language === "zh" ? "模型配置" : "Model profile"}</span>
+                        <select value={activeBase.embeddingProfileId ?? ""} disabled={embeddingSaving} onChange={(event) => saveEmbeddingConfig(event.target.value)}>
+                          <option value="">{language === "zh" ? "继承系统默认" : "System default"}</option>
+                          {embeddingProfiles.filter((profile) => profile.enabled).map((profile) => <option value={profile.id} key={profile.id}>{profile.name} · {profile.model} · {profile.dimension}D</option>)}
+                        </select>
+                      </label>
+                      {embeddingConfig?.profile && <p className="field-hint">{embeddingConfig.profile.provider} / {embeddingConfig.profile.model} · {embeddingConfig.profile.dimension} dimensions</p>}
+                      <div className="document-actions">
+                        <button type="button" className="secondary" disabled={embeddingSaving} onClick={validateEmbeddingConfig}>{language === "zh" ? "检测配置" : "Validate"}</button>
+                        <button type="button" className="secondary" disabled={embeddingSaving} onClick={runKnowledgeDiagnostics}>{language === "zh" ? "运行诊断" : "Diagnostics"}</button>
+                        {embeddingValidation && <span className={embeddingValidation.reachable ? "ok" : "off"} aria-live="polite">{embeddingValidation.reachable ? `${language === "zh" ? "可用" : "Reachable"} · ${embeddingValidation.actualDimension}D · ${embeddingValidation.latencyMs}ms` : (embeddingValidation.error ?? (language === "zh" ? "不可用" : "Unavailable"))}</span>}
+                      </div>
+                      {knowledgeDiagnostics && <p className={knowledgeDiagnostics.issues.length ? "document-error" : "field-hint"} aria-live="polite">{knowledgeDiagnostics.issues.length ? knowledgeDiagnostics.issues.join(" · ") : (language === "zh" ? `诊断通过：${knowledgeDiagnostics.documentCount} 个文档` : `Healthy: ${knowledgeDiagnostics.documentCount} documents`)}</p>}
+                    </section>
                     <div className="upload-panel">
                       <div>
                         <h4>{t.maintenance}</h4>
@@ -2980,6 +3539,130 @@ function App() {
           </section>
         )}
 
+        {tab === "mcp-servers" && (
+          <section className="mcp-page">
+            <div className="resource-toolbar">
+              <div>
+                <p className="muted">{t.mcpServersSubtitle}</p>
+              </div>
+              <button onClick={() => openMcpDialog()}>{t.newMcpServer}</button>
+            </div>
+            {mcpServers.length === 0 ? (
+              <p className="empty-documents">{t.noResources}</p>
+            ) : (
+              <div
+                className="mcp-list"
+                role="list"
+                aria-label={t.mcpServersTitle}
+              >
+                <div className="mcp-list-header" aria-hidden="true">
+                  <span>{t.mcpServerName}</span>
+                  <span>{t.mcpStatusUnknown}</span>
+                  <span>
+                    {t.mcpTransportLabel} / {t.mcpServerUrlLabel}
+                  </span>
+                  <span>{t.mcpInterfaces}</span>
+                  <span>
+                    {t.mcpLatency} / {t.mcpLastChecked}
+                  </span>
+                  <span>{t.toolsMenu}</span>
+                </div>
+                {filteredMcpServers.map((server) => (
+                  <article
+                    className="mcp-list-row"
+                    role="listitem"
+                    key={server.id}
+                  >
+                    <div className="mcp-service-cell">
+                      <div className="mcp-service-heading">
+                        <strong>{server.name}</strong>
+                        <span
+                          className={`mcp-status ${(server.status ?? "UNKNOWN").toLowerCase()}`}
+                        >
+                          {mcpStatusLabel(server.status)}
+                        </span>
+                      </div>
+                      <p>{server.description || t.noDescription}</p>
+                      <code title={server.id}>{server.id}</code>
+                    </div>
+                    <div className="mcp-status-cell">
+                      <span
+                        className={`mcp-status ${(server.status ?? "UNKNOWN").toLowerCase()}`}
+                      >
+                        {mcpStatusLabel(server.status)}
+                      </span>
+                    </div>
+                    <div className="mcp-endpoint-cell">
+                      <span className="mcp-transport-tag">
+                        {server.transport}
+                      </span>
+                      <span className="mcp-endpoint" title={server.serverUrl}>
+                        {server.serverUrl}
+                      </span>
+                    </div>
+                    <div className="mcp-count-cell">
+                      <strong>{server.interfaceCount ?? 0}</strong>
+                      <span>{t.mcpInterfaces}</span>
+                    </div>
+                    <div className="mcp-check-cell">
+                      <strong>
+                        {server.lastLatencyMs != null
+                          ? `${server.lastLatencyMs} ms`
+                          : "—"}
+                      </strong>
+                      <span>
+                        {server.lastCheckedAt
+                          ? new Date(server.lastCheckedAt).toLocaleString()
+                          : t.mcpStatusUnknown}
+                      </span>
+                    </div>
+                    <div className="mcp-row-actions">
+                      {server.lastError && (
+                        <span className="document-error mcp-row-error">
+                          {server.lastError}
+                        </span>
+                      )}
+                      <button
+                        className="secondary"
+                        onClick={() => setMcpDetails(server)}
+                      >
+                        {t.mcpDetails}
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => openMcpDialog(server)}
+                        disabled={mcpActionId === server.id}
+                      >
+                        {t.edit}
+                      </button>
+                      <button
+                        onClick={() => checkMcpHealth(server)}
+                        disabled={mcpActionId === server.id}
+                      >
+                        {mcpActionId === server.id ? t.loading : t.mcpHealth}
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => toggleMcpServer(server)}
+                        disabled={mcpActionId === server.id}
+                      >
+                        {server.enabled ? t.stop : t.enable}
+                      </button>
+                      <button
+                        className="agent-delete"
+                        onClick={() => deleteMcpServer(server)}
+                        disabled={mcpActionId === server.id}
+                      >
+                        {t.deleteResource}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {tab === "tools" && (
           <section>
             <div className="resource-toolbar">
@@ -2987,6 +3670,20 @@ function App() {
                 <p className="muted">{t.toolsSubtitle}</p>
               </div>
               <div className="resource-toolbar-actions">
+                <select
+                  className="resource-filter"
+                  value={resourceStatus}
+                  onChange={(event) =>
+                    setResourceStatus(
+                      event.target.value as typeof resourceStatus,
+                    )
+                  }
+                  aria-label={t.statusFilter}
+                >
+                  <option value="all">{t.allStatuses}</option>
+                  <option value="enabled">{t.enabled}</option>
+                  <option value="disabled">{t.disabled}</option>
+                </select>
                 <button onClick={() => openResourceDialog("tool")}>
                   {t.newTool}
                 </button>
@@ -3014,12 +3711,6 @@ function App() {
                         <span>{tool.type || t.toolTypeLabel}</span>
                         {tool.method && <span>{tool.method}</span>}
                         {tool.endpoint && <span>{tool.endpoint}</span>}
-                        {tool.type === "MCP" && tool.mcpTransport && (
-                          <span>{tool.mcpTransport}</span>
-                        )}
-                        {tool.type === "MCP" && tool.mcpServerUrl && (
-                          <span>{tool.mcpServerUrl}</span>
-                        )}
                       </div>
                       <div className="agent-actions">
                         <button
@@ -3055,9 +3746,25 @@ function App() {
           <section>
             <div className="resource-toolbar">
               <p className="muted">{t.skillsSubtitle}</p>
-              <button onClick={() => openResourceDialog("skill")}>
-                {t.newSkill}
-              </button>
+              <div className="resource-toolbar-actions">
+                <select
+                  className="resource-filter"
+                  value={resourceStatus}
+                  onChange={(event) =>
+                    setResourceStatus(
+                      event.target.value as typeof resourceStatus,
+                    )
+                  }
+                  aria-label={t.statusFilter}
+                >
+                  <option value="all">{t.allStatuses}</option>
+                  <option value="enabled">{t.enabled}</option>
+                  <option value="disabled">{t.disabled}</option>
+                </select>
+                <button onClick={() => openResourceDialog("skill")}>
+                  {t.newSkill}
+                </button>
+              </div>
             </div>
             <div className="resource-section">
               <h3>{t.skill}</h3>
@@ -3777,28 +4484,6 @@ function App() {
                     <span className="detail-label">{t.endpoint}</span>
                     <code>{resourceDetails.resource.endpoint || "-"}</code>
                   </div>
-                  {resourceDetails.resource.type === "MCP" && (
-                    <>
-                      <div className="detail-full">
-                        <span className="detail-label">{t.mcpServerUrl}</span>
-                        <code>
-                          {resourceDetails.resource.mcpServerUrl || "-"}
-                        </code>
-                      </div>
-                      <div>
-                        <span className="detail-label">{t.mcpTransport}</span>
-                        <span>
-                          {resourceDetails.resource.mcpTransport || "-"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="detail-label">{t.mcpAuthEnv}</span>
-                        <code>
-                          {resourceDetails.resource.mcpAuthEnv || "-"}
-                        </code>
-                      </div>
-                    </>
-                  )}
                 </>
               ) : (
                 <>
@@ -4306,6 +4991,183 @@ function App() {
         </div>
       )}
 
+      {mcpDetails && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setMcpDetails(undefined);
+          }}
+        >
+          <div
+            className="modal mcp-details-modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modal-header">
+              <div>
+                <h3>
+                  {mcpDetails.name} · {t.mcpDetails}
+                </h3>
+                <p className="modal-subtitle">{mcpDetails.serverUrl}</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => setMcpDetails(undefined)}
+                aria-label={t.close}
+              >
+                ×
+              </button>
+            </div>
+            <div className="mcp-detail-summary">
+              <span
+                className={`mcp-status ${(mcpDetails.status ?? "UNKNOWN").toLowerCase()}`}
+              >
+                {mcpStatusLabel(mcpDetails.status)}
+              </span>
+              <span>
+                {mcpDetails.interfaceCount ?? 0} {t.mcpInterfaces}
+              </span>
+              {mcpDetails.lastLatencyMs != null && (
+                <span>
+                  {t.mcpLatency}: {mcpDetails.lastLatencyMs} ms
+                </span>
+              )}
+              {mcpDetails.lastCheckedAt && (
+                <span>
+                  {t.mcpLastChecked}:{" "}
+                  {new Date(mcpDetails.lastCheckedAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+            <h4>{t.mcpCapabilities}</h4>
+            <pre className="mcp-json">
+              {mcpDetails.capabilitiesJson || "{}"}
+            </pre>
+            <h4>{t.mcpDetails}</h4>
+            {parseMcpInterfaces(mcpDetails).length === 0 ? (
+              <p className="binding-empty">{t.mcpNoInterfaces}</p>
+            ) : (
+              <div className="mcp-interface-list">
+                {parseMcpInterfaces(mcpDetails).map((item, index) => (
+                  <article
+                    className="mcp-interface"
+                    key={`${item.name ?? "interface"}-${index}`}
+                  >
+                    <strong>{item.name || `#${index + 1}`}</strong>
+                    {item.description && <p>{item.description}</p>}
+                    {Boolean(item.inputSchema) && (
+                      <pre className="mcp-json">
+                        {JSON.stringify(item.inputSchema, null, 2) ?? "{}"}
+                      </pre>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {mcpDialogOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeMcpDialog();
+          }}
+        >
+          <div className="modal" role="dialog" aria-modal="true">
+            <div className="modal-header">
+              <div>
+                <h3>
+                  {editingMcpId ? t.edit : t.createResource} · {t.mcpServers}
+                </h3>
+                <p className="modal-subtitle">{t.mcpServersSubtitle}</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={closeMcpDialog}
+                disabled={mcpSubmitting}
+                aria-label={t.close}
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={saveMcpServer}>
+              <label className="field">
+                <span>{t.mcpServerName}</span>
+                <input
+                  autoFocus
+                  value={mcpName}
+                  onChange={(event) => setMcpName(event.target.value)}
+                  maxLength={100}
+                  required
+                />
+              </label>
+              <label className="field">
+                <span>{t.descriptionOptional}</span>
+                <textarea
+                  value={mcpDescription}
+                  onChange={(event) => setMcpDescription(event.target.value)}
+                  placeholder={t.mcpDescriptionPlaceholder}
+                  rows={2}
+                  maxLength={500}
+                />
+              </label>
+              <label className="field">
+                <span>{t.mcpServerUrlLabel}</span>
+                <input
+                  value={mcpServerUrl}
+                  onChange={(event) => setMcpServerUrl(event.target.value)}
+                  placeholder={t.mcpServerUrlPlaceholder}
+                  required
+                />
+              </label>
+              <div className="field-grid">
+                <label className="field">
+                  <span>{t.mcpTransportLabel}</span>
+                  <select
+                    value={mcpTransport}
+                    onChange={(event) => setMcpTransport(event.target.value)}
+                  >
+                    <option value="STREAMABLE_HTTP">Streamable HTTP</option>
+                    <option value="SSE">SSE</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>{t.mcpAuthEnvLabel}</span>
+                  <input
+                    value={mcpAuthEnv}
+                    onChange={(event) => setMcpAuthEnv(event.target.value)}
+                    placeholder={t.mcpAuthEnvPlaceholder}
+                  />
+                  <small className="field-hint">{t.mcpAuthEnvHint}</small>
+                </label>
+              </div>
+              {resourceError && (
+                <p className="error" role="alert">
+                  {resourceError}
+                </p>
+              )}
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeMcpDialog}
+                  disabled={mcpSubmitting}
+                >
+                  {t.cancel}
+                </button>
+                <button type="submit" disabled={mcpSubmitting}>
+                  {mcpSubmitting ? t.saving : t.saveResource}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {resourceDialog && (
         <div
           className="modal-backdrop"
@@ -4378,7 +5240,6 @@ function App() {
                           {t.browserProposal}
                         </option>
                         <option value="HTTP">HTTP API</option>
-                        <option value="MCP">MCP</option>
                       </select>
                     </label>
                     <label className="field">
@@ -4411,53 +5272,6 @@ function App() {
                       />
                       <small className="field-hint">{t.endpointHint}</small>
                     </label>
-                  )}
-                  {resourceType === "MCP" && (
-                    <div className="mcp-config-panel">
-                      <div className="mcp-config-heading">
-                        <strong>MCP</strong>
-                        <span>
-                          连接已注册的 MCP Server，密钥仅通过后端环境变量引用。
-                        </span>
-                      </div>
-                      <label className="field">
-                        <span>{t.mcpServerUrl}</span>
-                        <input
-                          value={resourceMcpServerUrl}
-                          onChange={(event) =>
-                            setResourceMcpServerUrl(event.target.value)
-                          }
-                          placeholder={t.mcpServerUrlPlaceholder}
-                          required
-                        />
-                      </label>
-                      <div className="field-grid">
-                        <label className="field">
-                          <span>{t.mcpTransport}</span>
-                          <select
-                            value={resourceMcpTransport}
-                            onChange={(event) =>
-                              setResourceMcpTransport(event.target.value)
-                            }
-                          >
-                            <option value="STREAMABLE_HTTP">
-                              {t.mcpStreamableHttp}
-                            </option>
-                            <option value="SSE">{t.mcpSse}</option>
-                          </select>
-                        </label>
-                        <label className="field">
-                          <span>{t.mcpAuthEnv}</span>
-                          <input
-                            value={resourceMcpAuthEnv}
-                            onChange={(event) =>
-                              setResourceMcpAuthEnv(event.target.value)
-                            }
-                            placeholder={t.mcpAuthEnvPlaceholder}
-                          />
-                        </label>
-                      </div>
-                    </div>
                   )}
                 </>
               ) : (

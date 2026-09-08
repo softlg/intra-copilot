@@ -29,18 +29,19 @@ public class KnowledgeService implements KnowledgeRetriever {
         private final DocumentChunkRepository chunks;
         private final JdbcTemplate jdbc;
         private final EmbeddingClient embeddings;
+        private final EmbeddingProfileService embeddingProfiles;
         private final int chunkSize;
         private final int chunkOverlap;
         private final long maxDocumentBytes;
         private final double similarityThreshold;
 
         public KnowledgeService(KnowledgeBaseRepository bases, KnowledgeDocumentRepository documents,
-                        DocumentChunkRepository chunks, JdbcTemplate jdbc, EmbeddingClient embeddings,
+                        DocumentChunkRepository chunks, JdbcTemplate jdbc, EmbeddingClient embeddings, EmbeddingProfileService embeddingProfiles,
                         @Value("${rag.chunk-size:1200}") int chunkSize,
                         @Value("${rag.chunk-overlap:200}") int chunkOverlap,
                         @Value("${rag.max-document-bytes:10485760}") long maxDocumentBytes,
                         @Value("${rag.similarity-threshold:0.65}") double similarityThreshold) {
-                this.bases = bases; this.documents = documents; this.chunks = chunks; this.jdbc = jdbc; this.embeddings = embeddings;
+                this.bases = bases; this.documents = documents; this.chunks = chunks; this.jdbc = jdbc; this.embeddings = embeddings; this.embeddingProfiles = embeddingProfiles;
                 this.chunkSize = Math.max(200, chunkSize);
                 this.chunkOverlap = Math.max(0, Math.min(this.chunkSize / 2, chunkOverlap));
                 this.maxDocumentBytes = Math.max(1, maxDocumentBytes);
@@ -77,9 +78,29 @@ public class KnowledgeService implements KnowledgeRetriever {
                 return search(query, List.of(baseId), topK);
         }
 
+        public Diagnostics diagnostics(String baseId) {
+                KnowledgeBase base = bases.findById(baseId).orElseThrow(() -> new IllegalArgumentException("知识库不存在"));
+                var profile = embeddingProfiles.resolve(base);
+                String table = embeddingTable(profile.getDimension());
+                boolean tableExists = Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ?)", Boolean.class, table));
+                long documentsCount = documents.findAllByKnowledgeBaseIdOrderByCreatedAtDesc(baseId).size();
+                long errorCount = documents.findAllByKnowledgeBaseIdOrderByCreatedAtDesc(baseId).stream().filter(d -> "ERROR".equals(d.getStatus())).count();
+                List<String> issues = new ArrayList<>();
+                if (!tableExists) issues.add("EMBEDDING_TABLE_MISSING");
+                if (errorCount > 0) issues.add("DOCUMENT_INDEXING_ERROR");
+                if (tableExists) {
+                        Long missing = jdbc.queryForObject("SELECT COUNT(*) FROM document_chunk c JOIN knowledge_document d ON d.id = c.document_id LEFT JOIN " + table + " e ON e.chunk_id = c.id WHERE d.knowledge_base_id = ? AND e.chunk_id IS NULL", Long.class, baseId);
+                        if (missing != null && missing > 0) issues.add("READY_DOCUMENT_WITHOUT_VECTOR");
+                }
+                return new Diagnostics(baseId, profile.getProvider(), profile.getModel(), profile.getDimension(), tableExists, documentsCount, errorCount, issues);
+        }
+
+        public record Diagnostics(String knowledgeBaseId, String provider, String model, int dimension, boolean embeddingTableExists, long documentCount, long errorCount, List<String> issues) {}
+
         @Transactional
         public KnowledgeDocument upload(String baseId, MultipartFile file) throws IOException {
                 KnowledgeBase base = bases.findById(baseId).orElseThrow(() -> new IllegalArgumentException("知识库不存在"));
+                var embeddingProfile = embeddingProfiles.resolve(base);
                 if (file == null || file.isEmpty()) throw new IllegalArgumentException("上传文件不能为空");
                 if (file.getSize() > maxDocumentBytes) throw new IllegalArgumentException("文件大小超过限制（最大 " + maxDocumentBytes + " 字节）");
                 byte[] bytes = file.getBytes();
@@ -110,8 +131,7 @@ public class KnowledgeService implements KnowledgeRetriever {
                         int index = 0;
                         for (PageText page : pages) for (String part : splitStructured(page.text(), page.pageNumber())) {
                                 DocumentChunk chunk = new DocumentChunk(); chunk.setDocumentId(doc.getId()); chunk.setChunkIndex(index++); chunk.setContent(part); chunk.setPageNumber(page.pageNumber()); chunks.save(chunk);
-                                var vector = embeddings.embed(part);
-                                jdbc.update("UPDATE document_chunk SET embedding = ?::vector WHERE id = ?", EmbeddingClient.literal(vector), chunk.getId());
+                                storeEmbedding(chunk, base, embeddingProfile);
                         }
                         doc.setStatus("READY");
                 } catch (Exception error) {
@@ -134,15 +154,14 @@ public class KnowledgeService implements KnowledgeRetriever {
         @Transactional
         public KnowledgeDocument reindex(String id) {
                 KnowledgeDocument document = documents.findById(id).orElseThrow(() -> new IllegalArgumentException("文档不存在"));
+                KnowledgeBase base = bases.findById(document.getKnowledgeBaseId()).orElseThrow(() -> new IllegalArgumentException("知识库不存在"));
+                var embeddingProfile = embeddingProfiles.resolve(base);
                 document.setStatus("INDEXING"); document.setError(null); document.touch(); documents.save(document);
-                chunks.deleteAllByDocumentId(id);
                 try {
-                        int index = 0;
-                        for (String part : splitStructured(document.getContent(), null)) {
-                                DocumentChunk chunk = new DocumentChunk(); chunk.setDocumentId(id); chunk.setChunkIndex(index++); chunk.setContent(part); chunks.save(chunk);
-                                var vector = embeddings.embed(part);
-                                jdbc.update("UPDATE document_chunk SET embedding = ?::vector WHERE id = ?", EmbeddingClient.literal(vector), chunk.getId());
-                        }
+                        List<PreparedChunk> prepared = new ArrayList<>(); int index = 0;
+                        for (String part : splitStructured(document.getContent(), null)) { DocumentChunk chunk = new DocumentChunk(); chunk.setDocumentId(id); chunk.setChunkIndex(index++); chunk.setContent(part); prepared.add(new PreparedChunk(chunk, embeddings.embed(part, embeddingProfile))); }
+                        chunks.deleteAllByDocumentId(id);
+                        for (PreparedChunk item : prepared) { chunks.save(item.chunk()); storeEmbedding(item.chunk(), base, embeddingProfile, item.vector()); }
                         document.setStatus("READY");
                 } catch (Exception error) {
                         document.setStatus("ERROR"); document.setError(error.getMessage());
@@ -153,12 +172,31 @@ public class KnowledgeService implements KnowledgeRetriever {
 
         @Override public List<Result> search(String query, List<String> ids, int topK) {
                 if (query == null || query.isBlank() || ids == null || ids.isEmpty()) return List.of();
-                try {
-                        String vector = EmbeddingClient.literal(embeddings.embed(query));
-                        String placeholders = String.join(",", ids.stream().map(x -> "?").toList());
-                        List<Object> params = new ArrayList<>(); params.add(vector); params.addAll(ids); params.add(vector); params.add(similarityThreshold); params.add(vector); params.add(Math.max(1, Math.min(topK, 20)));
-                        return jdbc.query("SELECT c.document_id,d.filename,c.page_number,c.content,(c.embedding <=> ?::vector) AS distance FROM document_chunk c JOIN knowledge_document d ON d.id=c.document_id JOIN knowledge_base b ON b.id=d.knowledge_base_id WHERE d.knowledge_base_id IN ("+placeholders+") AND b.enabled = TRUE AND d.status = 'READY' AND c.embedding IS NOT NULL AND (1 - (c.embedding <=> ?::vector)) >= ? ORDER BY c.embedding <=> ?::vector LIMIT ?", params.toArray(), (rs, n) -> new Result(rs.getString("document_id"), rs.getString("filename"), (Integer) rs.getObject("page_number"), rs.getString("content"), rs.getDouble("distance")));
-                } catch (Exception ignored) { return List.of(); }
+                List<RankedResult> ranked = new ArrayList<>();
+                for (String id : ids) {
+                        KnowledgeBase base = bases.findById(id).orElse(null); if (base == null || !base.isEnabled()) continue;
+                        var profile = embeddingProfiles.resolve(base); String table = embeddingTable(profile.getDimension());
+                        String vector = EmbeddingClient.literal(embeddings.embed(query, profile));
+                        List<Result> local = jdbc.query("SELECT c.document_id,d.filename,c.page_number,c.content,(e.embedding <=> ?::vector) AS distance FROM document_chunk c JOIN knowledge_document d ON d.id=c.document_id JOIN " + table + " e ON e.chunk_id=c.id WHERE e.knowledge_base_id = ? AND d.status = 'READY' AND (1 - (e.embedding <=> ?::vector)) >= ? ORDER BY e.embedding <=> ?::vector LIMIT ?", new Object[]{vector, id, vector, similarityThreshold, vector, Math.max(1, Math.min(topK, 20))}, (rs, n) -> new Result(rs.getString("document_id"), rs.getString("filename"), (Integer) rs.getObject("page_number"), rs.getString("content"), rs.getDouble("distance")));
+                        for (int rank = 0; rank < local.size(); rank++) ranked.add(new RankedResult(local.get(rank), 1.0 / (60 + rank + 1)));
+                }
+                ranked.sort(java.util.Comparator.comparingDouble(RankedResult::score).reversed());
+                return ranked.stream().limit(Math.max(1, Math.min(topK, 20))).map(item -> new Result(item.result().documentId(), item.result().filename(), item.result().pageNumber(), item.result().content(), 1 - item.score())).toList();
+        }
+
+        private record RankedResult(Result result, double score) {}
+
+        private void storeEmbedding(DocumentChunk chunk, KnowledgeBase base, com.intra.copilot.model.EmbeddingProfile profile) {
+                String table = embeddingTable(profile.getDimension());
+                var vector = embeddings.embed(chunk.getContent(), profile);
+                storeEmbedding(chunk, base, profile, vector);
+        }
+        private void storeEmbedding(DocumentChunk chunk, KnowledgeBase base, com.intra.copilot.model.EmbeddingProfile profile, List<Double> vector) {
+                String table = embeddingTable(profile.getDimension());
+                jdbc.update("INSERT INTO " + table + " (chunk_id, knowledge_base_id, embedding_profile_id, config_version, embedding) VALUES (?, ?, ?, ?, ?::vector) ON CONFLICT (chunk_id) DO UPDATE SET embedding = EXCLUDED.embedding, embedding_profile_id = EXCLUDED.embedding_profile_id, config_version = EXCLUDED.config_version", chunk.getId(), base.getId(), profile.getId(), profile.getConfigVersion(), EmbeddingClient.literal(vector));
+        }
+        private String embeddingTable(int dimension) {
+                return switch (dimension) { case 1024 -> "document_chunk_embedding_1024"; case 1536 -> "document_chunk_embedding_1536"; case 3072 -> "document_chunk_embedding_3072"; default -> throw new IllegalArgumentException("暂不支持的 Embedding 维度：" + dimension + "，请先添加对应数据库迁移"); };
         }
 
         private List<PageText> extractPdfPages(byte[] bytes) throws IOException { try (var pdf = Loader.loadPDF(bytes)) { List<PageText> out = new ArrayList<>(); PDFTextStripper stripper = new PDFTextStripper(); for (int page = 1; page <= pdf.getNumberOfPages(); page++) { stripper.setStartPage(page); stripper.setEndPage(page); String text = stripper.getText(pdf).trim(); if (!text.isBlank()) out.add(new PageText(page, text)); } return out; } }
@@ -178,6 +216,7 @@ public class KnowledgeService implements KnowledgeRetriever {
                 if (!valid) throw new IllegalArgumentException("文件类型与扩展名不匹配");
         }
         private record PageText(Integer pageNumber, String text) {}
+        private record PreparedChunk(DocumentChunk chunk, List<Double> vector) {}
         private String normalizeName(String value) { if (value == null || value.isBlank()) throw new IllegalArgumentException("知识库名称不能为空"); return value.trim(); }
         private void ensureNameAvailable(String name, String excludingId) {
                 boolean duplicate = bases.findAll().stream().anyMatch(item -> !item.getId().equals(excludingId) && item.getName() != null && item.getName().trim().equalsIgnoreCase(name));

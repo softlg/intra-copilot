@@ -7,12 +7,15 @@ spring:
       base-url: https://api.openai.com/v1
       api-key: replace-me
       chat:
+        # Base URL includes /v1; Spring AI appends this relative path.
+        completions-path: /chat/completions
         options:
           model: gpt-4o-mini
           temperature: 0.2
       embedding:
         base-url: https://api.openai.com/v1
         api-key: replace-me
+        embeddings-path: /embeddings
         options:
           model: text-embedding-3-small
   datasource:
@@ -24,7 +27,13 @@ spring:
 mybatis-plus:
   configuration.map-underscore-to-camel-case: true
 embedding:
+  default-provider: openai
   dimension: 1536
+  providers:
+    openai:
+      base-url: https://api.openai.com/v1
+      api-key: replace-me
+      path: /embeddings
 rag:
   top-k: 5
   chunk-size: 1200
@@ -34,6 +43,9 @@ rag:
 tools:
   # Set to false in public deployments to enforce HTTPS-only, public endpoints.
   allow-http: true
+  allow-private-network: true
+mcp:
+  timeout-ms: 8000
   allow-private-network: true
 app:
   # 管理端开发服务器默认使用 4174；插件来源请替换为实际扩展 ID。

@@ -11,6 +11,7 @@ public class KnowledgeBase {
     private String name;
     private String description;
     private boolean enabled = true;
+    private String embeddingProfileId;
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
 
@@ -47,6 +48,9 @@ public class KnowledgeBase {
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
     }
+
+    public String getEmbeddingProfileId() { return embeddingProfileId; }
+    public void setEmbeddingProfileId(String value) { embeddingProfileId = value; }
 
     public Instant getCreatedAt() {
         return createdAt;

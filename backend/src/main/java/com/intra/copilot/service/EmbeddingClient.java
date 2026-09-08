@@ -1,44 +1,41 @@
 package com.intra.copilot.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intra.copilot.model.EmbeddingProfile;
 import java.util.ArrayList;
 import java.util.List;
-import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 
-/** Embedding gateway backed by Spring AI's provider-neutral EmbeddingModel. */
+/** OpenAI-compatible embedding gateway with per-profile model selection. */
 @Service
 public class EmbeddingClient {
-    private final EmbeddingModel embeddingModel;
-    private final int dimension;
-    private final String apiKey;
+    private final ObjectMapper json;
+    private final Environment environment;
+    private final EmbeddingProfileService profiles;
 
-    public EmbeddingClient(
-            EmbeddingModel embeddingModel,
-            @Value("${spring.ai.openai.embedding.api-key:${spring.ai.openai.api-key:}}") String apiKey,
-            @Value("${embedding.dimension:1536}") int dimension) {
-        this.embeddingModel = embeddingModel;
-        this.apiKey = apiKey;
-        this.dimension = dimension;
+    public EmbeddingClient(ObjectMapper json, Environment environment, EmbeddingProfileService profiles) {
+        this.json = json; this.environment = environment; this.profiles = profiles;
     }
-
-    public List<Double> embed(String text) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("未配置 EMBEDDING_API_KEY 或 LLM_API_KEY");
+    public List<Double> embed(String text) { return embed(text, profiles.builtInDefault()); }
+    public List<Double> embed(String text, EmbeddingProfile profile) {
+        String prefix = "embedding.providers." + profile.getProvider();
+        String baseUrl = environment.getProperty(prefix + ".base-url", environment.getProperty("spring.ai.openai.embedding.base-url", "https://api.openai.com/v1"));
+        String apiKey = environment.getProperty(prefix + ".api-key", environment.getProperty("spring.ai.openai.embedding.api-key", environment.getProperty("spring.ai.openai.api-key", "")));
+        String path = environment.getProperty(prefix + ".path", environment.getProperty("spring.ai.openai.embedding.embeddings-path", "/embeddings"));
+        try {
+            String body = json.createObjectNode().put("model", profile.getModel()).put("input", text == null ? "" : text).toString();
+            String response = RestClient.builder().baseUrl(baseUrl).build().post().uri(path).header("Authorization", "Bearer " + apiKey).header("Content-Type", "application/json").body(body).retrieve().body(String.class);
+            JsonNode values = json.readTree(response).path("data").path(0).path("embedding");
+            if (!values.isArray() || values.isEmpty()) throw new IllegalStateException("Embedding 服务返回空向量");
+            if (values.size() != profile.getDimension()) throw new IllegalStateException("Embedding 维度不匹配：配置 " + profile.getDimension() + "，实际 " + values.size());
+            List<Double> result = new ArrayList<>(values.size()); values.forEach(value -> result.add(value.asDouble())); return result;
+        } catch (Exception error) {
+            if (error instanceof IllegalStateException) throw (IllegalStateException) error;
+            throw new IllegalStateException("Embedding 配置「" + profile.getName() + "」调用失败：" + error.getMessage(), error);
         }
-        float[] values = embeddingModel.embed(text == null ? "" : text);
-        if (values == null || values.length == 0) {
-            throw new IllegalStateException("Embedding 服务返回空向量");
-        }
-        if (values.length != dimension) {
-            throw new IllegalStateException("Embedding 维度不匹配：期望 " + dimension + "，实际 " + values.length);
-        }
-        List<Double> vector = new ArrayList<>(values.length);
-        for (float value : values) vector.add((double) value);
-        return vector;
     }
-
-    public static String literal(List<Double> vector) {
-        return vector.toString();
-    }
+    public static String literal(List<Double> vector) { return vector.toString(); }
 }

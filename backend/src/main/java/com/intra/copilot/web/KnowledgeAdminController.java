@@ -68,6 +68,11 @@ public class KnowledgeAdminController {
         return service.searchBase(id, request.query(), request.topK() == null ? 5 : request.topK());
     }
 
+    @GetMapping("/{id}/diagnostics")
+    public KnowledgeService.Diagnostics diagnostics(@PathVariable String id) {
+        return service.diagnostics(id);
+    }
+
     @PostMapping(value = "/{id}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public KnowledgeDocument upload(@PathVariable String id, @RequestPart("file") MultipartFile file)
             throws IOException {
