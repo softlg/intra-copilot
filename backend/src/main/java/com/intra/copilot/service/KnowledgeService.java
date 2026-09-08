@@ -176,8 +176,10 @@ public class KnowledgeService implements KnowledgeRetriever {
                 for (String id : ids) {
                         KnowledgeBase base = bases.findById(id).orElse(null); if (base == null || !base.isEnabled()) continue;
                         var profile = embeddingProfiles.resolve(base); String table = embeddingTable(profile.getDimension());
+                        String cast = embeddingCast(profile.getDimension());
                         String vector = EmbeddingClient.literal(embeddings.embed(query, profile));
-                        List<Result> local = jdbc.query("SELECT c.document_id,d.filename,c.page_number,c.content,(e.embedding <=> ?::vector) AS distance FROM document_chunk c JOIN knowledge_document d ON d.id=c.document_id JOIN " + table + " e ON e.chunk_id=c.id WHERE e.knowledge_base_id = ? AND d.status = 'READY' AND (1 - (e.embedding <=> ?::vector)) >= ? ORDER BY e.embedding <=> ?::vector LIMIT ?", new Object[]{vector, id, vector, similarityThreshold, vector, Math.max(1, Math.min(topK, 20))}, (rs, n) -> new Result(rs.getString("document_id"), rs.getString("filename"), (Integer) rs.getObject("page_number"), rs.getString("content"), rs.getDouble("distance")));
+                        String sql = "SELECT c.document_id,d.filename,c.page_number,c.content,(e.embedding <=> " + cast + ") AS distance FROM document_chunk c JOIN knowledge_document d ON d.id=c.document_id JOIN " + table + " e ON e.chunk_id=c.id WHERE e.knowledge_base_id = ? AND d.status = 'READY' AND (1 - (e.embedding <=> " + cast + ")) >= ? ORDER BY e.embedding <=> " + cast + " LIMIT ?";
+                        List<Result> local = jdbc.query(sql, new Object[]{vector, id, vector, similarityThreshold, vector, Math.max(1, Math.min(topK, 20))}, (rs, n) -> new Result(rs.getString("document_id"), rs.getString("filename"), (Integer) rs.getObject("page_number"), rs.getString("content"), rs.getDouble("distance")));
                         for (int rank = 0; rank < local.size(); rank++) ranked.add(new RankedResult(local.get(rank), 1.0 / (60 + rank + 1)));
                 }
                 ranked.sort(java.util.Comparator.comparingDouble(RankedResult::score).reversed());
@@ -193,10 +195,19 @@ public class KnowledgeService implements KnowledgeRetriever {
         }
         private void storeEmbedding(DocumentChunk chunk, KnowledgeBase base, com.intra.copilot.model.EmbeddingProfile profile, List<Double> vector) {
                 String table = embeddingTable(profile.getDimension());
-                jdbc.update("INSERT INTO " + table + " (chunk_id, knowledge_base_id, embedding_profile_id, config_version, embedding) VALUES (?, ?, ?, ?, ?::vector) ON CONFLICT (chunk_id) DO UPDATE SET embedding = EXCLUDED.embedding, embedding_profile_id = EXCLUDED.embedding_profile_id, config_version = EXCLUDED.config_version", chunk.getId(), base.getId(), profile.getId(), profile.getConfigVersion(), EmbeddingClient.literal(vector));
+                String cast = embeddingCast(profile.getDimension());
+                jdbc.update("INSERT INTO " + table + " (chunk_id, knowledge_base_id, embedding_profile_id, config_version, embedding) VALUES (?, ?, ?, ?, " + cast + ") ON CONFLICT (chunk_id) DO UPDATE SET embedding = EXCLUDED.embedding, embedding_profile_id = EXCLUDED.embedding_profile_id, config_version = EXCLUDED.config_version", chunk.getId(), base.getId(), profile.getId(), profile.getConfigVersion(), EmbeddingClient.literal(vector));
         }
         private String embeddingTable(int dimension) {
                 return switch (dimension) { case 1024 -> "document_chunk_embedding_1024"; case 1536 -> "document_chunk_embedding_1536"; case 3072 -> "document_chunk_embedding_3072"; default -> throw new IllegalArgumentException("暂不支持的 Embedding 维度：" + dimension + "，请先添加对应数据库迁移"); };
+        }
+        /**
+         * 根据 embedding 维度返回合适的 SQL 类型转换。3072 维的表用 halfvec 半精度类型存储
+         * （pgvector 0.8.0 中 HNSW 索引对 vector 类型的硬上限为 2000 维，超过该值必须改用
+         * halfvec，其 HNSW 索引上限为 4000 维）；其余维度仍用 vector。
+         */
+        private String embeddingCast(int dimension) {
+                return dimension == 3072 ? "?::halfvec" : "?::vector";
         }
 
         private List<PageText> extractPdfPages(byte[] bytes) throws IOException { try (var pdf = Loader.loadPDF(bytes)) { List<PageText> out = new ArrayList<>(); PDFTextStripper stripper = new PDFTextStripper(); for (int page = 1; page <= pdf.getNumberOfPages(); page++) { stripper.setStartPage(page); stripper.setEndPage(page); String text = stripper.getText(pdf).trim(); if (!text.isBlank()) out.add(new PageText(page, text)); } return out; } }

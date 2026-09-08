@@ -47,15 +47,20 @@ CREATE TABLE IF NOT EXISTS document_chunk_embedding_1536 (
 );
 CREATE INDEX IF NOT EXISTS idx_chunk_embedding_1536_hnsw ON document_chunk_embedding_1536 USING hnsw (embedding vector_cosine_ops);
 
+-- 3072 维（OpenAI text-embedding-3-large）使用 halfvec 半精度类型存储：
+-- pgvector 0.8.0 中 HNSW 索引对 vector 类型的上限为 2000 维，而 halfvec 类型的
+-- HNSW 索引上限为 4000 维，3072 维向量只能落到 halfvec 上才能建 HNSW 索引。
+-- halfvec 同样支持 <=> 余弦距离运算符，检索精度（FP16）相对 FP32 几乎无损，
+-- 且存储空间约为 vector 的一半。
 CREATE TABLE IF NOT EXISTS document_chunk_embedding_3072 (
   chunk_id VARCHAR(64) PRIMARY KEY REFERENCES document_chunk(id) ON DELETE CASCADE,
   knowledge_base_id VARCHAR(64) NOT NULL REFERENCES knowledge_base(id) ON DELETE CASCADE,
   embedding_profile_id VARCHAR(64) NOT NULL REFERENCES embedding_profile(id),
   config_version VARCHAR(64) NOT NULL,
-  embedding vector(3072) NOT NULL,
+  embedding halfvec(3072) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_chunk_embedding_3072_hnsw ON document_chunk_embedding_3072 USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_chunk_embedding_3072_hnsw ON document_chunk_embedding_3072 USING hnsw (embedding halfvec_cosine_ops);
 
 INSERT INTO document_chunk_embedding_1536 (chunk_id, knowledge_base_id, embedding_profile_id, config_version, embedding)
 SELECT c.id, d.knowledge_base_id, 'system-default-embedding', '1', c.embedding
