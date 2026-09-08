@@ -1,0 +1,43 @@
+.sparkline {
+  display: block;
+  vertical-align: middle;
+}
+
+.sparkline-empty {
+  display: inline-block;
+  border-radius: 4px;
+  background: var(--surface-muted);
+  border: 1px dashed var(--border);
+}
+
+.feedback-summary-card .sparkline {
+  margin-top: 6px;
+}
+
+.feedback-trend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-top: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.feedback-trend-chart {
+  flex: 0 0 auto;
+}
+
+.feedback-trend-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.feedback-trend-legend strong {
+  color: var(--text);
+  font-size: 14px;
+}

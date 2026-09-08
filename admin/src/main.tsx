@@ -10,6 +10,7 @@ import { FieldHint } from "./components/FieldHint";
 import { Dropdown } from "./components/Dropdown";
 import { StatusBadge, type StatusKind } from "./components/StatusBadge";
 import { EmptyState } from "./components/EmptyState";
+import { Sparkline, type SparklinePoint } from "./components/Sparkline";
 
 const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8080/api/v1";
 type Language = "zh" | "en";
@@ -363,6 +364,10 @@ const translations = {
     ratingUp: "赞",
     ratingDown: "踩",
     noFeedback: "暂无评分反馈。用户在插件中点击赞/踩后会显示在这里。",
+    feedbackTrendTitle: "近 7 天评分趋势",
+    feedbackTrendAria: "近 7 天评分条数趋势",
+    feedbackTrendCount: (total: number, days: number) =>
+      `近 ${days} 天共 ${total} 条`,
     totalFeedback: "总反馈",
     satisfactionRate: "满意度",
     downReasons: "踩反馈原因",
@@ -781,6 +786,10 @@ const translations = {
     ratingUp: "Up",
     ratingDown: "Down",
     noFeedback: "No feedback yet. Ratings from the extension will appear here.",
+    feedbackTrendTitle: "Last 7-day feedback trend",
+    feedbackTrendAria: "Daily feedback count for the last 7 days",
+    feedbackTrendCount: (total: number, days: number) =>
+      `${total} ratings in the last ${days} days`,
     totalFeedback: "Total feedback",
     satisfactionRate: "Satisfaction",
     downReasons: "Down-rating reasons",
@@ -1773,6 +1782,50 @@ function App() {
     } finally {
       setMcpActionId(undefined);
     }
+  };
+
+  const buildDailyFeedbackTrend = (
+    items: AgentFeedback[],
+    lang: Language,
+  ): { points: SparklinePoint[]; total: number; days: number } => {
+    const days = 7;
+    const now = new Date();
+    const buckets: { date: Date; count: number; label: string }[] = [];
+    for (let offset = days - 1; offset >= 0; offset -= 1) {
+      const date = new Date(now);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() - offset);
+      const label =
+        lang === "zh"
+          ? `${date.getMonth() + 1}/${date.getDate()}`
+          : `${date.getMonth() + 1}/${date.getDate()}`;
+      buckets.push({ date, count: 0, label });
+    }
+    let total = 0;
+    for (const item of items) {
+      if (!item.createdAt) continue;
+      const stamp = new Date(item.createdAt);
+      if (Number.isNaN(stamp.getTime())) continue;
+      const dayStart = new Date(stamp);
+      dayStart.setHours(0, 0, 0, 0);
+      const diff = Math.floor(
+        (now.getTime() - dayStart.getTime()) / (24 * 60 * 60 * 1000),
+      );
+      if (diff < 0 || diff >= days) continue;
+      const slot = buckets[days - 1 - diff];
+      if (slot) {
+        slot.count += 1;
+        total += 1;
+      }
+    }
+    return {
+      points: buckets.map((bucket) => ({
+        label: bucket.label,
+        value: bucket.count,
+      })),
+      total,
+      days,
+    };
   };
 
   const parseMcpInterfaces = (server: McpServer): McpInterface[] => {
@@ -4944,6 +4997,28 @@ function App() {
                 </div>
               </div>
             )}
+            {(() => {
+              if (feedback.length === 0) return null;
+              const trend = buildDailyFeedbackTrend(feedback, language);
+              if (trend.total === 0) return null;
+              return (
+                <div className="feedback-trend" role="group">
+                  <Sparkline
+                    className="feedback-trend-chart"
+                    points={trend.points}
+                    width={180}
+                    height={40}
+                    ariaLabel={t.feedbackTrendAria}
+                  />
+                  <div className="feedback-trend-legend">
+                    <span>{t.feedbackTrendTitle}</span>
+                    <strong>
+                      {t.feedbackTrendCount(trend.total, trend.days)}
+                    </strong>
+                  </div>
+                </div>
+              );
+            })()}
             {feedbackSummary && feedbackSummary.suggestions.length > 0 && (
               <div className="feedback-guidance">
                 <h3>{t.improvementSuggestions}</h3>
