@@ -363,8 +363,30 @@ header {
 }
 
 .off {
-  background: #3b2630;
-  color: #e990a4;
+  background: rgba(40, 50, 70, 0.7);
+  color: #b8c4d6;
+  border: 1px solid rgba(120, 140, 180, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.off::before {
+  content: "○";
+  font-size: 10px;
+  color: #b8c4d6;
+}
+
+.ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ok::before {
+  content: "✓";
+  font-size: 10px;
+  color: #64d49b;
 }
 
 .grid {
