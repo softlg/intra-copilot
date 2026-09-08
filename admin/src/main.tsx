@@ -4530,14 +4530,29 @@ function App() {
                       >
                         {server.enabled ? t.stop : t.enable}
                       </button>
-                      <button
-                        className="agent-delete"
-                        onClick={() => deleteMcpServer(server)}
-                        disabled={mcpActionId === server.id || server.enabled}
-                        title={server.enabled ? t.deleteDisabledEnabled : undefined}
-                      >
-                        {t.deleteResource}
-                      </button>
+                      {server.enabled ? (
+                        <Tooltip
+                          placement="top"
+                          content={t.deleteDisabledEnabled}
+                        >
+                          <button
+                            className="agent-delete"
+                            onClick={() => deleteMcpServer(server)}
+                            disabled
+                            aria-label={t.deleteDisabledEnabled}
+                          >
+                            {t.deleteResource}
+                          </button>
+                        </Tooltip>
+                      ) : (
+                        <button
+                          className="agent-delete"
+                          onClick={() => deleteMcpServer(server)}
+                          disabled={mcpActionId === server.id}
+                        >
+                          {t.deleteResource}
+                        </button>
+                      )}
                     </div>
                   </article>
                 ))}
@@ -4609,14 +4624,29 @@ function App() {
                         >
                           {tool.enabled ? t.stop : t.enable}
                         </button>
-                        <button
-                          className="agent-delete"
-                          onClick={() => deleteResource("tool", tool)}
-                          disabled={resourceActionId === tool.id || tool.enabled}
-                          title={tool.enabled ? t.deleteDisabledEnabled : undefined}
-                        >
-                          {t.deleteResource}
-                        </button>
+                        {tool.enabled ? (
+                          <Tooltip
+                            placement="top"
+                            content={t.deleteDisabledEnabled}
+                          >
+                            <button
+                              className="agent-delete"
+                              onClick={() => deleteResource("tool", tool)}
+                              disabled
+                              aria-label={t.deleteDisabledEnabled}
+                            >
+                              {t.deleteResource}
+                            </button>
+                          </Tooltip>
+                        ) : (
+                          <button
+                            className="agent-delete"
+                            onClick={() => deleteResource("tool", tool)}
+                            disabled={resourceActionId === tool.id}
+                          >
+                            {t.deleteResource}
+                          </button>
+                        )}
                       </div>
                     </article>
                   ))}
@@ -4685,13 +4715,29 @@ function App() {
                         >
                           {skill.enabled ? t.stop : t.enable}
                         </button>
-                        <button
-                          className="agent-delete"
-                          onClick={() => deleteResource("skill", skill)}
-                          disabled={
-                            resourceActionId === skill.id || skill.enabled
-                          }
-                          title={skill.enabled ? t.deleteDisabledEnabled : undefined}
+                        {skill.enabled ? (
+                          <Tooltip
+                            placement="top"
+                            content={t.deleteDisabledEnabled}
+                          >
+                            <button
+                              className="agent-delete"
+                              onClick={() => deleteResource("skill", skill)}
+                              disabled
+                              aria-label={t.deleteDisabledEnabled}
+                            >
+                              {t.deleteResource}
+                            </button>
+                          </Tooltip>
+                        ) : (
+                          <button
+                            className="agent-delete"
+                            onClick={() => deleteResource("skill", skill)}
+                            disabled={resourceActionId === skill.id}
+                          >
+                            {t.deleteResource}
+                          </button>
+                        )}
                         >
                           {t.deleteResource}
                         </button>
@@ -4751,15 +4797,31 @@ function App() {
                       >
                         {hook.enabled ? t.stop : t.enable}
                       </button>
-                      <button
-                        type="button"
-                        className="agent-delete"
-                        onClick={() => deleteHook(hook)}
-                        disabled={hookActionId === hook.id || hook.enabled}
-                        title={hook.enabled ? t.deleteDisabledEnabled : undefined}
-                      >
-                        {t.deleteResource}
-                      </button>
+                      {hook.enabled ? (
+                        <Tooltip
+                          placement="top"
+                          content={t.deleteDisabledEnabled}
+                        >
+                          <button
+                            type="button"
+                            className="agent-delete"
+                            onClick={() => deleteHook(hook)}
+                            disabled
+                            aria-label={t.deleteDisabledEnabled}
+                          >
+                            {t.deleteResource}
+                          </button>
+                        </Tooltip>
+                      ) : (
+                        <button
+                          type="button"
+                          className="agent-delete"
+                          onClick={() => deleteHook(hook)}
+                          disabled={hookActionId === hook.id}
+                        >
+                          {t.deleteResource}
+                        </button>
+                      )}
                     </div>
                   </article>
                 ))}
