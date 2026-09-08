@@ -1098,7 +1098,9 @@ function App() {
     total: 0,
   });
   const [tab, setTab] = useState("agents");
-  const [agentMenuOpen, setAgentMenuOpen] = useState(true);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(
+    () => localStorage.getItem("admin-agent-menu-open") !== "false",
+  );
   const [agentReturnTab, setAgentReturnTab] = useState("agents");
   const [menuSearch, setMenuSearch] = useState("");
   const [resourceStatus, setResourceStatus] = useState<
@@ -1206,6 +1208,19 @@ function App() {
   useEffect(() => {
     localStorage.setItem("admin-sidebar-collapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem("admin-agent-menu-open", String(agentMenuOpen));
+  }, [agentMenuOpen]);
+
+  useEffect(() => {
+    if (
+      ["agents-general", "agents-domain", "agents-sub"].includes(tab) &&
+      !agentMenuOpen
+    ) {
+      setAgentMenuOpen(true);
+    }
+  }, [tab]);
 
   useEffect(() => {
     try {
@@ -2538,8 +2553,12 @@ function App() {
             <button
               className={tab === "agents" ? "nav active" : "nav"}
               onClick={() => {
-                setTab("agents");
-                setAgentMenuOpen(true);
+                if (tab === "agents") {
+                  setAgentMenuOpen((open) => !open);
+                } else {
+                  setTab("agents");
+                  setAgentMenuOpen(true);
+                }
               }}
               title={sidebarCollapsed ? t.agents : undefined}
               aria-label={t.agents}
