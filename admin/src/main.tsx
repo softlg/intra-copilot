@@ -4758,38 +4758,25 @@ function App() {
                       >
                         {t.edit}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleHook(hook)}
-                        disabled={hookActionId === hook.id}
-                      >
-                        {hook.enabled ? t.stop : t.enable}
-                      </button>
-                      {hook.enabled ? (
-                        <Tooltip
-                          placement="top"
-                          content={t.deleteDisabledEnabled}
-                        >
-                          <button
-                            type="button"
-                            className="agent-delete"
-                            onClick={() => deleteHook(hook)}
-                            disabled
-                            aria-label={t.deleteDisabledEnabled}
-                          >
-                            {t.deleteResource}
-                          </button>
-                        </Tooltip>
-                      ) : (
-                        <button
-                          type="button"
-                          className="agent-delete"
-                          onClick={() => deleteHook(hook)}
-                          disabled={hookActionId === hook.id}
-                        >
-                          {t.deleteResource}
-                        </button>
-                      )}
+                      <Dropdown
+                        ariaLabel={t.hookActions}
+                        trigger={<span className="dropdown-trigger-glyph">⋯</span>}
+                        items={[
+                          {
+                            key: "toggle",
+                            label: hook.enabled ? t.stop : t.enable,
+                            onSelect: () => toggleHook(hook),
+                            disabled: hookActionId === hook.id,
+                          },
+                          {
+                            key: "delete",
+                            label: t.deleteResource,
+                            onSelect: () => deleteHook(hook),
+                            disabled: hook.enabled,
+                            tone: "danger",
+                          },
+                        ]}
+                      />
                     </div>
                   </article>
                 ))}
