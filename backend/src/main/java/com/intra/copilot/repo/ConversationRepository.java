@@ -41,4 +41,13 @@ public interface ConversationRepository extends BaseMapper<Conversation> {
                         .orderByAsc("sort_order")
                         .orderByDesc("updated_at"));
     }
+
+    default List<Conversation> findBySourceAndUserId(String source, String userId) {
+        return selectList(
+                Wrappers.<Conversation>query()
+                        .eq("source", source)
+                        .eq("user_id", userId)
+                        .orderByAsc("sort_order")
+                        .orderByDesc("updated_at"));
+    }
 }

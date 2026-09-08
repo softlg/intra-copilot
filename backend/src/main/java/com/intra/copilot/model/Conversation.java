@@ -12,6 +12,8 @@ public class Conversation {
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
     private Long sortOrder;
+    private String source = "extension";
+    private String userId = "anonymous";
 
     public String getId() {
         return id;
@@ -43,5 +45,21 @@ public class Conversation {
 
     public void setSortOrder(Long v) {
         sortOrder = v;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String v) {
+        source = v;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String v) {
+        userId = v;
     }
 }
