@@ -45,7 +45,7 @@ public class RouterAdminController {
         steps.add(
                 step(
                         "intent",
-                        "主 Agent 意图识别",
+                        "系统 Agent 意图识别",
                         Map.of(
                                 "intent",
                                 result.reason(),

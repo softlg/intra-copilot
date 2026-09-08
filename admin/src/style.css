@@ -186,6 +186,70 @@ aside.sidebar-collapsed .nav-icon {
   margin-right: 0;
 }
 
+.nav-group {
+  display: block;
+}
+
+.nav-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.nav-row .nav {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 8px 0 0;
+}
+
+.nav-caret {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 34px;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #7f8da5;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.nav-caret:hover {
+  background: #1d2a42;
+  color: #fff;
+}
+
+.nav-sub {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0 14px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.nav-sub-item {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #8b98ae;
+}
+
+.nav-sub-item.active {
+  background: #1d2a42;
+  color: #fff;
+}
+
+.agent-parent {
+  margin: 0 0 6px;
+  color: #7f8da5;
+  font-size: 12px;
+}
+
 .nav.active,
 .nav:hover {
   background: #1d2a42;
@@ -2074,6 +2138,43 @@ pre {
   max-height: 190px;
   overflow-y: auto;
   padding-right: 2px;
+}
+
+.binding-list-tall {
+  max-height: 320px;
+}
+
+.child-binding {
+  display: grid;
+  gap: 7px;
+}
+
+.child-rule {
+  display: block;
+  padding-left: 26px;
+}
+
+.child-rule span {
+  display: block;
+  margin-bottom: 6px;
+  color: #8b98ae;
+  font-size: 12px;
+}
+
+.child-rule input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  background: var(--control-bg);
+  color: var(--text);
+  font-size: 12px;
+  transition: border-color 0.15s ease;
+}
+
+.child-rule input:focus {
+  border-color: #4776d0;
 }
 
 .binding-search {

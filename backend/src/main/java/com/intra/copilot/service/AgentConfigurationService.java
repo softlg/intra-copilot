@@ -153,16 +153,16 @@ public class AgentConfigurationService {
         if (!List.of("MAIN", "GENERAL", "DOMAIN", "SUB").contains(role)) throw new IllegalArgumentException("Agent 类型无效");
         definition.setRole(role);
         if (List.of("MAIN", "GENERAL").contains(role) && definition.getParentAgentId() != null) {
-            throw new IllegalArgumentException("主 Agent 和通用 Agent 不能有父 Agent");
+            throw new IllegalArgumentException("系统 Agent 和通用 Agent 不能有父 Agent");
         }
         if ("SUB".equals(role) && (definition.getParentAgentId() == null || definition.getParentAgentId().isBlank())) {
-            throw new IllegalArgumentException("SUB Agent 必须绑定领域 Agent");
+            throw new IllegalArgumentException("子 Agent 必须绑定领域 Agent");
         }
         if ("SUB".equals(role)) {
             AgentDefinition parent = definitions.findById(definition.getParentAgentId()).orElseThrow(
                     () -> new IllegalArgumentException("父 Agent 不存在"));
             if (!"DOMAIN".equals(parent.getRole())) {
-                throw new IllegalArgumentException("SUB Agent 的父级必须是领域 Agent");
+                throw new IllegalArgumentException("子 Agent 的父级必须是领域 Agent");
             }
         }
         String handlingMode = definition.getHandlingMode() == null ? "AUTO" : definition.getHandlingMode().toUpperCase();
