@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import { ApiError, buildApiError } from "./lib/apiError";
 import "./components/Toast.css";
 import "./components/ConfirmDialog.css";
 import "./components/Tooltip.css";
@@ -1181,7 +1182,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(detail || `请求失败（${response.status}）`);
+    throw buildApiError(response, detail);
   }
 
   return response.status === 204 ? (undefined as T) : response.json();
