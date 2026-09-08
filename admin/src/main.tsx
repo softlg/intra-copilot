@@ -9,6 +9,7 @@ import { TruncatedId } from "./components/TruncatedId";
 import { FieldHint } from "./components/FieldHint";
 import { Dropdown } from "./components/Dropdown";
 import { StatusBadge, type StatusKind } from "./components/StatusBadge";
+import { EmptyState } from "./components/EmptyState";
 
 const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8080/api/v1";
 type Language = "zh" | "en";
@@ -331,6 +332,9 @@ const translations = {
     skillPromptPlaceholder: "定义 Skill 的行为和使用边界",
     version: "版本",
     noResources: "暂无资源，请先创建工具或 Skill。",
+    noResourcesHint:
+      "工具用于调用外部 HTTP 接口，Skill 用于在对话前注入提示词。点上方按钮创建第一个。",
+    noSearchResultsHint: "试试调整筛选条件，或清空筛选查看全部。",
     edit: "编辑",
     deleteResource: "删除",
     deleteResourceConfirm: (name: string) =>
@@ -732,6 +736,10 @@ const translations = {
     skillPromptPlaceholder: "Define the Skill behavior and boundaries",
     version: "Version",
     noResources: "No resources yet. Create a tool or Skill first.",
+    noResourcesHint:
+      "Tools call external HTTP endpoints; Skills inject a prompt before a conversation. Use the button above to add the first one.",
+    noSearchResultsHint:
+      "Try adjusting the filters, or clear them to see every resource.",
     edit: "Edit",
     deleteResource: "Delete",
     deleteResourceConfirm: (name: string) =>
@@ -4579,9 +4587,23 @@ function App() {
             <div className="resource-section">
               <h3>{t.tool}</h3>
               {tools.length === 0 ? (
-                <p className="empty-documents">{t.noResources}</p>
+                <EmptyState
+                  icon="🔧"
+                  title={t.noResources}
+                  hint={t.noResourcesHint}
+                  action={
+                    <button onClick={() => openResourceDialog("tool")}>
+                      {t.newTool}
+                    </button>
+                  }
+                />
               ) : filteredTools.length === 0 ? (
-                <p className="empty-documents">{t.noSearchResults}</p>
+                <EmptyState
+                  compact
+                  icon="🔍"
+                  title={t.noSearchResults}
+                  hint={t.noSearchResultsHint}
+                />
               ) : (
                 <div className="grid">
                   {filteredTools.map((tool) => (
@@ -4664,9 +4686,23 @@ function App() {
             <div className="resource-section">
               <h3>{t.skill}</h3>
               {skills.length === 0 ? (
-                <p className="empty-documents">{t.noResources}</p>
+                <EmptyState
+                  icon="✨"
+                  title={t.noResources}
+                  hint={t.noResourcesHint}
+                  action={
+                    <button onClick={() => openResourceDialog("skill")}>
+                      {t.newSkill}
+                    </button>
+                  }
+                />
               ) : filteredSkills.length === 0 ? (
-                <p className="empty-documents">{t.noSearchResults}</p>
+                <EmptyState
+                  compact
+                  icon="🔍"
+                  title={t.noSearchResults}
+                  hint={t.noSearchResultsHint}
+                />
               ) : (
                 <div className="grid">
                   {filteredSkills.map((skill) => (
@@ -4729,9 +4765,23 @@ function App() {
               </button>
             </div>
             {hooks.length === 0 ? (
-              <p className="empty-documents">{t.noHooks}</p>
+              <EmptyState
+                icon="🪝"
+                title={t.noHooks}
+                hint={t.noResourcesHint}
+                action={
+                  <button type="button" onClick={() => openHookDialog()}>
+                    {t.newHook}
+                  </button>
+                }
+              />
             ) : filteredHooks.length === 0 ? (
-              <p className="empty-documents">{t.noSearchResults}</p>
+              <EmptyState
+                compact
+                icon="🔍"
+                title={t.noSearchResults}
+                hint={t.noSearchResultsHint}
+              />
             ) : (
               <div className="grid">
                 {filteredHooks.map((hook) => (
