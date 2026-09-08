@@ -10,6 +10,12 @@ public class WebConfig implements WebMvcConfigurer {
     @Value("${app.cors-origins}")
     String origins;
 
+    private final JwtAuthFilter jwtAuthFilter;
+
+    public WebConfig(JwtAuthFilter jwtAuthFilter) {
+        this.jwtAuthFilter = jwtAuthFilter;
+    }
+
     public void addCorsMappings(CorsRegistry r) {
         r.addMapping("/**")
                 .allowedOriginPatterns(
@@ -19,6 +25,13 @@ public class WebConfig implements WebMvcConfigurer {
                                 .toArray(String[]::new))
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
+                .exposedHeaders("Authorization")
                 .maxAge(3600);
+    }
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        // JwtAuthFilter 内部按 path 前缀白名单判定是否需要鉴权
+        registry.addInterceptor(jwtAuthFilter).addPathPatterns("/api/v1/**");
     }
 }
