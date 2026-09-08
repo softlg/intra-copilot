@@ -300,6 +300,7 @@ const translations = {
     deleteResource: "删除",
     deleteResourceConfirm: (name: string) =>
       `确定删除“${name}”吗？此操作不可撤销。`,
+    deleteDisabledEnabled: "启用状态的数据不允许删除，请先停用",
     resourceNameRequired: "请输入名称",
     nameExists: "名称已存在，请使用其他名称",
     endpointRequired: "HTTP 工具必须填写 Endpoint",
@@ -653,6 +654,7 @@ const translations = {
     deleteResource: "Delete",
     deleteResourceConfirm: (name: string) =>
       `Delete “${name}”? This cannot be undone.`,
+    deleteDisabledEnabled: "Enabled items cannot be deleted. Disable them first.",
     resourceNameRequired: "Enter a name",
     nameExists: "This name already exists. Choose another name.",
     endpointRequired: "HTTP tools require an Endpoint",
@@ -1408,6 +1410,10 @@ function App() {
   };
 
   const deleteMcpServer = async (server: McpServer) => {
+    if (server.enabled) {
+      setResourceError(t.deleteDisabledEnabled);
+      return;
+    }
     if (!window.confirm(t.mcpDeleteConfirm(server.name))) return;
     setMcpActionId(server.id);
     try {
@@ -1588,6 +1594,10 @@ function App() {
     kind: "tool" | "skill",
     resource: ToolDefinition | SkillDefinition,
   ) => {
+    if (resource.enabled) {
+      setResourceError(t.deleteDisabledEnabled);
+      return;
+    }
     if (!window.confirm(t.deleteResourceConfirm(resource.name))) return;
     setResourceActionId(resource.id);
     try {
@@ -1683,6 +1693,10 @@ function App() {
   };
 
   const deleteHook = async (hook: HookDefinition) => {
+    if (hook.enabled) {
+      setResourceError(t.deleteDisabledEnabled);
+      return;
+    }
     if (!window.confirm(t.hookDeleteConfirm(hook.name))) return;
     setHookActionId(hook.id);
     try {
@@ -4179,7 +4193,8 @@ function App() {
                       <button
                         className="agent-delete"
                         onClick={() => deleteMcpServer(server)}
-                        disabled={mcpActionId === server.id}
+                        disabled={mcpActionId === server.id || server.enabled}
+                        title={server.enabled ? t.deleteDisabledEnabled : undefined}
                       >
                         {t.deleteResource}
                       </button>
@@ -4257,7 +4272,8 @@ function App() {
                         <button
                           className="agent-delete"
                           onClick={() => deleteResource("tool", tool)}
-                          disabled={resourceActionId === tool.id}
+                          disabled={resourceActionId === tool.id || tool.enabled}
+                          title={tool.enabled ? t.deleteDisabledEnabled : undefined}
                         >
                           {t.deleteResource}
                         </button>
@@ -4332,7 +4348,10 @@ function App() {
                         <button
                           className="agent-delete"
                           onClick={() => deleteResource("skill", skill)}
-                          disabled={resourceActionId === skill.id}
+                          disabled={
+                            resourceActionId === skill.id || skill.enabled
+                          }
+                          title={skill.enabled ? t.deleteDisabledEnabled : undefined}
                         >
                           {t.deleteResource}
                         </button>
@@ -4396,7 +4415,8 @@ function App() {
                         type="button"
                         className="agent-delete"
                         onClick={() => deleteHook(hook)}
-                        disabled={hookActionId === hook.id}
+                        disabled={hookActionId === hook.id || hook.enabled}
+                        title={hook.enabled ? t.deleteDisabledEnabled : undefined}
                       >
                         {t.deleteResource}
                       </button>
@@ -5211,29 +5231,6 @@ function App() {
                   <small className="field-hint">{t.agentIdHint}</small>
                 </label>
               )}
-              <label className="field">
-                <span>{t.agentRole}</span>
-                <select
-                  value={agentRole}
-                  onChange={(event) => {
-                    const role = event.target.value;
-                    setAgentRole(role);
-                    if (role === "SUB") {
-                      setAgentParentId(
-                        agents.find(
-                          (item) => item.role === "DOMAIN" && item.enabled,
-                        )?.id ?? "",
-                      );
-                    } else {
-                      setAgentParentId("");
-                    }
-                  }}
-                >
-                  <option value="GENERAL">{t.roleGeneral}</option>
-                  <option value="DOMAIN">{t.roleDomain}</option>
-                  <option value="SUB">{t.roleSub}</option>
-                </select>
-              </label>
               {agentRole === "SUB" && (
                 <label className="field">
                   <span>
