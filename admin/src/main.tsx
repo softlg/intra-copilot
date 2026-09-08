@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
@@ -1238,10 +1238,13 @@ function App() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [settingsOpen]);
 
-  const load = () => {
+  const loadAgents = () => {
     request<Agent[]>("/admin/agents")
       .then(setAgents)
       .catch(() => setAgents([]));
+  };
+
+  const loadConversationLogs = () => {
     request<ConversationLog[]>("/admin/conversation-logs")
       .then((logs) => {
         setConversationLogs(logs);
@@ -1252,24 +1255,42 @@ function App() {
         );
       })
       .catch(() => setConversationLogs([]));
+  };
+
+  const loadTools = () => {
     request<ToolDefinition[]>("/admin/tools")
       .then(setTools)
       .catch(() => setTools([]));
+  };
+
+  const loadMcpServers = () => {
     request<McpServer[]>("/admin/mcp-servers")
       .then(setMcpServers)
       .catch(() => setMcpServers([]));
+  };
+
+  const loadSkills = () => {
     request<SkillDefinition[]>("/admin/skills")
       .then(setSkills)
       .catch(() => setSkills([]));
+  };
+
+  const loadHooks = () => {
     request<HookDefinition[]>("/admin/hooks")
       .then(setHooks)
       .catch(() => setHooks([]));
+  };
+
+  const loadFeedback = () => {
     request<AgentFeedback[]>("/admin/agent-feedback")
       .then(setFeedback)
       .catch(() => setFeedback([]));
     request<FeedbackSummary>("/admin/agent-feedback/summary")
       .then(setFeedbackSummary)
       .catch(() => setFeedbackSummary(undefined));
+  };
+
+  const loadBases = () => {
     request<Base[]>("/admin/knowledge-bases")
       .then((list) => {
         setBases(list);
@@ -1297,7 +1318,46 @@ function App() {
       .catch(() => setEmbeddingProfiles([]));
   };
 
-  useEffect(load, []);
+  // 记录已按需加载过的资源，避免进入页面时重复请求
+  const loadedResources = useRef<Set<string>>(new Set());
+  const ensureResourceLoaded = (key: string, loader: () => void) => {
+    if (loadedResources.current.has(key)) return;
+    loadedResources.current.add(key);
+    loader();
+  };
+
+  // 根据当前 tab 按需加载对应资源，默认进入 agents 页面只请求 agents
+  useEffect(() => {
+    const agentTabs = [
+      "agents",
+      "agents-general",
+      "agents-domain",
+      "agents-sub",
+    ];
+    if (agentTabs.includes(tab)) {
+      ensureResourceLoaded("agents", loadAgents);
+    } else if (tab === "agent-settings") {
+      // Agent 配置页的 knowledge/tools/skills 绑定区需要对应列表数据
+      ensureResourceLoaded("agents", loadAgents);
+      ensureResourceLoaded("bases", loadBases);
+      ensureResourceLoaded("tools", loadTools);
+      ensureResourceLoaded("skills", loadSkills);
+    } else if (tab === "knowledge") {
+      ensureResourceLoaded("bases", loadBases);
+    } else if (tab === "mcp-servers") {
+      ensureResourceLoaded("mcp-servers", loadMcpServers);
+    } else if (tab === "tools") {
+      ensureResourceLoaded("tools", loadTools);
+    } else if (tab === "skills") {
+      ensureResourceLoaded("skills", loadSkills);
+    } else if (tab === "hooks") {
+      ensureResourceLoaded("hooks", loadHooks);
+    } else if (tab === "ratings") {
+      ensureResourceLoaded("feedback", loadFeedback);
+    } else if (tab === "conversation-logs") {
+      ensureResourceLoaded("conversation-logs", loadConversationLogs);
+    }
+  }, [tab]);
 
   useEffect(() => {
     if (!activeBaseId) {
@@ -1361,7 +1421,7 @@ function App() {
         }),
       });
       setMcpDialogOpen(false);
-      load();
+      loadMcpServers();
     } catch (error) {
       setResourceError(
         error instanceof Error ? error.message : t.mcpSaveFailed,
@@ -1539,7 +1599,8 @@ function App() {
         body: JSON.stringify(body),
       });
       setResourceDialog(undefined);
-      load();
+      if (resourceDialog === "tool") loadTools();
+      else loadSkills();
     } catch (error) {
       setResourceError(
         error instanceof Error ? error.message : t.resourceSaveFailed,
@@ -1562,7 +1623,8 @@ function App() {
           body: JSON.stringify({ ...resource, enabled: !resource.enabled }),
         },
       );
-      load();
+      if (kind === "tool") loadTools();
+      else loadSkills();
     } catch (error) {
       setResourceError(
         error instanceof Error ? error.message : t.resourceSaveFailed,
@@ -1589,7 +1651,8 @@ function App() {
           method: "DELETE",
         },
       );
-      load();
+      if (kind === "tool") loadTools();
+      else loadSkills();
     } catch (error) {
       setResourceError(
         error instanceof Error ? error.message : t.resourceDeleteFailed,
@@ -2112,7 +2175,7 @@ function App() {
         });
       }
       setAgentDialogOpen(false);
-      load();
+      loadAgents();
     } catch (error) {
       setAgentError(
         error instanceof Error ? error.message : t.createAgentFailed,
@@ -2131,7 +2194,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({ releaseNote: "后台配置发布" }),
       });
-      load();
+      loadAgents();
       setAgentVersions(
         await request<AgentConfigVersion[]>(
           `/admin/agents/${configuredAgent.id}/versions`,
@@ -2152,7 +2215,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({ version }),
       });
-      load();
+      loadAgents();
       setAgentVersions(
         await request<AgentConfigVersion[]>(
           `/admin/agents/${configuredAgent.id}/versions`,
@@ -2172,7 +2235,7 @@ function App() {
       body: JSON.stringify({ enabled }),
     });
     if (agentConfigId === agent.id) setAgentEnabled(enabled);
-    load();
+    loadAgents();
   };
 
   const deleteAgent = async (agent: Agent) => {
@@ -2246,7 +2309,7 @@ function App() {
         }),
       });
       setBaseDialogOpen(false);
-      load();
+      loadBases();
     } catch (error) {
       setBaseError(error instanceof Error ? error.message : t.createBaseFailed);
     } finally {
