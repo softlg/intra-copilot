@@ -3524,9 +3524,11 @@ function App() {
 
         {agentListTab && (
           <section>
-            <button type="button" onClick={() => addAgent(agentListTab.role)}>
-              {t.newAgent}
-            </button>
+            {agentListTab.role !== "MAIN" && (
+              <button type="button" onClick={() => addAgent(agentListTab.role)}>
+                {t.newAgent}
+              </button>
+            )}
             <section className="agent-group">
               <div className="group-heading">
                 <div>
