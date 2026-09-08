@@ -3,9 +3,11 @@ import { createRoot } from "react-dom/client";
 import rehypeHighlight from "rehype-highlight";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { bootstrapAuth, type AuthedFetch } from "./auth";
 import "./style.css";
 
 const API = "http://localhost:8080/api/v1";
+const API_BASE = "http://localhost:8080";
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
@@ -411,6 +413,8 @@ function AssistantMarkdown({
 }
 
 function App() {
+  const [authedFetch, setAuthedFetch] = useState<AuthedFetch | null>(null);
+  const [authError, setAuthError] = useState<string>("");
   const [sessions, setSessions] = useState<any[]>([]);
   const [session, setSession] = useState<any>();
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -483,9 +487,28 @@ function App() {
   const mainRef = useRef<HTMLElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const authedFetchRef = useRef<AuthedFetch | null>(null);
 
   useEffect(() => {
-    load();
+    let cancelled = false;
+    (async () => {
+      try {
+        const { authedFetch } = await bootstrapAuth(API_BASE);
+        if (cancelled) return;
+        authedFetchRef.current = authedFetch;
+        setAuthedFetch(() => authedFetch);
+        load();
+      } catch (error) {
+        if (cancelled) return;
+        const message =
+          (error as Error).message || "Failed to register device with backend";
+        setAuthError(message);
+        setError(`Device registration failed: ${message}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -647,7 +670,7 @@ function App() {
         ?.content || "";
     const target = msgs[index];
     if (!session?.id) return;
-    fetch(API + "/feedback", {
+    apiFetch("/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -784,9 +807,18 @@ function App() {
     }
   }
 
+  function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+    const fetcher = authedFetchRef.current;
+    if (!fetcher) {
+      return Promise.reject(new Error("Backend auth not ready"));
+    }
+    return fetcher(path, init);
+  }
+
   async function load() {
+    if (authError) return; // 鉴权失败时不发请求
     try {
-      const sessions = await fetch(API + "/sessions").then((r) => r.json());
+      const sessions = await apiFetch("/sessions").then((r) => r.json());
       setSessions(sessions);
       if (sessions[0]) await select(sessions[0]);
       else await create();
@@ -797,7 +829,7 @@ function App() {
 
   async function create() {
     try {
-      const response = await fetch(API + "/sessions", { method: "POST" });
+      const response = await apiFetch("/sessions", { method: "POST" });
       if (!response.ok) throw Error(t.createFailed);
       const conversation = await response.json();
       setSessions((items) => [conversation, ...items]);
@@ -812,7 +844,7 @@ function App() {
   async function select(conversation: any) {
     setSession(conversation);
     setMsgs(
-      await fetch(API + `/sessions/${conversation.id}/messages`).then((r) =>
+      await apiFetch(`/sessions/${conversation.id}/messages`).then((r) =>
         r.json(),
       ),
     );
@@ -882,7 +914,7 @@ function App() {
     setSessions(reordered);
 
     try {
-      const response = await fetch(API + "/sessions/reorder", {
+      const response = await apiFetch("/sessions/reorder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderedIds: reordered.map((s) => s.id) }),
@@ -911,7 +943,7 @@ function App() {
       return;
     }
     try {
-      const response = await fetch(API + `/sessions/${conversation.id}`, {
+      const response = await apiFetch(`/sessions/${conversation.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
@@ -939,7 +971,7 @@ function App() {
     if (!window.confirm(t.deleteConfirm(names))) return;
     try {
       const responses = await Promise.all(
-        ids.map((id) => fetch(API + `/sessions/${id}`, { method: "DELETE" })),
+        ids.map((id) => apiFetch(`/sessions/${id}`, { method: "DELETE" })),
       );
       const failed = responses.find((response) => !response.ok);
       if (failed) throw Error(t.deleteFailed);
@@ -1299,7 +1331,7 @@ function App() {
         markGenerationStopped();
         return;
       }
-      const response = await fetch(API + "/chat/stream", {
+      const response = await apiFetch("/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -1365,7 +1397,7 @@ function App() {
                   });
                 }
               }
-              await fetch(API + `/actions/${action.actionId}/result`, {
+              await apiFetch(`/actions/${action.actionId}/result`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(result),

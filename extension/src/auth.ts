@@ -11,7 +11,7 @@ const TOKEN_TTL_SECONDS = 60 * 55; // 55 分钟：留 5 分钟提前续签余地
 
 export type AuthedFetch = (
   path: string,
-  init?: RequestInit
+  init?: RequestInit,
 ) => Promise<Response>;
 
 export interface AuthBootstrap {
@@ -51,14 +51,14 @@ async function getOrCreateKeyPair(): Promise<CryptoKeyPair> {
         base64ToArrayBuffer(stored[KEY_PAIR_KEY].privateKey),
         { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
         true,
-        ["sign"]
+        ["sign"],
       ),
       publicKey: await crypto.subtle.importKey(
         "jwk",
         stored[KEY_PAIR_KEY].publicKey,
         { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
         true,
-        ["verify"]
+        ["verify"],
       ),
     };
   }
@@ -70,12 +70,12 @@ async function getOrCreateKeyPair(): Promise<CryptoKeyPair> {
       hash: "SHA-256",
     },
     true,
-    ["sign", "verify"]
+    ["sign", "verify"],
   );
   const publicKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
   const privateKeyPkcs8 = await crypto.subtle.exportKey(
     "pkcs8",
-    keyPair.privateKey
+    keyPair.privateKey,
   );
   await chrome.storage.local.set({
     [KEY_PAIR_KEY]: {
@@ -89,7 +89,7 @@ async function getOrCreateKeyPair(): Promise<CryptoKeyPair> {
 /** 用私钥对 payload 签 RS256，输出 base64url JWT。 */
 async function signJwt(
   privateKey: CryptoKey,
-  deviceId: string
+  deviceId: string,
 ): Promise<string> {
   const header = { alg: "RS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
@@ -103,16 +103,16 @@ async function signJwt(
     jti: crypto.randomUUID(),
   };
   const headerB64 = base64urlEncode(
-    new TextEncoder().encode(JSON.stringify(header))
+    new TextEncoder().encode(JSON.stringify(header)),
   );
   const payloadB64 = base64urlEncode(
-    new TextEncoder().encode(JSON.stringify(payload))
+    new TextEncoder().encode(JSON.stringify(payload)),
   );
   const signingInput = `${headerB64}.${payloadB64}`;
   const signature = await crypto.subtle.sign(
     "RSASSA-PKCS1-v1_5",
     privateKey,
-    new TextEncoder().encode(signingInput)
+    new TextEncoder().encode(signingInput),
   );
   const sigB64 = base64urlEncode(new Uint8Array(signature));
   return `${signingInput}.${sigB64}`;
@@ -122,7 +122,7 @@ async function signJwt(
 async function registerDevice(
   apiBase: string,
   deviceId: string,
-  publicKey: CryptoKey
+  publicKey: CryptoKey,
 ): Promise<{ userId: string }> {
   const jwk = await crypto.subtle.exportKey("jwk", publicKey);
   const response = await fetch(`${apiBase}/api/v1/auth/devices/register`, {
@@ -138,7 +138,7 @@ async function registerDevice(
     throw new Error(
       `Device register failed: ${response.status} ${await response
         .text()
-        .catch(() => "")}`
+        .catch(() => "")}`,
     );
   }
   const data = (await response.json()) as { userId: string };
@@ -163,14 +163,14 @@ export async function bootstrapAuth(apiBase: string): Promise<AuthBootstrap> {
     return {
       deviceId,
       authedFetch: makeAuthedFetch(apiBase, fresh.privateKey, deviceId, () =>
-        registerDevice(apiBase, deviceId, fresh.publicKey)
+        registerDevice(apiBase, deviceId, fresh.publicKey),
       ),
     };
   }
   return {
     deviceId,
     authedFetch: makeAuthedFetch(apiBase, keyPair.privateKey, deviceId, () =>
-      registerDevice(apiBase, deviceId, keyPair.publicKey)
+      registerDevice(apiBase, deviceId, keyPair.publicKey),
     ),
   };
 }
@@ -179,7 +179,7 @@ function makeAuthedFetch(
   apiBase: string,
   privateKey: CryptoKey,
   deviceId: string,
-  onAuthFailed: () => Promise<unknown>
+  onAuthFailed: () => Promise<unknown>,
 ): AuthedFetch {
   return async (path: string, init: RequestInit = {}) => {
     const token = await signJwt(privateKey, deviceId);
@@ -216,7 +216,8 @@ function makeAuthedFetch(
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i++)
+    binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
@@ -229,6 +230,10 @@ function base64ToArrayBuffer(b64: string): ArrayBuffer {
 
 function base64urlEncode(bytes: Uint8Array): string {
   let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  for (let i = 0; i < bytes.length; i++)
+    binary += String.fromCharCode(bytes[i]);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
