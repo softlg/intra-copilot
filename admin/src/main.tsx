@@ -11,6 +11,7 @@ import { Dropdown } from "./components/Dropdown";
 import { StatusBadge, type StatusKind } from "./components/StatusBadge";
 import { EmptyState } from "./components/EmptyState";
 import { Sparkline, type SparklinePoint } from "./components/Sparkline";
+import { Icon, type IconName } from "./components/Icon";
 
 const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8080/api/v1";
 type Language = "zh" | "en";
@@ -4619,12 +4620,12 @@ function App() {
                             onClick={() => setMcpErrorDetail(server)}
                             aria-label={t.mcpErrorDetail}
                           >
-                            <span
-                              className="mcp-row-error-icon"
-                              aria-hidden="true"
-                            >
-                              ⚠
-                            </span>
+                            <Icon
+                            name="warn"
+                            size={14}
+                            className="mcp-row-error-icon"
+                            title={t.mcpErrorHint}
+                          />
                             <span className="mcp-row-error-summary">
                               {truncateError(server.lastError)}
                             </span>
@@ -4762,7 +4763,7 @@ function App() {
                         <Dropdown
                           ariaLabel={t.toolActions}
                           trigger={
-                            <span className="dropdown-trigger-glyph">⋯</span>
+                            <Icon name="more" className="dropdown-trigger-icon" />
                           }
                           items={[
                             {
@@ -4859,7 +4860,7 @@ function App() {
                         <Dropdown
                           ariaLabel={t.skillActions}
                           trigger={
-                            <span className="dropdown-trigger-glyph">⋯</span>
+                            <Icon name="more" className="dropdown-trigger-icon" />
                           }
                           items={[
                             {
@@ -4943,7 +4944,7 @@ function App() {
                       <Dropdown
                         ariaLabel={t.hookActions}
                         trigger={
-                          <span className="dropdown-trigger-glyph">⋯</span>
+                          <Icon name="more" className="dropdown-trigger-icon" />
                         }
                         items={[
                           {

@@ -1,0 +1,19 @@
+.icon-svg {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.dropdown-trigger-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.mcp-row-error-icon {
+  color: #e9b46e;
+}
+
+.placeholder-mark {
+  width: 14px;
+  height: 14px;
+}
