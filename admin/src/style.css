@@ -2763,3 +2763,8 @@ pre {
   background: #e9b46e;
   vertical-align: middle;
 }
+
+.badge-clickable {
+  cursor: help;
+  border: 1px solid rgba(120, 140, 180, 0.25);
+}

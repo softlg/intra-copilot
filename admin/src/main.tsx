@@ -236,6 +236,7 @@ const translations = {
     saveSettings: "保存设置",
     savingSettings: "保存中…",
     saved: "已保存",
+    localModeHint: "后端连接的是本机服务，配置改动会立即生效",
     save: "保存",
     saved: "已保存",
     collapseSidebar: "收缩菜单栏",
@@ -625,6 +626,8 @@ const translations = {
     saveSettings: "Save settings",
     savingSettings: "Saving…",
     saved: "Saved",
+    localModeHint:
+      "Backend is running locally. Configuration changes take effect immediately.",
     save: "Save",
     saved: "Saved",
     collapseSidebar: "Collapse menu",
@@ -3063,7 +3066,9 @@ function App() {
                                     : t.routerTest}
           </h2>
           <div className="header-actions">
-            <span className="badge">{t.localMode}</span>
+            <Tooltip placement="bottom" content={t.localModeHint}>
+              <span className="badge badge-clickable">{t.localMode}</span>
+            </Tooltip>
             <button
               className="settings-button"
               onClick={() => setSettingsOpen((open) => !open)}
