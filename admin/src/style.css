@@ -2152,7 +2152,8 @@ pre {
   font-size: 13px;
 }
 
-.required-mark {
+.required-mark,
+.field-required-mark {
   color: #f87171;
   margin-left: 4px;
 }

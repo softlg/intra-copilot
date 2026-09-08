@@ -207,6 +207,7 @@ const translations = {
     agentIdInvalid: "Agent ID 只能使用 2-128 位小写字母、数字和连字符",
     agentNameRequired: "Agent 名称不能为空",
     promptRequired: "系统提示词不能为空",
+    agentDescriptionRequired: "请填写 Agent 描述，便于其他 Agent 路由时理解其职责",
     parentAgentRequired: "子 Agent 必须选择一个启用的领域 Agent 作为父级",
     createAgentFailed: "创建 Agent 失败，请稍后重试",
     createBaseFailed: "创建知识库失败，请稍后重试",
@@ -578,6 +579,7 @@ const translations = {
     descriptionOptional: "Description (optional)",
     descriptionLabel: "Description",
     descriptionRequired: "Description is required",
+    required: "required",
     agentDescriptionPlaceholder: "Briefly describe what this Agent handles",
     systemPrompt: "System prompt",
     systemPromptPlaceholder:
@@ -618,6 +620,7 @@ const translations = {
       "Agent ID must be 2-128 lowercase letters, numbers, or hyphens",
     agentNameRequired: "Agent name is required",
     promptRequired: "System prompt is required",
+    agentDescriptionRequired: "Agent description is required so other agents can understand its role",
     parentAgentRequired:
       "A sub-agent must select an enabled domain Agent as its parent",
     createAgentFailed: "Failed to create Agent. Please try again.",
@@ -2527,6 +2530,10 @@ function App() {
     }
     if (!systemPrompt) {
       setAgentError(t.promptRequired);
+      return;
+    }
+    if (!agentDescription.trim()) {
+      setAgentError(t.agentDescriptionRequired);
       return;
     }
     if (
@@ -5966,13 +5973,20 @@ function App() {
                 />
               </label>
               <label className="field">
-                <span>{t.descriptionOptional}</span>
+                <span>
+                  {t.descriptionLabel}{" "}
+                  <span className="field-required-mark" aria-label={t.required}>
+                    *
+                  </span>
+                </span>
                 <textarea
                   value={agentDescription}
                   onChange={(event) => setAgentDescription(event.target.value)}
                   placeholder={t.agentDescriptionPlaceholder}
                   rows={2}
                   maxLength={500}
+                  required
+                  aria-required="true"
                 />
               </label>
               <label className="field">
