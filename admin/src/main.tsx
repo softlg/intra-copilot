@@ -2849,55 +2849,23 @@ function App() {
     setUploadError("");
     setResourceError("");
   };
-  const matchesSearch = (..._values: unknown[]) => true;
-  const filteredAgents = agents.filter((agent) =>
-    matchesSearch(agent.displayName, agent.id, agent.description),
-  );
-  const filteredBases = bases.filter((base) =>
-    matchesSearch(base.name, base.id, base.description),
-  );
+  const filteredAgents = agents;
+  const filteredBases = bases;
   const activeDocuments = activeBaseId ? (documents[activeBaseId] ?? []) : [];
-  const filteredDocuments = activeDocuments.filter((document) =>
-    matchesSearch(document.filename, document.id, document.status),
-  );
+  const filteredDocuments = activeDocuments;
   const filteredTools = tools.filter(
     (tool) =>
-      (resourceStatus === "all" ||
-        (resourceStatus === "enabled" ? tool.enabled : !tool.enabled)) &&
-      matchesSearch(
-        tool.name,
-        tool.id,
-        tool.description,
-        tool.type,
-        tool.endpoint,
-        tool.mcpServerUrl,
-      ),
+      resourceStatus === "all" ||
+      (resourceStatus === "enabled" ? tool.enabled : !tool.enabled),
   );
   const filteredMcpServers = mcpServers;
   const filteredSkills = skills.filter(
     (skill) =>
-      (resourceStatus === "all" ||
-        (resourceStatus === "enabled" ? skill.enabled : !skill.enabled)) &&
-      matchesSearch(skill.name, skill.id, skill.description, skill.prompt),
+      resourceStatus === "all" ||
+      (resourceStatus === "enabled" ? skill.enabled : !skill.enabled),
   );
-  const filteredHooks = hooks.filter((hook) =>
-    matchesSearch(
-      hook.name,
-      hook.id,
-      hook.description,
-      hook.ruleType,
-      hook.ruleConfig,
-    ),
-  );
-  const filteredFeedback = feedback.filter((item) =>
-    matchesSearch(
-      item.agentId,
-      item.sessionId,
-      item.messageId,
-      item.rating,
-      item.comment,
-    ),
-  );
+  const filteredHooks = hooks;
+  const filteredFeedback = feedback;
   const agentListTab = (() => {
     const config = {
       agents: { role: "MAIN", title: t.roleMain, hint: t.systemAgentPageHint },
