@@ -298,6 +298,14 @@ const translations = {
       "例如：\n- 页面报错、接口异常 → 优先指派给故障排查子 Agent\n- 产品流程咨询 → 指派给对应业务子 Agent\n- 无法判断时 → 转给 Intra Copilot",
     knowledgeBinding: "知识库绑定",
     noKnowledgeBases: "暂无可用知识库，请先创建知识库。",
+    noKnowledgeBasesHint:
+      "知识库用于存放产品文档、FAQ 等资料，Agent 在回答前会先检索这里。点上方按钮创建第一个。",
+    noMcpServerHint:
+      "MCP 服务提供 Agent 可以调用的外部能力（搜索、数据库、自定义 API 等）。新建后记得运行健康检查。",
+    noSystemAgentHint:
+      "系统 Agent 由后端 seed 初始化；新增/编辑/删除请走「通用 Agent」「领域 Agent」「子 Agent」页。",
+    noDomainAgentHint:
+      "领域 Agent 负责处理特定业务域的请求；可以绑定子 Agent 让系统按关键词或自动决策派发。",
     search: "搜索",
     searchPlaceholder: "搜索名称、ID或描述",
     statusFilter: "状态筛选",
@@ -705,6 +713,14 @@ const translations = {
       "For example:\n- Page errors or API failures → route to the troubleshooting sub-agent\n- Product workflow questions → route to the relevant sub-agent\n- If uncertain → fall back to Intra Copilot",
     knowledgeBinding: "Knowledge bases",
     noKnowledgeBases: "No knowledge bases available. Create one first.",
+    noKnowledgeBasesHint:
+      "Knowledge bases store product docs, FAQs, etc. Agents retrieve from them before answering. Use the button above to add the first one.",
+    noMcpServerHint:
+      "MCP servers expose capabilities (search, databases, custom APIs) the agent can call. Run a health check after adding one.",
+    noSystemAgentHint:
+      "System agents are seeded by the backend. Add / edit / remove them through the 'General', 'Domain', and 'Sub-agent' pages.",
+    noDomainAgentHint:
+      "Domain agents handle a specific business area. Attach sub-agents to let the router dispatch by keyword or automatic decision.",
     search: "Search",
     searchPlaceholder: "Search by name, ID, or description",
     statusFilter: "Status filter",
@@ -3965,13 +3981,35 @@ function App() {
                   );
                 })}
               </div>
-              {agentListTab.items.length === 0 && (
-                <p className="empty-documents">
-                  {filteredAgents.length < agents.length
-                    ? t.noSearchResults
-                    : t.noAgentOfType}
-                </p>
-              )}
+              {agentListTab.items.length === 0 &&
+                (filteredAgents.length < agents.length ? (
+                  <EmptyState
+                    compact
+                    icon="🔍"
+                    title={t.noSearchResults}
+                    hint={t.noSearchResultsHint}
+                  />
+                ) : agentListTab.role === "MAIN" ? (
+                  <EmptyState
+                    icon="🤖"
+                    title={t.noAgentOfType}
+                    hint={t.noSystemAgentHint}
+                  />
+                ) : (
+                  <EmptyState
+                    icon="🤖"
+                    title={t.noAgentOfType}
+                    hint={t.noDomainAgentHint}
+                    action={
+                      <button
+                        type="button"
+                        onClick={() => addAgent(agentListTab.role)}
+                      >
+                        {t.newAgent}
+                      </button>
+                    }
+                  />
+                ))}
             </section>
           </section>
         )}
@@ -4022,9 +4060,19 @@ function App() {
                   ))}
                 </div>
                 {bases.length === 0 ? (
-                  <p className="empty-documents">{t.noKnowledgeBases}</p>
+                  <EmptyState
+                    icon="📚"
+                    title={t.noKnowledgeBases}
+                    hint={t.noKnowledgeBasesHint}
+                    action={<button onClick={addBase}>{t.newBase}</button>}
+                  />
                 ) : filteredBases.length === 0 ? (
-                  <p className="empty-documents">{t.noSearchResults}</p>
+                  <EmptyState
+                    compact
+                    icon="🔍"
+                    title={t.noSearchResults}
+                    hint={t.noSearchResultsHint}
+                  />
                 ) : null}
               </>
             ) : (
@@ -4425,7 +4473,16 @@ function App() {
               <button onClick={() => openMcpDialog()}>{t.newMcpServer}</button>
             </div>
             {mcpServers.length === 0 ? (
-              <p className="empty-documents">{t.noResources}</p>
+              <EmptyState
+                icon="🔌"
+                title={t.noResources}
+                hint={t.noMcpServerHint}
+                action={
+                  <button onClick={() => openMcpDialog()}>
+                    {t.newMcpServer}
+                  </button>
+                }
+              />
             ) : (
               <div
                 className="mcp-list"
