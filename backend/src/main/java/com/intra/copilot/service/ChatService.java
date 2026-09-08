@@ -104,15 +104,26 @@ public class ChatService {
                                 autoRoute
                                                 ? orchestrator.route(text, pageContext, h)
                                                 : new AgentOrchestrator.RoutingResult(
-                                                                orchestrator.resolve(requestedAgent),
+                                                                orchestrator.resolveUserAgent(requestedAgent),
                                                                 requestedAgent,
                                                                 1.0,
                                                                 "用户指定 Agent",
                                                                 "user",
                                                                 false);
-                Agent agent = routing.agent();
+                Agent routeAgent = routing.agent();
+                AgentOrchestrator.DelegationResult delegation =
+                                routeAgent instanceof ConfigurableAgent configurable
+                                                ? orchestrator.decideDomain(configurable.definition(), text, pageContext, h)
+                                                : new AgentOrchestrator.DelegationResult(false, routeAgent, "DIRECT", "系统 Agent 直接处理", 1.0);
+                Agent agent = delegation.agent();
                 AgentInvocation invocation = new AgentInvocation();
                 invocation.setConversationId(c.getId());
+                invocation.setCorrelationId(UUID.randomUUID().toString());
+                invocation.setSequence(1);
+                invocation.setDepth(1);
+                invocation.setAgentRole(routeAgent instanceof ConfigurableAgent configurable
+                                                ? configurable.definition().getRole() : "MAIN");
+                invocation.setDecisionMode(delegation.mode());
                 invocation.setRequestedAgentId(requestedAgent);
                 invocation.setSelectedAgentId(routing.selectedAgentId());
                 invocation.setRouteReason(routing.reason());
@@ -122,14 +133,37 @@ public class ChatService {
                 invocation.setContextSent(pageContext == null ? "" : pageContext);
                 invocation.setResponseContent("");
                 invocation.setClientIp(clientIp);
+                invocation.setStatus("RUNNING");
                 invocations.save(invocation);
+                AgentInvocation childInvocation = null;
+                if (delegation.delegated() && agent != routeAgent) {
+                        childInvocation = new AgentInvocation();
+                        childInvocation.setConversationId(c.getId());
+                        childInvocation.setCorrelationId(invocation.getCorrelationId());
+                        childInvocation.setParentInvocationId(invocation.getId());
+                        childInvocation.setSequence(2);
+                        childInvocation.setDepth(2);
+                        childInvocation.setAgentRole(agent instanceof ConfigurableAgent configurable
+                                        ? configurable.definition().getRole() : "SUB");
+                        childInvocation.setDecisionMode("DIRECT");
+                        childInvocation.setRequestedAgentId(routeAgent.id());
+                        childInvocation.setSelectedAgentId(agent.id());
+                        childInvocation.setRouteReason(delegation.reason());
+                        childInvocation.setConfidence(delegation.confidence());
+                        childInvocation.setRouteSource("domain");
+                        childInvocation.setContextSent(pageContext == null ? "" : pageContext);
+                        childInvocation.setResponseContent("");
+                        childInvocation.setClientIp(clientIp);
+                        childInvocation.setStatus("RUNNING");
+                        invocations.save(childInvocation);
+                }
                 SseEmitter out = new SseEmitter(120000L);
                 messages.save(
                                 new Message(
                                                 c.getId(),
                                                 "user",
                                                 text,
-                                                agent == null ? "router" : agent.id(),
+                                                routeAgent == null ? "router" : routeAgent.id(),
                                                 readPage ? pageContext : null));
                 try {
                         out.send(
@@ -143,12 +177,29 @@ public class ChatService {
                                                                                         "confidence", routing.confidence(),
                                                                                         "reason", routing.reason(),
                                                                                         "routeSource", routing.routeSource())));
+                        if (delegation.delegated()) {
+                                out.send(SseEmitter.event().name("delegation_decided").data(Map.of(
+                                                "parentAgentId", routeAgent.id(),
+                                                "childAgentId", agent.id(),
+                                                "mode", delegation.mode(),
+                                                "reason", delegation.reason(),
+                                                "confidence", delegation.confidence())));
+                                out.send(SseEmitter.event().name("context_forwarded").data(Map.of(
+                                                "parentAgentId", routeAgent.id(),
+                                                "childAgentId", agent.id(),
+                                                "contextIncluded", readPage && pageContext != null && !pageContext.isBlank())));
+                        }
                 } catch (IOException ignored) {
                 }
                 HookService.HookResult hookResult =
-                                hooks.validate(new HookService.Context(text, pageContext, agent.id(), permissions));
+                                hooks.validate(new HookService.Context(text, pageContext, routeAgent.id(), permissions));
+                if (hookResult.allowed() && delegation.delegated()) {
+                        hookResult = hooks.validate(new HookService.Context(text, pageContext, agent.id(), permissions));
+                }
                 if (!hookResult.allowed()) {
                         invocation.setError(hookResult.message());
+                        invocation.setStatus("REJECTED");
+                        invocation.setErrorCode("HOOK_REJECTED");
                         invocation.setDurationMs((System.nanoTime() - routeStarted) / 1_000_000L);
                         invocations.save(invocation);
                         try {
@@ -182,29 +233,60 @@ public class ChatService {
                         } catch (Exception ignored) { }
                 }
                 StringBuilder full = new StringBuilder();
+                AgentInvocation finalChildInvocation = childInvocation;
                 llm.stream(agent.systemPrompt(), h, enriched, sanitizeImages(images))
                                 .subscribe(
                                                 token -> {
                                                         full.append(token);
                                                         try {
-                                                                out.send(SseEmitter.event().name("token").data(token));
+                                                                if (!(delegation.delegated()
+                                                                                && routeAgent instanceof ConfigurableAgent parent
+                                                                                && "DOMAIN_SUMMARY".equals(parent.definition().getReturnMode()))) {
+                                                                        out.send(SseEmitter.event().name("token").data(token));
+                                                                }
                                                         } catch (IOException e) {
                                                                 out.completeWithError(e);
                                                         }
                                                 },
                                                 error -> {
                                                         invocation.setError(error.getMessage());
+                                                        invocation.setStatus("FAILED");
+                                                        invocation.setErrorCode("MODEL_ERROR");
                                                         invocation.setDurationMs((System.nanoTime() - routeStarted) / 1_000_000L);
                                                         invocations.save(invocation);
+                                                        if (finalChildInvocation != null) {
+                                                                finalChildInvocation.setError(error.getMessage());
+                                                                finalChildInvocation.setStatus("FAILED");
+                                                                finalChildInvocation.setErrorCode("MODEL_ERROR");
+                                                                finalChildInvocation.setDurationMs((System.nanoTime() - routeStarted) / 1_000_000L);
+                                                                invocations.save(finalChildInvocation);
+                                                        }
                                                         out.completeWithError(error);
                                                 },
                                                 () -> {
-                                                        invocation.setResponseContent(full.toString());
-                                                        messages.save(new Message(c.getId(), "assistant", full.toString(), agent.id(), null));
+                                                        String response = full.toString();
+                                                        if (delegation.delegated()
+                                                                        && routeAgent instanceof ConfigurableAgent parent
+                                                                        && "DOMAIN_SUMMARY".equals(parent.definition().getReturnMode())) {
+                                                                response = llm.complete(parent.systemPrompt(), h,
+                                                                                "子 Agent 返回结果（仅供参考）：\n" + response
+                                                                                                + "\n请根据领域边界整理最终答复，不要暴露内部调用链。")
+                                                                                .blockOptional(Duration.ofSeconds(30)).orElse(response);
+                                                                try { out.send(SseEmitter.event().name("token").data(response)); } catch (IOException ignored) { }
+                                                        }
+                                                        invocation.setResponseContent(response);
+                                                        messages.save(new Message(c.getId(), "assistant", response, agent.id(), null));
+                                                        if (finalChildInvocation != null) {
+                                                                finalChildInvocation.setResponseContent(full.toString());
+                                                                finalChildInvocation.setStatus("COMPLETED");
+                                                                finalChildInvocation.setDurationMs((System.nanoTime() - routeStarted) / 1_000_000L);
+                                                                invocations.save(finalChildInvocation);
+                                                        }
                                                         invocation.setDurationMs((System.nanoTime() - routeStarted) / 1_000_000L);
+                                                        invocation.setStatus("COMPLETED");
                                                         invocations.save(invocation);
                                                         try {
-                                                                ActionProposal proposal = parseProposal(c.getId(), full.toString());
+                                                                 ActionProposal proposal = parseProposal(c.getId(), response);
                                                                 if (proposal != null)
                                                                         out.send(
                                                                                         SseEmitter.event()
@@ -228,7 +310,7 @@ public class ChatService {
                                                                 out.send(
                                                                                 SseEmitter.event()
                                                                                                 .name("message_completed")
-                                                                                                .data(Map.of("content", full.toString())));
+                                                                                                .data(Map.of("content", response)));
                                                                 out.complete();
                                                         } catch (IOException e) {
                                                                 out.completeWithError(e);

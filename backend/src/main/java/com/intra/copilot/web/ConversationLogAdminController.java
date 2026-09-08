@@ -11,6 +11,7 @@ import com.intra.copilot.repo.MessageRepository;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -46,6 +47,19 @@ public class ConversationLogAdminController {
                                                                                 actions.findByConversationIdOrderByExpiresAtAsc(conversation.getId())))
                                 .toList();
         }
+
+        @GetMapping("/{id}/trace")
+        public Trace trace(@PathVariable String id) {
+                Conversation conversation = conversations.findById(id)
+                                .orElseThrow(() -> new java.util.NoSuchElementException("会话不存在"));
+                List<AgentInvocation> values = invocations.findByConversationIdOrderByCreatedAtAsc(id).stream()
+                                .sorted(java.util.Comparator.comparing(AgentInvocation::getSequence,
+                                                java.util.Comparator.nullsLast(Integer::compareTo)))
+                                .toList();
+                return new Trace(conversation.getId(), values);
+        }
+
+        public record Trace(String conversationId, List<AgentInvocation> invocations) {}
 
         public record ConversationLog(
                         String id,

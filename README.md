@@ -13,7 +13,7 @@ mvn spring-boot:run
 
 后端默认监听 `http://127.0.0.1:8080`，数据存储在 PostgreSQL。复制 `.env.example` 中的数据库、模型和 RAG 配置到环境变量后再启动。
 
-后端模型调用统一通过 Spring AI OpenAI Starter，兼容 OpenAI API 及兼容协议服务。聊天模型使用 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`，Embedding 使用 `EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY`、`EMBEDDING_MODEL`；业务 Agent 不直接拼接模型 HTTP 请求。
+后端模型调用统一通过 Spring AI OpenAI Starter，兼容 OpenAI API 及兼容协议服务。聊天模型使用 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`，Embedding 使用 `EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY`、`EMBEDDING_MODEL`；业务 Agent 不直接拼接模型 HTTP 请求。`LLM_BASE_URL`/`EMBEDDING_BASE_URL` 通常填写带 `/v1` 的服务地址（例如 `https://api.openai.com/v1`），路径由 `LLM_COMPLETIONS_PATH`（默认 `/chat/completions`）和 `EMBEDDING_PATH`（默认 `/embeddings`）补充，避免出现 `/v1/v1/...` 导致 404。
 
 如需迁移旧 SQLite 数据，先启动 PostgreSQL 并让 Flyway 完成建表，再安装 `psycopg[binary]`，执行 `python backend/scripts/migrate-sqlite-to-postgres.py --sqlite backend/intra-copilot.db`。迁移脚本不会修改源文件。
 
@@ -49,6 +49,7 @@ npm run dev
 - `GET/POST/PUT/DELETE /api/v1/admin/agents`：Agent 配置及启用状态。
 - `/api/v1/admin/knowledge-bases`：知识库、Markdown/TXT/PDF 文档上传、重建索引和删除。
 - `/api/v1/admin/tools`、`/api/v1/admin/skills`：注册 HTTP 工具和 Skill；HTTP 工具仅允许 HTTPS 公网域名。
+- `/api/v1/admin/mcp-servers`：MCP 服务注册、编辑、启停、删除和健康检查；`POST /{id}/health` 会执行 MCP `initialize` 与 `tools/list`，缓存接口数量、能力和接口详情。
 - `POST /api/v1/admin/router/test`：使用当前配置测试主 Agent 路由。
 
 知识库索引依赖 pgvector 与 Embedding API；未配置 Embedding Key 时文档会标记为 `ERROR`，不会阻塞会话功能。

@@ -26,7 +26,14 @@ public class AgentRegistry {
     }
 
     public Optional<Agent> findEnabled(String id) {
-        return definitions.findById(id).filter(AgentDefinition::isEnabled).map(ConfigurableAgent::new);
+        return definitions.findById(id)
+                .filter(definition -> definition.isEnabled() && definition.isPublished())
+                .map(ConfigurableAgent::new);
+    }
+
+    public Optional<AgentDefinition> findPublished(String id) {
+        return definitions.findById(id)
+                .filter(definition -> definition.isEnabled() && definition.isPublished());
     }
 
     @Transactional

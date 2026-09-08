@@ -32,7 +32,10 @@ public class ToolSkillAdminController {
                 this.allowHttp = allowHttp;
                 this.allowPrivateNetwork = allowPrivateNetwork;
         }
-        @GetMapping("/tools") public List<ToolDefinition> tools() { return tools.findAll(); }
+        @GetMapping("/tools") public List<ToolDefinition> tools() {
+                // MCP servers are managed in the dedicated MCP service module.
+                return tools.findAll().stream().filter(item -> !"MCP".equalsIgnoreCase(item.getType())).toList();
+        }
         @PostMapping("/tools") @ResponseStatus(HttpStatus.CREATED) public ToolDefinition createTool(@RequestBody ToolDefinition t) { validateTool(t); ensureToolNameAvailable(t.getName(), null); t.setName(t.getName().trim()); return tools.save(t); }
         @PutMapping("/tools/{id}") public ToolDefinition updateTool(@PathVariable String id, @RequestBody ToolDefinition t) { t.setId(id); validateTool(t); ensureToolNameAvailable(t.getName(), id); t.setName(t.getName().trim()); t.touch(); return tools.save(t); }
         @DeleteMapping("/tools/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteTool(@PathVariable String id) { tools.deleteById(id); }
@@ -65,11 +68,7 @@ public class ToolSkillAdminController {
                         validateEndpoint(t.getEndpoint(), "HTTP 工具必须配置 endpoint");
                 }
                 if ("MCP".equalsIgnoreCase(t.getType())) {
-                        if (t.getMcpServerUrl() == null || t.getMcpServerUrl().isBlank()) throw new IllegalArgumentException("MCP 工具必须配置服务器地址");
-                        validateEndpoint(t.getMcpServerUrl(), "MCP 工具必须配置有效服务器地址");
-                        if (t.getMcpTransport() == null || !("SSE".equalsIgnoreCase(t.getMcpTransport()) || "STREAMABLE_HTTP".equalsIgnoreCase(t.getMcpTransport()))) {
-                                throw new IllegalArgumentException("MCP 传输方式仅支持 SSE 或 Streamable HTTP");
-                        }
+                        throw new IllegalArgumentException("MCP 已独立为 MCP 服务，请在 MCP 服务菜单中配置");
                 }
         }
         private void validateSkill(SkillDefinition s) {

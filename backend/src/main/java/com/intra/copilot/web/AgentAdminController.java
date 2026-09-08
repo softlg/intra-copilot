@@ -4,6 +4,7 @@ import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.agent.Agent;
 import com.intra.copilot.agent.ConfigurableAgent;
 import com.intra.copilot.service.AgentRegistry;
+import com.intra.copilot.service.AgentConfigurationService;
 import com.intra.copilot.service.LlmClient;
 import java.time.Duration;
 import java.util.Map;
@@ -17,10 +18,12 @@ import org.springframework.web.bind.annotation.*;
 public class AgentAdminController {
         private final AgentRegistry registry;
         private final LlmClient llm;
+        private final AgentConfigurationService configurations;
 
-        public AgentAdminController(AgentRegistry registry, LlmClient llm) {
+        public AgentAdminController(AgentRegistry registry, LlmClient llm, AgentConfigurationService configurations) {
                 this.registry = registry;
                 this.llm = llm;
+                this.configurations = configurations;
         }
 
 
@@ -34,9 +37,10 @@ public class AgentAdminController {
         public AgentDefinition create(@RequestBody AgentDefinition definition) {
                 if (definition == null) throw new IllegalArgumentException("Agent 配置不能为空");
                 definition.setId(UUID.randomUUID().toString());
+                if (definition.getRole() == null || definition.getRole().isBlank()) definition.setRole("DOMAIN");
                 validate(definition);
                 definition.setSystemAgent(false);
-                return registry.save(definition);
+                return configurations.saveDraft(definition);
         }
 
         @PutMapping("/{id}")
@@ -48,7 +52,7 @@ public class AgentAdminController {
                                 .orElseThrow(() -> new java.util.NoSuchElementException("Agent 不存在"));
                 definition.setSystemAgent(existing.isSystemAgent());
                 validate(definition);
-                return registry.save(definition);
+                return configurations.saveDraft(definition);
         }
 
         public record EnabledRequest(boolean enabled) {}
@@ -67,6 +71,37 @@ public class AgentAdminController {
         @ResponseStatus(HttpStatus.NO_CONTENT)
         public void delete(@PathVariable String id) {
                 registry.delete(id);
+        }
+
+        public record PublishRequest(String releaseNote) {}
+        public record RollbackRequest(long version) {}
+
+        @GetMapping("/{id}/versions")
+        public List<com.intra.copilot.model.AgentConfigVersion> versions(@PathVariable String id) {
+                return configurations.versions(id);
+        }
+
+        @PostMapping("/{id}/publish")
+        public com.intra.copilot.model.AgentConfigVersion publish(
+                        @PathVariable String id, @RequestBody(required = false) PublishRequest request) {
+                return configurations.publish(id, request == null ? null : request.releaseNote());
+        }
+
+        @PostMapping("/{id}/rollback")
+        public AgentDefinition rollback(@PathVariable String id, @RequestBody RollbackRequest request) {
+                return configurations.rollback(id, request.version());
+        }
+
+        @GetMapping("/{id}/children")
+        public List<com.intra.copilot.model.AgentChildBinding> children(@PathVariable String id) {
+                return configurations.children(id);
+        }
+
+        @PutMapping("/{id}/children")
+        public List<com.intra.copilot.model.AgentChildBinding> children(
+                        @PathVariable String id,
+                        @RequestBody List<com.intra.copilot.model.AgentChildBinding> bindings) {
+                return configurations.replaceChildren(id, bindings);
         }
 
         public record AgentTestRequest(String message, String pageContext) {}

@@ -31,6 +31,7 @@ public interface AgentDefinitionRepository extends BaseMapper<AgentDefinition> {
         return selectList(
                 Wrappers.<AgentDefinition>query()
                         .eq("enabled", true)
+                        .eq("published", true)
                         .orderByAsc("priority")
                         .orderByAsc("display_name"));
     }

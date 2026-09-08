@@ -3,6 +3,7 @@ package com.intra.copilot.web;
 import com.intra.copilot.agent.*;
 import com.intra.copilot.model.*;
 import com.intra.copilot.service.ChatService;
+import com.intra.copilot.service.AgentRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.*;
 import org.springframework.http.HttpStatus;
@@ -16,24 +17,29 @@ public class ApiController {
     private final ChatService chat;
     private final GeneralAgent general;
     private final RouteCopilotAgent routeCopilot;
+    private final AgentRegistry registry;
 
-    public ApiController(ChatService c, GeneralAgent g, RouteCopilotAgent routeCopilot) {
+    public ApiController(ChatService c, GeneralAgent g, RouteCopilotAgent routeCopilot, AgentRegistry registry) {
         chat = c;
         general = g;
         this.routeCopilot = routeCopilot;
+        this.registry = registry;
     }
 
     @GetMapping("/agents")
     public List<Map<String, Object>> agents() {
-        return List.of(
-                Map.of(
-                        "id", routeCopilot.id(),
-                        "displayName", routeCopilot.displayName(),
-                        "description", routeCopilot.description()),
-                Map.of(
-                        "id", general.id(),
-                        "displayName", general.displayName(),
-                        "description", general.description()));
+        return registry.enabledDefinitions().stream()
+                .filter(definition -> List.of("GENERAL", "DOMAIN").contains(definition.getRole()))
+                .map(definition -> {
+                    Map<String, Object> value = new LinkedHashMap<>();
+                    value.put("id", definition.getId());
+                    value.put("displayName", definition.getDisplayName());
+                    value.put("description", definition.getDescription());
+                    value.put("role", definition.getRole());
+                    value.put("supportsBrowserActions", definition.isSupportsBrowserActions());
+                    value.put("publishedVersion", definition.getPublishedVersion());
+                    return value;
+                }).toList();
     }
 
     @PostMapping("/sessions")

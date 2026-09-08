@@ -10,7 +10,12 @@ public class AgentDefinition {
     private String displayName;
     private String description;
     private String systemPrompt;
+    private String role = "DOMAIN";
+    private String parentAgentId;
+    private String handlingMode = "AUTO";
+    private String returnMode = "CHILD_DIRECT";
     private boolean enabled = true;
+    private boolean published = true;
     /** True for agents shipped by the application and protected from deletion. */
     private boolean systemAgent;
 
@@ -23,6 +28,7 @@ public class AgentDefinition {
     private String toolIds = "[]";
     private String skillIds = "[]";
     private long version = 1;
+    private long publishedVersion = 0;
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
 
@@ -75,12 +81,52 @@ public class AgentDefinition {
         this.systemPrompt = systemPrompt;
     }
 
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
+    public String getParentAgentId() {
+        return parentAgentId;
+    }
+
+    public void setParentAgentId(String parentAgentId) {
+        this.parentAgentId = parentAgentId;
+    }
+
+    public String getHandlingMode() {
+        return handlingMode;
+    }
+
+    public void setHandlingMode(String handlingMode) {
+        this.handlingMode = handlingMode;
+    }
+
+    public String getReturnMode() {
+        return returnMode;
+    }
+
+    public void setReturnMode(String returnMode) {
+        this.returnMode = returnMode;
+    }
+
     public boolean isEnabled() {
         return enabled;
     }
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public boolean isPublished() {
+        return published;
+    }
+
+    public void setPublished(boolean published) {
+        this.published = published;
     }
 
     public boolean isSystemAgent() {
@@ -157,6 +203,18 @@ public class AgentDefinition {
 
     public long getVersion() {
         return version;
+    }
+
+    public void setVersion(long version) {
+        this.version = version;
+    }
+
+    public long getPublishedVersion() {
+        return publishedVersion;
+    }
+
+    public void setPublishedVersion(long publishedVersion) {
+        this.publishedVersion = publishedVersion;
     }
 
     public Instant getCreatedAt() {

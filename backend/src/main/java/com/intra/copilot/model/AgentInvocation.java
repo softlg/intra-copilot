@@ -9,6 +9,12 @@ import java.util.UUID;
 public class AgentInvocation {
     @TableId private String id = UUID.randomUUID().toString();
     private String conversationId;
+    private String correlationId;
+    private String parentInvocationId;
+    private Integer sequence;
+    private Integer depth;
+    private String agentRole;
+    private String decisionMode;
     private String requestedAgentId;
     private String selectedAgentId;
     private String routeReason;
@@ -20,6 +26,8 @@ public class AgentInvocation {
     private String routeSource;
     private Long durationMs;
     private String error;
+    private String status = "RUNNING";
+    private String errorCode;
     private Integer inputTokens;
     private Integer outputTokens;
     private Instant createdAt = Instant.now();
@@ -31,6 +39,19 @@ public class AgentInvocation {
     public String getConversationId() {
         return conversationId;
     }
+
+    public String getCorrelationId() { return correlationId; }
+    public void setCorrelationId(String value) { correlationId = value; }
+    public String getParentInvocationId() { return parentInvocationId; }
+    public void setParentInvocationId(String value) { parentInvocationId = value; }
+    public Integer getSequence() { return sequence; }
+    public void setSequence(Integer value) { sequence = value; }
+    public Integer getDepth() { return depth; }
+    public void setDepth(Integer value) { depth = value; }
+    public String getAgentRole() { return agentRole; }
+    public void setAgentRole(String value) { agentRole = value; }
+    public String getDecisionMode() { return decisionMode; }
+    public void setDecisionMode(String value) { decisionMode = value; }
 
     public void setConversationId(String value) {
         conversationId = value;
@@ -119,6 +140,11 @@ public class AgentInvocation {
     public String getError() {
         return error;
     }
+
+    public String getStatus() { return status; }
+    public void setStatus(String value) { status = value; }
+    public String getErrorCode() { return errorCode; }
+    public void setErrorCode(String value) { errorCode = value; }
 
     public void setError(String value) {
         error = value;
