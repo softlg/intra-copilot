@@ -9,6 +9,11 @@ export interface ToastItem {
   message: string;
   /** milliseconds, default 4000 */
   duration?: number;
+  /**
+   * Optional inline action button (e.g. "撤销" / "查看"). Clicking
+   * the action dismisses the toast and runs the handler.
+   */
+  action?: { label: string; onAction: () => void };
 }
 
 const DEFAULTS: Record<ToastKind, number> = {
@@ -33,13 +38,17 @@ class ToastBus {
     return () => this.listeners.delete(listener);
   };
 
-  push(kind: ToastKind, message: string, duration?: number): string {
+  push(kind: ToastKind, message: string, options?: {
+    duration?: number;
+    action?: ToastItem["action"];
+  }): string {
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const item: ToastItem = {
       id,
       kind,
       message,
-      duration: duration ?? DEFAULTS[kind],
+      duration: options?.duration ?? DEFAULTS[kind],
+      action: options?.action,
     };
     this.items = [...this.items, item].slice(-MAX_VISIBLE);
     this.emit();
@@ -60,14 +69,22 @@ const bus = new ToastBus();
 
 /** Imperative API used by event handlers and async flows. */
 export const toast = {
-  success: (message: string, duration?: number) =>
-    bus.push("success", message, duration),
-  error: (message: string, duration?: number) =>
-    bus.push("error", message, duration),
-  warning: (message: string, duration?: number) =>
-    bus.push("warning", message, duration),
-  info: (message: string, duration?: number) =>
-    bus.push("info", message, duration),
+  success: (message: string, options?: {
+    duration?: number;
+    action?: ToastItem["action"];
+  }) => bus.push("success", message, options),
+  error: (message: string, options?: {
+    duration?: number;
+    action?: ToastItem["action"];
+  }) => bus.push("error", message, options),
+  warning: (message: string, options?: {
+    duration?: number;
+    action?: ToastItem["action"];
+  }) => bus.push("warning", message, options),
+  info: (message: string, options?: {
+    duration?: number;
+    action?: ToastItem["action"];
+  }) => bus.push("info", message, options),
   dismiss: (id: string) => bus.dismiss(id),
 };
 
@@ -108,6 +125,18 @@ function ToastView({
         {item.kind === "info" && "i"}
       </span>
       <span className="toast-message">{item.message}</span>
+      {item.action && (
+        <button
+          type="button"
+          className="toast-action"
+          onClick={() => {
+            item.action?.onAction();
+            onDismiss();
+          }}
+        >
+          {item.action.label}
+        </button>
+      )}
       <button
         type="button"
         className="toast-close"

@@ -78,6 +78,10 @@ const translations = {
     copy: "复制",
     confirmDeleteTitle: "确认删除",
     cancelLabel: "取消",
+    undo: "撤销",
+    undoWindow: "5 秒内可撤销",
+    restored: "已恢复",
+    restoreFailed: "恢复失败，请刷新页面重试",
     unsavedChangesTitle: "有未保存的修改",
     unsavedChangesDesc:
       "你对该 Agent 的修改尚未保存，确定要离开吗？离开后修改将丢失。",
@@ -480,6 +484,10 @@ const translations = {
     copy: "Copy",
     confirmDeleteTitle: "Confirm delete",
     cancelLabel: "Cancel",
+    undo: "Undo",
+    undoWindow: "You can undo within 5 seconds",
+    restored: "Restored",
+    restoreFailed: "Restore failed. Please refresh and try again.",
     unsavedChangesTitle: "Unsaved changes",
     unsavedChangesDesc:
       "You have unsaved changes on this agent. Leave anyway? Changes will be lost.",
@@ -1794,6 +1802,7 @@ function App() {
       toast.warning(t.deleteDisabledEnabled);
       return;
     }
+    const snapshot = { ...server };
     askConfirm({
       title: t.confirmDeleteTitle,
       description: t.mcpDeleteConfirm(server.name),
@@ -1801,20 +1810,44 @@ function App() {
       cancelLabel: t.cancelLabel,
       tone: "danger",
       onConfirm: async () => {
-        setMcpActionId(server.id);
+        setMcpServers((items) =>
+          items.filter((item) => item.id !== server.id),
+        );
+        if (mcpDetails?.id === server.id) setMcpDetails(undefined);
         try {
           await request(`/admin/mcp-servers/${server.id}`, {
             method: "DELETE",
           });
-          setMcpServers((items) =>
-            items.filter((item) => item.id !== server.id),
-          );
-          if (mcpDetails?.id === server.id) setMcpDetails(undefined);
-          toast.success(t.mcpDeleted(server.name));
+          toast.success(t.mcpDeleted(server.name), {
+            duration: 5000,
+            action: {
+              label: t.undo,
+              onAction: async () => {
+                try {
+                  const restored = await request<McpServer>(
+                    "/admin/mcp-servers",
+                    { method: "POST", body: JSON.stringify(snapshot) },
+                  );
+                  setMcpServers((items) => [restored, ...items]);
+                  toast.success(t.restored);
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : t.restoreFailed,
+                  );
+                  loadMcpServers();
+                }
+              },
+            },
+          });
         } catch (error) {
+          // 删除失败：把卡片加回来
+          setMcpServers((items) => [snapshot, ...items]);
           toast.error(
             error instanceof Error ? error.message : t.resourceDeleteFailed,
           );
+          throw error;
         } finally {
           setMcpActionId(undefined);
         }
@@ -2096,6 +2129,12 @@ function App() {
       toast.warning(t.deleteDisabledEnabled);
       return;
     }
+    const snapshot = { ...resource };
+    const path = `/admin/${kind === "tool" ? "tools" : "skills"}`;
+    const setter = kind === "tool" ? setTools : setSkills;
+    const reload = kind === "tool" ? loadTools : loadSkills;
+    const deletedLabel =
+      kind === "tool" ? t.toolDeleted : t.skillDeleted;
     askConfirm({
       title: t.confirmDeleteTitle,
       description: t.deleteResourceConfirm(resource.name),
@@ -2103,25 +2142,39 @@ function App() {
       cancelLabel: t.cancelLabel,
       tone: "danger",
       onConfirm: async () => {
-        setResourceActionId(resource.id);
+        setter((items) => items.filter((item) => item.id !== resource.id));
         try {
-          await request(
-            `/admin/${kind === "tool" ? "tools" : "skills"}/${resource.id}`,
-            {
-              method: "DELETE",
+          await request(`${path}/${resource.id}`, { method: "DELETE" });
+          toast.success(deletedLabel(resource.name), {
+            duration: 5000,
+            action: {
+              label: t.undo,
+              onAction: async () => {
+                try {
+                  const restored = await request<ToolDefinition | SkillDefinition>(
+                    path,
+                    { method: "POST", body: JSON.stringify(snapshot) },
+                  );
+                  setter((items) => [restored, ...items]);
+                  toast.success(t.restored);
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : t.restoreFailed,
+                  );
+                  reload();
+                }
+              },
             },
-          );
-          if (kind === "tool") loadTools();
-          else loadSkills();
-          toast.success(
-            kind === "tool"
-              ? t.toolDeleted(resource.name)
-              : t.skillDeleted(resource.name),
-          );
+          });
         } catch (error) {
+          // 删除失败：把卡片加回来
+          setter((items) => [snapshot, ...items]);
           toast.error(
             error instanceof Error ? error.message : t.resourceDeleteFailed,
           );
+          throw error;
         } finally {
           setResourceActionId(undefined);
         }
@@ -2220,6 +2273,7 @@ function App() {
       toast.warning(t.deleteDisabledEnabled);
       return;
     }
+    const snapshot = { ...hook };
     askConfirm({
       title: t.confirmDeleteTitle,
       description: t.hookDeleteConfirm(hook.name),
@@ -2227,15 +2281,38 @@ function App() {
       cancelLabel: t.cancelLabel,
       tone: "danger",
       onConfirm: async () => {
-        setHookActionId(hook.id);
+        setHooks((current) => current.filter((item) => item.id !== hook.id));
         try {
           await request(`/admin/hooks/${hook.id}`, { method: "DELETE" });
-          setHooks((current) => current.filter((item) => item.id !== hook.id));
-          toast.success(t.hookDeleted(hook.name));
+          toast.success(t.hookDeleted(hook.name), {
+            duration: 5000,
+            action: {
+              label: t.undo,
+              onAction: async () => {
+                try {
+                  const restored = await request<HookDefinition>(
+                    "/admin/hooks",
+                    { method: "POST", body: JSON.stringify(snapshot) },
+                  );
+                  setHooks((current) => [restored, ...current]);
+                  toast.success(t.restored);
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : t.restoreFailed,
+                  );
+                  loadHooks();
+                }
+              },
+            },
+          });
         } catch (error) {
+          setHooks((current) => [snapshot, ...current]);
           toast.error(
             error instanceof Error ? error.message : t.hookDeleteFailed,
           );
+          throw error;
         } finally {
           setHookActionId(undefined);
         }

@@ -61,6 +61,28 @@
   color: var(--text);
 }
 
+.toast-action {
+  flex: 0 0 auto;
+  background: transparent;
+  color: var(--accent, #93b4ec);
+  font-weight: 600;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  cursor: pointer;
+  margin-top: -2px;
+}
+
+.toast-action:hover {
+  background: var(--surface-hover);
+}
+
+.toast-action:focus-visible {
+  outline: 2px solid var(--accent, #93b4ec);
+  outline-offset: 1px;
+}
+
 .toast-success {
   border-color: rgba(100, 212, 155, 0.4);
   background: rgba(20, 59, 43, 0.95);
