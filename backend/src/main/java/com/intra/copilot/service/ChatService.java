@@ -51,23 +51,25 @@ public class ChatService {
                 this.ragTopK = Math.max(1, Math.min(20, ragTopK));
         }
 
-        public Conversation create() {
+        public Conversation create(String source, String userId) {
                 Conversation conversation = new Conversation();
-                conversation.setSortOrder(nextSortOrder());
+                conversation.setSource(source);
+                conversation.setUserId(userId);
+                conversation.setSortOrder(nextSortOrder(source, userId));
                 return conversations.save(conversation);
         }
 
-        public List<Conversation> list() {
-                return conversations.findAllByOrderByUpdatedAtDesc();
+        public List<Conversation> list(String source, String userId) {
+                return conversations.findBySourceAndUserId(source, userId);
         }
 
-        // 新会话放在列表最前（sort_order 最小）。取当前最小 sort_order 减步长，
+        // 新会话放在列表最前（sort_order 最小）。取当前用户自己最小 sort_order 减步长，
         // 避免每次插入都重排整张表。
-        private long nextSortOrder() {
-                List<Conversation> all = conversations.findAllByOrderByUpdatedAtDesc();
+        private long nextSortOrder(String source, String userId) {
+                List<Conversation> mine = conversations.findBySourceAndUserId(source, userId);
                 long min = Long.MAX_VALUE;
                 boolean hasSort = false;
-                for (Conversation c : all) {
+                for (Conversation c : mine) {
                         Long so = c.getSortOrder();
                         if (so != null) {
                                 min = Math.min(min, so);
@@ -78,13 +80,13 @@ public class ChatService {
                 return min - SORT_STEP;
         }
 
-        public List<Message> history(String id) {
-                return messages.findByConversationIdOrderByCreatedAtAsc(id);
+        public List<Message> history(String source, String userId, String id) {
+                Conversation conversation = requireOwned(source, userId, id);
+                return messages.findByConversationIdOrderByCreatedAtAsc(conversation.getId());
         }
 
-        public Conversation rename(String id, String title) {
-                Conversation conversation =
-                                conversations.findById(id).orElseThrow(() -> new NoSuchElementException("会话不存在"));
+        public Conversation rename(String source, String userId, String id, String title) {
+                Conversation conversation = requireOwned(source, userId, id);
                 String normalized = title == null ? "" : title.trim();
                 if (normalized.isEmpty() || normalized.length() > 80) {
                         throw new IllegalArgumentException("会话名称不能为空且不能超过 80 个字符");
@@ -95,26 +97,34 @@ public class ChatService {
         }
 
         @Transactional
-        public void delete(String id) {
-                if (!conversations.existsById(id)) {
+        public void delete(String source, String userId, String id) {
+                Conversation conversation = requireOwned(source, userId, id);
+                messages.deleteByConversationId(conversation.getId());
+                actions.deleteByConversationId(conversation.getId());
+                conversations.deleteById(conversation.getId());
+        }
+
+        private Conversation requireOwned(String source, String userId, String id) {
+                Conversation c = conversations.findById(id)
+                                .orElseThrow(() -> new NoSuchElementException("会话不存在"));
+                if (!c.getSource().equals(source) || !c.getUserId().equals(userId)) {
+                        // 不暴露存在性，统一按不存在处理
                         throw new NoSuchElementException("会话不存在");
                 }
-                messages.deleteByConversationId(id);
-                actions.deleteByConversationId(id);
-                conversations.deleteById(id);
+                return c;
         }
 
         // 按前端给定的 id 顺序重排会话。采用「取相邻 sort_order 中间值」策略，
         // 当相邻间距耗尽（无法再取中间值）时，退化为对当前顺序全量重写 sort_order。
         @Transactional
-        public void reorder(List<String> orderedIds) {
+        public void reorder(String source, String userId, List<String> orderedIds) {
                 if (orderedIds == null || orderedIds.isEmpty()) return;
 
-                List<Conversation> current = conversations.findAllByOrderByUpdatedAtDesc();
+                List<Conversation> current = conversations.findBySourceAndUserId(source, userId);
                 Map<String, Conversation> byId = new HashMap<>();
                 for (Conversation c : current) byId.put(c.getId(), c);
 
-                // 只接受真实存在的会话 id，保持给定顺序。
+                // 只接受真实存在且属于当前用户的会话 id，保持给定顺序。
                 List<Conversation> ordered = new ArrayList<>();
                 for (String id : orderedIds) {
                         Conversation c = byId.get(id);
@@ -198,6 +208,8 @@ public class ChatService {
         }
 
         public SseEmitter chat(
+                        String callerSource,
+                        String callerUserId,
                         String sessionId,
                         String text,
                         String requestedAgent,
@@ -205,12 +217,17 @@ public class ChatService {
                         Map<String, Boolean> permissions,
                         List<String> images,
                         String clientIp) {
-                Conversation c = conversations.findById(sessionId).orElseGet(this::create);
+                Conversation c;
+                if (sessionId == null || sessionId.isBlank()) {
+                        c = create(callerSource, callerUserId);
+                } else {
+                        c = requireOwned(callerSource, callerUserId, sessionId);
+                }
                 boolean readPage =
                                 Boolean.TRUE.equals(permissions == null ? null : permissions.get("readPage"));
                 boolean autoRoute = requestedAgent == null || requestedAgent.isBlank();
                 List<Map<String, String>> h =
-                                history(c.getId())
+                                history(callerSource, callerUserId, c.getId())
                                                 .stream()
                                                 .limit(20)
                                                 .map(x -> Map.of("role", x.getRole(), "content", x.getContent()))

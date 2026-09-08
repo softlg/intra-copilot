@@ -4,6 +4,7 @@ import com.intra.copilot.agent.*;
 import com.intra.copilot.model.*;
 import com.intra.copilot.service.ChatService;
 import com.intra.copilot.service.AgentRegistry;
+import com.intra.copilot.service.auth.RequestContext;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.*;
 import org.springframework.http.HttpStatus;
@@ -44,24 +45,28 @@ public class ApiController {
 
     @PostMapping("/sessions")
     public Conversation create() {
-        return chat.create();
+        var identity = RequestContext.current();
+        return chat.create(identity.source(), identity.userId());
     }
 
     @GetMapping("/sessions")
     public List<Conversation> list() {
-        return chat.list();
+        var identity = RequestContext.current();
+        return chat.list(identity.source(), identity.userId());
     }
 
     @GetMapping("/sessions/{id}/messages")
     public List<Message> history(@PathVariable String id) {
-        return chat.history(id);
+        var identity = RequestContext.current();
+        return chat.history(identity.source(), identity.userId(), id);
     }
 
     public record RenameSessionRequest(String title) {}
 
     @PatchMapping("/sessions/{id}")
     public Conversation rename(@PathVariable String id, @RequestBody RenameSessionRequest req) {
-        return chat.rename(id, req == null ? null : req.title());
+        var identity = RequestContext.current();
+        return chat.rename(identity.source(), identity.userId(), id, req == null ? null : req.title());
     }
 
     public record ReorderSessionsRequest(List<String> orderedIds) {}
@@ -69,13 +74,15 @@ public class ApiController {
     @PostMapping("/sessions/reorder")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void reorder(@RequestBody ReorderSessionsRequest req) {
-        chat.reorder(req == null ? null : req.orderedIds());
+        var identity = RequestContext.current();
+        chat.reorder(identity.source(), identity.userId(), req == null ? null : req.orderedIds());
     }
 
     @DeleteMapping("/sessions/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable String id) {
-        chat.delete(id);
+        var identity = RequestContext.current();
+        chat.delete(identity.source(), identity.userId(), id);
     }
 
     public record ChatRequest(
@@ -88,7 +95,10 @@ public class ApiController {
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestBody ChatRequest req, HttpServletRequest request) {
+        var identity = RequestContext.current();
         return chat.chat(
+                identity.source(),
+                identity.userId(),
                 req.sessionId(),
                 req.message(),
                 req.agentId(),
