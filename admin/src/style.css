@@ -2731,3 +2731,13 @@ pre {
   font-size: 12px;
   margin: 0 0 12px;
 }
+
+.config-tab-dirty {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #e9b46e;
+  vertical-align: middle;
+}

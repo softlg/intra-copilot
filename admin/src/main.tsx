@@ -53,6 +53,13 @@ const translations = {
     copy: "复制",
     confirmDeleteTitle: "确认删除",
     cancelLabel: "取消",
+    unsavedChangesTitle: "有未保存的修改",
+    unsavedChangesDesc:
+      "你对该 Agent 的修改尚未保存，确定要离开吗？离开后修改将丢失。",
+    unsavedTabChangeDesc:
+      "当前 Tab 有未保存的修改，确定要切换吗？切换后修改将丢失。",
+    discardChanges: "放弃修改",
+    stayHere: "留在当前页",
     deleteAgentEnabled: "该 Agent 处于启用状态，请先停用后再删除",
     agentDeleted: (name: string) => `Agent “${name}”已删除`,
     toolDeleted: (name: string) => `工具 “${name}”已删除`,
@@ -418,6 +425,13 @@ const translations = {
     copy: "Copy",
     confirmDeleteTitle: "Confirm delete",
     cancelLabel: "Cancel",
+    unsavedChangesTitle: "Unsaved changes",
+    unsavedChangesDesc:
+      "You have unsaved changes on this agent. Leave anyway? Changes will be lost.",
+    unsavedTabChangeDesc:
+      "This tab has unsaved changes. Switch anyway? Changes will be lost.",
+    discardChanges: "Discard",
+    stayHere: "Stay",
     deleteAgentEnabled: "This agent is enabled. Stop it before deleting.",
     agentDeleted: (name: string) => `Agent “${name}” deleted`,
     toolDeleted: (name: string) => `Tool “${name}” deleted`,
@@ -1480,6 +1494,48 @@ function App() {
 
   // 记录已按需加载过的资源，避免进入页面时重复请求
   const loadedResources = useRef<Set<string>>(new Set());
+  const [agentConfigDirty, setAgentConfigDirty] = useState(false);
+  const agentConfigSeeded = useRef(false);
+
+  // Reset the dirty tracker whenever a new agent config is opened.
+  useEffect(() => {
+    if (agentConfigId) {
+      agentConfigSeeded.current = false;
+      setAgentConfigDirty(false);
+    }
+  }, [agentConfigId]);
+
+  // Mark the form dirty whenever any field changes after the initial seed
+  // completes. We rely on `openAgentSettings` calling each `setX` first;
+  // these renders land before the seed completes, so dirty stays false.
+  useEffect(() => {
+    if (!agentConfigId) return;
+    if (!agentConfigSeeded.current) {
+      agentConfigSeeded.current = true;
+      return;
+    }
+    setAgentConfigDirty(true);
+  }, [
+    agentId,
+    agentDisplayName,
+    agentDescription,
+    agentSystemPrompt,
+    agentBrowserActions,
+    agentEnabled,
+    agentPriority,
+    agentRoutingRules,
+    agentRole,
+    agentParentId,
+    agentHandlingMode,
+    agentReturnMode,
+    agentModel,
+    agentTemperature,
+    agentKnowledgeBaseIds,
+    agentToolIds,
+    agentSkillIds,
+    agentChildIds,
+    agentChildRules,
+  ]);
   const ensureResourceLoaded = (key: string, loader: () => void) => {
     if (loadedResources.current.has(key)) return;
     loadedResources.current.add(key);
@@ -2209,6 +2265,7 @@ function App() {
   };
 
   const openAgentSettings = (agent: Agent) => {
+    setAgentConfigDirty(false);
     setAgentReturnTab(
       ["agents-general", "agents-domain", "agents-sub"].includes(tab)
         ? tab
@@ -2266,8 +2323,46 @@ function App() {
   };
 
   const closeAgentConfig = () => {
-    setAgentConfigId(undefined);
-    setTab(agentReturnTab);
+    const performClose = () => {
+      setAgentConfigDirty(false);
+      setAgentConfigId(undefined);
+      setTab(agentReturnTab);
+    };
+    if (agentConfigDirty && agentConfigId) {
+      askConfirm({
+        title: t.unsavedChangesTitle,
+        description: t.unsavedChangesDesc,
+        confirmLabel: t.discardChanges,
+        cancelLabel: t.stayHere,
+        tone: "primary",
+        onConfirm: () => {
+          performClose();
+        },
+      });
+      return;
+    }
+    performClose();
+  };
+
+  const requestAgentConfigSection = (
+    key: typeof agentConfigSection,
+  ) => {
+    if (agentConfigSection === key) return;
+    if (!agentConfigDirty) {
+      setAgentConfigSection(key);
+      return;
+    }
+    askConfirm({
+      title: t.unsavedChangesTitle,
+      description: t.unsavedTabChangeDesc,
+      confirmLabel: t.discardChanges,
+      cancelLabel: t.stayHere,
+      tone: "primary",
+      onConfirm: () => {
+        setAgentConfigDirty(false);
+        setAgentConfigSection(key);
+      },
+    });
   };
 
   const closeAgentDialog = () => {
@@ -2386,6 +2481,7 @@ function App() {
           ),
         });
       }
+      setAgentConfigDirty(false);
       setAgentDialogOpen(false);
       loadAgents();
     } catch (error) {
@@ -3101,9 +3197,12 @@ function App() {
                 <button
                   key={key}
                   className={agentConfigSection === key ? "active" : undefined}
-                  onClick={() => setAgentConfigSection(key)}
+                  onClick={() => requestAgentConfigSection(key)}
                 >
                   {label}
+                  {agentConfigSection !== key && agentConfigDirty && (
+                    <span className="config-tab-dirty" aria-label={t.unsavedChangesTitle} />
+                  )}
                 </button>
               ))}
             </div>
