@@ -1,6 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import "./components/Toast.css";
+import "./components/ConfirmDialog.css";
+import "./components/Tooltip.css";
+import "./components/TruncatedId.css";
+import "./components/FieldHint.css";
+import "./components/Dropdown.css";
+import "./components/StatusBadge.css";
+import "./components/EmptyState.css";
+import "./components/Sparkline.css";
+import "./components/Icon.css";
+import "./components/KeyboardShortcutsHelp.css";
 import Pagination from "./components/Pagination";
 import { ToastContainer, toast } from "./components/Toast";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -12,6 +23,12 @@ import { StatusBadge, type StatusKind } from "./components/StatusBadge";
 import { EmptyState } from "./components/EmptyState";
 import { Sparkline, type SparklinePoint } from "./components/Sparkline";
 import { Icon, type IconName } from "./components/Icon";
+import {
+  useKeyboardShortcuts,
+  shortcutHint,
+  isMac,
+} from "./components/useKeyboardShortcuts";
+import { KeyboardShortcutsHelp } from "./components/KeyboardShortcutsHelp";
 
 const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8080/api/v1";
 type Language = "zh" | "en";
@@ -216,6 +233,8 @@ const translations = {
     reindexFailed: "重新解析文档失败，请稍后重试",
     deleteFailed: "删除文档失败，请稍后重试",
     settings: "设置",
+    shortcuts: "键盘快捷键",
+    shortcutsHint: "键盘快捷键（按 ? 打开帮助）",
     language: "语言",
     chinese: "中文",
     english: "English",
@@ -630,6 +649,8 @@ const translations = {
     reindexFailed: "Failed to reprocess document. Please try again.",
     deleteFailed: "Failed to delete document. Please try again.",
     settings: "Settings",
+    shortcuts: "Keyboard shortcuts",
+    shortcutsHint: "Keyboard shortcuts (press ? for help)",
     language: "Language",
     chinese: "中文",
     english: "English",
@@ -1177,6 +1198,7 @@ function App() {
     () => localStorage.getItem("admin-sidebar-collapsed") === "true",
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [conversationLogs, setConversationLogs] = useState<
     ConversationLogSummary[]
@@ -1417,6 +1439,17 @@ function App() {
   useEffect(() => {
     localStorage.setItem("admin-sidebar-collapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  useKeyboardShortcuts({
+    bindings: [
+      {
+        key: "/",
+        modifiers: ["shift"],
+        description: "打开键盘快捷键帮助",
+        handler: () => setShortcutsOpen(true),
+      },
+    ],
+  });
 
   useEffect(() => {
     localStorage.setItem("admin-agent-menu-open", String(agentMenuOpen));
@@ -2142,11 +2175,31 @@ function App() {
       !agentTestDialogOpen &&
       !resourceDialog &&
       !hookDialogOpen &&
-      !mcpDialogOpen
+      !mcpDialogOpen &&
+      !settingsOpen &&
+      !shortcutsOpen &&
+      !mcpErrorDetail &&
+      !confirmRequest
     )
       return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (shortcutsOpen) {
+        setShortcutsOpen(false);
+        return;
+      }
+      if (settingsOpen) {
+        setSettingsOpen(false);
+        return;
+      }
+      if (confirmRequest) {
+        setConfirmRequest(undefined);
+        return;
+      }
+      if (mcpErrorDetail) {
+        setMcpErrorDetail(undefined);
+        return;
+      }
       if (baseDialogOpen && !baseSubmitting) {
         setBaseDialogOpen(false);
       }
@@ -2181,6 +2234,10 @@ function App() {
     hookSubmitting,
     mcpDialogOpen,
     mcpSubmitting,
+    confirmRequest,
+    mcpErrorDetail,
+    settingsOpen,
+    shortcutsOpen,
   ]);
 
   const activeBase = bases.find((base) => base.id === activeBaseId);
@@ -3139,6 +3196,16 @@ function App() {
           <div className="header-actions">
             <Tooltip placement="bottom" content={t.localModeHint}>
               <span className="badge badge-clickable">{t.localMode}</span>
+            </Tooltip>
+            <Tooltip placement="bottom" content={t.shortcutsHint}>
+              <button
+                className="settings-button"
+                onClick={() => setShortcutsOpen(true)}
+                aria-label={t.shortcuts}
+                title={t.shortcuts}
+              >
+                ?
+              </button>
             </Tooltip>
             <button
               className="settings-button"
@@ -6845,6 +6912,22 @@ function App() {
           loading={confirmRequest.loading}
           onConfirm={runConfirm}
           onCancel={closeConfirm}
+        />
+      )}
+
+      {shortcutsOpen && (
+        <KeyboardShortcutsHelp
+          items={[
+            {
+              keys: ["shift", "/"],
+              description: "打开或关闭此弹窗",
+            },
+            {
+              keys: ["Escape"],
+              description: "关闭最上层的弹窗或菜单",
+            },
+          ]}
+          onClose={() => setShortcutsOpen(false)}
         />
       )}
     </div>
