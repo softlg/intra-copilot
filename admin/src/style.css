@@ -437,12 +437,21 @@ article {
   transition:
     border-color 0.15s ease,
     background 0.15s ease,
-    transform 0.15s ease;
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 article:hover {
   border-color: var(--border-strong);
   background: var(--surface-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+article:focus-visible,
+article:focus-within {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 article p {
@@ -2622,6 +2631,10 @@ pre {
 :root[data-theme="light"] .nav:hover {
   background: #e8efff;
   color: #1d4ed8;
+}
+
+:root[data-theme="light"] article:hover {
+  box-shadow: 0 2px 12px rgba(20, 30, 60, 0.08);
 }
 
 :root[data-theme="light"] article p {
