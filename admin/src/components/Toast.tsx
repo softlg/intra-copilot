@@ -35,7 +35,12 @@ class ToastBus {
 
   push(kind: ToastKind, message: string, duration?: number): string {
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    const item: ToastItem = { id, kind, message, duration: duration ?? DEFAULTS[kind] };
+    const item: ToastItem = {
+      id,
+      kind,
+      message,
+      duration: duration ?? DEFAULTS[kind],
+    };
     this.items = [...this.items, item].slice(-MAX_VISIBLE);
     this.emit();
     return id;
@@ -71,7 +76,13 @@ export function useToastItems(): ToastItem[] {
   return useSyncExternalStore(bus.subscribe, bus.getSnapshot, bus.getSnapshot);
 }
 
-function ToastView({ item, onDismiss }: { item: ToastItem; onDismiss: () => void }) {
+function ToastView({
+  item,
+  onDismiss,
+}: {
+  item: ToastItem;
+  onDismiss: () => void;
+}) {
   const timerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -86,7 +97,10 @@ function ToastView({ item, onDismiss }: { item: ToastItem; onDismiss: () => void
   }, [item.duration, item.kind, onDismiss]);
 
   return (
-    <div className={`toast toast-${item.kind}`} role={item.kind === "error" ? "alert" : "status"}>
+    <div
+      className={`toast toast-${item.kind}`}
+      role={item.kind === "error" ? "alert" : "status"}
+    >
       <span className="toast-icon" aria-hidden="true">
         {item.kind === "success" && "✓"}
         {item.kind === "error" && "⚠"}

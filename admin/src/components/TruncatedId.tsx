@@ -11,7 +11,11 @@ export interface TruncatedIdProps {
   label?: string;
 }
 
-export function TruncatedId({ value, head = 6, label = "ID" }: TruncatedIdProps) {
+export function TruncatedId({
+  value,
+  head = 6,
+  label = "ID",
+}: TruncatedIdProps) {
   const [copied, setCopied] = useState(false);
 
   if (!value) return <span className="muted">—</span>;

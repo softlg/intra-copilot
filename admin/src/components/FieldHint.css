@@ -18,12 +18,7 @@
 }
 
 .field-hint code {
-  font-family:
-    ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Consolas,
-    monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   background: var(--control-bg, #0f1929);
   border: 1px solid var(--border, #263852);

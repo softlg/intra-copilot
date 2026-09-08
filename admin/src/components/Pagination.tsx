@@ -32,7 +32,10 @@ function range(start: number, end: number): number[] {
   return result;
 }
 
-function buildPageItems(current: number, totalPages: number): (number | "...")[] {
+function buildPageItems(
+  current: number,
+  totalPages: number,
+): (number | "...")[] {
   if (totalPages <= 7) return range(1, totalPages);
   const items: (number | "...")[] = [1];
   const start = Math.max(2, current - 1);
@@ -101,9 +104,7 @@ export default function Pagination({
             <button
               type="button"
               className={
-                item === current
-                  ? "pagination-btn active"
-                  : "pagination-btn"
+                item === current ? "pagination-btn active" : "pagination-btn"
               }
               onClick={() => onPageChange(item)}
               aria-current={item === current ? "page" : undefined}
@@ -126,7 +127,9 @@ export default function Pagination({
         </button>
       </div>
 
-      <span className="pagination-position">{positionText(current, totalPages)}</span>
+      <span className="pagination-position">
+        {positionText(current, totalPages)}
+      </span>
     </nav>
   );
 }

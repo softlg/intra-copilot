@@ -593,7 +593,8 @@ const translations = {
       "Agent ID must be 2-128 lowercase letters, numbers, or hyphens",
     agentNameRequired: "Agent name is required",
     promptRequired: "System prompt is required",
-    parentAgentRequired: "A sub-agent must select an enabled domain Agent as its parent",
+    parentAgentRequired:
+      "A sub-agent must select an enabled domain Agent as its parent",
     createAgentFailed: "Failed to create Agent. Please try again.",
     createBaseFailed: "Failed to create knowledge base. Please try again.",
     uploadFailed: "Failed to upload document. Please try again.",
@@ -735,7 +736,8 @@ const translations = {
     deleteResource: "Delete",
     deleteResourceConfirm: (name: string) =>
       `Delete “${name}”? This cannot be undone.`,
-    deleteDisabledEnabled: "Enabled items cannot be deleted. Disable them first.",
+    deleteDisabledEnabled:
+      "Enabled items cannot be deleted. Disable them first.",
     resourceNameRequired: "Enter a name",
     nameExists: "This name already exists. Choose another name.",
     endpointRequired: "HTTP tools require an Endpoint",
@@ -1141,7 +1143,8 @@ function App() {
   const [conversationSessionIdDraft, setConversationSessionIdDraft] =
     useState("");
   const [conversationLoading, setConversationLoading] = useState(false);
-  const [conversationDetail, setConversationDetail] = useState<ConversationLog>();
+  const [conversationDetail, setConversationDetail] =
+    useState<ConversationLog>();
   const [conversationDetailOpen, setConversationDetailOpen] = useState(false);
   const [conversationDetailLoading, setConversationDetailLoading] =
     useState(false);
@@ -1426,9 +1429,7 @@ function App() {
         setConversationTotal(data.total);
         // 过滤或翻页后当前页可能超出范围，回退到最后一页
         if (data.items.length === 0 && data.total > 0 && data.page > 1) {
-          setConversationPage(
-            Math.max(1, Math.ceil(data.total / data.size)),
-          );
+          setConversationPage(Math.max(1, Math.ceil(data.total / data.size)));
         }
       })
       .catch(() => {
@@ -1703,8 +1704,12 @@ function App() {
       onConfirm: async () => {
         setMcpActionId(server.id);
         try {
-          await request(`/admin/mcp-servers/${server.id}`, { method: "DELETE" });
-          setMcpServers((items) => items.filter((item) => item.id !== server.id));
+          await request(`/admin/mcp-servers/${server.id}`, {
+            method: "DELETE",
+          });
+          setMcpServers((items) =>
+            items.filter((item) => item.id !== server.id),
+          );
           if (mcpDetails?.id === server.id) setMcpDetails(undefined);
           toast.success(t.mcpDeleted(server.name));
         } catch (error) {
@@ -1732,9 +1737,7 @@ function App() {
         items.map((item) => (item.id === updated.id ? updated : item)),
       );
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t.mcpSaveFailed,
-      );
+      toast.error(error instanceof Error ? error.message : t.mcpSaveFailed);
     } finally {
       setMcpActionId(undefined);
     }
@@ -1922,7 +1925,9 @@ function App() {
           if (kind === "tool") loadTools();
           else loadSkills();
           toast.success(
-            kind === "tool" ? t.toolDeleted(resource.name) : t.skillDeleted(resource.name),
+            kind === "tool"
+              ? t.toolDeleted(resource.name)
+              : t.skillDeleted(resource.name),
           );
         } catch (error) {
           toast.error(
@@ -2002,9 +2007,7 @@ function App() {
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t.hookSaveFailed,
-      );
+      toast.error(error instanceof Error ? error.message : t.hookSaveFailed);
     } finally {
       setHookActionId(undefined);
     }
@@ -2256,8 +2259,8 @@ function App() {
     setAgentRole(role);
     setAgentParentId(
       role === "SUB"
-        ? agents.find((item) => item.role === "DOMAIN" && item.enabled)?.id ??
-            ""
+        ? (agents.find((item) => item.role === "DOMAIN" && item.enabled)?.id ??
+            "")
         : "",
     );
     setAgentHandlingMode("AUTO");
@@ -2358,9 +2361,7 @@ function App() {
     performClose();
   };
 
-  const requestAgentConfigSection = (
-    key: typeof agentConfigSection,
-  ) => {
+  const requestAgentConfigSection = (key: typeof agentConfigSection) => {
     if (agentConfigSection === key) return;
     if (!agentConfigDirty) {
       setAgentConfigSection(key);
@@ -2892,8 +2893,8 @@ function App() {
     if (!config) return undefined;
     return {
       ...config,
-      items: filteredAgents.filter((agent) =>
-        agentRoleOf(agent) === config.role,
+      items: filteredAgents.filter(
+        (agent) => agentRoleOf(agent) === config.role,
       ),
     };
   })();
@@ -3182,7 +3183,10 @@ function App() {
                 >
                   {label}
                   {agentConfigSection !== key && agentConfigDirty && (
-                    <span className="config-tab-dirty" aria-label={t.unsavedChangesTitle} />
+                    <span
+                      className="config-tab-dirty"
+                      aria-label={t.unsavedChangesTitle}
+                    />
                   )}
                 </button>
               ))}
@@ -4061,8 +4065,8 @@ function App() {
                     {baseSaving
                       ? t.savingSettings
                       : qaSaved
-                      ? `✓ ${t.saved}`
-                      : t.saveSettings}
+                        ? `✓ ${t.saved}`
+                        : t.saveSettings}
                   </button>
                 </div>
                 <div className="detail-tabs" role="tablist">
@@ -4470,17 +4474,17 @@ function App() {
                     </div>
                     <div className="mcp-row-actions">
                       {server.lastError && (
-                        <Tooltip
-                          placement="top"
-                          content={t.mcpErrorTooltip}
-                        >
+                        <Tooltip placement="top" content={t.mcpErrorTooltip}>
                           <button
                             type="button"
                             className="mcp-row-error-trigger"
                             onClick={() => setMcpErrorDetail(server)}
                             aria-label={t.mcpErrorDetail}
                           >
-                            <span className="mcp-row-error-icon" aria-hidden="true">
+                            <span
+                              className="mcp-row-error-icon"
+                              aria-hidden="true"
+                            >
                               ⚠
                             </span>
                             <span className="mcp-row-error-summary">
@@ -4605,7 +4609,9 @@ function App() {
                         </button>
                         <Dropdown
                           ariaLabel={t.toolActions}
-                          trigger={<span className="dropdown-trigger-glyph">⋯</span>}
+                          trigger={
+                            <span className="dropdown-trigger-glyph">⋯</span>
+                          }
                           items={[
                             {
                               key: "toggle",
@@ -4686,7 +4692,9 @@ function App() {
                         </button>
                         <Dropdown
                           ariaLabel={t.skillActions}
-                          trigger={<span className="dropdown-trigger-glyph">⋯</span>}
+                          trigger={
+                            <span className="dropdown-trigger-glyph">⋯</span>
+                          }
                           items={[
                             {
                               key: "toggle",
@@ -4754,7 +4762,9 @@ function App() {
                       </button>
                       <Dropdown
                         ariaLabel={t.hookActions}
-                        trigger={<span className="dropdown-trigger-glyph">⋯</span>}
+                        trigger={
+                          <span className="dropdown-trigger-glyph">⋯</span>
+                        }
                         items={[
                           {
                             key: "toggle",
@@ -4875,7 +4885,10 @@ function App() {
                     )}
                     {!item.comment && item.rating === "down" && (
                       <span className="feedback-missing-reason">
-                        <span className="feedback-missing-reason-icon" aria-hidden="true">
+                        <span
+                          className="feedback-missing-reason-icon"
+                          aria-hidden="true"
+                        >
                           !
                         </span>
                         {t.noReason}
@@ -4919,9 +4932,7 @@ function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setConversationSessionId(
-                      conversationSessionIdDraft.trim(),
-                    );
+                    setConversationSessionId(conversationSessionIdDraft.trim());
                     setConversationPage(1);
                   }}
                 >
@@ -5069,9 +5080,7 @@ function App() {
                                       ? t.userMessage
                                       : t.assistantMessage}
                                   </strong>
-                                  {item.agentId && (
-                                    <code>{item.agentId}</code>
-                                  )}
+                                  {item.agentId && <code>{item.agentId}</code>}
                                   {item.createdAt && (
                                     <small>
                                       {new Date(
@@ -5145,9 +5154,7 @@ function App() {
                                   <div>
                                     <strong>{t.intentResult}</strong>
                                     <p>
-                                      {item.intent ||
-                                        item.routeReason ||
-                                        "-"}
+                                      {item.intent || item.routeReason || "-"}
                                     </p>
                                   </div>
                                   <div>
@@ -5713,9 +5720,7 @@ function App() {
                       —
                     </option>
                     {agents
-                      .filter(
-                        (item) => item.role === "DOMAIN" && item.enabled,
-                      )
+                      .filter((item) => item.role === "DOMAIN" && item.enabled)
                       .map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.displayName}

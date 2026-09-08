@@ -22,14 +22,22 @@ export interface DropdownProps {
  * hide destructive actions (stop, delete) behind a "more" affordance on
  * resource cards.
  */
-export function Dropdown({ trigger, items, ariaLabel, align = "right" }: DropdownProps) {
+export function Dropdown({
+  trigger,
+  items,
+  ariaLabel,
+  align = "right",
+}: DropdownProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const handler = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
         setOpen(false);
       }
     };
@@ -70,7 +78,9 @@ export function Dropdown({ trigger, items, ariaLabel, align = "right" }: Dropdow
                 }}
                 disabled={item.disabled}
               >
-                {item.icon && <span className="dropdown-icon">{item.icon}</span>}
+                {item.icon && (
+                  <span className="dropdown-icon">{item.icon}</span>
+                )}
                 <span>{item.label}</span>
               </button>
             </li>
