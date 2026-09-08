@@ -340,6 +340,8 @@ const translations = {
     userQuestion: "用户问题",
     assistantAnswer: "Agent 回复",
     noReason: "未填写原因",
+    missingReasonCount: (n: number) =>
+      `${n} 条差评缺少原因，建议联系作者补充说明`,
     noConversationLogs:
       "暂无对话日志。用户从浏览器插件发起对话后会显示在这里。",
     userMessage: "用户",
@@ -722,6 +724,8 @@ const translations = {
     userQuestion: "User question",
     assistantAnswer: "Agent answer",
     noReason: "No reason provided",
+    missingReasonCount: (n: number) =>
+      `${n} downvotes are missing a reason. Contact the author for context.`,
     noConversationLogs:
       "No conversation logs yet. Logs will appear after users chat from the extension.",
     userMessage: "User",
@@ -4668,6 +4672,18 @@ function App() {
         {tab === "ratings" && (
           <section>
             <p className="muted">{t.ratingsSubtitle}</p>
+            {(() => {
+              const missingReasonCount = feedback.filter(
+                (item) => item.rating === "down" && !item.comment,
+              ).length;
+              if (missingReasonCount === 0) return null;
+              return (
+                <p className="feedback-summary-missing" role="status">
+                  <span aria-hidden="true">!</span>
+                  {t.missingReasonCount(missingReasonCount)}
+                </p>
+              );
+            })()}
             {feedbackSummary && (
               <div className="feedback-summary-grid">
                 <div className="feedback-summary-card">
@@ -4748,7 +4764,12 @@ function App() {
                       </details>
                     )}
                     {!item.comment && item.rating === "down" && (
-                      <p className="muted">{t.noReason}</p>
+                      <span className="feedback-missing-reason">
+                        <span className="feedback-missing-reason-icon" aria-hidden="true">
+                          !
+                        </span>
+                        {t.noReason}
+                      </span>
                     )}
                     {item.createdAt && (
                       <small>{new Date(item.createdAt).toLocaleString()}</small>
