@@ -73,7 +73,13 @@ public class McpServerService {
         return repository.save(current);
     }
 
-    public void delete(String id) { repository.deleteById(id); }
+    public void delete(String id) {
+        McpServer server = get(id);
+        if (server.isEnabled()) {
+            throw new IllegalArgumentException("MCP 服务处于启用状态，请先停用后再删除");
+        }
+        repository.deleteById(id);
+    }
 
     public McpServer checkHealth(String id) {
         McpServer server = get(id);

@@ -38,11 +38,11 @@ public class ToolSkillAdminController {
         }
         @PostMapping("/tools") @ResponseStatus(HttpStatus.CREATED) public ToolDefinition createTool(@RequestBody ToolDefinition t) { validateTool(t); ensureToolNameAvailable(t.getName(), null); t.setName(t.getName().trim()); return tools.save(t); }
         @PutMapping("/tools/{id}") public ToolDefinition updateTool(@PathVariable String id, @RequestBody ToolDefinition t) { t.setId(id); validateTool(t); ensureToolNameAvailable(t.getName(), id); t.setName(t.getName().trim()); t.touch(); return tools.save(t); }
-        @DeleteMapping("/tools/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteTool(@PathVariable String id) { tools.deleteById(id); }
+        @DeleteMapping("/tools/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteTool(@PathVariable String id) { ensureToolNotEnabled(id); tools.deleteById(id); }
         @GetMapping("/skills") public List<SkillDefinition> skills() { return skills.findAll(); }
         @PostMapping("/skills") @ResponseStatus(HttpStatus.CREATED) public SkillDefinition createSkill(@RequestBody SkillDefinition s) { validateSkill(s); ensureSkillNameAvailable(s.getName(), null); s.setName(s.getName().trim()); return skills.save(s); }
         @PutMapping("/skills/{id}") public SkillDefinition updateSkill(@PathVariable String id, @RequestBody SkillDefinition s) { s.setId(id); validateSkill(s); ensureSkillNameAvailable(s.getName(), id); s.setName(s.getName().trim()); s.touch(); return skills.save(s); }
-        @DeleteMapping("/skills/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteSkill(@PathVariable String id) { skills.deleteById(id); }
+        @DeleteMapping("/skills/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteSkill(@PathVariable String id) { ensureSkillNotEnabled(id); skills.deleteById(id); }
         @GetMapping("/hooks") public List<HookDefinition> hooks() { return hooks.findAll(); }
         @PostMapping("/hooks") @ResponseStatus(HttpStatus.CREATED)
         public HookDefinition createHook(@RequestBody HookDefinition hook) {
@@ -61,7 +61,19 @@ public class ToolSkillAdminController {
                 return hooks.save(hook);
         }
         @DeleteMapping("/hooks/{id}") @ResponseStatus(HttpStatus.NO_CONTENT)
-        public void deleteHook(@PathVariable String id) { hooks.deleteById(id); }
+        public void deleteHook(@PathVariable String id) { ensureHookNotEnabled(id); hooks.deleteById(id); }
+        private void ensureToolNotEnabled(String id) {
+                ToolDefinition item = tools.findById(id).orElseThrow(() -> new IllegalArgumentException("工具不存在"));
+                if (item.isEnabled()) throw new IllegalArgumentException("工具处于启用状态，请先停用后再删除");
+        }
+        private void ensureSkillNotEnabled(String id) {
+                SkillDefinition item = skills.findById(id).orElseThrow(() -> new IllegalArgumentException("Skill 不存在"));
+                if (item.isEnabled()) throw new IllegalArgumentException("Skill 处于启用状态，请先停用后再删除");
+        }
+        private void ensureHookNotEnabled(String id) {
+                HookDefinition item = hooks.findById(id).orElseThrow(() -> new IllegalArgumentException("钩子不存在"));
+                if (item.isEnabled()) throw new IllegalArgumentException("钩子处于启用状态，请先停用后再删除");
+        }
         private void validateTool(ToolDefinition t) {
                 if (t.getName() == null || t.getName().isBlank()) throw new IllegalArgumentException("工具名称不能为空");
                 if ("HTTP".equalsIgnoreCase(t.getType())) {
