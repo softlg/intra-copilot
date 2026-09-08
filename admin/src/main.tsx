@@ -44,6 +44,15 @@ const translations = {
     mcpCheckFailed: "健康检查失败，请确认服务地址和权限。",
     mcpSaveFailed: "保存 MCP 服务失败，请稍后重试",
     mcpDeleteConfirm: (name: string) => `确定删除 MCP 服务“${name}”吗？`,
+    mcpDeleted: (name: string) => `MCP 服务“${name}”已删除`,
+    confirmDeleteTitle: "确认删除",
+    cancelLabel: "取消",
+    deleteAgentEnabled: "该 Agent 处于启用状态，请先停用后再删除",
+    agentDeleted: (name: string) => `Agent “${name}”已删除`,
+    toolDeleted: (name: string) => `工具 “${name}”已删除`,
+    skillDeleted: (name: string) => `Skill “${name}”已删除`,
+    hookDeleted: (name: string) => `钩子 “${name}”已删除`,
+    documentDeleted: (name: string) => `文档 “${name}”已删除`,
     toolsMenu: "工具",
     skillsMenu: "Skill",
     skillsTitle: "Skill 管理",
@@ -391,6 +400,15 @@ const translations = {
     mcpCheckFailed: "Health check failed. Verify the URL and permissions.",
     mcpSaveFailed: "Failed to save the MCP service. Please try again.",
     mcpDeleteConfirm: (name: string) => `Delete MCP service “${name}”?`,
+    mcpDeleted: (name: string) => `MCP service “${name}” deleted`,
+    confirmDeleteTitle: "Confirm delete",
+    cancelLabel: "Cancel",
+    deleteAgentEnabled: "This agent is enabled. Stop it before deleting.",
+    agentDeleted: (name: string) => `Agent “${name}” deleted`,
+    toolDeleted: (name: string) => `Tool “${name}” deleted`,
+    skillDeleted: (name: string) => `Skill “${name}” deleted`,
+    hookDeleted: (name: string) => `Hook “${name}” deleted`,
+    documentDeleted: (name: string) => `Document “${name}” deleted`,
     toolsMenu: "Tools",
     skillsMenu: "Skill",
     skillsTitle: "Skill management",
@@ -1112,6 +1130,42 @@ function App() {
   const [resourceDetails, setResourceDetails] = useState<
     ResourceDetails | undefined
   >();
+  const [confirmRequest, setConfirmRequest] = useState<{
+    title: string;
+    description: React.ReactNode;
+    confirmLabel: string;
+    cancelLabel: string;
+    tone: "danger" | "primary";
+    loading: boolean;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
+  const closeConfirm = () => setConfirmRequest(null);
+  const runConfirm = async () => {
+    if (!confirmRequest) return;
+    try {
+      await confirmRequest.onConfirm();
+    } finally {
+      setConfirmRequest((prev) => (prev ? { ...prev, loading: false } : prev));
+    }
+  };
+  const askConfirm = (options: {
+    title: string;
+    description?: React.ReactNode;
+    confirmLabel: string;
+    cancelLabel: string;
+    tone?: "danger" | "primary";
+    onConfirm: () => void | Promise<void>;
+  }) => {
+    setConfirmRequest({
+      title: options.title,
+      description: options.description,
+      confirmLabel: options.confirmLabel,
+      cancelLabel: options.cancelLabel,
+      tone: options.tone ?? "primary",
+      loading: true,
+      onConfirm: options.onConfirm,
+    });
+  };
   const [hookDialogOpen, setHookDialogOpen] = useState(false);
   const [editingHookId, setEditingHookId] = useState<string>();
   const [hookName, setHookName] = useState("");
@@ -1549,19 +1603,29 @@ function App() {
       setResourceError(t.deleteDisabledEnabled);
       return;
     }
-    if (!window.confirm(t.mcpDeleteConfirm(server.name))) return;
-    setMcpActionId(server.id);
-    try {
-      await request(`/admin/mcp-servers/${server.id}`, { method: "DELETE" });
-      setMcpServers((items) => items.filter((item) => item.id !== server.id));
-      if (mcpDetails?.id === server.id) setMcpDetails(undefined);
-    } catch (error) {
-      setResourceError(
-        error instanceof Error ? error.message : t.resourceDeleteFailed,
-      );
-    } finally {
-      setMcpActionId(undefined);
-    }
+    askConfirm({
+      title: t.confirmDeleteTitle,
+      description: t.mcpDeleteConfirm(server.name),
+      confirmLabel: t.deleteResource,
+      cancelLabel: t.cancelLabel,
+      tone: "danger",
+      onConfirm: async () => {
+        setMcpActionId(server.id);
+        try {
+          await request(`/admin/mcp-servers/${server.id}`, { method: "DELETE" });
+          setMcpServers((items) => items.filter((item) => item.id !== server.id));
+          if (mcpDetails?.id === server.id) setMcpDetails(undefined);
+          toast.success(t.mcpDeleted(server.name));
+        } catch (error) {
+          setResourceError(
+            error instanceof Error ? error.message : t.resourceDeleteFailed,
+          );
+          throw error;
+        } finally {
+          setMcpActionId(undefined);
+        }
+      },
+    });
   };
 
   const toggleMcpServer = async (server: McpServer) => {
@@ -1735,24 +1799,36 @@ function App() {
       setResourceError(t.deleteDisabledEnabled);
       return;
     }
-    if (!window.confirm(t.deleteResourceConfirm(resource.name))) return;
-    setResourceActionId(resource.id);
-    try {
-      await request(
-        `/admin/${kind === "tool" ? "tools" : "skills"}/${resource.id}`,
-        {
-          method: "DELETE",
-        },
-      );
-      if (kind === "tool") loadTools();
-      else loadSkills();
-    } catch (error) {
-      setResourceError(
-        error instanceof Error ? error.message : t.resourceDeleteFailed,
-      );
-    } finally {
-      setResourceActionId(undefined);
-    }
+    askConfirm({
+      title: t.confirmDeleteTitle,
+      description: t.deleteResourceConfirm(resource.name),
+      confirmLabel: t.deleteResource,
+      cancelLabel: t.cancelLabel,
+      tone: "danger",
+      onConfirm: async () => {
+        setResourceActionId(resource.id);
+        try {
+          await request(
+            `/admin/${kind === "tool" ? "tools" : "skills"}/${resource.id}`,
+            {
+              method: "DELETE",
+            },
+          );
+          if (kind === "tool") loadTools();
+          else loadSkills();
+          toast.success(
+            kind === "tool" ? t.toolDeleted(resource.name) : t.skillDeleted(resource.name),
+          );
+        } catch (error) {
+          setResourceError(
+            error instanceof Error ? error.message : t.resourceDeleteFailed,
+          );
+          throw error;
+        } finally {
+          setResourceActionId(undefined);
+        }
+      },
+    });
   };
 
   const openHookDialog = (hook?: HookDefinition) => {
@@ -1835,18 +1911,28 @@ function App() {
       setResourceError(t.deleteDisabledEnabled);
       return;
     }
-    if (!window.confirm(t.hookDeleteConfirm(hook.name))) return;
-    setHookActionId(hook.id);
-    try {
-      await request(`/admin/hooks/${hook.id}`, { method: "DELETE" });
-      setHooks((current) => current.filter((item) => item.id !== hook.id));
-    } catch (error) {
-      setResourceError(
-        error instanceof Error ? error.message : t.hookDeleteFailed,
-      );
-    } finally {
-      setHookActionId(undefined);
-    }
+    askConfirm({
+      title: t.confirmDeleteTitle,
+      description: t.hookDeleteConfirm(hook.name),
+      confirmLabel: t.deleteResource,
+      cancelLabel: t.cancelLabel,
+      tone: "danger",
+      onConfirm: async () => {
+        setHookActionId(hook.id);
+        try {
+          await request(`/admin/hooks/${hook.id}`, { method: "DELETE" });
+          setHooks((current) => current.filter((item) => item.id !== hook.id));
+          toast.success(t.hookDeleted(hook.name));
+        } catch (error) {
+          setResourceError(
+            error instanceof Error ? error.message : t.hookDeleteFailed,
+          );
+          throw error;
+        } finally {
+          setHookActionId(undefined);
+        }
+      },
+    });
   };
 
   useEffect(() => {
@@ -2338,24 +2424,35 @@ function App() {
     ) {
       return;
     }
-    if (
-      agent.enabled ||
-      !window.confirm(t.deleteAgentConfirm(agent.displayName))
-    ) {
+    if (agent.enabled) {
+      toast.warning(t.deleteAgentEnabled);
       return;
     }
-    setAgentActionId(agent.id);
-    try {
-      await request(`/admin/agents/${agent.id}`, { method: "DELETE" });
-      setAgents((current) => current.filter((item) => item.id !== agent.id));
-      if (agentConfigId === agent.id) closeAgentConfig();
-    } catch (error) {
-      setAgentError(
-        error instanceof Error ? error.message : t.deleteAgentFailed,
-      );
-    } finally {
-      setAgentActionId(undefined);
-    }
+    askConfirm({
+      title: t.confirmDeleteTitle,
+      description: t.deleteAgentConfirm(agent.displayName),
+      confirmLabel: t.deleteResource,
+      cancelLabel: t.cancelLabel,
+      tone: "danger",
+      onConfirm: async () => {
+        setAgentActionId(agent.id);
+        try {
+          await request(`/admin/agents/${agent.id}`, { method: "DELETE" });
+          setAgents((current) =>
+            current.filter((item) => item.id !== agent.id),
+          );
+          if (agentConfigId === agent.id) closeAgentConfig();
+          toast.success(t.agentDeleted(agent.displayName));
+        } catch (error) {
+          setAgentError(
+            error instanceof Error ? error.message : t.deleteAgentFailed,
+          );
+          throw error;
+        } finally {
+          setAgentActionId(undefined);
+        }
+      },
+    });
   };
 
   const isSystemAgent = (agent: Agent) =>
@@ -2482,24 +2579,34 @@ function App() {
   };
 
   const deleteDocument = async (document: KnowledgeDocument) => {
-    if (!window.confirm(t.deleteConfirm(document.filename))) return;
-    setDocumentActionId(document.id);
-    setUploadError("");
-    try {
-      await request(`/admin/knowledge-bases/documents/${document.id}`, {
-        method: "DELETE",
-      });
-      setDocuments((current) => ({
-        ...current,
-        [document.knowledgeBaseId]: (
-          current[document.knowledgeBaseId] ?? []
-        ).filter((item) => item.id !== document.id),
-      }));
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : t.deleteFailed);
-    } finally {
-      setDocumentActionId(undefined);
-    }
+    askConfirm({
+      title: t.confirmDeleteTitle,
+      description: t.deleteConfirm(document.filename),
+      confirmLabel: t.deleteResource,
+      cancelLabel: t.cancelLabel,
+      tone: "danger",
+      onConfirm: async () => {
+        setDocumentActionId(document.id);
+        setUploadError("");
+        try {
+          await request(`/admin/knowledge-bases/documents/${document.id}`, {
+            method: "DELETE",
+          });
+          setDocuments((current) => ({
+            ...current,
+            [document.knowledgeBaseId]: (
+              current[document.knowledgeBaseId] ?? []
+            ).filter((item) => item.id !== document.id),
+          }));
+          toast.success(t.documentDeleted(document.filename));
+        } catch (error) {
+          setUploadError(error instanceof Error ? error.message : t.deleteFailed);
+          throw error;
+        } finally {
+          setDocumentActionId(undefined);
+        }
+      },
+    });
   };
 
   const openDocumentDetails = async (document: KnowledgeDocument) => {
@@ -6235,6 +6342,20 @@ function App() {
             </form>
           </div>
         </div>
+      )}
+
+      {confirmRequest && (
+        <ConfirmDialog
+          open
+          title={confirmRequest.title}
+          description={confirmRequest.description}
+          confirmLabel={confirmRequest.confirmLabel}
+          cancelLabel={confirmRequest.cancelLabel}
+          tone={confirmRequest.tone}
+          loading={confirmRequest.loading}
+          onConfirm={runConfirm}
+          onCancel={closeConfirm}
+        />
       )}
     </div>
   );
