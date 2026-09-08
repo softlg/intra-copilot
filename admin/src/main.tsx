@@ -4690,35 +4690,25 @@ function App() {
                         >
                           {t.edit}
                         </button>
-                        <button
-                          onClick={() => toggleResource("skill", skill)}
-                          disabled={resourceActionId === skill.id}
-                        >
-                          {skill.enabled ? t.stop : t.enable}
-                        </button>
-                        {skill.enabled ? (
-                          <Tooltip
-                            placement="top"
-                            content={t.deleteDisabledEnabled}
-                          >
-                            <button
-                              className="agent-delete"
-                              onClick={() => deleteResource("skill", skill)}
-                              disabled
-                              aria-label={t.deleteDisabledEnabled}
-                            >
-                              {t.deleteResource}
-                            </button>
-                          </Tooltip>
-                        ) : (
-                          <button
-                            className="agent-delete"
-                            onClick={() => deleteResource("skill", skill)}
-                            disabled={resourceActionId === skill.id}
-                          >
-                            {t.deleteResource}
-                          </button>
-                        )}
+                        <Dropdown
+                          ariaLabel={t.skillActions}
+                          trigger={<span className="dropdown-trigger-glyph">⋯</span>}
+                          items={[
+                            {
+                              key: "toggle",
+                              label: skill.enabled ? t.stop : t.enable,
+                              onSelect: () => toggleResource("skill", skill),
+                              disabled: resourceActionId === skill.id,
+                            },
+                            {
+                              key: "delete",
+                              label: t.deleteResource,
+                              onSelect: () => deleteResource("skill", skill),
+                              disabled: skill.enabled,
+                              tone: "danger",
+                            },
+                          ]}
+                        />
                       </div>
                     </article>
                   ))}
