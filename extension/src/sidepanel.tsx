@@ -9,7 +9,8 @@ const API = "http://localhost:8080/api/v1";
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
-type Feedback = "up" | "down";
+type Feedback = "up" | "down" | null;
+type FeedbackToast = { index: number; kind: "cleared" | "thanks" };
 type Msg = {
   role: string;
   content: string;
@@ -114,7 +115,18 @@ const translations = {
     closeImagePreview: "关闭图片预览",
     like: "有帮助",
     dislike: "没帮助",
-    feedbackReasonPrompt: "请简要说明这条回答哪里需要改进（可取消）",
+    feedbackCancelHint: "再次点击可撤销",
+    feedbackCleared: "已撤销投票",
+    feedbackThanks: "已收到，感谢反馈",
+    feedbackInlineTitle: "这条回答哪里可以更好？",
+    feedbackInlineHint: "点踩后可补充原因，全部为选填",
+    feedbackChipInaccurate: "不准确",
+    feedbackChipIrrelevant: "答非所问",
+    feedbackChipTooLong: "太长",
+    feedbackChipOther: "其他",
+    feedbackInlinePlaceholder: "补充一点具体原因（可选）",
+    feedbackInlineSubmit: "提交反馈",
+    feedbackInlineSkip: "不用了",
     copyMessage: "复制回答",
     copyCode: "复制代码",
     copied: "已复制",
@@ -219,7 +231,18 @@ const translations = {
     closeImagePreview: "Close image preview",
     like: "Helpful",
     dislike: "Not helpful",
-    feedbackReasonPrompt: "What should be improved in this answer? (optional)",
+    feedbackCancelHint: "Click again to undo",
+    feedbackCleared: "Vote removed",
+    feedbackThanks: "Thanks for your feedback",
+    feedbackInlineTitle: "What could be better here?",
+    feedbackInlineHint: "Add an optional reason after down-voting.",
+    feedbackChipInaccurate: "Inaccurate",
+    feedbackChipIrrelevant: "Off-topic",
+    feedbackChipTooLong: "Too long",
+    feedbackChipOther: "Other",
+    feedbackInlinePlaceholder: "Add a short reason (optional)",
+    feedbackInlineSubmit: "Send feedback",
+    feedbackInlineSkip: "No thanks",
     copyMessage: "Copy answer",
     copyCode: "Copy code",
     copied: "Copied",
@@ -392,8 +415,9 @@ function App() {
   const [messageFeedback, setMessageFeedback] = useState<
     Record<number, Feedback>
   >({});
-  const [feedbackDialogIndex, setFeedbackDialogIndex] = useState<number>();
-  const [feedbackComment, setFeedbackComment] = useState("");
+  const [inlineFeedbackIndex, setInlineFeedbackIndex] = useState<number>();
+  const [inlineFeedbackComment, setInlineFeedbackComment] = useState("");
+  const [feedbackToast, setFeedbackToast] = useState<FeedbackToast>();
   const [copiedMessage, setCopiedMessage] = useState<number>();
   const [copiedCode, setCopiedCode] = useState<string>();
   const [input, setInput] = useState("");
@@ -603,29 +627,16 @@ function App() {
     });
   }
 
-  function saveFeedback(index: number, feedback: Feedback, comment = "") {
-    if (feedback === "down" && feedbackDialogIndex !== index && !comment) {
-      setFeedbackDialogIndex(index);
-      setFeedbackComment("");
-      return;
-    }
-    setMessageFeedback((current) => ({ ...current, [index]: feedback }));
-    if (!session?.id) return;
-    chrome.storage.local.get(["messageFeedback"], (value) => {
-      const all = (value.messageFeedback || {}) as Record<
-        string,
-        Record<number, Feedback>
-      >;
-      const sessionFeedback = { ...(all[session.id] || {}) };
-      sessionFeedback[index] = feedback;
-      chrome.storage.local.set({
-        messageFeedback: { ...all, [session.id]: sessionFeedback },
-      });
-    });
-    const target = msgs[index];
+  function saveFeedback(
+    index: number,
+    feedback: Exclude<Feedback, null>,
+    comment = "",
+  ) {
     const userMessage =
       [...msgs.slice(0, index)].reverse().find((item) => item.role === "user")
         ?.content || "";
+    const target = msgs[index];
+    if (!session?.id) return;
     fetch(API + "/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -642,11 +653,93 @@ function App() {
     }).catch(() => undefined);
   }
 
-  function submitFeedbackComment() {
-    if (feedbackDialogIndex == null) return;
-    const index = feedbackDialogIndex;
-    saveFeedback(index, "down", feedbackComment.trim());
-    setFeedbackDialogIndex(undefined);
+  function persistFeedback(index: number, feedback: Feedback) {
+    if (!session?.id) return;
+    chrome.storage.local.get(["messageFeedback"], (value) => {
+      const all = (value.messageFeedback || {}) as Record<
+        string,
+        Record<number, Feedback>
+      >;
+      const sessionFeedback = { ...(all[session.id] || {}) };
+      if (feedback === null) delete sessionFeedback[index];
+      else sessionFeedback[index] = feedback;
+      chrome.storage.local.set({
+        messageFeedback: { ...all, [session.id]: sessionFeedback },
+      });
+    });
+  }
+
+  function showFeedbackToast(kind: FeedbackToast["kind"], index: number) {
+    setFeedbackToast({ index, kind });
+    window.setTimeout(
+      () =>
+        setFeedbackToast((current) =>
+          current && current.index === index && current.kind === kind
+            ? undefined
+            : current,
+        ),
+      1800,
+    );
+  }
+
+  function scrollMessageIntoView(index: number) {
+    const list = mainRef.current;
+    if (!list) return;
+    const target = list.querySelectorAll(".msg")[index] as
+      HTMLElement | undefined;
+    if (!target) return;
+    // 只滚动 main 这个内部滚动容器，避免 scrollIntoView 级联滚动
+    // html/body 导致整页位移（side panel 里 .app 是 fixed，body 是 hidden）。
+    const listTop = list.getBoundingClientRect().top;
+    const targetTop = target.getBoundingClientRect().top;
+    const offset = targetTop - listTop + list.scrollTop - 12;
+    list.scrollTo({ top: offset, behavior: "smooth" });
+  }
+
+  function toggleFeedback(index: number, target: Exclude<Feedback, null>) {
+    const prev: Feedback = messageFeedback[index] ?? null;
+    const next: Feedback = prev === target ? null : target;
+
+    setMessageFeedback((current) => {
+      const updated = { ...current };
+      if (next === null) delete updated[index];
+      else updated[index] = next;
+      return updated;
+    });
+
+    persistFeedback(index, next);
+
+    // 内联反馈条：仅在 down 时出现；切换 / 撤销时关闭
+    if (target === "down") {
+      if (next === "down") setInlineFeedbackIndex(index);
+      else if (prev === "down")
+        setInlineFeedbackIndex((curr) => (curr === index ? undefined : curr));
+    } else if (prev === "down") {
+      setInlineFeedbackIndex((curr) => (curr === index ? undefined : curr));
+    }
+    setInlineFeedbackComment("");
+
+    // 撤销投票给用户一个轻量反馈
+    if (prev !== null && next === null) {
+      showFeedbackToast("cleared", index);
+    }
+
+    if (next !== null) saveFeedback(index, next);
+
+    // 让该条消息（连同刚展开的内联反馈条）滚到可视区域中心
+    requestAnimationFrame(() => scrollMessageIntoView(index));
+  }
+
+  function submitInlineFeedback() {
+    if (inlineFeedbackIndex == null) return;
+    const index = inlineFeedbackIndex;
+    const comment = inlineFeedbackComment.trim();
+    if (comment) {
+      saveFeedback(index, "down", comment);
+      showFeedbackToast("thanks", index);
+    }
+    setInlineFeedbackIndex(undefined);
+    setInlineFeedbackComment("");
   }
 
   async function copyMessage(content: string, index: number) {
@@ -1470,8 +1563,12 @@ function App() {
                           "message-action feedback-action feedback-up " +
                           (messageFeedback[index] === "up" ? "selected" : "")
                         }
-                        onClick={() => saveFeedback(index, "up")}
-                        title={t.like}
+                        onClick={() => toggleFeedback(index, "up")}
+                        title={
+                          messageFeedback[index] === "up"
+                            ? t.feedbackCancelHint
+                            : t.like
+                        }
                         aria-label={t.like}
                         aria-pressed={messageFeedback[index] === "up"}
                       >
@@ -1483,8 +1580,12 @@ function App() {
                           "message-action feedback-action feedback-down " +
                           (messageFeedback[index] === "down" ? "selected" : "")
                         }
-                        onClick={() => saveFeedback(index, "down")}
-                        title={t.dislike}
+                        onClick={() => toggleFeedback(index, "down")}
+                        title={
+                          messageFeedback[index] === "down"
+                            ? t.feedbackCancelHint
+                            : t.dislike
+                        }
                         aria-label={t.dislike}
                         aria-pressed={messageFeedback[index] === "down"}
                       >
@@ -1505,6 +1606,78 @@ function App() {
                       </button>
                     </div>
                   )}
+                  {assistant &&
+                    message.content &&
+                    inlineFeedbackIndex === index && (
+                      <div
+                        className="feedback-inline"
+                        role="region"
+                        aria-label={t.feedbackInlineTitle}
+                      >
+                        <div className="feedback-inline-title">
+                          {t.feedbackInlineTitle}
+                        </div>
+                        <div className="feedback-inline-hint">
+                          {t.feedbackInlineHint}
+                        </div>
+                        <div className="feedback-inline-chips">
+                          {[
+                            t.feedbackChipInaccurate,
+                            t.feedbackChipIrrelevant,
+                            t.feedbackChipTooLong,
+                            t.feedbackChipOther,
+                          ].map((chip) => (
+                            <button
+                              key={chip}
+                              type="button"
+                              className={
+                                "feedback-chip" +
+                                (inlineFeedbackComment === chip
+                                  ? " selected"
+                                  : "")
+                              }
+                              onClick={() => {
+                                setInlineFeedbackComment((current) =>
+                                  current === chip ? "" : chip,
+                                );
+                              }}
+                            >
+                              {chip}
+                            </button>
+                          ))}
+                        </div>
+                        <textarea
+                          className="feedback-inline-input"
+                          rows={2}
+                          value={inlineFeedbackComment}
+                          onChange={(event) =>
+                            setInlineFeedbackComment(event.target.value)
+                          }
+                          placeholder={t.feedbackInlinePlaceholder}
+                          aria-label={t.feedbackInlinePlaceholder}
+                        />
+                        <div className="feedback-inline-actions">
+                          <button
+                            type="button"
+                            className="feedback-inline-skip"
+                            onClick={() => {
+                              setInlineFeedbackIndex(undefined);
+                              setInlineFeedbackComment("");
+                            }}
+                          >
+                            {t.feedbackInlineSkip}
+                          </button>
+                          <button
+                            type="button"
+                            className="feedback-inline-submit"
+                            onClick={submitInlineFeedback}
+                            disabled={!inlineFeedbackComment.trim()}
+                          >
+                            {t.feedbackInlineSubmit}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                 </div>
               </div>
             );
@@ -1916,47 +2089,18 @@ function App() {
           </div>
         </div>
       </footer>
-      {feedbackDialogIndex != null && (
+      {feedbackToast && (
         <div
-          className="feedback-overlay"
-          onClick={() => setFeedbackDialogIndex(undefined)}
+          className={
+            "feedback-toast " +
+            (feedbackToast.kind === "thanks" ? "feedback-toast-thanks" : "")
+          }
+          role="status"
+          aria-live="polite"
         >
-          <div
-            className="feedback-dialog"
-            role="dialog"
-            aria-modal="true"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="feedback-dialog-icon" aria-hidden="true">
-              👎
-            </div>
-            <div className="feedback-dialog-title">{t.dislike}</div>
-            <div className="feedback-dialog-hint">{t.feedbackReasonPrompt}</div>
-            <textarea
-              autoFocus
-              value={feedbackComment}
-              onChange={(event) => setFeedbackComment(event.target.value)}
-              className="feedback-dialog-input"
-              rows={3}
-              aria-label={t.feedbackReasonPrompt}
-            />
-            <div className="feedback-dialog-actions">
-              <button
-                type="button"
-                className="feedback-cancel-button"
-                onClick={() => setFeedbackDialogIndex(undefined)}
-              >
-                {t.cancel}
-              </button>
-              <button
-                type="button"
-                className="feedback-submit-button"
-                onClick={submitFeedbackComment}
-              >
-                {t.save}
-              </button>
-            </div>
-          </div>
+          {feedbackToast.kind === "thanks"
+            ? t.feedbackThanks
+            : t.feedbackCleared}
         </div>
       )}
       {previewImage && (
@@ -2034,4 +2178,42 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+class RootErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error?: Error }
+> {
+  state: { error?: Error } = {};
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("[RootErrorBoundary]", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <pre
+          style={{
+            padding: 16,
+            margin: 16,
+            color: "#b91c1c",
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: 8,
+            fontSize: 12,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {String(this.state.error?.stack || this.state.error)}
+        </pre>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+createRoot(document.getElementById("root")!).render(
+  <RootErrorBoundary>
+    <App />
+  </RootErrorBoundary>,
+);

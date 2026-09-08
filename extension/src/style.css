@@ -23,6 +23,7 @@ html {
   --code-bg: #f1f5f9;
   --code-border: #d7e0ec;
   --code-text: #1e293b;
+  --accent: #2563eb;
 }
 :root[data-theme="dark"] {
   --page-bg: #111827;
@@ -36,6 +37,7 @@ html {
   --code-bg: #0f172a;
   --code-border: #334155;
   --code-text: #e2e8f0;
+  --accent: #3b82f6;
 }
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"] {
@@ -50,6 +52,7 @@ html {
     --code-bg: #0f172a;
     --code-border: #334155;
     --code-text: #e2e8f0;
+    --accent: #3b82f6;
   }
 }
 body {
@@ -228,7 +231,7 @@ small {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 22px 14px 96px;
+  padding: 22px 14px 12px;
   scroll-padding-bottom: 12px;
   overscroll-behavior: contain;
 }
@@ -246,6 +249,8 @@ small {
   gap: 8px;
   width: 100%;
   margin: 12px 0;
+  scroll-margin-top: 12px;
+  scroll-margin-bottom: 12px;
 }
 .msg.user {
   flex-direction: row-reverse;
@@ -699,87 +704,146 @@ small {
   background: #fecdd3;
   outline: none;
 }
-.feedback-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 35;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: #02061799;
-}
-.feedback-dialog {
-  width: min(360px, 100%);
-  padding: 20px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
+.feedback-inline {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
   background: var(--surface);
   color: var(--text);
-  box-shadow: 0 18px 50px #0007;
+  animation: feedback-inline-in 0.18s ease-out;
 }
-.feedback-dialog-icon {
-  display: grid;
-  width: 38px;
-  height: 38px;
+@keyframes feedback-inline-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.feedback-inline-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.feedback-inline-hint {
+  margin-top: 2px;
   margin-bottom: 10px;
-  place-items: center;
-  border-radius: 10px;
-  background: #fef3c7;
-  font-size: 20px;
-}
-.feedback-dialog-title {
-  font-size: 16px;
-  font-weight: 650;
-}
-.feedback-dialog-hint {
-  margin: 5px 0 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.5;
 }
-.feedback-dialog-input {
+.feedback-inline-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.feedback-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--page-bg);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.feedback-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.feedback-chip.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.feedback-inline-input {
   width: 100%;
-  min-height: 76px;
-  height: auto;
-  padding: 9px 10px;
+  min-height: 48px;
+  padding: 8px 10px;
   resize: vertical;
   font-size: 12px;
 }
-.feedback-dialog-actions {
+.feedback-inline-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 10px;
 }
-.feedback-dialog-actions button {
-  min-height: 32px;
+.feedback-inline-actions button {
+  min-height: 30px;
   padding: 0 14px;
   border-radius: 7px;
   cursor: pointer;
   font: inherit;
   font-size: 12px;
 }
-.feedback-cancel-button {
+.feedback-inline-skip {
   border: 1px solid var(--border);
   background: transparent;
   color: var(--muted);
 }
-.feedback-submit-button {
-  border: 1px solid #2563eb;
-  background: #2563eb;
+.feedback-inline-submit {
+  border: 1px solid var(--accent);
+  background: var(--accent);
   color: #fff;
+}
+.feedback-inline-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.feedback-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  z-index: 60;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: #020617;
+  box-shadow: 0 8px 24px #0005;
+  color: #f8fafc;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  transform: translateX(-50%);
+  animation: feedback-toast-in 0.18s ease-out;
+}
+:root[data-theme="light"] .feedback-toast {
+  background: #1f2937;
+  color: #f8fafc;
+}
+:root[data-theme="dark"] .feedback-toast {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.feedback-toast-thanks {
+  bottom: 96px;
+}
+@keyframes feedback-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 .app > footer {
   min-width: 0;
   min-height: 0;
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  position: relative;
+  flex: 0 0 auto;
   z-index: 5;
   max-height: min(42vh, 360px);
   /* Popovers open upward from the toolbar and must not be clipped by the
-     fixed composer container. */
+     composer container. */
   overflow: visible;
   padding: 12px 14px;
   background: var(--surface);
