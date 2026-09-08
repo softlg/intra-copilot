@@ -13,6 +13,7 @@ import "./components/EmptyState.css";
 import "./components/Sparkline.css";
 import "./components/Icon.css";
 import "./components/KeyboardShortcutsHelp.css";
+import "./components/Skeleton.css";
 import Pagination from "./components/Pagination";
 import { ToastContainer, toast } from "./components/Toast";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -30,6 +31,7 @@ import {
   isMac,
 } from "./components/useKeyboardShortcuts";
 import { KeyboardShortcutsHelp } from "./components/KeyboardShortcutsHelp";
+import { Skeleton } from "./components/Skeleton";
 
 const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8080/api/v1";
 type Language = "zh" | "en";
@@ -1201,6 +1203,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
   const [conversationLogs, setConversationLogs] = useState<
     ConversationLogSummary[]
   >([]);
@@ -1217,7 +1220,9 @@ function App() {
   const [conversationDetailLoading, setConversationDetailLoading] =
     useState(false);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(true);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpServersLoading, setMcpServersLoading] = useState(true);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [editingMcpId, setEditingMcpId] = useState<string>();
   const [mcpName, setMcpName] = useState("");
@@ -1231,7 +1236,9 @@ function App() {
   const [mcpDetails, setMcpDetails] = useState<McpServer>();
   const [mcpErrorDetail, setMcpErrorDetail] = useState<McpServer | null>(null);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(true);
   const [hooks, setHooks] = useState<HookDefinition[]>([]);
+  const [hooksLoading, setHooksLoading] = useState(true);
   const [feedback, setFeedback] = useState<AgentFeedback[]>([]);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary>();
   const [resourceDialog, setResourceDialog] = useState<"tool" | "skill">();
@@ -1300,6 +1307,7 @@ function App() {
   const [hookSubmitting, setHookSubmitting] = useState(false);
   const [hookActionId, setHookActionId] = useState<string>();
   const [bases, setBases] = useState<Base[]>([]);
+  const [basesLoading, setBasesLoading] = useState(true);
   const [documents, setDocuments] = useState<
     Record<string, KnowledgeDocument[]>
   >({});
@@ -1486,9 +1494,11 @@ function App() {
   }, [settingsOpen]);
 
   const loadAgents = () => {
+    setAgentsLoading(true);
     request<Agent[]>("/admin/agents")
       .then(setAgents)
-      .catch(() => setAgents([]));
+      .catch(() => setAgents([]))
+      .finally(() => setAgentsLoading(false));
   };
 
   const loadConversationLogs = () => {
@@ -1529,27 +1539,35 @@ function App() {
   };
 
   const loadTools = () => {
+    setToolsLoading(true);
     request<ToolDefinition[]>("/admin/tools")
       .then(setTools)
-      .catch(() => setTools([]));
+      .catch(() => setTools([]))
+      .finally(() => setToolsLoading(false));
   };
 
   const loadMcpServers = () => {
+    setMcpServersLoading(true);
     request<McpServer[]>("/admin/mcp-servers")
       .then(setMcpServers)
-      .catch(() => setMcpServers([]));
+      .catch(() => setMcpServers([]))
+      .finally(() => setMcpServersLoading(false));
   };
 
   const loadSkills = () => {
+    setSkillsLoading(true);
     request<SkillDefinition[]>("/admin/skills")
       .then(setSkills)
-      .catch(() => setSkills([]));
+      .catch(() => setSkills([]))
+      .finally(() => setSkillsLoading(false));
   };
 
   const loadHooks = () => {
+    setHooksLoading(true);
     request<HookDefinition[]>("/admin/hooks")
       .then(setHooks)
-      .catch(() => setHooks([]));
+      .catch(() => setHooks([]))
+      .finally(() => setHooksLoading(false));
   };
 
   const loadFeedback = () => {
@@ -1562,6 +1580,7 @@ function App() {
   };
 
   const loadBases = () => {
+    setBasesLoading(true);
     request<Base[]>("/admin/knowledge-bases")
       .then((list) => {
         setBases(list);
@@ -1583,7 +1602,8 @@ function App() {
       .catch(() => {
         setBases([]);
         setDocuments({});
-      });
+      })
+      .finally(() => setBasesLoading(false));
     request<EmbeddingProfile[]>("/admin/embedding-profiles")
       .then(setEmbeddingProfiles)
       .catch(() => setEmbeddingProfiles([]));
@@ -4075,8 +4095,17 @@ function App() {
                   <h3>{agentListTab.title}</h3>
                   <p>{agentListTab.hint}</p>
                 </div>
-                <span className="group-count">{agentListTab.items.length}</span>
+                <span className="group-count">
+                  {agentsLoading && !agentListTab.items.length ? (
+                    <Skeleton width="24px" height="14px" />
+                  ) : (
+                    agentListTab.items.length
+                  )}
+                </span>
               </div>
+              {agentsLoading && !agentListTab.items.length ? (
+                <Skeleton.CardList count={4} />
+              ) : (
               <div className="grid">
                 {agentListTab.items.map((agent) => {
                   const parent = agent.parentAgentId
@@ -4110,6 +4139,7 @@ function App() {
                   );
                 })}
               </div>
+              )}
               {agentListTab.items.length === 0 &&
                 (filteredAgents.length < agents.length ? (
                   <EmptyState
@@ -4148,6 +4178,9 @@ function App() {
             {!activeBase ? (
               <>
                 <button onClick={addBase}>{t.newBase}</button>
+                {basesLoading && bases.length === 0 ? (
+                  <Skeleton.CardList count={3} />
+                ) : (
                 <div className="grid">
                   {filteredBases.map((base) => (
                     <article
@@ -4188,6 +4221,7 @@ function App() {
                     </article>
                   ))}
                 </div>
+                )}
                 {bases.length === 0 ? (
                   <EmptyState
                     icon="📚"
@@ -4601,7 +4635,9 @@ function App() {
               </div>
               <button onClick={() => openMcpDialog()}>{t.newMcpServer}</button>
             </div>
-            {mcpServers.length === 0 ? (
+            {mcpServersLoading && mcpServers.length === 0 ? (
+              <Skeleton.CardList count={3} />
+            ) : mcpServers.length === 0 ? (
               <EmptyState
                 icon="🔌"
                 title={t.noResources}
@@ -4785,7 +4821,9 @@ function App() {
             </div>
             <div className="resource-section">
               <h3>{t.tool}</h3>
-              {tools.length === 0 ? (
+              {toolsLoading && tools.length === 0 ? (
+                <Skeleton.CardList count={3} />
+              ) : tools.length === 0 ? (
                 <EmptyState
                   icon="🔧"
                   title={t.noResources}
@@ -4884,7 +4922,9 @@ function App() {
             </div>
             <div className="resource-section">
               <h3>{t.skill}</h3>
-              {skills.length === 0 ? (
+              {skillsLoading && skills.length === 0 ? (
+                <Skeleton.CardList count={3} />
+              ) : skills.length === 0 ? (
                 <EmptyState
                   icon="✨"
                   title={t.noResources}
@@ -4963,7 +5003,9 @@ function App() {
                 {t.newHook}
               </button>
             </div>
-            {hooks.length === 0 ? (
+            {hooksLoading && hooks.length === 0 ? (
+              <Skeleton.CardList count={3} />
+            ) : hooks.length === 0 ? (
               <EmptyState
                 icon="🪝"
                 title={t.noHooks}
