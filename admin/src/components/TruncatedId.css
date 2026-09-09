@@ -18,6 +18,9 @@
 }
 
 .truncated-id-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   color: var(--muted-subtle);
   padding: 0;

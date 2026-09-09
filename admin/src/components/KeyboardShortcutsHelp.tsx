@@ -35,17 +35,12 @@ export function KeyboardShortcutsHelp({
       >
         <header>
           <h3 id="kbd-help-title">键盘快捷键</h3>
-          <button
-            className="modal-close"
-            aria-label="Close"
-            onClick={onClose}
-          >
+          <button className="modal-close" aria-label="Close" onClick={onClose}>
             ×
           </button>
         </header>
         <p className="modal-subtitle">
-          {isMac ? "macOS" : "Windows/Linux"} · 按{" "}
-          <kbd>Esc</kbd> 关闭弹窗
+          {isMac ? "macOS" : "Windows/Linux"} · 按 <kbd>Esc</kbd> 关闭弹窗
         </p>
         <ul className="kbd-help-list">
           {items.map((item) => (

@@ -1,13 +1,14 @@
+import { Icon, type IconName } from "./Icon";
 import "./StatusBadge.css";
 
 export type StatusKind = "ok" | "off" | "warn" | "error" | "neutral";
 
-const ICONS: Record<StatusKind, string> = {
-  ok: "✓",
-  off: "○",
-  warn: "!",
-  error: "✕",
-  neutral: "·",
+const ICONS: Record<StatusKind, IconName> = {
+  ok: "check",
+  off: "circle",
+  warn: "warn",
+  error: "alert",
+  neutral: "dot",
 };
 
 export interface StatusBadgeProps {
@@ -24,7 +25,7 @@ export function StatusBadge({ kind, children, title }: StatusBadgeProps) {
       role={kind === "error" || kind === "warn" ? "status" : undefined}
     >
       <span className="status-badge-icon" aria-hidden="true">
-        {ICONS[kind]}
+        <Icon name={ICONS[kind]} size={12} />
       </span>
       <span className="status-badge-label">{children}</span>
     </span>

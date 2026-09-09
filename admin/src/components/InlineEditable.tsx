@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import {
   useCallback,
   useEffect,
@@ -121,9 +122,7 @@ export function InlineEditable({
     } catch (error) {
       // Roll back to the last known good value.
       setDraft(value);
-      setErrorMessage(
-        error instanceof Error ? error.message : "Save failed",
-      );
+      setErrorMessage(error instanceof Error ? error.message : "Save failed");
       // Keep editing mode so the user can retry without losing context.
     } finally {
       setSaving(false);
@@ -195,9 +194,7 @@ export function InlineEditable({
 
   if (editing) {
     const commonProps = {
-      ref: inputRef as React.RefObject<
-        HTMLInputElement & HTMLTextAreaElement
-      >,
+      ref: inputRef as React.RefObject<HTMLInputElement & HTMLTextAreaElement>,
       value: draft,
       onChange: (
         event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
@@ -226,7 +223,7 @@ export function InlineEditable({
         )}
         {saving ? (
           <span className="inline-editable-spinner" aria-hidden="true">
-            ⏳
+            <Icon name="clock" size={13} />
           </span>
         ) : null}
         {errorMessage ? (
@@ -258,16 +255,14 @@ export function InlineEditable({
     >
       <span
         className={
-          hasValue
-            ? "inline-editable-value"
-            : "inline-editable-placeholder"
+          hasValue ? "inline-editable-value" : "inline-editable-placeholder"
         }
       >
         {hasValue ? value : placeholder}
       </span>
       {!disabled ? (
         <span className="inline-editable-pencil" aria-hidden="true">
-          ✎
+          <Icon name="edit" size={13} />
         </span>
       ) : null}
     </span>

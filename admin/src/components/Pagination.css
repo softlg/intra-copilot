@@ -39,6 +39,9 @@
 }
 
 .pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 30px;
   height: 30px;
   padding: 0 8px;

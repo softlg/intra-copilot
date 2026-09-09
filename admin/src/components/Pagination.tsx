@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import "./Pagination.css";
 
 export interface PaginationLabels {
@@ -92,7 +93,7 @@ export default function Pagination({
           aria-label={prevLabel}
           title={prevLabel}
         >
-          ‹
+          <Icon name="chevron-left" size={14} />
         </button>
 
         {buildPageItems(current, totalPages).map((item, index) =>
@@ -123,7 +124,7 @@ export default function Pagination({
           aria-label={nextLabel}
           title={nextLabel}
         >
-          ›
+          <Icon name="chevron-right" size={14} />
         </button>
       </div>
 

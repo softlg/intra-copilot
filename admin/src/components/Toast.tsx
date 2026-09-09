@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Icon } from "./Icon";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import "./Toast.css";
 
 export type ToastKind = "success" | "error" | "warning" | "info";
@@ -38,10 +45,14 @@ class ToastBus {
     return () => this.listeners.delete(listener);
   };
 
-  push(kind: ToastKind, message: string, options?: {
-    duration?: number;
-    action?: ToastItem["action"];
-  }): string {
+  push(
+    kind: ToastKind,
+    message: string,
+    options?: {
+      duration?: number;
+      action?: ToastItem["action"];
+    },
+  ): string {
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const item: ToastItem = {
       id,
@@ -69,22 +80,34 @@ const bus = new ToastBus();
 
 /** Imperative API used by event handlers and async flows. */
 export const toast = {
-  success: (message: string, options?: {
-    duration?: number;
-    action?: ToastItem["action"];
-  }) => bus.push("success", message, options),
-  error: (message: string, options?: {
-    duration?: number;
-    action?: ToastItem["action"];
-  }) => bus.push("error", message, options),
-  warning: (message: string, options?: {
-    duration?: number;
-    action?: ToastItem["action"];
-  }) => bus.push("warning", message, options),
-  info: (message: string, options?: {
-    duration?: number;
-    action?: ToastItem["action"];
-  }) => bus.push("info", message, options),
+  success: (
+    message: string,
+    options?: {
+      duration?: number;
+      action?: ToastItem["action"];
+    },
+  ) => bus.push("success", message, options),
+  error: (
+    message: string,
+    options?: {
+      duration?: number;
+      action?: ToastItem["action"];
+    },
+  ) => bus.push("error", message, options),
+  warning: (
+    message: string,
+    options?: {
+      duration?: number;
+      action?: ToastItem["action"];
+    },
+  ) => bus.push("warning", message, options),
+  info: (
+    message: string,
+    options?: {
+      duration?: number;
+      action?: ToastItem["action"];
+    },
+  ) => bus.push("info", message, options),
   dismiss: (id: string) => bus.dismiss(id),
 };
 
@@ -119,10 +142,18 @@ function ToastView({
       role={item.kind === "error" ? "alert" : "status"}
     >
       <span className="toast-icon" aria-hidden="true">
-        {item.kind === "success" && "✓"}
-        {item.kind === "error" && "⚠"}
-        {item.kind === "warning" && "!"}
-        {item.kind === "info" && "i"}
+        <Icon
+          name={
+            item.kind === "success"
+              ? "check"
+              : item.kind === "info"
+                ? "info"
+                : item.kind === "warning"
+                  ? "warn"
+                  : "alert"
+          }
+          size={14}
+        />
       </span>
       <span className="toast-message">{item.message}</span>
       {item.action && (
@@ -143,7 +174,7 @@ function ToastView({
         aria-label="关闭"
         onClick={onDismiss}
       >
-        ×
+        <Icon name="close" size={14} />
       </button>
     </div>
   );

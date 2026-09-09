@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { useState } from "react";
 import { toast } from "./Toast";
 import { Tooltip } from "./Tooltip";
@@ -55,7 +56,11 @@ export function TruncatedId({
           aria-label={`复制 ${label}`}
           onClick={handleCopy}
         >
-          {copied ? "✓" : "⧉"}
+          {copied ? (
+            <Icon name="check" size={12} />
+          ) : (
+            <Icon name="copy" size={12} />
+          )}
         </button>
       </span>
     </Tooltip>

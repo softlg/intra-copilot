@@ -18,7 +18,17 @@
 
 ## 颜色 Token
 
-深色主题使用 `--bg-page`、`--bg-sidebar`、`--bg-surface`、`--bg-control`、`--border-subtle`、`--text-primary`、`--text-secondary`、`--text-tertiary`、`--brand`、`--success`、`--warning`、`--danger`。组件中不得新增未命名的原始颜色。
+配色统一走 `admin/src/style.css` 顶部的语义 Token，`:root` 为深色、`:root[data-theme="light"]` 为浅色，两者键名完全一致。分组如下：
+
+- 表面：`--page-bg`、`--surface`、`--surface-raised`、`--surface-sunken`、`--surface-muted`、`--surface-hover`、`--control-bg`、`--control-hover`、`--input-bg`、`--pre-bg`、`--chip-bg`、`--code-block-bg`、`--off-surface`
+- 描边：`--border`、`--border-strong`、`--border-faint`、`--input-border`、`--off-border`
+- 文字：`--text`、`--text-strong`、`--text-on-brand`、`--muted`、`--muted-subtle`、`--text-muted`、`--nav-idle`、`--nav-active-bg`、`--nav-active-text`、`--focus-ring`、`--focus-shadow`、`--code-color`、`--accent-text`
+- 品牌：`--brand`、`--brand-hover`、`--accent`、`--brand-surface`、`--brand-surface-hover`、`--brand-surface-text`、`--brand-border`、`--tag-bg`、`--tag-text`
+- 状态：`--success`、`--success-strong`、`--success-surface`、`--warning`、`--warning-surface`、`--danger`、`--danger-strong`、`--danger-soft`、`--danger-text`、`--danger-surface`、`--danger-border`
+- 状态药丸（深浅同色）：`--status-*-bg` / `--status-*-border` / `--status-*-text`
+- 半透明染色与阴影：`--accent-tint*`、`--danger-tint*`、`--warning-tint*`、`--shadow-card-hover`、`--modal-actions-fade`
+
+组件中不得新增未命名的原始颜色；需要新颜色时先加 Token，再在深色/浅色两处都给出值。
 
 - 正文对比度至少 4.5:1。
 - 正文不低于 14px，辅助信息不低于 12px。

@@ -47,10 +47,15 @@ Skeleton.Line = function SkeletonLine({
 };
 
 /** A circular placeholder, useful for avatars / icons. */
-Skeleton.Circle = function SkeletonCircle({
-  size = 28,
-}: { size?: number }) {
-  return <Skeleton width={size} height={size} radius="50%" className="skeleton-circle" />;
+Skeleton.Circle = function SkeletonCircle({ size = 28 }: { size?: number }) {
+  return (
+    <Skeleton
+      width={size}
+      height={size}
+      radius="50%"
+      className="skeleton-circle"
+    />
+  );
 };
 
 /** A single resource card placeholder. */
@@ -74,7 +79,9 @@ Skeleton.Card = function SkeletonCard() {
 /** A list of resource card placeholders. */
 Skeleton.CardList = function SkeletonCardList({
   count = 6,
-}: { count?: number }) {
+}: {
+  count?: number;
+}) {
   return (
     <div
       className="grid"
@@ -98,11 +105,7 @@ Skeleton.Row = function SkeletonRow({ cells = 4 }: { cells?: number }) {
       style={{ padding: "10px 0" }}
     >
       {Array.from({ length: cells }, (_, i) => (
-        <Skeleton
-          key={i}
-          width={`${80 - i * 12}%`}
-          height="14px"
-        />
+        <Skeleton key={i} width={`${80 - i * 12}%`} height="14px" />
       ))}
     </div>
   );

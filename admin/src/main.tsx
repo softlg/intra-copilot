@@ -3364,7 +3364,10 @@ function App() {
             aria-label={sidebarCollapsed ? t.expandSidebar : t.collapseSidebar}
             title={sidebarCollapsed ? t.expandSidebar : t.collapseSidebar}
           >
-            {sidebarCollapsed ? "›" : "‹"}
+            <Icon
+              name={sidebarCollapsed ? "chevron-right" : "chevron-left"}
+              size={16}
+            />
           </button>
         </div>
         <div className="nav-group">
@@ -3383,7 +3386,7 @@ function App() {
               aria-label={t.agents}
             >
               <span className="nav-icon" aria-hidden="true">
-                ◆
+                <Icon name="agents" size={16} />
               </span>
               {!sidebarCollapsed && <span>{t.agents}</span>}
             </button>
@@ -3395,7 +3398,10 @@ function App() {
                 aria-label={t.agentRole}
                 title={t.agentRole}
               >
-                {agentMenuOpen ? "▾" : "▸"}
+                <Icon
+                  name={agentMenuOpen ? "chevron-down" : "chevron-right"}
+                  size={12}
+                />
               </button>
             )}
           </div>
@@ -3423,14 +3429,14 @@ function App() {
           )}
         </div>
         {[
-          ["knowledge", "▣"],
-          ["mcp-servers", "⌘"],
-          ["tools", "⚒"],
-          ["skills", "✦"],
-          ["hooks", "⚑"],
-          ["ratings", "★"],
-          ["conversation-logs", "☷"],
-          ["router", "⌁"],
+          ["knowledge", "knowledge"],
+          ["mcp-servers", "mcp"],
+          ["tools", "tool"],
+          ["skills", "sparkle"],
+          ["hooks", "flag"],
+          ["ratings", "star"],
+          ["conversation-logs", "chat"],
+          ["router", "router"],
         ].map(([key, icon]) => {
           const labels: Record<string, string> = {
             knowledge: t.knowledge,
@@ -3451,7 +3457,7 @@ function App() {
               key={key}
             >
               <span className="nav-icon" aria-hidden="true">
-                {icon}
+                <Icon name={icon as IconName} size={16} />
               </span>
               {!sidebarCollapsed && <span>{labels[key]}</span>}
             </button>
@@ -3508,7 +3514,7 @@ function App() {
               aria-label={t.settings}
               title={t.settings}
             >
-              ⚙
+              <Icon name="settings" size={18} />
             </button>
             {settingsOpen && (
               <div
@@ -4418,19 +4424,19 @@ function App() {
                 (filteredAgents.length < agents.length ? (
                   <EmptyState
                     compact
-                    icon="🔍"
+                    icon={<Icon name="search" size={22} />}
                     title={t.noSearchResults}
                     hint={t.noSearchResultsHint}
                   />
                 ) : agentListTab.role === "MAIN" ? (
                   <EmptyState
-                    icon="🤖"
+                    icon={<Icon name="bot" size={22} />}
                     title={t.noAgentOfType}
                     hint={t.noSystemAgentHint}
                   />
                 ) : (
                   <EmptyState
-                    icon="🤖"
+                    icon={<Icon name="bot" size={22} />}
                     title={t.noAgentOfType}
                     hint={t.noDomainAgentHint}
                     action={
@@ -4519,7 +4525,7 @@ function App() {
                 )}
                 {bases.length === 0 ? (
                   <EmptyState
-                    icon="📚"
+                    icon={<Icon name="knowledge" size={22} />}
                     title={t.noKnowledgeBases}
                     hint={t.noKnowledgeBasesHint}
                     action={<button onClick={addBase}>{t.newBase}</button>}
@@ -4527,7 +4533,7 @@ function App() {
                 ) : filteredBases.length === 0 ? (
                   <EmptyState
                     compact
-                    icon="🔍"
+                    icon={<Icon name="search" size={22} />}
                     title={t.noSearchResults}
                     hint={t.noSearchResultsHint}
                   />
@@ -4572,11 +4578,15 @@ function App() {
                     onClick={saveKnowledgeSettings}
                     disabled={baseSaving}
                   >
-                    {baseSaving
-                      ? t.savingSettings
-                      : qaSaved
-                        ? `✓ ${t.saved}`
-                        : t.saveSettings}
+                    {baseSaving ? (
+                      t.savingSettings
+                    ) : qaSaved ? (
+                      <>
+                        <Icon name="check" size={12} /> {t.saved}
+                      </>
+                    ) : (
+                      t.saveSettings
+                    )}
                   </button>
                 </div>
                 <div className="detail-tabs" role="tablist">
@@ -4940,7 +4950,7 @@ function App() {
               <Skeleton.CardList count={3} />
             ) : mcpServers.length === 0 ? (
               <EmptyState
-                icon="🔌"
+                icon={<Icon name="plug" size={22} />}
                 title={t.noResources}
                 hint={t.noMcpServerHint}
                 action={
@@ -5057,7 +5067,7 @@ function App() {
                         {mcpActionId === server.id ? t.loading : t.mcpHealth}
                       </button>
                       <Dropdown
-                        trigger="···"
+                        trigger={<Icon name="more" size={16} />}
                         align="right"
                         ariaLabel={t.moreActions}
                         items={[
@@ -5121,7 +5131,7 @@ function App() {
                 <Skeleton.CardList count={3} />
               ) : tools.length === 0 ? (
                 <EmptyState
-                  icon="🔧"
+                  icon={<Icon name="tool" size={22} />}
                   title={t.noResources}
                   hint={t.noResourcesHint}
                   action={
@@ -5133,7 +5143,7 @@ function App() {
               ) : filteredTools.length === 0 ? (
                 <EmptyState
                   compact
-                  icon="🔍"
+                  icon={<Icon name="search" size={22} />}
                   title={t.noSearchResults}
                   hint={t.noSearchResultsHint}
                 />
@@ -5225,7 +5235,7 @@ function App() {
                 <Skeleton.CardList count={3} />
               ) : skills.length === 0 ? (
                 <EmptyState
-                  icon="✨"
+                  icon={<Icon name="sparkle" size={22} />}
                   title={t.noResources}
                   hint={t.noResourcesHint}
                   action={
@@ -5237,7 +5247,7 @@ function App() {
               ) : filteredSkills.length === 0 ? (
                 <EmptyState
                   compact
-                  icon="🔍"
+                  icon={<Icon name="search" size={22} />}
                   title={t.noSearchResults}
                   hint={t.noSearchResultsHint}
                 />
@@ -5309,7 +5319,7 @@ function App() {
               <Skeleton.CardList count={3} />
             ) : hooks.length === 0 ? (
               <EmptyState
-                icon="🪝"
+                icon={<Icon name="hook" size={22} />}
                 title={t.noHooks}
                 hint={t.noResourcesHint}
                 action={
@@ -5321,7 +5331,7 @@ function App() {
             ) : filteredHooks.length === 0 ? (
               <EmptyState
                 compact
-                icon="🔍"
+                icon={<Icon name="search" size={22} />}
                 title={t.noSearchResults}
                 hint={t.noSearchResultsHint}
               />

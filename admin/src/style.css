@@ -273,6 +273,9 @@ aside.sidebar-collapsed .sidebar-brand {
 }
 
 .sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   width: 28px;
   height: 28px;
@@ -349,6 +352,9 @@ aside.sidebar-collapsed .nav-icon {
 }
 
 .nav-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   width: 26px;
   height: 34px;
@@ -460,6 +466,9 @@ main > section {
 }
 
 .settings-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 34px;
   height: 34px;
   padding: 0;
