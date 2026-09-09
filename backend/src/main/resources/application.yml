@@ -31,11 +31,11 @@ spring:
     locations: classpath:db/migration
   webflux:
     multipart:
-      max-in-memory-size: 10MB
+      max-in-memory-size: 100MB
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 50MB
+      max-file-size: 100MB
+      max-request-size: 200MB
 mybatis-plus:
   mapper-locations: classpath:/mapper/**/*.xml
   configuration.map-underscore-to-camel-case: true
@@ -44,21 +44,34 @@ management:
 embedding:
   default-provider: ${EMBEDDING_PROVIDER:openai}
   dimension: ${EMBEDDING_DIMENSION:1536}
+  # Transient provider failures (429/5xx/network) are retried with exponential backoff.
+  max-attempts: ${EMBEDDING_MAX_ATTEMPTS:3}
+  retry-backoff-ms: ${EMBEDDING_RETRY_BACKOFF_MS:1000}
   providers:
     openai:
       base-url: ${EMBEDDING_BASE_URL:${LLM_BASE_URL:https://api.openai.com/v1}}
       api-key: ${EMBEDDING_API_KEY:${LLM_API_KEY:}}
       path: ${EMBEDDING_PATH:/embeddings}
+      qps: ${EMBEDDING_OPENAI_QPS:60}
+      cost-per-1k-tokens: ${EMBEDDING_OPENAI_COST_PER_1K:0.00002}
     local:
       base-url: ${LOCAL_EMBEDDING_BASE_URL:http://127.0.0.1:8000/v1}
       api-key: ${LOCAL_EMBEDDING_API_KEY:}
       path: ${LOCAL_EMBEDDING_PATH:/embeddings}
+      qps: ${LOCAL_EMBEDDING_QPS:200}
+      cost-per-1k-tokens: ${LOCAL_EMBEDDING_COST_PER_1K:0}
 rag:
   top-k: ${RAG_TOP_K:5}
   chunk-size: ${RAG_CHUNK_SIZE:1200}
   chunk-overlap: ${RAG_CHUNK_OVERLAP:200}
   similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.65}
-  max-document-bytes: ${RAG_MAX_DOCUMENT_BYTES:10485760}
+  max-document-bytes: ${RAG_MAX_DOCUMENT_BYTES:104857600}
+kb:
+  indexing:
+    enabled: ${KB_INDEXING_ENABLED:true}
+    concurrency: ${KB_INDEXING_CONCURRENCY:2}
+    poll-interval-ms: ${KB_INDEXING_POLL_INTERVAL_MS:1000}
+    max-attempts: ${KB_INDEXING_MAX_ATTEMPTS:3}
 tools:
   # 内网部署场景可使用 HTTP 和本机服务；仍会拒绝云元数据地址。
   allow-http: ${TOOLS_ALLOW_HTTP:true}

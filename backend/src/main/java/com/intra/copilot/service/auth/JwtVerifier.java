@@ -1,7 +1,6 @@
 package com.intra.copilot.service.auth;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intra.copilot.model.DeviceKey;
 import com.intra.copilot.repo.DeviceKeyRepository;
 import com.nimbusds.jose.JWSVerifier;
@@ -23,7 +22,6 @@ import org.springframework.stereotype.Service;
 public class JwtVerifier {
 
     private final DeviceKeyRepository deviceKeys;
-    private final ObjectMapper mapper = new ObjectMapper();
 
     public JwtVerifier(DeviceKeyRepository deviceKeys) {
         this.deviceKeys = deviceKeys;
@@ -70,7 +68,10 @@ public class JwtVerifier {
 
         JWSVerifier verifier;
         try {
-            JsonNode jwk = mapper.readTree(device.getPublicKeyJwk());
+            JsonNode jwk = device.getPublicKeyJwk();
+            if (jwk == null || jwk.isNull()) {
+                throw new IllegalArgumentException("Stored public key missing");
+            }
             RSAKey rsaKey = RSAKey.parse(jwk.toString());
             verifier = new RSASSAVerifier((RSAPublicKey) rsaKey.toRSAPublicKey());
         } catch (Exception e) {

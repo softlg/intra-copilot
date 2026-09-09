@@ -1,5 +1,6 @@
 package com.intra.copilot.web;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.intra.copilot.model.DeviceKey;
 import com.intra.copilot.repo.DeviceKeyRepository;
 import java.time.Instant;
@@ -11,10 +12,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 设备注册与身份相关接口。
- * - POST /api/v1/auth/devices/register
  *
- * 注册时由调用方提供 deviceId + publicKeyJwk + source；
- * 服务端用 deviceId 派生 user_id（格式 anon-{deviceId}），落库设备公钥。
+ * <ul>
+ *   <li>POST /api/v1/auth/devices/register</li>
+ * </ul>
+ *
+ * <p>注册时由调用方提供 {@code deviceId + publicKeyJwk + source}；服务端用 {@code deviceId}
+ * 派生 {@code user_id}（格式 {@code anon-{deviceId}}）并落库设备公钥。
  */
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -27,9 +31,7 @@ public class AuthController {
     }
 
     public record DeviceRegisterRequest(
-            String deviceId,
-            Object publicKeyJwk,
-            String source) {}
+            String deviceId, JsonNode publicKeyJwk, String source) {}
 
     @PostMapping("/devices/register")
     public Map<String, Object> register(@RequestBody DeviceRegisterRequest req) {
@@ -45,7 +47,7 @@ public class AuthController {
         DeviceKey existing = deviceKeys.selectById(req.deviceId());
         if (existing != null) {
             // 已注册：刷新公钥（如设备重装），保持 user_id
-            existing.setPublicKeyJwk(req.publicKeyJwk().toString());
+            existing.setPublicKeyJwk(req.publicKeyJwk());
             existing.setLastSeenAt(Instant.now());
             existing.setEnabled(true);
             deviceKeys.updateById(existing);
@@ -58,7 +60,7 @@ public class AuthController {
 
         DeviceKey device = new DeviceKey();
         device.setDeviceId(req.deviceId());
-        device.setPublicKeyJwk(req.publicKeyJwk().toString());
+        device.setPublicKeyJwk(req.publicKeyJwk());
         device.setSource(req.source());
         device.setUserId("anon-" + req.deviceId());
         device.setEnabled(true);

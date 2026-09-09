@@ -16,6 +16,14 @@ public class KnowledgeDocument {
     private String error;
     private String fileHash;
     private Long sizeBytes;
+    private String createdBy;
+    private String updatedBy;
+    private String sourceUrl;
+    private Integer version = 1;
+    private String parser;
+    private String chunkStrategy;
+    private String embeddingModel;
+    private Integer embeddingDimension;
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
 
@@ -93,6 +101,70 @@ public class KnowledgeDocument {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String value) {
+        createdBy = value;
+    }
+
+    public String getUpdatedBy() {
+        return updatedBy;
+    }
+
+    public void setUpdatedBy(String value) {
+        updatedBy = value;
+    }
+
+    public String getSourceUrl() {
+        return sourceUrl;
+    }
+
+    public void setSourceUrl(String value) {
+        sourceUrl = value;
+    }
+
+    public Integer getVersion() {
+        return version;
+    }
+
+    public void setVersion(Integer value) {
+        version = value;
+    }
+
+    public String getParser() {
+        return parser;
+    }
+
+    public void setParser(String value) {
+        parser = value;
+    }
+
+    public String getChunkStrategy() {
+        return chunkStrategy;
+    }
+
+    public void setChunkStrategy(String value) {
+        chunkStrategy = value;
+    }
+
+    public String getEmbeddingModel() {
+        return embeddingModel;
+    }
+
+    public void setEmbeddingModel(String value) {
+        embeddingModel = value;
+    }
+
+    public Integer getEmbeddingDimension() {
+        return embeddingDimension;
+    }
+
+    public void setEmbeddingDimension(Integer value) {
+        embeddingDimension = value;
     }
 
     public void touch() {
