@@ -323,10 +323,18 @@ function normalizeAssistantMarkdown(value: string): string {
       return part
         .replace(/(^|\n)([ \t]*#{1,6})(?=\S)/g, "$1$2 ")
         .replace(/([^\n])\s+(#{1,6})(?=\S)/g, "$1\n$2 ")
-        .replace(/([^\n])\s+(?=(?:\d{1,2}[.)]|[-*+•])\s+\S)/g, "$1\n")
+        .replace(/([^\n])\s+(?=(?:\d{1,2}[.)]|[-*+•])\s*\S)/g, "$1\n")
         .replace(
           /([。！？.!?])\s+(?=(?:下一步|注意|总结|说明|结论|示例)[:：])/g,
           "$1\n\n",
+        )
+        .replace(
+          /([。！？.!?])\s+(?=[\u4e00-\u9fffA-Za-z][^\n。！？]{1,18}[:：])/g,
+          "$1\n\n",
+        )
+        .replace(
+          /\s+[·•]\s*(?=[\u4e00-\u9fffA-Za-z][^\n。！？]{1,18}[:：])/g,
+          "\n\n",
         )
         .replace(/([^\n])\s+(?=\|[^\n]+\|\s*\n)/g, "$1\n");
     })
