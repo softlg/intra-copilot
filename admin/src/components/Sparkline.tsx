@@ -18,6 +18,8 @@ export interface SparklineProps {
   fill?: string;
   /** Accessible label. */
   ariaLabel?: string;
+  /** Optional extra class name applied to the root element. */
+  className?: string;
 }
 
 /**
@@ -34,11 +36,15 @@ export function Sparkline({
   stroke = "var(--brand)",
   fill = "var(--brand-fill, rgba(79, 128, 232, 0.18))",
   ariaLabel,
+  className,
 }: SparklineProps) {
+  const rootClassName = className ? `sparkline ${className}` : "sparkline";
   if (points.length === 0) {
     return (
       <div
-        className="sparkline sparkline-empty"
+        className={
+          className ? `${rootClassName} sparkline-empty` : rootClassName
+        }
         style={{ width, height }}
         aria-label={ariaLabel ?? "no data"}
         role="img"
@@ -62,24 +68,23 @@ export function Sparkline({
   });
 
   const linePath = coords
-    .map((coord, index) =>
-      `${index === 0 ? "M" : "L"}${coord.x.toFixed(2)},${coord.y.toFixed(2)}`,
+    .map(
+      (coord, index) =>
+        `${index === 0 ? "M" : "L"}${coord.x.toFixed(2)},${coord.y.toFixed(2)}`,
     )
     .join(" ");
-  const areaPath = `${linePath} L${(width).toFixed(2)},${(height - padY).toFixed(2)} L0,${(height - padY).toFixed(2)} Z`;
+  const areaPath = `${linePath} L${width.toFixed(2)},${(height - padY).toFixed(2)} L0,${(height - padY).toFixed(2)} Z`;
 
   return (
     <svg
-      className="sparkline"
+      className={rootClassName}
       width={width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label={
         ariaLabel ??
-        points
-          .map((point) => `${point.label}: ${point.value}`)
-          .join(", ")
+        points.map((point) => `${point.label}: ${point.value}`).join(", ")
       }
     >
       <path d={areaPath} fill={fill} stroke="none" />
@@ -92,13 +97,7 @@ export function Sparkline({
         strokeLinecap="round"
       />
       {coords.map((coord, index) => (
-        <circle
-          key={index}
-          cx={coord.x}
-          cy={coord.y}
-          r={1.5}
-          fill={stroke}
-        />
+        <circle key={index} cx={coord.x} cy={coord.y} r={1.5} fill={stroke} />
       ))}
     </svg>
   );

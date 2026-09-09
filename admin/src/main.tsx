@@ -197,6 +197,7 @@ const translations = {
     descriptionOptional: "描述（可选）",
     descriptionLabel: "描述",
     descriptionRequired: "请填写描述",
+    required: "必填",
     agentDescriptionPlaceholder: "简要说明这个 Agent 负责处理什么问题",
     systemPrompt: "系统提示词",
     systemPromptPlaceholder: "定义 Agent 的角色、边界和回答方式",
@@ -289,7 +290,6 @@ const translations = {
     saved: "已保存",
     localModeHint: "后端连接的是本机服务，配置改动会立即生效",
     save: "保存",
-    saved: "已保存",
     collapseSidebar: "收缩菜单栏",
     expandSidebar: "展开菜单栏",
     testAgent: "测试",
@@ -726,7 +726,6 @@ const translations = {
     localModeHint:
       "Backend is running locally. Configuration changes take effect immediately.",
     save: "Save",
-    saved: "Saved",
     collapseSidebar: "Collapse menu",
     expandSidebar: "Expand menu",
     testAgent: "Test",
@@ -977,6 +976,11 @@ type McpServer = {
   lastCheckedAt?: string;
   lastLatencyMs?: number;
 };
+
+/** Updater shared by the tool and skill lists, which have different shapes. */
+type ResourceListUpdater = (
+  items: (ToolDefinition | SkillDefinition)[],
+) => (ToolDefinition | SkillDefinition)[];
 
 type SkillDefinition = {
   id: string;
@@ -2166,7 +2170,16 @@ function App() {
     }
     const snapshot = { ...resource };
     const path = `/admin/${kind === "tool" ? "tools" : "skills"}`;
-    const setter = kind === "tool" ? setTools : setSkills;
+    // `setTools` and `setSkills` have incompatible state types, so a bare
+    // union of the two setters loses its parameter type. Wrap them in one
+    // function that works on the shared resource shape instead.
+    const setter = (update: ResourceListUpdater) => {
+      if (kind === "tool") {
+        setTools((items) => update(items) as ToolDefinition[]);
+      } else {
+        setSkills((items) => update(items) as SkillDefinition[]);
+      }
+    };
     const reload = kind === "tool" ? loadTools : loadSkills;
     const deletedLabel = kind === "tool" ? t.toolDeleted : t.skillDeleted;
     askConfirm({
@@ -2374,11 +2387,11 @@ function App() {
         return;
       }
       if (confirmRequest) {
-        setConfirmRequest(undefined);
+        setConfirmRequest(null);
         return;
       }
       if (mcpErrorDetail) {
-        setMcpErrorDetail(undefined);
+        setMcpErrorDetail(null);
         return;
       }
       if (baseDialogOpen && !baseSubmitting) {
