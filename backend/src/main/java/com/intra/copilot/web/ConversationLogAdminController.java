@@ -8,6 +8,7 @@ import com.intra.copilot.repo.ActionProposalRepository;
 import com.intra.copilot.repo.AgentInvocationRepository;
 import com.intra.copilot.repo.ConversationRepository;
 import com.intra.copilot.repo.MessageRepository;
+import com.intra.copilot.service.TraceRecorder;
 import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -25,16 +26,19 @@ public class ConversationLogAdminController {
         private final MessageRepository messages;
         private final AgentInvocationRepository invocations;
         private final ActionProposalRepository actions;
+        private final TraceRecorder trace;
 
         public ConversationLogAdminController(
                         ConversationRepository conversations,
                         MessageRepository messages,
                         AgentInvocationRepository invocations,
-                        ActionProposalRepository actions) {
+                        ActionProposalRepository actions,
+                        TraceRecorder trace) {
                 this.conversations = conversations;
                 this.messages = messages;
                 this.invocations = invocations;
                 this.actions = actions;
+                this.trace = trace;
         }
 
         /** 分页列出会话摘要，可按会话 ID（模糊）过滤。 */
@@ -58,7 +62,7 @@ public class ConversationLogAdminController {
                 return new ConversationPage(items, total, safePage, safeSize);
         }
 
-        /** 单个会话的完整执行轨迹（消息 / 调用 / 动作提案）。 */
+        /** 单个会话的完整执行轨迹：消息 / 调用（含每个调用的事件明细）/ 动作提案。 */
         @GetMapping("/{id}")
         public ConversationLog detail(@PathVariable String id) {
                 Conversation conversation = conversations.findById(id)
@@ -66,15 +70,38 @@ public class ConversationLogAdminController {
                 return toLog(conversation);
         }
 
+        /** 完整调用链路：每次 invocation 附带其事件明细，按 sequence 排序还原执行流程。 */
         @GetMapping("/{id}/trace")
         public Trace trace(@PathVariable String id) {
                 Conversation conversation = conversations.findById(id)
                                 .orElseThrow(() -> new NoSuchElementException("会话不存在"));
-                List<AgentInvocation> values = invocations.findByConversationIdOrderByCreatedAtAsc(id).stream()
+                List<InvocationTrace> values = sortedInvocations(id).stream()
+                                .map(item -> new InvocationTrace(
+                                                item, trace.listByInvocation(item.getId())))
+                                .toList();
+                return new Trace(conversation.getId(), values);
+        }
+
+        /** 按调用 ID 查询单个 Agent 调用的事件明细。 */
+        @GetMapping("/invocations/{invocationId}/events")
+        public List<com.intra.copilot.model.AgentInvocationEvent> events(@PathVariable String invocationId) {
+                invocations.findById(invocationId)
+                                .orElseThrow(() -> new NoSuchElementException("调用记录不存在"));
+                return trace.listByInvocation(invocationId);
+        }
+
+        /** 按关联 ID 查询跨父子 Agent 的完整事件流。 */
+        @GetMapping("/invocations/by-correlation/{correlationId}")
+        public List<com.intra.copilot.model.AgentInvocationEvent> eventsByCorrelation(
+                        @PathVariable String correlationId) {
+                return trace.listByCorrelation(correlationId);
+        }
+
+        private List<AgentInvocation> sortedInvocations(String conversationId) {
+                return invocations.findByConversationIdOrderByCreatedAtAsc(conversationId).stream()
                                 .sorted(java.util.Comparator.comparing(AgentInvocation::getSequence,
                                                 java.util.Comparator.nullsLast(Integer::compareTo)))
                                 .toList();
-                return new Trace(conversation.getId(), values);
         }
 
         private ConversationSummary toSummary(Conversation conversation) {
@@ -94,7 +121,12 @@ public class ConversationLogAdminController {
                                 actions.findByConversationIdOrderByExpiresAtAsc(conversation.getId()));
         }
 
-        public record Trace(String conversationId, List<AgentInvocation> invocations) {}
+        public record Trace(String conversationId, List<InvocationTrace> invocations) {}
+
+        /** 单次 Agent 调用 + 其事件明细，用于在后台还原完整执行流程。 */
+        public record InvocationTrace(
+                        AgentInvocation invocation,
+                        List<com.intra.copilot.model.AgentInvocationEvent> events) {}
 
         public record ConversationSummary(
                         String id,

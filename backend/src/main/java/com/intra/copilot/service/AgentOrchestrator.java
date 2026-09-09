@@ -24,6 +24,7 @@ public class AgentOrchestrator {
     private final RouteCopilotAgent routeCopilot;
     private final LlmClient llm;
     private final AgentChildBindingRepository childBindings;
+    private final TraceRecorder trace;
     private final ObjectMapper json = new ObjectMapper();
 
     public AgentOrchestrator(
@@ -32,31 +33,67 @@ public class AgentOrchestrator {
             GeneralAgent general,
             RouteCopilotAgent routeCopilot,
             LlmClient llm,
-            AgentChildBindingRepository childBindings) {
+            AgentChildBindingRepository childBindings,
+            TraceRecorder trace) {
         this.registry = registry;
         this.rules = rules;
         this.general = general;
         this.routeCopilot = routeCopilot;
         this.llm = llm;
         this.childBindings = childBindings;
+        this.trace = trace;
     }
 
     public RoutingResult route(String text, String pageContext, List<Map<String, String>> history) {
+        return route(text, pageContext, history, null);
+    }
+
+    /**
+     * 带追踪信息的路由。返回结果中携带模型原始输出、使用的 system prompt、输入文本，
+     * 供调用方写入 agent_invocation_event 表。
+     */
+    public RoutingResult route(
+            String text, String pageContext, List<Map<String, String>> history, RouteTraceListener listener) {
         String prompt = routingPrompt();
         String input =
                 "用户消息：\n" + text + "\n\n页面上下文（可能为空）：\n" + (pageContext == null ? "" : pageContext);
+        if (listener != null) {
+            listener.onRouteStart(prompt, input, history, pageContext);
+        }
         try {
+            long started = System.nanoTime();
             Optional<String> response =
                     llm.complete(prompt, history, input).blockOptional(Duration.ofSeconds(8));
+            long durationMs = (System.nanoTime() - started) / 1_000_000L;
             if (response.isPresent()) {
                 RoutingResult parsed = parse(response.get());
-                if (parsed != null && parsed.confidence() >= MIN_CONFIDENCE) return parsed;
+                if (parsed != null && parsed.confidence() >= MIN_CONFIDENCE) {
+                    if (listener != null) {
+                        listener.onRouteEnd(parsed, response.get(), prompt, input, durationMs, "llm");
+                    }
+                    return parsed;
+                }
+                // 模型输出有效但置信度不足，记录后走兜底。
+                if (listener != null) {
+                    listener.onRouteEnd(
+                            null, response.get(), prompt, input, durationMs, "llm_low_confidence");
+                }
+            } else if (listener != null) {
+                listener.onRouteEnd(null, "", prompt, input, durationMs, "llm_empty");
             }
-        } catch (Exception ignored) {
+        } catch (Exception error) {
+            if (listener != null) {
+                listener.onRouteError(prompt, input, error);
+            }
             // Fall through to deterministic routing when the model is unavailable.
         }
         Agent fallback = rules.route(text);
-        return new RoutingResult(fallback, fallback.id(), 0.7, "规则兜底路由", "rules", false);
+        RoutingResult result =
+                new RoutingResult(fallback, fallback.id(), 0.7, "规则兜底路由", "rules", false, null);
+        if (listener != null) {
+            listener.onRouteEnd(result, "", prompt, input, 0L, "rules");
+        }
+        return result;
     }
 
     public Agent resolve(String id) {
@@ -90,12 +127,15 @@ public class AgentOrchestrator {
             AgentDefinition domain,
             String text,
             String pageContext,
-            List<Map<String, String>> history) {
+            List<Map<String, String>> history,
+            DelegationTraceListener listener) {
         if (domain == null || !"DOMAIN".equals(domain.getRole())) {
-            return new DelegationResult(false, resolve(domain == null ? null : domain.getId()), "DIRECT", "非领域 Agent 直接处理", 1.0);
+            return new DelegationResult(false, resolve(domain == null ? null : domain.getId()),
+                    "DIRECT", "非领域 Agent 直接处理", 1.0, List.of(), null);
         }
         if ("DIRECT".equals(domain.getHandlingMode())) {
-            return new DelegationResult(false, resolve(domain.getId()), "DIRECT", "领域 Agent 配置为直接处理", 1.0);
+            return new DelegationResult(false, resolve(domain.getId()), "DIRECT",
+                    "领域 Agent 配置为直接处理", 1.0, List.of(), null);
         }
         List<ChildCandidate> candidates = childBindings.findByParent(domain.getId()).stream()
                 .filter(AgentChildBinding::isEnabled)
@@ -104,17 +144,24 @@ public class AgentOrchestrator {
                         .map(child -> new ChildCandidate(binding, child)))
                 .flatMap(Optional::stream)
                 .toList();
+        if (listener != null) listener.onCandidates(domain.getId(), candidates);
         if (candidates.isEmpty()) {
-            return new DelegationResult(false, resolve(domain.getId()), "DIRECT", "未配置可用子 Agent", 1.0);
+            return new DelegationResult(false, resolve(domain.getId()), "DIRECT",
+                    "未配置可用子 Agent", 1.0, candidates, null);
         }
-        Optional<ChildCandidate> ruleMatch = candidates.stream().filter(candidate -> matchesRule(text, candidate.binding().getRoutingRule())).findFirst();
+        Optional<ChildCandidate> ruleMatch = candidates.stream()
+                .filter(candidate -> matchesRule(text, candidate.binding().getRoutingRule())).findFirst();
         if (ruleMatch.isPresent()) {
             Agent child = resolve(ruleMatch.get().definition().getId());
-            return new DelegationResult(true, child, "DELEGATE", "命中子 Agent 指派规则", 0.95);
+            if (listener != null) listener.onRuleMatch(domain.getId(), ruleMatch.get().binding(), ruleMatch.get().definition());
+            return new DelegationResult(true, child, "DELEGATE",
+                    "命中子 Agent 指派规则", 0.95, candidates, ruleMatch.get().binding().getRoutingRule());
         }
         if ("DELEGATE".equals(domain.getHandlingMode())) {
             Agent child = resolve(candidates.get(0).definition().getId());
-            return new DelegationResult(true, child, "DELEGATE", "领域 Agent 配置为优先委派", 0.8);
+            if (listener != null) listener.onFallback(domain.getId(), candidates.get(0).definition());
+            return new DelegationResult(true, child, "DELEGATE",
+                    "领域 Agent 配置为优先委派", 0.8, candidates, null);
         }
         String available = candidates.stream()
                 .map(candidate -> "- " + candidate.definition().getId() + ": " + candidate.definition().getDescription())
@@ -122,10 +169,13 @@ public class AgentOrchestrator {
         String prompt = "你是领域 Agent 的任务分发器。判断应该由领域 Agent 直接处理，还是委派给一个子 Agent。"
                 + "只输出 JSON：{\"mode\":\"DIRECT或DELEGATE\",\"childAgentId\":\"\",\"reason\":\"\",\"confidence\":0到1}。"
                 + "只能选择以下子 Agent：\n" + available;
+        if (listener != null) listener.onDispatchStart(domain.getId(), prompt, text, pageContext);
         try {
+            long started = System.nanoTime();
             Optional<String> response = llm.complete(prompt, history,
                     "用户消息：\n" + text + "\n页面上下文：\n" + (pageContext == null ? "" : pageContext))
                     .blockOptional(Duration.ofSeconds(8));
+            long durationMs = (System.nanoTime() - started) / 1_000_000L;
             if (response.isPresent()) {
                 JsonNode node = parseJson(response.get());
                 if (node != null && "DELEGATE".equals(node.path("mode").asText())) {
@@ -133,15 +183,38 @@ public class AgentOrchestrator {
                     Optional<ChildCandidate> selected = candidates.stream()
                             .filter(candidate -> candidate.definition().getId().equals(childId)).findFirst();
                     if (selected.isPresent()) {
+                        if (listener != null) listener.onDispatchEnd(
+                                domain.getId(), selected.get().definition(), response.get(), durationMs, true);
                         return new DelegationResult(true, resolve(childId), "DELEGATE",
-                                node.path("reason").asText("模型选择子 Agent"), node.path("confidence").asDouble(0.7));
+                                node.path("reason").asText("模型选择子 Agent"),
+                                node.path("confidence").asDouble(0.7), candidates, null);
                     }
                 }
+                if (listener != null) listener.onDispatchEnd(
+                        domain.getId(), null, response.get(), durationMs, false);
+            } else if (listener != null) {
+                listener.onDispatchEnd(domain.getId(), null, "", durationMs, false);
             }
-        } catch (Exception ignored) {
-            // Direct processing is the safe fallback for an unavailable dispatcher.
+        } catch (Exception error) {
+            if (listener != null) listener.onDispatchError(domain.getId(), error);
         }
-        return new DelegationResult(false, resolve(domain.getId()), "DIRECT", "未命中规则，领域 Agent 直接处理", 0.7);
+        return new DelegationResult(false, resolve(domain.getId()), "DIRECT",
+                "未命中规则，领域 Agent 直接处理", 0.7, candidates, null);
+    }
+
+    public DelegationResult decideDomain(
+            AgentDefinition domain, String text, String pageContext, List<Map<String, String>> history) {
+        return decideDomain(domain, text, pageContext, history, null);
+    }
+
+    /** 调用方实现此接口，将委派阶段的中间状态写入追踪表。 */
+    public interface DelegationTraceListener {
+        void onCandidates(String domainId, List<ChildCandidate> candidates);
+        void onRuleMatch(String domainId, AgentChildBinding binding, AgentDefinition child);
+        void onFallback(String domainId, AgentDefinition child);
+        void onDispatchStart(String domainId, String prompt, String userMessage, String pageContext);
+        void onDispatchEnd(String domainId, AgentDefinition selected, String rawOutput, long durationMs, boolean delegated);
+        void onDispatchError(String domainId, Throwable error);
     }
 
     private RoutingResult parse(String raw) {
@@ -158,7 +231,7 @@ public class AgentOrchestrator {
             Agent target = resolve(targetId);
             Optional<AgentDefinition> definition = registry.findPublished(targetId);
             if (definition.isEmpty() || !List.of("GENERAL", "DOMAIN").contains(definition.get().getRole())) return null;
-            return new RoutingResult(target, target.id(), confidence, reason, "llm", clarification);
+            return new RoutingResult(target, target.id(), confidence, reason, "llm", clarification, null);
         } catch (Exception ignored) {
             return null;
         }
@@ -215,10 +288,40 @@ public class AgentOrchestrator {
             double confidence,
             String reason,
             String routeSource,
-            boolean needsClarification) {}
+            boolean needsClarification,
+            RouteTraceInfo trace) {}
+
+    public record RouteTraceInfo(
+            String systemPrompt,
+            String userInput,
+            String rawModelOutput,
+            long durationMs,
+            String finalRouteSource) {}
+
+    /** 调用方实现此接口，将路由阶段的中间状态写入追踪表。 */
+    public interface RouteTraceListener {
+        void onRouteStart(
+                String systemPrompt, String userInput, List<Map<String, String>> history, String pageContext);
+
+        void onRouteEnd(
+                RoutingResult result,
+                String rawModelOutput,
+                String systemPrompt,
+                String userInput,
+                long durationMs,
+                String routeSource);
+
+        void onRouteError(String systemPrompt, String userInput, Throwable error);
+    }
 
     public record DelegationResult(
-            boolean delegated, Agent agent, String mode, String reason, double confidence) {}
+            boolean delegated,
+            Agent agent,
+            String mode,
+            String reason,
+            double confidence,
+            List<ChildCandidate> candidates,
+            String matchedRule) {}
 
-    private record ChildCandidate(AgentChildBinding binding, AgentDefinition definition) {}
+    public record ChildCandidate(AgentChildBinding binding, AgentDefinition definition) {}
 }

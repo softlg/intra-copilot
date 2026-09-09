@@ -30,6 +30,16 @@ public class AgentInvocation {
     private String errorCode;
     private Integer inputTokens;
     private Integer outputTokens;
+
+    // 运行时资源快照，避免后台查询时 JOIN agent_definition。
+    private String agentModel;
+    private Double agentTemperature;
+    private String knowledgeBaseIds;
+    private String toolIds;
+    private String skillIds;
+    private String userMessage;
+    private String attachments;
+
     private Instant createdAt = Instant.now();
 
     public String getId() {
@@ -165,6 +175,21 @@ public class AgentInvocation {
     public void setOutputTokens(Integer value) {
         outputTokens = value;
     }
+
+    public String getAgentModel() { return agentModel; }
+    public void setAgentModel(String value) { agentModel = value; }
+    public Double getAgentTemperature() { return agentTemperature; }
+    public void setAgentTemperature(Double value) { agentTemperature = value; }
+    public String getKnowledgeBaseIds() { return knowledgeBaseIds; }
+    public void setKnowledgeBaseIds(String value) { knowledgeBaseIds = value; }
+    public String getToolIds() { return toolIds; }
+    public void setToolIds(String value) { toolIds = value; }
+    public String getSkillIds() { return skillIds; }
+    public void setSkillIds(String value) { skillIds = value; }
+    public String getUserMessage() { return userMessage; }
+    public void setUserMessage(String value) { userMessage = value; }
+    public String getAttachments() { return attachments; }
+    public void setAttachments(String value) { attachments = value; }
 
     public Instant getCreatedAt() {
         return createdAt;
