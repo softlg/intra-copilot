@@ -11,7 +11,6 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.content.Media;
-import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
@@ -49,16 +48,19 @@ public class LlmClient {
         }
     }
 
+    /**
+     * Requests a complete answer through the streaming endpoint and aggregates the chunks.
+     * Some OpenAI-compatible gateways reject non-streaming requests, even for short router calls.
+     */
     public Mono<String> complete(String system, List<Map<String, String>> history, String user) {
         if (apiKey == null || apiKey.isBlank()) return Mono.empty();
-        return Mono.fromCallable(
-                        () ->
-                                chatModel.call(
-                                        new Prompt(
-                                                messages(system, history, user, List.of()),
-                                                OpenAiChatOptions.builder().temperature(0.0).build())))
+        return chatModel
+                .stream(new Prompt(messages(system, history, user, List.of())))
                 .map(this::textOf)
                 .filter(text -> text != null && !text.isBlank())
+                .collectList()
+                .map(parts -> String.join("", parts))
+                .filter(text -> !text.isBlank())
                 .onErrorResume(error -> Mono.empty());
     }
 
