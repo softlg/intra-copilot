@@ -976,7 +976,6 @@ article p {
 .mcp-list {
   display: grid;
   margin-top: 20px;
-  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
@@ -995,6 +994,7 @@ article p {
 }
 
 .mcp-list-header {
+  border-radius: 13px 13px 0 0;
   background: var(--surface-muted);
   color: var(--muted);
   font-size: 11px;
@@ -1007,6 +1007,10 @@ article p {
   min-height: 108px;
   border-top: 1px solid var(--border);
   transition: background 0.15s ease;
+}
+
+.mcp-list-row:last-child {
+  border-radius: 0 0 13px 13px;
 }
 
 .mcp-list-row:hover {
@@ -1052,7 +1056,7 @@ article p {
   align-items: center;
 }
 .mcp-status-cell .mcp-status {
-  display: none;
+  display: inline-flex;
 }
 .mcp-transport-tag {
   display: inline-flex;
@@ -1080,20 +1084,24 @@ article p {
 }
 .mcp-count-cell strong {
   color: var(--text);
-  font-size: 20px;
+  font-size: 18px;
+  line-height: 1.15;
 }
 .mcp-count-cell span,
 .mcp-check-cell span {
   color: var(--muted);
   font-size: 11px;
+  white-space: nowrap;
 }
 .mcp-check-cell strong {
   color: var(--text);
   font-size: 13px;
+  line-height: 1.3;
 }
 .mcp-row-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 6px;
 }
@@ -1101,6 +1109,16 @@ article p {
   min-height: 34px;
   padding: 7px 10px;
   font-size: 12px;
+}
+.mcp-row-actions .dropdown-trigger {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1;
 }
 .mcp-row-error {
   flex-basis: 100%;
@@ -1908,6 +1926,11 @@ article p {
   color: var(--text);
 }
 
+.conversation-filter-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .conversation-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
@@ -1950,13 +1973,31 @@ article p {
   white-space: nowrap;
 }
 
-.conversation-id {
-  display: inline-block;
-  max-width: 260px;
+/* 固定列宽：ID 足够放下截断+复制，标题自适应，时间等宽不抖动 */
+.conversation-col-id {
+  width: 210px;
+}
+.conversation-col-time {
+  width: 168px;
+}
+.conversation-col-count {
+  width: 84px;
+}
+.conversation-col-actions {
+  width: 92px;
+}
+
+.conversation-title-cell {
+  max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  vertical-align: bottom;
+}
+
+.conversation-time-cell {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* 详情弹层 */
@@ -2590,6 +2631,9 @@ pre {
   .mcp-list-row + .mcp-list-row {
     margin-top: 10px;
   }
+  .mcp-list-row:last-child {
+    border-radius: 12px;
+  }
   .mcp-service-heading .mcp-status {
     display: inline-flex;
   }
@@ -2699,9 +2743,11 @@ pre {
 
 .mcp-row-error-trigger {
   display: inline-flex;
+  flex-basis: 100%;
+  order: -1;
   align-items: center;
   gap: 6px;
-  max-width: 220px;
+  max-width: 100%;
   padding: 4px 10px;
   background: rgba(239, 100, 100, 0.08);
   border: 1px solid rgba(239, 100, 100, 0.4);
@@ -2725,6 +2771,15 @@ pre {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mcp-row-error-tooltip {
+  display: block;
+  max-width: 320px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .mcp-error-modal {

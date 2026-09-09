@@ -56,6 +56,7 @@ const translations = {
     mcpDescriptionPlaceholder: "说明这个 MCP 服务提供的能力",
     mcpHealth: "检查健康",
     mcpInterfaces: "个接口",
+    mcpInterfaceCount: "接口数",
     mcpDetails: "接口详情",
     mcpStatusUnknown: "未检查",
     mcpStatusHealthy: "健康",
@@ -441,6 +442,8 @@ const translations = {
     updatedAt: "更新时间",
     messageCount: "消息数",
     detail: "详情",
+    actions: "操作",
+    status: "状态",
     query: "查询",
     reset: "重置",
     perPage: "每页",
@@ -471,6 +474,7 @@ const translations = {
       "Describe the capabilities provided by this MCP service",
     mcpHealth: "Check health",
     mcpInterfaces: "interfaces",
+    mcpInterfaceCount: "Interfaces",
     mcpDetails: "Interface details",
     mcpStatusUnknown: "Not checked",
     mcpStatusHealthy: "Healthy",
@@ -881,6 +885,8 @@ const translations = {
     updatedAt: "Updated at",
     messageCount: "Messages",
     detail: "Details",
+    actions: "Actions",
+    status: "Status",
     query: "Search",
     reset: "Reset",
     perPage: "per page",
@@ -1217,6 +1223,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return response.status === 204 ? (undefined as T) : response.json();
+}
+
+/** 固定宽度的时间格式（YYYY-MM-DD HH:mm:ss），避免 toLocaleString 位数不齐导致列抖动。 */
+function formatDateTime(value?: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const pad = (input: number) => String(input).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  );
 }
 
 function App() {
@@ -4926,15 +4944,15 @@ function App() {
               >
                 <div className="mcp-list-header" aria-hidden="true">
                   <span>{t.mcpServerName}</span>
-                  <span>{t.mcpStatusUnknown}</span>
+                  <span>{t.status}</span>
                   <span>
                     {t.mcpTransportLabel} / {t.mcpServerUrlLabel}
                   </span>
-                  <span>{t.mcpInterfaces}</span>
+                  <span>{t.mcpInterfaceCount}</span>
                   <span>
                     {t.mcpLatency} / {t.mcpLastChecked}
                   </span>
-                  <span>{t.toolsMenu}</span>
+                  <span>{t.actions}</span>
                 </div>
                 {filteredMcpServers.map((server) => (
                   <article
@@ -4987,7 +5005,14 @@ function App() {
                     </div>
                     <div className="mcp-row-actions">
                       {server.lastError && (
-                        <Tooltip placement="top" content={t.mcpErrorTooltip}>
+                        <Tooltip
+                          placement="top"
+                          content={
+                            <span className="mcp-row-error-tooltip">
+                              {server.lastError}
+                            </span>
+                          }
+                        >
                           <button
                             type="button"
                             className="mcp-row-error-trigger"
@@ -4998,7 +5023,6 @@ function App() {
                               name="warn"
                               size={14}
                               className="mcp-row-error-icon"
-                              title={t.mcpErrorHint}
                             />
                             <span className="mcp-row-error-summary">
                               {truncateError(server.lastError)}
@@ -5014,47 +5038,36 @@ function App() {
                       </button>
                       <button
                         className="secondary"
-                        onClick={() => openMcpDialog(server)}
-                        disabled={mcpActionId === server.id}
-                      >
-                        {t.edit}
-                      </button>
-                      <button
                         onClick={() => checkMcpHealth(server)}
                         disabled={mcpActionId === server.id}
                       >
                         {mcpActionId === server.id ? t.loading : t.mcpHealth}
                       </button>
-                      <button
-                        className="secondary"
-                        onClick={() => toggleMcpServer(server)}
-                        disabled={mcpActionId === server.id}
-                      >
-                        {server.enabled ? t.stop : t.enable}
-                      </button>
-                      {server.enabled ? (
-                        <Tooltip
-                          placement="top"
-                          content={t.deleteDisabledEnabled}
-                        >
-                          <button
-                            className="agent-delete"
-                            onClick={() => deleteMcpServer(server)}
-                            disabled
-                            aria-label={t.deleteDisabledEnabled}
-                          >
-                            {t.deleteResource}
-                          </button>
-                        </Tooltip>
-                      ) : (
-                        <button
-                          className="agent-delete"
-                          onClick={() => deleteMcpServer(server)}
-                          disabled={mcpActionId === server.id}
-                        >
-                          {t.deleteResource}
-                        </button>
-                      )}
+                      <Dropdown
+                        trigger="···"
+                        align="right"
+                        ariaLabel={t.moreActions}
+                        items={[
+                          {
+                            key: "edit",
+                            label: t.edit,
+                            onSelect: () => openMcpDialog(server),
+                            disabled: mcpActionId === server.id,
+                          },
+                          {
+                            key: "toggle",
+                            label: server.enabled ? t.stop : t.enable,
+                            onSelect: () => toggleMcpServer(server),
+                            disabled: mcpActionId === server.id,
+                          },
+                          {
+                            key: "delete",
+                            label: t.deleteResource,
+                            tone: "danger",
+                            onSelect: () => deleteMcpServer(server),
+                          },
+                        ]}
+                      />
                     </div>
                   </article>
                 ))}
@@ -5518,26 +5531,30 @@ function App() {
                     placeholder={t.conversationSessionIdPlaceholder}
                   />
                 </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConversationSessionId(conversationSessionIdDraft.trim());
-                    setConversationPage(1);
-                  }}
-                >
-                  {t.query}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    setConversationSessionIdDraft("");
-                    setConversationSessionId("");
-                    setConversationPage(1);
-                  }}
-                >
-                  {t.reset}
-                </button>
+                <div className="conversation-filter-actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConversationSessionId(
+                        conversationSessionIdDraft.trim(),
+                      );
+                      setConversationPage(1);
+                    }}
+                  >
+                    {t.query}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setConversationSessionIdDraft("");
+                      setConversationSessionId("");
+                      setConversationPage(1);
+                    }}
+                  >
+                    {t.reset}
+                  </button>
+                </div>
               </div>
 
               {conversationLoading ? (
@@ -5552,6 +5569,13 @@ function App() {
                 <>
                   <div className="conversation-table-wrap">
                     <table className="conversation-table">
+                      <colgroup>
+                        <col className="conversation-col-id" />
+                        <col className="conversation-col-title" />
+                        <col className="conversation-col-time" />
+                        <col className="conversation-col-count" />
+                        <col className="conversation-col-actions" />
+                      </colgroup>
                       <thead>
                         <tr>
                           <th>{t.conversationSessionId}</th>
@@ -5559,7 +5583,7 @@ function App() {
                           <th>{t.updatedAt}</th>
                           <th>{t.messageCount}</th>
                           <th className="conversation-table-actions">
-                            {t.detail}
+                            {t.actions}
                           </th>
                         </tr>
                       </thead>
@@ -5567,13 +5591,17 @@ function App() {
                         {conversationLogs.map((log) => (
                           <tr key={log.id}>
                             <td>
-                              <code className="conversation-id">{log.id}</code>
+                              <TruncatedId
+                                value={log.id}
+                                head={8}
+                                label={t.conversationSessionId}
+                              />
                             </td>
-                            <td>{log.title || "-"}</td>
-                            <td>
-                              {log.updatedAt
-                                ? new Date(log.updatedAt).toLocaleString()
-                                : "-"}
+                            <td className="conversation-title-cell">
+                              {log.title || "-"}
+                            </td>
+                            <td className="conversation-time-cell">
+                              {formatDateTime(log.updatedAt)}
                             </td>
                             <td>{log.messageCount}</td>
                             <td className="conversation-table-actions">
