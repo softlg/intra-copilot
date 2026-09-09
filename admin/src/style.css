@@ -282,7 +282,6 @@ main {
 
 main > section {
   width: 100%;
-  max-width: 1200px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -530,7 +529,7 @@ article p {
 }
 
 .knowledge-detail {
-  max-width: 760px;
+  width: 100%;
 }
 
 .detail-header {
@@ -1217,7 +1216,7 @@ article p {
 }
 
 .agent-settings-page {
-  max-width: 900px;
+  width: 100%;
 }
 
 .agent-settings-header {
