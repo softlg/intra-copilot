@@ -2,6 +2,9 @@
 
 export type Theme = "dark" | "light";
 
+/** Status filter shared by the tool and skill registries. */
+export type ResourceStatus = "all" | "enabled" | "disabled";
+
 export type Agent = {
   id: string;
   displayName: string;

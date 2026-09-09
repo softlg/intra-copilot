@@ -71,6 +71,10 @@ import { formatDateTime } from "./lib/format";
 import { buildDailyFeedbackTrend } from "./lib/feedback";
 import { RatingsPage } from "./pages/RatingsPage";
 import { ConversationLogsPage } from "./pages/ConversationLogsPage";
+import { RouterPage } from "./pages/RouterPage";
+import { HooksPage } from "./pages/HooksPage";
+import { ToolsPage } from "./pages/ToolsPage";
+import { SkillsPage } from "./pages/SkillsPage";
 
 function App() {
   const [language, setLanguage] = useState<Language>(() => {
@@ -3887,296 +3891,49 @@ function App() {
         )}
 
         {tab === "tools" && (
-          <section>
-            <div className="resource-toolbar">
-              <div>
-                <p className="muted">{t.toolsSubtitle}</p>
-              </div>
-              <div className="resource-toolbar-actions">
-                <select
-                  className="resource-filter"
-                  value={resourceStatus}
-                  onChange={(event) =>
-                    setResourceStatus(
-                      event.target.value as typeof resourceStatus,
-                    )
-                  }
-                  aria-label={t.statusFilter}
-                >
-                  <option value="all">{t.allStatuses}</option>
-                  <option value="enabled">{t.enabled}</option>
-                  <option value="disabled">{t.disabled}</option>
-                </select>
-                <button onClick={() => openResourceDialog("tool")}>
-                  {t.newTool}
-                </button>
-              </div>
-            </div>
-            <div className="resource-section">
-              <h3>{t.tool}</h3>
-              {toolsLoading && tools.length === 0 ? (
-                <Skeleton.CardList count={3} />
-              ) : tools.length === 0 ? (
-                <EmptyState
-                  icon={<Icon name="tool" size={22} />}
-                  title={t.noResources}
-                  hint={t.noResourcesHint}
-                  action={
-                    <button onClick={() => openResourceDialog("tool")}>
-                      {t.newTool}
-                    </button>
-                  }
-                />
-              ) : filteredTools.length === 0 ? (
-                <EmptyState
-                  compact
-                  icon={<Icon name="search" size={22} />}
-                  title={t.noSearchResults}
-                  hint={t.noSearchResultsHint}
-                />
-              ) : (
-                <div className="grid">
-                  {filteredTools.map((tool) => (
-                    <article key={tool.id}>
-                      <div className="row">
-                        <strong>{tool.name}</strong>
-                        <span className={tool.enabled ? "ok" : "off"}>
-                          {tool.enabled ? t.enabled : t.disabled}
-                        </span>
-                      </div>
-                      <TruncatedId value={tool.id} label="Tool ID" />
-                      <p>{tool.description || t.noDescription}</p>
-                      <div className="resource-meta">
-                        <span>{tool.type || t.toolTypeLabel}</span>
-                        {tool.method && <span>{tool.method}</span>}
-                        {tool.endpoint && <span>{tool.endpoint}</span>}
-                      </div>
-                      <div className="agent-actions">
-                        <button
-                          className="secondary"
-                          onClick={() => openResourceDialog("tool", tool)}
-                          disabled={resourceActionId === tool.id}
-                        >
-                          {t.edit}
-                        </button>
-                        <Dropdown
-                          ariaLabel={t.toolActions}
-                          trigger={
-                            <Icon
-                              name="more"
-                              className="dropdown-trigger-icon"
-                            />
-                          }
-                          items={[
-                            {
-                              key: "toggle",
-                              label: tool.enabled ? t.stop : t.enable,
-                              onSelect: () => toggleResource("tool", tool),
-                              disabled: resourceActionId === tool.id,
-                            },
-                            {
-                              key: "delete",
-                              label: t.deleteResource,
-                              onSelect: () => deleteResource("tool", tool),
-                              disabled: tool.enabled,
-                              tone: "danger",
-                            },
-                          ]}
-                        />
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
+          <ToolsPage
+            t={t}
+            tools={tools}
+            filteredTools={filteredTools}
+            loading={toolsLoading}
+            actionId={resourceActionId}
+            status={resourceStatus}
+            onStatusChange={setResourceStatus}
+            onNew={() => openResourceDialog("tool")}
+            onEdit={(item) => openResourceDialog("tool", item)}
+            onToggle={(item) => toggleResource("tool", item)}
+            onDelete={(item) => deleteResource("tool", item)}
+          />
         )}
 
         {tab === "skills" && (
-          <section>
-            <div className="resource-toolbar">
-              <p className="muted">{t.skillsSubtitle}</p>
-              <div className="resource-toolbar-actions">
-                <select
-                  className="resource-filter"
-                  value={resourceStatus}
-                  onChange={(event) =>
-                    setResourceStatus(
-                      event.target.value as typeof resourceStatus,
-                    )
-                  }
-                  aria-label={t.statusFilter}
-                >
-                  <option value="all">{t.allStatuses}</option>
-                  <option value="enabled">{t.enabled}</option>
-                  <option value="disabled">{t.disabled}</option>
-                </select>
-                <button onClick={() => openResourceDialog("skill")}>
-                  {t.newSkill}
-                </button>
-              </div>
-            </div>
-            <div className="resource-section">
-              <h3>{t.skill}</h3>
-              {skillsLoading && skills.length === 0 ? (
-                <Skeleton.CardList count={3} />
-              ) : skills.length === 0 ? (
-                <EmptyState
-                  icon={<Icon name="sparkle" size={22} />}
-                  title={t.noResources}
-                  hint={t.noResourcesHint}
-                  action={
-                    <button onClick={() => openResourceDialog("skill")}>
-                      {t.newSkill}
-                    </button>
-                  }
-                />
-              ) : filteredSkills.length === 0 ? (
-                <EmptyState
-                  compact
-                  icon={<Icon name="search" size={22} />}
-                  title={t.noSearchResults}
-                  hint={t.noSearchResultsHint}
-                />
-              ) : (
-                <div className="grid">
-                  {filteredSkills.map((skill) => (
-                    <article key={skill.id}>
-                      <div className="row">
-                        <strong>{skill.name}</strong>
-                        <span className={skill.enabled ? "ok" : "off"}>
-                          {skill.enabled ? t.enabled : t.disabled}
-                        </span>
-                      </div>
-                      <TruncatedId value={skill.id} label="Skill ID" />
-                      <p>{skill.description || t.noDescription}</p>
-                      <div className="resource-meta">
-                        <span>v{skill.version || "1.0.0"}</span>
-                      </div>
-                      <div className="agent-actions">
-                        <button
-                          className="secondary"
-                          onClick={() => openResourceDialog("skill", skill)}
-                          disabled={resourceActionId === skill.id}
-                        >
-                          {t.edit}
-                        </button>
-                        <Dropdown
-                          ariaLabel={t.skillActions}
-                          trigger={
-                            <Icon
-                              name="more"
-                              className="dropdown-trigger-icon"
-                            />
-                          }
-                          items={[
-                            {
-                              key: "toggle",
-                              label: skill.enabled ? t.stop : t.enable,
-                              onSelect: () => toggleResource("skill", skill),
-                              disabled: resourceActionId === skill.id,
-                            },
-                            {
-                              key: "delete",
-                              label: t.deleteResource,
-                              onSelect: () => deleteResource("skill", skill),
-                              disabled: skill.enabled,
-                              tone: "danger",
-                            },
-                          ]}
-                        />
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
+          <SkillsPage
+            t={t}
+            skills={skills}
+            filteredSkills={filteredSkills}
+            loading={skillsLoading}
+            actionId={resourceActionId}
+            status={resourceStatus}
+            onStatusChange={setResourceStatus}
+            onNew={() => openResourceDialog("skill")}
+            onEdit={(item) => openResourceDialog("skill", item)}
+            onToggle={(item) => toggleResource("skill", item)}
+            onDelete={(item) => deleteResource("skill", item)}
+          />
         )}
 
         {tab === "hooks" && (
-          <section>
-            <div className="resource-toolbar">
-              <p className="muted">{t.hooksSubtitle}</p>
-              <button type="button" onClick={() => openHookDialog()}>
-                {t.newHook}
-              </button>
-            </div>
-            {hooksLoading && hooks.length === 0 ? (
-              <Skeleton.CardList count={3} />
-            ) : hooks.length === 0 ? (
-              <EmptyState
-                icon={<Icon name="hook" size={22} />}
-                title={t.noHooks}
-                hint={t.noResourcesHint}
-                action={
-                  <button type="button" onClick={() => openHookDialog()}>
-                    {t.newHook}
-                  </button>
-                }
-              />
-            ) : filteredHooks.length === 0 ? (
-              <EmptyState
-                compact
-                icon={<Icon name="search" size={22} />}
-                title={t.noSearchResults}
-                hint={t.noSearchResultsHint}
-              />
-            ) : (
-              <div className="grid">
-                {filteredHooks.map((hook) => (
-                  <article key={hook.id}>
-                    <div className="row">
-                      <strong>{hook.name}</strong>
-                      <span className={hook.enabled ? "ok" : "off"}>
-                        {hook.enabled ? t.enabled : t.disabled}
-                      </span>
-                    </div>
-                    <TruncatedId value={hook.id} label="Hook ID" />
-                    <p>{hook.description || t.noDescription}</p>
-                    <div className="resource-meta">
-                      <span>{t.preAgent}</span>
-                      <span>{hook.ruleType}</span>
-                      <span>
-                        {t.hookPriority}: {hook.priority}
-                      </span>
-                    </div>
-                    <div className="agent-actions">
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => openHookDialog(hook)}
-                        disabled={hookActionId === hook.id}
-                      >
-                        {t.edit}
-                      </button>
-                      <Dropdown
-                        ariaLabel={t.hookActions}
-                        trigger={
-                          <Icon name="more" className="dropdown-trigger-icon" />
-                        }
-                        items={[
-                          {
-                            key: "toggle",
-                            label: hook.enabled ? t.stop : t.enable,
-                            onSelect: () => toggleHook(hook),
-                            disabled: hookActionId === hook.id,
-                          },
-                          {
-                            key: "delete",
-                            label: t.deleteResource,
-                            onSelect: () => deleteHook(hook),
-                            disabled: hook.enabled,
-                            tone: "danger",
-                          },
-                        ]}
-                      />
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
+          <HooksPage
+            t={t}
+            hooks={hooks}
+            filteredHooks={filteredHooks}
+            loading={hooksLoading}
+            actionId={hookActionId}
+            onNew={() => openHookDialog()}
+            onEdit={(hook) => openHookDialog(hook)}
+            onToggle={toggleHook}
+            onDelete={deleteHook}
+          />
         )}
 
         {tab === "ratings" && (
@@ -4223,179 +3980,18 @@ function App() {
         )}
 
         {tab === "router" && (
-          <section className="router-test-page">
-            <div className="router-test-form">
-              <textarea
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                placeholder={t.routerPlaceholder}
-                rows={4}
-              />
-              <textarea
-                value={routePageContext}
-                onChange={(event) => setRoutePageContext(event.target.value)}
-                placeholder={t.routerContextPlaceholder}
-                rows={3}
-              />
-              <div className="router-test-actions">
-                <button
-                  type="button"
-                  onClick={testRoute}
-                  disabled={!message.trim()}
-                >
-                  {t.testRoute}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={analyzeRoute}
-                  disabled={!route || routeAnalyzing}
-                >
-                  {routeAnalyzing ? t.analyzing : t.smartAnalyze}
-                </button>
-              </div>
-            </div>
-            {!route ? (
-              <p className="empty-documents">{t.routeChainEmpty}</p>
-            ) : (
-              <>
-                <div className="router-result-summary">
-                  <div>
-                    <span>{t.route}</span>
-                    <strong>
-                      {String(route.displayName ?? route.agentId ?? "-")}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>{t.confidence}</span>
-                    <strong>
-                      {route.confidence == null
-                        ? "-"
-                        : `${Math.round(Number(route.confidence) * 100)}%`}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>{t.routeSource}</span>
-                    <strong>{String(route.routeSource ?? "-")}</strong>
-                  </div>
-                  <button
-                    type="button"
-                    className="router-copy"
-                    onClick={() => {
-                      try {
-                        const json = JSON.stringify(route, null, 2);
-                        const done = navigator.clipboard?.writeText(json);
-                        if (
-                          done &&
-                          typeof (done as Promise<void>).then === "function"
-                        ) {
-                          (done as Promise<void>).then(() =>
-                            toast.success(t.routeCopied),
-                          );
-                        } else {
-                          toast.success(t.routeCopied);
-                        }
-                      } catch (error) {
-                        toast.error(
-                          error instanceof Error ? error.message : t.copyFailed,
-                        );
-                      }
-                    }}
-                    aria-label={t.routeCopy}
-                    title={t.routeCopy}
-                  >
-                    ⧉ {t.routeCopy}
-                  </button>
-                </div>
-                <section className="router-chain-panel">
-                  <h3>{t.routeChain}</h3>
-                  <div className="router-chain">
-                    {(
-                      (route.steps as
-                        Array<Record<string, unknown>> | undefined) ?? []
-                    ).map((step, index) => {
-                      const details =
-                        (step.details as Record<string, unknown> | undefined) ??
-                        {};
-                      const type = String(step.type ?? "");
-                      const title =
-                        type === "input"
-                          ? t.routeInput
-                          : type === "intent"
-                            ? t.routeIntent
-                            : type === "dispatch"
-                              ? t.routeDispatch
-                              : type === "hooks"
-                                ? t.routeHooks
-                                : String(step.title ?? type);
-                      const checks = Array.isArray(details.checks)
-                        ? (details.checks as Array<Record<string, unknown>>)
-                        : [];
-                      return (
-                        <div
-                          className="router-chain-step"
-                          key={`${type}-${index}`}
-                        >
-                          <span className="router-chain-index">
-                            {index + 1}
-                          </span>
-                          <div className="router-chain-content">
-                            <strong>{title}</strong>
-                            {type === "intent" && (
-                              <p>
-                                {String(details.intent ?? route.reason ?? "-")}
-                              </p>
-                            )}
-                            {type === "dispatch" && (
-                              <p>
-                                {String(
-                                  details.displayName ??
-                                    route.displayName ??
-                                    details.agentId ??
-                                    "-",
-                                )}
-                              </p>
-                            )}
-                            {type === "input" && (
-                              <p>
-                                {details.pageContextIncluded
-                                  ? "✓ 页面上下文"
-                                  : "— 无页面上下文"}
-                              </p>
-                            )}
-                            {type === "hooks" &&
-                              (checks.length === 0 ? (
-                                <p>{t.hookPassed}</p>
-                              ) : (
-                                <div className="router-hook-checks">
-                                  {checks.map((check) => (
-                                    <span
-                                      className={check.passed ? "ok" : "off"}
-                                      key={String(check.hookId)}
-                                    >
-                                      {String(check.hookName)} ·{" "}
-                                      {check.passed
-                                        ? t.hookPassed
-                                        : t.hookRejected}
-                                    </span>
-                                  ))}
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-                {routeAnalysis && (
-                  <section className="router-analysis">
-                    <h3>{t.routeAnalysis}</h3>
-                    <p>{routeAnalysis}</p>
-                  </section>
-                )}
-              </>
-            )}
-          </section>
+          <RouterPage
+            t={t}
+            message={message}
+            onMessageChange={setMessage}
+            pageContext={routePageContext}
+            onPageContextChange={setRoutePageContext}
+            onTestRoute={testRoute}
+            route={route}
+            analyzing={routeAnalyzing}
+            onAnalyze={analyzeRoute}
+            analysis={routeAnalysis}
+          />
         )}
       </main>
       {promptError && (
