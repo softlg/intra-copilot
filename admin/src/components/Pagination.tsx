@@ -18,7 +18,7 @@ export interface PaginationProps {
   pageSize: number;
   /** 总条数 */
   total: number;
-  /** 可选的每页条数，默认 [30, 50, 100] */
+  /** 可选的每页条数，默认 [10, 20, 30, 50] */
   pageSizeOptions?: number[];
   /** 文案覆盖，默认中文 */
   labels?: PaginationLabels;
@@ -51,7 +51,7 @@ export default function Pagination({
   page,
   pageSize,
   total,
-  pageSizeOptions = [30, 50, 100],
+  pageSizeOptions = [10, 20, 30, 50],
   labels,
   onPageChange,
   onPageSizeChange,

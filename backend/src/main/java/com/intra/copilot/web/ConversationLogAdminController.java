@@ -41,7 +41,7 @@ public class ConversationLogAdminController {
         @GetMapping
         public ConversationPage list(
                         @RequestParam(defaultValue = "1") int page,
-                        @RequestParam(defaultValue = "30") int size,
+                        @RequestParam(defaultValue = "10") int size,
                         @RequestParam(required = false) String sessionId) {
                 int safePage = Math.max(1, page);
                 int safeSize = Math.max(1, Math.min(size, 100));

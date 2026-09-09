@@ -1228,7 +1228,7 @@ function App() {
   >([]);
   const [conversationTotal, setConversationTotal] = useState(0);
   const [conversationPage, setConversationPage] = useState(1);
-  const [conversationPageSize, setConversationPageSize] = useState(30);
+  const [conversationPageSize, setConversationPageSize] = useState(10);
   const [conversationSessionId, setConversationSessionId] = useState("");
   const [conversationSessionIdDraft, setConversationSessionIdDraft] =
     useState("");
