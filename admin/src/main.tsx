@@ -67,8 +67,9 @@ import type {
 } from "./types";
 import { AGENT_PRESETS } from "./data/agentPresets";
 import { API, request } from "./lib/api";
-import { formatDateTime } from "./lib/format";
+import { formatDateTime, parseIds } from "./lib/format";
 import { mcpStatusLabel, truncateError } from "./lib/mcp";
+import { documentStatus } from "./lib/knowledge";
 import { buildDailyFeedbackTrend } from "./lib/feedback";
 import { RatingsPage } from "./pages/RatingsPage";
 import { ConversationLogsPage } from "./pages/ConversationLogsPage";
@@ -77,6 +78,8 @@ import { HooksPage } from "./pages/HooksPage";
 import { McpServersPage } from "./pages/McpServersPage";
 import { ToolsPage } from "./pages/ToolsPage";
 import { SkillsPage } from "./pages/SkillsPage";
+import { AgentSettingsPage } from "./pages/AgentSettingsPage";
+import { KnowledgePage } from "./pages/KnowledgePage";
 
 function App() {
   const [language, setLanguage] = useState<Language>(() => {
@@ -308,21 +311,6 @@ function App() {
     useState<KnowledgeDiagnostics>();
   const t = translations[language];
 
-  const parseIds = (value?: string) => {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) {
-        return parsed.filter((id): id is string => typeof id === "string");
-      }
-    } catch {
-      // Older records may use comma-separated IDs.
-    }
-    return value
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean);
-  };
 
   const normalizedName = (value: string) => value.trim().toLocaleLowerCase();
 
@@ -1987,15 +1975,7 @@ function App() {
     }
   };
 
-  const documentStatus = (
-    status: KnowledgeDocument["status"],
-    labels: (typeof translations)[Language],
-  ) => {
-    if (status === "READY") return labels.parsed;
-    if (status === "INDEXING" || status === "PARSING") return labels.processing;
-    if (status === "ERROR") return labels.parseFailed;
-    return labels.pending;
-  };
+
 
   const testRoute = async () => {
     if (!message.trim()) return;
@@ -2339,809 +2319,75 @@ function App() {
         </header>
 
         {tab === "agent-settings" && agentConfigId && (
-          <section className="agent-settings-page">
-            <div className="detail-header agent-settings-header">
-              <button className="back-button" onClick={closeAgentConfig}>
-                {t.backToAgents}
-              </button>
-              <div>
-                <h3>{agentDisplayName || agentId}</h3>
-                <p>{t.editAgentSubtitle}</p>
-              </div>
-              <div className="agent-settings-header-actions">
-                {configuredAgent && (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => toggle(configuredAgent)}
-                    disabled={agentActionId === configuredAgent.id}
-                  >
-                    {agentEnabled ? t.stop : t.enable}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="agent-test"
-                  onClick={() => {
-                    if (configuredAgent) openAgentTest(configuredAgent);
-                  }}
-                  disabled={!agentEnabled || !configuredAgent}
-                >
-                  {t.testAgent}
-                </button>
-                {!configuredAgentIsSystem && configuredAgent && (
-                  <button
-                    type="button"
-                    className="agent-delete"
-                    onClick={() => deleteAgent(configuredAgent)}
-                    disabled={
-                      configuredAgent.enabled ||
-                      agentActionId === configuredAgent.id
-                    }
-                    title={
-                      configuredAgent.enabled
-                        ? t.deleteAgentDisabledHint
-                        : t.deleteAgent
-                    }
-                  >
-                    {t.deleteAgent}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={closeAgentConfig}
-                >
-                  {t.cancel}
-                </button>
-                <button
-                  type="submit"
-                  form="agent-settings-form"
-                  disabled={agentSubmitting}
-                >
-                  {agentSubmitting ? t.saving : t.saveAgent}
-                </button>
-              </div>
-            </div>
-            <div className="config-tabs">
-              {(
-                [
-                  ["basic", t.basicInfo],
-                  ...(agentRole === "MAIN"
-                    ? ([["routing", t.intentRouting]] as const)
-                    : []),
-                  ...(agentRole === "DOMAIN"
-                    ? ([
-                        ["strategy", t.handlingMode],
-                        ["children", t.childBinding],
-                      ] as const)
-                    : []),
-                  ["knowledge", t.knowledgeBinding],
-                  ["tools", t.tools],
-                  ["skills", t.skills],
-                  ["versions", t.versions],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  className={agentConfigSection === key ? "active" : undefined}
-                  onClick={() => requestAgentConfigSection(key)}
-                >
-                  {label}
-                  {agentConfigSection !== key && agentConfigDirty && (
-                    <span
-                      className="config-tab-dirty"
-                      aria-label={t.unsavedChangesTitle}
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
-            <form
-              id="agent-settings-form"
-              className="agent-settings-form"
-              onSubmit={saveAgent}
-            >
-              {agentConfigSection === "basic" && (
-                <div className="settings-panel">
-                  <label className="field">
-                    <span>{t.agentId}</span>
-                    <input value={agentId} disabled />
-                    <small className="field-hint">{t.agentIdHint}</small>
-                  </label>
-                  <div className="field-grid">
-                    <label className="field">
-                      <span>{t.agentRole}</span>
-                      <select
-                        value={agentRole}
-                        onChange={(event) => setAgentRole(event.target.value)}
-                        disabled={configuredAgentIsSystem}
-                      >
-                        <option value="GENERAL">{t.roleGeneral}</option>
-                        <option value="DOMAIN">{t.roleDomain}</option>
-                        <option value="SUB">{t.roleSub}</option>
-                        {configuredAgentIsSystem && (
-                          <option value="MAIN">{t.roleMain}</option>
-                        )}
-                      </select>
-                    </label>
-                    {agentRole === "SUB" && (
-                      <label className="field">
-                        <span>{t.parentAgent}</span>
-                        <select
-                          value={agentParentId}
-                          onChange={(event) =>
-                            setAgentParentId(event.target.value)
-                          }
-                        >
-                          <option value="">—</option>
-                          {agents
-                            .filter(
-                              (item) => item.role === "DOMAIN" && item.enabled,
-                            )
-                            .map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.displayName}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                    )}
-                  </div>
-                  <label className="field">
-                    <span>{t.displayName}</span>
-                    <input
-                      value={agentDisplayName}
-                      onChange={(event) =>
-                        setAgentDisplayName(event.target.value)
-                      }
-                      maxLength={100}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>{t.descriptionOptional}</span>
-                    <textarea
-                      value={agentDescription}
-                      onChange={(event) =>
-                        setAgentDescription(event.target.value)
-                      }
-                      rows={3}
-                      maxLength={500}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>{t.systemPrompt}</span>
-                    <textarea
-                      value={agentSystemPrompt}
-                      onChange={(event) =>
-                        setAgentSystemPrompt(event.target.value)
-                      }
-                      rows={7}
-                      maxLength={8000}
-                    />
-                  </label>
-                  <label className="checkbox-field">
-                    <input
-                      type="checkbox"
-                      checked={agentBrowserActions}
-                      onChange={(event) =>
-                        setAgentBrowserActions(event.target.checked)
-                      }
-                    />
-                    <span>{t.browserActions}</span>
-                  </label>
-                  <label className="checkbox-field">
-                    <input
-                      type="checkbox"
-                      checked={agentEnabled}
-                      onChange={(event) =>
-                        setAgentEnabled(event.target.checked)
-                      }
-                    />
-                    <span>{t.enabled}</span>
-                  </label>
-                  <div className="field-grid">
-                    <label className="field">
-                      <span>{t.priority}</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={10000}
-                        value={agentPriority}
-                        onChange={(event) =>
-                          setAgentPriority(Number(event.target.value) || 0)
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>{t.temperature}</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={2}
-                        step={0.1}
-                        value={agentTemperature}
-                        onChange={(event) =>
-                          setAgentTemperature(event.target.value)
-                        }
-                      />
-                    </label>
-                  </div>
-                  <label className="field">
-                    <span>{t.model}</span>
-                    <input
-                      value={agentModel}
-                      onChange={(event) => setAgentModel(event.target.value)}
-                      placeholder={t.modelPlaceholder}
-                    />
-                  </label>
-                </div>
-              )}
-              {agentConfigSection === "routing" && agentRole === "MAIN" && (
-                <div className="settings-panel routing-panel">
-                  <div className="binding-heading">
-                    <div>
-                      <h4>{t.intentRouting}</h4>
-                      <p>{t.intentRoutingHint}</p>
-                    </div>
-                    <span className="route-badge">系统 Agent</span>
-                  </div>
-                  <label className="field">
-                    <span>{t.routingRules}</span>
-                    <textarea
-                      value={agentRoutingRules}
-                      onChange={(event) =>
-                        setAgentRoutingRules(event.target.value)
-                      }
-                      placeholder={t.routingRulesPlaceholder}
-                      rows={12}
-                      maxLength={8000}
-                    />
-                    <small className="field-hint">{t.idsHint}</small>
-                  </label>
-                  <div className="routing-priority-note">
-                    <strong>{t.priority}</strong>
-                    <input
-                      type="number"
-                      min={0}
-                      max={10000}
-                      value={agentPriority}
-                      onChange={(event) =>
-                        setAgentPriority(Number(event.target.value) || 0)
-                      }
-                      aria-label={t.priority}
-                    />
-                    <small>{t.intentRoutingHint}</small>
-                  </div>
-                </div>
-              )}
-              {agentConfigSection === "strategy" && agentRole === "DOMAIN" && (
-                <div className="settings-panel">
-                  <div className="binding-heading">
-                    <div>
-                      <h4>{t.handlingMode}</h4>
-                      <p>{t.intentRoutingHint}</p>
-                    </div>
-                  </div>
-                  <label className="field">
-                    <span>{t.handlingMode}</span>
-                    <select
-                      value={agentHandlingMode}
-                      onChange={(event) =>
-                        setAgentHandlingMode(event.target.value)
-                      }
-                    >
-                      <option value="DIRECT">{t.directMode}</option>
-                      <option value="DELEGATE">{t.delegateMode}</option>
-                      <option value="AUTO">{t.autoMode}</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>{t.returnMode}</span>
-                    <select
-                      value={agentReturnMode}
-                      onChange={(event) =>
-                        setAgentReturnMode(event.target.value)
-                      }
-                    >
-                      <option value="CHILD_DIRECT">{t.childDirectMode}</option>
-                      <option value="DOMAIN_SUMMARY">
-                        {t.domainSummaryMode}
-                      </option>
-                    </select>
-                  </label>
-                </div>
-              )}
-              {agentConfigSection === "children" && agentRole === "DOMAIN" && (
-                <div className="settings-panel">
-                  <div className="binding-heading">
-                    <div>
-                      <h4>{t.childBinding}</h4>
-                      <p>{t.childRoutingRuleHint}</p>
-                    </div>
-                    <span className="binding-count">
-                      {agentChildIds.length}
-                    </span>
-                  </div>
-                  <label className="binding-search">
-                    <span className="sr-only">{t.search}</span>
-                    <input
-                      type="search"
-                      value={agentChildSearch}
-                      onChange={(event) =>
-                        setAgentChildSearch(event.target.value)
-                      }
-                      placeholder={t.searchPlaceholder}
-                    />
-                  </label>
-                  <div className="binding-list binding-list-tall">
-                    {agents
-                      .filter((item) => item.role === "SUB" && item.enabled)
-                      .filter((item) => {
-                        const query = agentChildSearch.trim().toLowerCase();
-                        return (
-                          !query ||
-                          [
-                            item.id,
-                            item.displayName,
-                            item.description ?? "",
-                          ].some((value) => value.toLowerCase().includes(query))
-                        );
-                      })
-                      .map((item) => {
-                        const checked = agentChildIds.includes(item.id);
-                        return (
-                          <div className="child-binding" key={item.id}>
-                            <label className="binding-option">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => {
-                                  setAgentChildIds((current) =>
-                                    checked
-                                      ? current.filter((id) => id !== item.id)
-                                      : [...current, item.id],
-                                  );
-                                  if (checked)
-                                    setAgentChildRules((current) => {
-                                      const next = { ...current };
-                                      delete next[item.id];
-                                      return next;
-                                    });
-                                }}
-                              />
-                              <span className="binding-copy">
-                                <span className="binding-name">
-                                  {item.displayName}
-                                </span>
-                                <span className="binding-meta">{item.id}</span>
-                                {item.description && (
-                                  <span className="binding-description">
-                                    {item.description}
-                                  </span>
-                                )}
-                              </span>
-                            </label>
-                            {checked && (
-                              <label className="child-rule">
-                                <span>{t.childRoutingRule}</span>
-                                <input
-                                  value={agentChildRules[item.id] ?? ""}
-                                  onChange={(event) =>
-                                    setAgentChildRules((current) => ({
-                                      ...current,
-                                      [item.id]: event.target.value,
-                                    }))
-                                  }
-                                  placeholder={t.childRoutingRulePlaceholder}
-                                />
-                              </label>
-                            )}
-                          </div>
-                        );
-                      })}
-                  </div>
-                  {agents.filter((item) => item.role === "SUB" && item.enabled)
-                    .length === 0 && (
-                    <p className="binding-empty">{t.noChildAgents}</p>
-                  )}
-                </div>
-              )}
-              {agentConfigSection === "knowledge" && (
-                <div className="settings-panel">
-                  <div className="binding-heading">
-                    <div>
-                      <h4>{t.knowledgeBases}</h4>
-                      <p>{t.idsHint}</p>
-                    </div>
-                    <span className="binding-count">
-                      {parseIds(agentKnowledgeBaseIds).length}
-                    </span>
-                  </div>
-                  {bases.length === 0 ? (
-                    <p className="binding-empty">{t.noKnowledgeBases}</p>
-                  ) : (
-                    <>
-                      <label className="binding-search">
-                        <span className="sr-only">{t.search}</span>
-                        <input
-                          value={agentKnowledgeSearch}
-                          onChange={(event) =>
-                            setAgentKnowledgeSearch(event.target.value)
-                          }
-                          placeholder={t.searchPlaceholder}
-                          type="search"
-                        />
-                      </label>
-                      {bases.filter((base) => {
-                        const query = agentKnowledgeSearch.trim().toLowerCase();
-                        if (!query) return true;
-                        return [
-                          base.id,
-                          base.name,
-                          base.description ?? "",
-                        ].some((value) => value.toLowerCase().includes(query));
-                      }).length === 0 ? (
-                        <p className="binding-empty">{t.noSearchResults}</p>
-                      ) : (
-                        <div className="binding-list">
-                          {bases
-                            .filter((base) => {
-                              const query = agentKnowledgeSearch
-                                .trim()
-                                .toLowerCase();
-                              if (!query) return true;
-                              return [
-                                base.id,
-                                base.name,
-                                base.description ?? "",
-                              ].some((value) =>
-                                value.toLowerCase().includes(query),
-                              );
-                            })
-                            .map((base) => {
-                              const selected = parseIds(
-                                agentKnowledgeBaseIds,
-                              ).includes(base.id);
-                              return (
-                                <label className="binding-option" key={base.id}>
-                                  <input
-                                    type="checkbox"
-                                    checked={selected}
-                                    onChange={() => {
-                                      const current = parseIds(
-                                        agentKnowledgeBaseIds,
-                                      );
-                                      const next = selected
-                                        ? current.filter((id) => id !== base.id)
-                                        : [...current, base.id];
-                                      setAgentKnowledgeBaseIds(
-                                        JSON.stringify(next),
-                                      );
-                                    }}
-                                  />
-                                  <span className="binding-copy">
-                                    <span className="binding-name">
-                                      {base.name}
-                                    </span>
-                                    <span className="binding-meta">
-                                      {base.enabled ? t.enabled : t.disabled}
-                                    </span>
-                                    {base.description && (
-                                      <span className="binding-description">
-                                        {base.description}
-                                      </span>
-                                    )}
-                                  </span>
-                                </label>
-                              );
-                            })}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-              {(agentConfigSection === "tools" ||
-                agentConfigSection === "skills") && (
-                <div className="settings-panel">
-                  {agentConfigSection === "tools" && (
-                    <section className="binding-section">
-                      <div className="binding-heading">
-                        <div>
-                          <h4>{t.tools}</h4>
-                          <p>{t.browserActions}</p>
-                        </div>
-                        <span className="binding-count">
-                          {agentToolIds.length}
-                        </span>
-                      </div>
-                      {tools.filter((tool) => tool.enabled).length === 0 ? (
-                        <p className="binding-empty">{t.noTools}</p>
-                      ) : (
-                        <>
-                          <label className="binding-search">
-                            <span className="sr-only">{t.search}</span>
-                            <input
-                              value={agentToolSearch}
-                              onChange={(event) =>
-                                setAgentToolSearch(event.target.value)
-                              }
-                              placeholder={t.searchPlaceholder}
-                              type="search"
-                            />
-                          </label>
-                          {tools.filter((tool) => {
-                            if (!tool.enabled) return false;
-                            const query = agentToolSearch.trim().toLowerCase();
-                            if (!query) return true;
-                            return [
-                              tool.id,
-                              tool.name,
-                              tool.description ?? "",
-                              tool.type ?? "",
-                              tool.endpoint ?? "",
-                            ].some((value) =>
-                              value.toLowerCase().includes(query),
-                            );
-                          }).length === 0 ? (
-                            <p className="binding-empty">{t.noSearchResults}</p>
-                          ) : (
-                            <div className="binding-list">
-                              {tools
-                                .filter((tool) => {
-                                  if (!tool.enabled) return false;
-                                  const query = agentToolSearch
-                                    .trim()
-                                    .toLowerCase();
-                                  if (!query) return true;
-                                  return [
-                                    tool.id,
-                                    tool.name,
-                                    tool.description ?? "",
-                                    tool.type ?? "",
-                                    tool.endpoint ?? "",
-                                  ].some((value) =>
-                                    value.toLowerCase().includes(query),
-                                  );
-                                })
-                                .map((tool) => {
-                                  const checked = agentToolIds.includes(
-                                    tool.id,
-                                  );
-                                  return (
-                                    <label
-                                      className="binding-option"
-                                      key={tool.id}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={() =>
-                                          setAgentToolIds((current) =>
-                                            checked
-                                              ? current.filter(
-                                                  (id) => id !== tool.id,
-                                                )
-                                              : [...current, tool.id],
-                                          )
-                                        }
-                                      />
-                                      <span className="binding-copy">
-                                        <span className="binding-name">
-                                          {tool.name}
-                                        </span>
-                                        <span className="binding-meta">
-                                          {tool.type === "BROWSER_PROPOSAL"
-                                            ? t.browserProposal
-                                            : tool.type}
-                                        </span>
-                                        {tool.description && (
-                                          <span className="binding-description">
-                                            {tool.description}
-                                          </span>
-                                        )}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        className="binding-detail-button"
-                                        onClick={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          setResourceDetails({
-                                            kind: "tool",
-                                            resource: tool,
-                                          });
-                                        }}
-                                      >
-                                        {t.viewDetails}
-                                      </button>
-                                    </label>
-                                  );
-                                })}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </section>
-                  )}
-                  {agentConfigSection === "skills" && (
-                    <section className="binding-section">
-                      <div className="binding-heading">
-                        <div>
-                          <h4>{t.skills}</h4>
-                          <p>{t.idsHint}</p>
-                        </div>
-                        <span className="binding-count">
-                          {agentSkillIds.length}
-                        </span>
-                      </div>
-                      {skills.filter((skill) => skill.enabled).length === 0 ? (
-                        <p className="binding-empty">{t.noSkills}</p>
-                      ) : (
-                        <>
-                          <label className="binding-search">
-                            <span className="sr-only">{t.search}</span>
-                            <input
-                              value={agentSkillSearch}
-                              onChange={(event) =>
-                                setAgentSkillSearch(event.target.value)
-                              }
-                              placeholder={t.searchPlaceholder}
-                              type="search"
-                            />
-                          </label>
-                          {skills.filter((skill) => {
-                            if (!skill.enabled) return false;
-                            const query = agentSkillSearch.trim().toLowerCase();
-                            if (!query) return true;
-                            return [
-                              skill.id,
-                              skill.name,
-                              skill.description ?? "",
-                              skill.prompt,
-                              skill.version ?? "",
-                            ].some((value) =>
-                              value.toLowerCase().includes(query),
-                            );
-                          }).length === 0 ? (
-                            <p className="binding-empty">{t.noSearchResults}</p>
-                          ) : (
-                            <div className="binding-list">
-                              {skills
-                                .filter((skill) => {
-                                  if (!skill.enabled) return false;
-                                  const query = agentSkillSearch
-                                    .trim()
-                                    .toLowerCase();
-                                  if (!query) return true;
-                                  return [
-                                    skill.id,
-                                    skill.name,
-                                    skill.description ?? "",
-                                    skill.prompt,
-                                    skill.version ?? "",
-                                  ].some((value) =>
-                                    value.toLowerCase().includes(query),
-                                  );
-                                })
-                                .map((skill) => {
-                                  const checked = agentSkillIds.includes(
-                                    skill.id,
-                                  );
-                                  return (
-                                    <label
-                                      className="binding-option"
-                                      key={skill.id}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={() =>
-                                          setAgentSkillIds((current) =>
-                                            checked
-                                              ? current.filter(
-                                                  (id) => id !== skill.id,
-                                                )
-                                              : [...current, skill.id],
-                                          )
-                                        }
-                                      />
-                                      <span className="binding-copy">
-                                        <span className="binding-name">
-                                          {skill.name}
-                                        </span>
-                                        {skill.version && (
-                                          <span className="binding-meta">
-                                            v{skill.version}
-                                          </span>
-                                        )}
-                                        {skill.description && (
-                                          <span className="binding-description">
-                                            {skill.description}
-                                          </span>
-                                        )}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        className="binding-detail-button"
-                                        onClick={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          setResourceDetails({
-                                            kind: "skill",
-                                            resource: skill,
-                                          });
-                                        }}
-                                      >
-                                        {t.viewDetails}
-                                      </button>
-                                    </label>
-                                  );
-                                })}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </section>
-                  )}
-                </div>
-              )}
-              {agentConfigSection === "versions" && (
-                <div className="settings-panel">
-                  <div className="binding-heading">
-                    <div>
-                      <h4>{t.versions}</h4>
-                      <p>
-                        {t.publishedVersion}:{" "}
-                        {configuredAgent?.publishedVersion ?? 0}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={publishAgent}
-                      disabled={agentSubmitting}
-                    >
-                      {agentSubmitting ? t.saving : t.publish}
-                    </button>
-                  </div>
-                  {agentVersions.length === 0 ? (
-                    <p className="binding-empty">{t.draft}</p>
-                  ) : (
-                    <div className="version-list">
-                      {agentVersions.map((version) => (
-                        <div className="version-row" key={version.id}>
-                          <div>
-                            <strong>v{version.version}</strong>
-                            <span className="binding-meta">
-                              {version.status === "PUBLISHED"
-                                ? t.published
-                                : t.draft}
-                            </span>
-                            {version.releaseNote && (
-                              <p>{version.releaseNote}</p>
-                            )}
-                          </div>
-                          {version.status !== "PUBLISHED" && (
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() => rollbackAgent(version.version)}
-                              disabled={agentSubmitting}
-                            >
-                              {t.rollback}
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </form>
-          </section>
+          <AgentSettingsPage
+            t={t}
+            agentId={agentId}
+            agentDisplayName={agentDisplayName}
+            agentRole={agentRole}
+            agentParentId={agentParentId}
+            agentDescription={agentDescription}
+            agentSystemPrompt={agentSystemPrompt}
+            agentBrowserActions={agentBrowserActions}
+            agentEnabled={agentEnabled}
+            agentPriority={agentPriority}
+            agentTemperature={agentTemperature}
+            agentModel={agentModel}
+            agentRoutingRules={agentRoutingRules}
+            agentHandlingMode={agentHandlingMode}
+            agentReturnMode={agentReturnMode}
+            agentChildIds={agentChildIds}
+            agentChildSearch={agentChildSearch}
+            agentChildRules={agentChildRules}
+            agentKnowledgeBaseIds={agentKnowledgeBaseIds}
+            agentKnowledgeSearch={agentKnowledgeSearch}
+            bases={bases}
+            tools={tools}
+            skills={skills}
+            agentToolIds={agentToolIds}
+            agentToolSearch={agentToolSearch}
+            agentSkillIds={agentSkillIds}
+            agentSkillSearch={agentSkillSearch}
+            configuredAgent={configuredAgent}
+            configuredAgentIsSystem={configuredAgentIsSystem}
+            agentActionId={agentActionId}
+            agentSubmitting={agentSubmitting}
+            agentConfigSection={agentConfigSection}
+            agentConfigDirty={agentConfigDirty}
+            agentVersions={agentVersions}
+            agents={agents}
+            closeAgentConfig={closeAgentConfig}
+            toggle={toggle}
+            openAgentTest={openAgentTest}
+            deleteAgent={deleteAgent}
+            requestAgentConfigSection={requestAgentConfigSection}
+            setAgentRole={setAgentRole}
+            setAgentParentId={setAgentParentId}
+            setAgentDisplayName={setAgentDisplayName}
+            setAgentDescription={setAgentDescription}
+            setAgentSystemPrompt={setAgentSystemPrompt}
+            setAgentBrowserActions={setAgentBrowserActions}
+            setAgentEnabled={setAgentEnabled}
+            setAgentPriority={setAgentPriority}
+            setAgentTemperature={setAgentTemperature}
+            setAgentModel={setAgentModel}
+            setAgentRoutingRules={setAgentRoutingRules}
+            setAgentHandlingMode={setAgentHandlingMode}
+            setAgentReturnMode={setAgentReturnMode}
+            setAgentChildIds={setAgentChildIds}
+            setAgentChildRules={setAgentChildRules}
+            setAgentChildSearch={setAgentChildSearch}
+            setAgentKnowledgeBaseIds={setAgentKnowledgeBaseIds}
+            setAgentKnowledgeSearch={setAgentKnowledgeSearch}
+            setAgentToolIds={setAgentToolIds}
+            setAgentToolSearch={setAgentToolSearch}
+            setAgentSkillIds={setAgentSkillIds}
+            setAgentSkillSearch={setAgentSkillSearch}
+            setResourceDetails={setResourceDetails}
+            saveAgent={saveAgent}
+            publishAgent={publishAgent}
+            rollbackAgent={rollbackAgent}
+          />
         )}
-
         {agentListTab && (
           <section>
             {agentListTab.role !== "MAIN" && (
@@ -3234,488 +2480,51 @@ function App() {
         )}
 
         {tab === "knowledge" && (
-          <section>
-            {!activeBase ? (
-              <>
-                <button onClick={addBase}>{t.newBase}</button>
-                {basesLoading && bases.length === 0 ? (
-                  <Skeleton.CardList count={3} />
-                ) : (
-                  <div className="grid">
-                    {filteredBases.map((base) => (
-                      <article
-                        className="knowledge-card knowledge-card-clickable"
-                        key={base.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => openKnowledgeBase(base)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            openKnowledgeBase(base);
-                          }
-                        }}
-                      >
-                        <div className="row">
-                          <strong>{base.name}</strong>
-                          <span className={base.enabled ? "ok" : "off"}>
-                            {base.enabled ? t.enabled : t.disabled}
-                          </span>
-                        </div>
-                        <p>{base.description || t.supportedDocs}</p>
-                        <TruncatedId
-                          value={base.id}
-                          label="Knowledge base ID"
-                        />
-                        <div className="knowledge-card-footer">
-                          <span className="upload-hint">
-                            {t.documentCount((documents[base.id] ?? []).length)}
-                          </span>
-                          <button
-                            className="enter-button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openKnowledgeBase(base);
-                            }}
-                          >
-                            {t.enter}
-                          </button>
-                          <button
-                            className="secondary"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void toggleBase(base);
-                            }}
-                          >
-                            {base.enabled ? t.stop : t.enable}
-                          </button>
-                          <button
-                            className="danger-button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              deleteBase(base);
-                            }}
-                          >
-                            {t.delete}
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
-                {bases.length === 0 ? (
-                  <EmptyState
-                    icon={<Icon name="knowledge" size={22} />}
-                    title={t.noKnowledgeBases}
-                    hint={t.noKnowledgeBasesHint}
-                    action={<button onClick={addBase}>{t.newBase}</button>}
-                  />
-                ) : filteredBases.length === 0 ? (
-                  <EmptyState
-                    compact
-                    icon={<Icon name="search" size={22} />}
-                    title={t.noSearchResults}
-                    hint={t.noSearchResultsHint}
-                  />
-                ) : null}
-              </>
-            ) : (
-              <div className="knowledge-detail">
-                <div className="detail-header">
-                  <button
-                    className="secondary back-button"
-                    onClick={closeKnowledgeBase}
-                  >
-                    ← {t.back}
-                  </button>
-                  <div className="knowledge-detail-title">
-                    <InlineEditable
-                      value={activeBase.name}
-                      onSave={(next) => saveBaseField("name", next)}
-                      placeholder={t.baseNameEmptyHint}
-                      maxLength={160}
-                      required
-                      variant="title"
-                      ariaLabel={t.baseName}
-                      editHint={t.baseEditNameHint}
-                      wrap
-                    />
-                    <InlineEditable
-                      value={activeBase.description ?? ""}
-                      onSave={(next) => saveBaseField("description", next)}
-                      placeholder={t.baseDescriptionPlaceholder}
-                      maxLength={500}
-                      multiline
-                      variant="body"
-                      ariaLabel={t.baseDescription}
-                      editHint={t.baseEditDescriptionHint}
-                      wrap
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="qa-header-save"
-                    onClick={saveKnowledgeSettings}
-                    disabled={baseSaving}
-                  >
-                    {baseSaving ? (
-                      t.savingSettings
-                    ) : qaSaved ? (
-                      <>
-                        <Icon name="check" size={12} /> {t.saved}
-                      </>
-                    ) : (
-                      t.saveSettings
-                    )}
-                  </button>
-                </div>
-                <div className="detail-tabs" role="tablist">
-                  <button
-                    role="tab"
-                    aria-selected={knowledgeSection === "basic"}
-                    className={
-                      knowledgeSection === "basic"
-                        ? "detail-tab active"
-                        : "detail-tab"
-                    }
-                    onClick={() => setKnowledgeSection("basic")}
-                  >
-                    {t.basicConfig}
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={knowledgeSection === "maintenance"}
-                    className={
-                      knowledgeSection === "maintenance"
-                        ? "detail-tab active"
-                        : "detail-tab"
-                    }
-                    onClick={() => setKnowledgeSection("maintenance")}
-                  >
-                    {t.maintenance}
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={knowledgeSection === "qa"}
-                    className={
-                      knowledgeSection === "qa"
-                        ? "detail-tab active"
-                        : "detail-tab"
-                    }
-                    onClick={() => setKnowledgeSection("qa")}
-                  >
-                    {t.qaSettings}
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={knowledgeSection === "retrieval"}
-                    className={
-                      knowledgeSection === "retrieval"
-                        ? "detail-tab active"
-                        : "detail-tab"
-                    }
-                    onClick={() => setKnowledgeSection("retrieval")}
-                  >
-                    {t.retrievalTest}
-                  </button>
-                </div>
-                {knowledgeSection === "basic" ||
-                knowledgeSection === "maintenance" ? (
-                  <div className="maintenance-panel">
-                    {knowledgeSection === "basic" && (
-                      <section
-                        className="knowledge-config-panel"
-                        aria-labelledby="embedding-config-title"
-                      >
-                        <div className="knowledge-config-heading">
-                          <div>
-                            <h4 id="embedding-config-title">
-                              {language === "zh"
-                                ? "Embedding 配置"
-                                : "Embedding configuration"}
-                            </h4>
-                            <p>
-                              {language === "zh"
-                                ? "未单独配置时继承系统默认模型。保存前可调用服务验证实际维度。"
-                                : "Inherit the system default unless overridden for this knowledge base."}
-                            </p>
-                          </div>
-                          <span
-                            className={
-                              embeddingValidation?.reachable === false
-                                ? "off"
-                                : "ok"
-                            }
-                          >
-                            {embeddingConfig?.profile?.dimension
-                              ? `${embeddingConfig.profile.dimension}D`
-                              : "-"}
-                          </span>
-                        </div>
-                        <label className="field">
-                          <span>
-                            {language === "zh" ? "模型配置" : "Model profile"}
-                          </span>
-                          <select
-                            value={activeBase.embeddingProfileId ?? ""}
-                            disabled={embeddingSaving}
-                            onChange={(event) =>
-                              saveEmbeddingConfig(event.target.value)
-                            }
-                          >
-                            <option value="">
-                              {language === "zh"
-                                ? "继承系统默认"
-                                : "System default"}
-                            </option>
-                            {embeddingProfiles
-                              .filter((profile) => profile.enabled)
-                              .map((profile) => (
-                                <option value={profile.id} key={profile.id}>
-                                  {profile.name} · {profile.model} ·{" "}
-                                  {profile.dimension}D
-                                </option>
-                              ))}
-                          </select>
-                        </label>
-                        {embeddingConfig?.profile && (
-                          <p className="field-hint">
-                            {embeddingConfig.profile.provider} /{" "}
-                            {embeddingConfig.profile.model} ·{" "}
-                            {embeddingConfig.profile.dimension} dimensions
-                          </p>
-                        )}
-                        <div className="document-actions">
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={embeddingSaving}
-                            onClick={validateEmbeddingConfig}
-                          >
-                            {language === "zh" ? "检测配置" : "Validate"}
-                          </button>
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={embeddingSaving}
-                            onClick={runKnowledgeDiagnostics}
-                          >
-                            {language === "zh" ? "运行诊断" : "Diagnostics"}
-                          </button>
-                          {embeddingValidation && (
-                            <span
-                              className={
-                                embeddingValidation.reachable ? "ok" : "off"
-                              }
-                              aria-live="polite"
-                            >
-                              {embeddingValidation.reachable
-                                ? `${language === "zh" ? "可用" : "Reachable"} · ${embeddingValidation.actualDimension}D · ${embeddingValidation.latencyMs}ms`
-                                : (embeddingValidation.error ??
-                                  (language === "zh"
-                                    ? "不可用"
-                                    : "Unavailable"))}
-                            </span>
-                          )}
-                        </div>
-                        {knowledgeDiagnostics && (
-                          <p
-                            className={
-                              knowledgeDiagnostics.issues.length
-                                ? "document-error"
-                                : "field-hint"
-                            }
-                            aria-live="polite"
-                          >
-                            {knowledgeDiagnostics.issues.length
-                              ? knowledgeDiagnostics.issues.join(" · ")
-                              : language === "zh"
-                                ? `诊断通过：${knowledgeDiagnostics.documentCount} 个文档`
-                                : `Healthy: ${knowledgeDiagnostics.documentCount} documents`}
-                          </p>
-                        )}
-                      </section>
-                    )}
-                    {knowledgeSection === "maintenance" && (
-                      <>
-                        <div className="upload-panel">
-                          <div>
-                            <h4>{t.maintenance}</h4>
-                            <p>{t.supportedDocs}</p>
-                          </div>
-                          <label className="upload-button">
-                            {uploadingBaseId === activeBase.id
-                              ? `${t.processing} ${uploadProgress.current}/${uploadProgress.total}`
-                              : t.chooseDocuments}
-                            <input
-                              type="file"
-                              multiple
-                              accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
-                              disabled={uploadingBaseId === activeBase.id}
-                              onChange={(event) =>
-                                uploadDocuments(
-                                  activeBase.id,
-                                  event.currentTarget.files,
-                                  event.currentTarget,
-                                )
-                              }
-                            />
-                          </label>
-                        </div>
-                        {activeDocuments.length === 0 ? (
-                          <p className="empty-documents">{t.noDocuments}</p>
-                        ) : filteredDocuments.length === 0 ? (
-                          <p className="empty-documents">{t.noSearchResults}</p>
-                        ) : (
-                          <div className="document-list detail-document-list">
-                            {filteredDocuments.map((document) => (
-                              <div className="document-item" key={document.id}>
-                                <div className="document-main">
-                                  <span
-                                    className="document-name"
-                                    title={document.filename}
-                                  >
-                                    {document.filename}
-                                  </span>
-                                  <span
-                                    className={`document-status ${document.status.toLowerCase()}`}
-                                  >
-                                    {documentStatus(document.status, t)}
-                                  </span>
-                                </div>
-                                {document.error && (
-                                  <span className="document-error">
-                                    {document.error}
-                                  </span>
-                                )}
-                                <div className="document-actions">
-                                  <button
-                                    className="document-action"
-                                    onClick={() =>
-                                      openDocumentDetails(document)
-                                    }
-                                  >
-                                    {t.viewDocument}
-                                  </button>
-                                  <button
-                                    className="document-action"
-                                    disabled={documentActionId === document.id}
-                                    onClick={() => reindexDocument(document)}
-                                  >
-                                    {t.reindex}
-                                  </button>
-                                  <button
-                                    className="document-action danger"
-                                    disabled={documentActionId === document.id}
-                                    onClick={() => deleteDocument(document)}
-                                  >
-                                    {t.delete}
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ) : knowledgeSection === "qa" ? (
-                  <div className="qa-panel">
-                    <label className="field">
-                      <span>{t.qaPrompt}</span>
-                      <textarea
-                        rows={7}
-                        value={activeQaSettings.prompt}
-                        onChange={(event) =>
-                          updateQaSettings({ prompt: event.target.value })
-                        }
-                        placeholder={t.qaPromptPlaceholder}
-                      />
-                    </label>
-                    <label className="field qa-top-k">
-                      <span>{t.topK}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={activeQaSettings.topK}
-                        onChange={(event) =>
-                          updateQaSettings({
-                            topK: Math.max(
-                              1,
-                              Math.min(20, Number(event.target.value) || 1),
-                            ),
-                          })
-                        }
-                      />
-                      <small className="field-hint">{t.topKHint}</small>
-                    </label>
-                  </div>
-                ) : (
-                  <section className="knowledge-retrieval-panel">
-                    <div className="knowledge-retrieval-heading">
-                      <div>
-                        <h4>{t.retrievalTest}</h4>
-                        <p>{t.retrievalPlaceholder}</p>
-                      </div>
-                      <span className="binding-count">
-                        {activeQaSettings.topK}
-                      </span>
-                    </div>
-                    <form
-                      className="knowledge-retrieval-form"
-                      onSubmit={runRetrieval}
-                    >
-                      <input
-                        value={retrievalQuery}
-                        onChange={(event) =>
-                          setRetrievalQuery(event.target.value)
-                        }
-                        placeholder={t.retrievalPlaceholder}
-                        aria-label={t.retrievalTest}
-                      />
-                      <button
-                        type="submit"
-                        disabled={retrievalLoading || !retrievalQuery.trim()}
-                      >
-                        {retrievalLoading ? t.loading : t.runRetrieval}
-                      </button>
-                    </form>
-                    {retrievalError && (
-                      <p className="error">{retrievalError}</p>
-                    )}
-                    {!retrievalLoading &&
-                      retrievalQuery.trim() &&
-                      retrievalResults.length === 0 &&
-                      !retrievalError && (
-                        <p className="binding-empty">{t.retrievalEmpty}</p>
-                      )}
-                    {retrievalResults.length > 0 && (
-                      <div className="retrieval-results">
-                        {retrievalResults.map((result, index) => (
-                          <article
-                            className="retrieval-result"
-                            key={`${result.documentId}-${index}`}
-                          >
-                            <div className="retrieval-result-meta">
-                              <strong>{result.filename}</strong>
-                              <span>
-                                {result.pageNumber
-                                  ? `第 ${result.pageNumber} 页 · `
-                                  : ""}
-                                {(1 - result.distance).toFixed(3)}
-                              </span>
-                            </div>
-                            <p>{result.content}</p>
-                          </article>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                )}
-              </div>
-            )}
-          </section>
+          <KnowledgePage
+            t={t}
+            language={language}
+            bases={bases}
+            filteredBases={filteredBases}
+            basesLoading={basesLoading}
+            documents={documents}
+            activeBase={activeBase}
+            activeDocuments={activeDocuments}
+            filteredDocuments={filteredDocuments}
+            activeQaSettings={activeQaSettings}
+            baseSaving={baseSaving}
+            documentActionId={documentActionId}
+            section={knowledgeSection}
+            onSectionChange={setKnowledgeSection}
+            qaSaved={qaSaved}
+            addBase={addBase}
+            toggleBase={toggleBase}
+            deleteBase={deleteBase}
+            openKnowledgeBase={openKnowledgeBase}
+            closeKnowledgeBase={closeKnowledgeBase}
+            saveBaseField={saveBaseField}
+            updateQaSettings={updateQaSettings}
+            saveKnowledgeSettings={saveKnowledgeSettings}
+            uploadDocuments={uploadDocuments}
+            uploadProgress={uploadProgress}
+            uploadingBaseId={uploadingBaseId}
+            deleteDocument={deleteDocument}
+            reindexDocument={reindexDocument}
+            openDocumentDetails={openDocumentDetails}
+            runRetrieval={runRetrieval}
+            retrievalQuery={retrievalQuery}
+            onRetrievalQueryChange={setRetrievalQuery}
+            retrievalResults={retrievalResults}
+            retrievalLoading={retrievalLoading}
+            retrievalError={retrievalError}
+            embeddingConfig={embeddingConfig}
+            embeddingProfiles={embeddingProfiles}
+            embeddingValidation={embeddingValidation}
+            embeddingSaving={embeddingSaving}
+            saveEmbeddingConfig={saveEmbeddingConfig}
+            validateEmbeddingConfig={validateEmbeddingConfig}
+            knowledgeDiagnostics={knowledgeDiagnostics}
+            runKnowledgeDiagnostics={runKnowledgeDiagnostics}
+          />
         )}
 
         {tab === "mcp-servers" && (
