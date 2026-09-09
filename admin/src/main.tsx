@@ -85,8 +85,6 @@ const translations = {
     unsavedChangesTitle: "有未保存的修改",
     unsavedChangesDesc:
       "你对该 Agent 的修改尚未保存，确定要离开吗？离开后修改将丢失。",
-    unsavedTabChangeDesc:
-      "当前 Tab 有未保存的修改，确定要切换吗？切换后修改将丢失。",
     discardChanges: "放弃修改",
     stayHere: "留在当前页",
     deleteAgentEnabled: "该 Agent 处于启用状态，请先停用后再删除",
@@ -495,8 +493,6 @@ const translations = {
     unsavedChangesTitle: "Unsaved changes",
     unsavedChangesDesc:
       "You have unsaved changes on this agent. Leave anyway? Changes will be lost.",
-    unsavedTabChangeDesc:
-      "This tab has unsaved changes. Switch anyway? Changes will be lost.",
     discardChanges: "Discard",
     stayHere: "Stay",
     deleteAgentEnabled: "This agent is enabled. Stop it before deleting.",
@@ -1285,8 +1281,10 @@ function App() {
   const closeConfirm = () => setConfirmRequest(null);
   const runConfirm = async () => {
     if (!confirmRequest) return;
+    setConfirmRequest((prev) => (prev ? { ...prev, loading: true } : prev));
     try {
       await confirmRequest.onConfirm();
+      setConfirmRequest(null);
     } finally {
       setConfirmRequest((prev) => (prev ? { ...prev, loading: false } : prev));
     }
@@ -1305,7 +1303,7 @@ function App() {
       confirmLabel: options.confirmLabel,
       cancelLabel: options.cancelLabel,
       tone: options.tone ?? "primary",
-      loading: true,
+      loading: false,
       onConfirm: options.onConfirm,
     });
   };
@@ -2674,21 +2672,7 @@ function App() {
 
   const requestAgentConfigSection = (key: typeof agentConfigSection) => {
     if (agentConfigSection === key) return;
-    if (!agentConfigDirty) {
-      setAgentConfigSection(key);
-      return;
-    }
-    askConfirm({
-      title: t.unsavedChangesTitle,
-      description: t.unsavedTabChangeDesc,
-      confirmLabel: t.discardChanges,
-      cancelLabel: t.stayHere,
-      tone: "primary",
-      onConfirm: () => {
-        setAgentConfigDirty(false);
-        setAgentConfigSection(key);
-      },
-    });
+    setAgentConfigSection(key);
   };
 
   const closeAgentDialog = () => {
