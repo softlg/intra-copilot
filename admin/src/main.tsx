@@ -229,7 +229,10 @@ const translations = {
     createBase: "创建知识库",
     baseNameRequired: "请输入知识库名称",
     baseSaveFailed: "知识库保存失败",
-    baseDeleteConfirm: (name: string) => "确定删除知识库“" + name + "”吗？该操作会删除其中的文档和索引，且不可撤销。",
+    baseDeleteConfirm: (name: string) =>
+      "确定删除知识库“" +
+      name +
+      "”吗？该操作会删除其中的文档和索引，且不可撤销。",
     baseDeleted: (name: string) => "知识库“" + name + "”已删除",
     baseActionFailed: "知识库操作失败，请稍后重试",
     baseEditNameHint: "点击名称进行编辑",
@@ -238,7 +241,8 @@ const translations = {
     agentIdInvalid: "Agent ID 只能使用 2-128 位小写字母、数字和连字符",
     agentNameRequired: "Agent 名称不能为空",
     promptRequired: "系统提示词不能为空",
-    agentDescriptionRequired: "请填写 Agent 描述，便于其他 Agent 路由时理解其职责",
+    agentDescriptionRequired:
+      "请填写 Agent 描述，便于其他 Agent 路由时理解其职责",
     parentAgentRequired: "子 Agent 必须选择一个启用的领域 Agent 作为父级",
     createAgentFailed: "创建 Agent 失败，请稍后重试",
     createBaseFailed: "创建知识库失败，请稍后重试",
@@ -259,6 +263,7 @@ const translations = {
     enter: "进入维护",
     back: "返回知识库",
     maintenance: "知识维护",
+    basicConfig: "基本配置",
     qaSettings: "问答场景设置",
     documentCount: (count: number) => `${count} 个文档`,
     noDocuments: "暂无文档，请上传资料开始维护。",
@@ -659,7 +664,8 @@ const translations = {
       "Agent ID must be 2-128 lowercase letters, numbers, or hyphens",
     agentNameRequired: "Agent name is required",
     promptRequired: "System prompt is required",
-    agentDescriptionRequired: "Agent description is required so other agents can understand its role",
+    agentDescriptionRequired:
+      "Agent description is required so other agents can understand its role",
     parentAgentRequired:
       "A sub-agent must select an enabled domain Agent as its parent",
     createAgentFailed: "Failed to create Agent. Please try again.",
@@ -681,7 +687,11 @@ const translations = {
     enter: "Open maintenance",
     back: "Back to knowledge bases",
     maintenance: "Knowledge maintenance",
-    baseDeleteConfirm: (name: string) => "Delete knowledge base “" + name + "”? Its documents and indexes will also be deleted.",
+    basicConfig: "Basic configuration",
+    baseDeleteConfirm: (name: string) =>
+      "Delete knowledge base “" +
+      name +
+      "”? Its documents and indexes will also be deleted.",
     baseDeleted: (name: string) => "Knowledge base “" + name + "” deleted",
     baseActionFailed: "Knowledge base action failed. Please try again.",
     qaSettings: "Q&A scene settings",
@@ -1350,8 +1360,8 @@ function App() {
   const [baseDraftDescription, setBaseDraftDescription] = useState("");
   const [baseSaving, setBaseSaving] = useState(false);
   const [knowledgeSection, setKnowledgeSection] = useState<
-    "maintenance" | "qa" | "retrieval"
-  >("maintenance");
+    "basic" | "maintenance" | "qa" | "retrieval"
+  >("basic");
   const [qaSettings, setQaSettings] = useState<Record<string, QASceneSettings>>(
     {},
   );
@@ -1823,9 +1833,7 @@ function App() {
       cancelLabel: t.cancelLabel,
       tone: "danger",
       onConfirm: async () => {
-        setMcpServers((items) =>
-          items.filter((item) => item.id !== server.id),
-        );
+        setMcpServers((items) => items.filter((item) => item.id !== server.id));
         if (mcpDetails?.id === server.id) setMcpDetails(undefined);
         try {
           await request(`/admin/mcp-servers/${server.id}`, {
@@ -1845,9 +1853,7 @@ function App() {
                   toast.success(t.restored);
                 } catch (error) {
                   toast.error(
-                    error instanceof Error
-                      ? error.message
-                      : t.restoreFailed,
+                    error instanceof Error ? error.message : t.restoreFailed,
                   );
                   loadMcpServers();
                 }
@@ -1894,9 +1900,7 @@ function App() {
           item.id === server.id ? { ...item, enabled: original } : item,
         ),
       );
-      toast.error(
-        error instanceof Error ? error.message : t.mcpSaveFailed,
-      );
+      toast.error(error instanceof Error ? error.message : t.mcpSaveFailed);
     } finally {
       setMcpActionId(undefined);
     }
@@ -2146,8 +2150,7 @@ function App() {
     const path = `/admin/${kind === "tool" ? "tools" : "skills"}`;
     const setter = kind === "tool" ? setTools : setSkills;
     const reload = kind === "tool" ? loadTools : loadSkills;
-    const deletedLabel =
-      kind === "tool" ? t.toolDeleted : t.skillDeleted;
+    const deletedLabel = kind === "tool" ? t.toolDeleted : t.skillDeleted;
     askConfirm({
       title: t.confirmDeleteTitle,
       description: t.deleteResourceConfirm(resource.name),
@@ -2164,17 +2167,14 @@ function App() {
               label: t.undo,
               onAction: async () => {
                 try {
-                  const restored = await request<ToolDefinition | SkillDefinition>(
-                    path,
-                    { method: "POST", body: JSON.stringify(snapshot) },
-                  );
+                  const restored = await request<
+                    ToolDefinition | SkillDefinition
+                  >(path, { method: "POST", body: JSON.stringify(snapshot) });
                   setter((items) => [restored, ...items]);
                   toast.success(t.restored);
                 } catch (error) {
                   toast.error(
-                    error instanceof Error
-                      ? error.message
-                      : t.restoreFailed,
+                    error instanceof Error ? error.message : t.restoreFailed,
                   );
                   reload();
                 }
@@ -2311,9 +2311,7 @@ function App() {
                   toast.success(t.restored);
                 } catch (error) {
                   toast.error(
-                    error instanceof Error
-                      ? error.message
-                      : t.restoreFailed,
+                    error instanceof Error ? error.message : t.restoreFailed,
                   );
                   loadHooks();
                 }
@@ -2415,7 +2413,7 @@ function App() {
     setEditingBase(false);
     setBaseDraftName(base.name);
     setBaseDraftDescription(base.description ?? "");
-    setKnowledgeSection("maintenance");
+    setKnowledgeSection("basic");
     setUploadError("");
     setQaSaved(false);
   };
@@ -2480,7 +2478,7 @@ function App() {
     if (!activeBase) throw new Error(t.baseSaveFailed);
     const nextName = field === "name" ? value : activeBase.name;
     const nextDescription =
-      field === "description" ? value : activeBase.description ?? "";
+      field === "description" ? value : (activeBase.description ?? "");
     if (field === "name" && !nextName.trim()) {
       throw new Error(t.baseNameRequired);
     }
@@ -2501,7 +2499,7 @@ function App() {
     );
     setBaseDraftName(updated.name);
     setBaseDraftDescription(updated.description ?? "");
-    return field === "name" ? updated.name : updated.description ?? "";
+    return field === "name" ? updated.name : (updated.description ?? "");
   };
 
   const updateQaSettings = (patch: Partial<QASceneSettings>) => {
@@ -2981,7 +2979,9 @@ function App() {
           if (activeBaseId === base.id) closeKnowledgeBase();
           toast.success(t.baseDeleted(base.name));
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : t.baseActionFailed);
+          toast.error(
+            error instanceof Error ? error.message : t.baseActionFailed,
+          );
           throw error;
         }
       },
@@ -3241,9 +3241,14 @@ function App() {
   const filteredBases = bases;
   const activeDocuments = activeBaseId ? (documents[activeBaseId] ?? []) : [];
   const hasProcessingDocuments = activeDocuments.some((document) =>
-    ["PENDING", "QUEUED", "PARSING", "CHUNKING", "EMBEDDING", "INDEXING"].includes(
-      document.status,
-    ),
+    [
+      "PENDING",
+      "QUEUED",
+      "PARSING",
+      "CHUNKING",
+      "EMBEDDING",
+      "INDEXING",
+    ].includes(document.status),
   );
 
   useEffect(() => {
@@ -3259,7 +3264,8 @@ function App() {
           }));
           setSelectedDocument((current) =>
             current
-              ? updated.find((document) => document.id === current.id) ?? current
+              ? (updated.find((document) => document.id === current.id) ??
+                current)
               : current,
           );
         })
@@ -4343,39 +4349,39 @@ function App() {
               {agentsLoading && !agentListTab.items.length ? (
                 <Skeleton.CardList count={4} />
               ) : (
-              <div className="grid">
-                {agentListTab.items.map((agent) => {
-                  const parent = agent.parentAgentId
-                    ? agents.find((item) => item.id === agent.parentAgentId)
-                    : undefined;
-                  return (
-                    <article key={agent.id}>
-                      <div className="row">
-                        <strong>{agent.displayName}</strong>
-                        <span className={agent.enabled ? "ok" : "off"}>
-                          {agent.enabled ? t.enabled : t.disabled}
-                        </span>
-                      </div>
-                      <TruncatedId value={agent.id} label="Agent ID" />
-                      {parent && (
-                        <p className="agent-parent">
-                          {t.parentAgent}：{parent.displayName}
-                        </p>
-                      )}
-                      <p>{agent.description || t.noDescription}</p>
-                      <div className="agent-actions">
-                        <button
-                          onClick={() => openAgentSettings(agent)}
-                          className="secondary agent-settings-button"
-                          disabled={agentActionId === agent.id}
-                        >
-                          {t.settings}
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+                <div className="grid">
+                  {agentListTab.items.map((agent) => {
+                    const parent = agent.parentAgentId
+                      ? agents.find((item) => item.id === agent.parentAgentId)
+                      : undefined;
+                    return (
+                      <article key={agent.id}>
+                        <div className="row">
+                          <strong>{agent.displayName}</strong>
+                          <span className={agent.enabled ? "ok" : "off"}>
+                            {agent.enabled ? t.enabled : t.disabled}
+                          </span>
+                        </div>
+                        <TruncatedId value={agent.id} label="Agent ID" />
+                        {parent && (
+                          <p className="agent-parent">
+                            {t.parentAgent}：{parent.displayName}
+                          </p>
+                        )}
+                        <p>{agent.description || t.noDescription}</p>
+                        <div className="agent-actions">
+                          <button
+                            onClick={() => openAgentSettings(agent)}
+                            className="secondary agent-settings-button"
+                            disabled={agentActionId === agent.id}
+                          >
+                            {t.settings}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
               )}
               {agentListTab.items.length === 0 &&
                 (filteredAgents.length < agents.length ? (
@@ -4418,64 +4424,67 @@ function App() {
                 {basesLoading && bases.length === 0 ? (
                   <Skeleton.CardList count={3} />
                 ) : (
-                <div className="grid">
-                  {filteredBases.map((base) => (
-                    <article
-                      className="knowledge-card knowledge-card-clickable"
-                      key={base.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openKnowledgeBase(base)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openKnowledgeBase(base);
-                        }
-                      }}
-                    >
-                      <div className="row">
-                        <strong>{base.name}</strong>
-                        <span className={base.enabled ? "ok" : "off"}>
-                          {base.enabled ? t.enabled : t.disabled}
-                        </span>
-                      </div>
-                      <p>{base.description || t.supportedDocs}</p>
-                      <TruncatedId value={base.id} label="Knowledge base ID" />
-                      <div className="knowledge-card-footer">
-                        <span className="upload-hint">
-                          {t.documentCount((documents[base.id] ?? []).length)}
-                        </span>
-                        <button
-                          className="enter-button"
-                          onClick={(event) => {
-                            event.stopPropagation();
+                  <div className="grid">
+                    {filteredBases.map((base) => (
+                      <article
+                        className="knowledge-card knowledge-card-clickable"
+                        key={base.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openKnowledgeBase(base)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
                             openKnowledgeBase(base);
-                          }}
-                        >
-                          {t.enter}
-                        </button>
-                        <button
-                          className="secondary"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void toggleBase(base);
-                          }}
-                        >
-                          {base.enabled ? t.stop : t.enable}
-                        </button>
-                        <button
-                          className="danger-button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            deleteBase(base);
-                          }}
-                        >
-                          {t.delete}
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
+                          }
+                        }}
+                      >
+                        <div className="row">
+                          <strong>{base.name}</strong>
+                          <span className={base.enabled ? "ok" : "off"}>
+                            {base.enabled ? t.enabled : t.disabled}
+                          </span>
+                        </div>
+                        <p>{base.description || t.supportedDocs}</p>
+                        <TruncatedId
+                          value={base.id}
+                          label="Knowledge base ID"
+                        />
+                        <div className="knowledge-card-footer">
+                          <span className="upload-hint">
+                            {t.documentCount((documents[base.id] ?? []).length)}
+                          </span>
+                          <button
+                            className="enter-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openKnowledgeBase(base);
+                            }}
+                          >
+                            {t.enter}
+                          </button>
+                          <button
+                            className="secondary"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void toggleBase(base);
+                            }}
+                          >
+                            {base.enabled ? t.stop : t.enable}
+                          </button>
+                          <button
+                            className="danger-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              deleteBase(base);
+                            }}
+                          >
+                            {t.delete}
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
                 )}
                 {bases.length === 0 ? (
                   <EmptyState
@@ -4542,6 +4551,18 @@ function App() {
                 <div className="detail-tabs" role="tablist">
                   <button
                     role="tab"
+                    aria-selected={knowledgeSection === "basic"}
+                    className={
+                      knowledgeSection === "basic"
+                        ? "detail-tab active"
+                        : "detail-tab"
+                    }
+                    onClick={() => setKnowledgeSection("basic")}
+                  >
+                    {t.basicConfig}
+                  </button>
+                  <button
+                    role="tab"
                     aria-selected={knowledgeSection === "maintenance"}
                     className={
                       knowledgeSection === "maintenance"
@@ -4577,193 +4598,204 @@ function App() {
                     {t.retrievalTest}
                   </button>
                 </div>
-                {knowledgeSection === "maintenance" ? (
+                {knowledgeSection === "basic" ||
+                knowledgeSection === "maintenance" ? (
                   <div className="maintenance-panel">
-                    <section
-                      className="knowledge-config-panel"
-                      aria-labelledby="embedding-config-title"
-                    >
-                      <div className="knowledge-config-heading">
-                        <div>
-                          <h4 id="embedding-config-title">
-                            {language === "zh"
-                              ? "Embedding 配置"
-                              : "Embedding configuration"}
-                          </h4>
-                          <p>
-                            {language === "zh"
-                              ? "未单独配置时继承系统默认模型。保存前可调用服务验证实际维度。"
-                              : "Inherit the system default unless overridden for this knowledge base."}
-                          </p>
-                        </div>
-                        <span
-                          className={
-                            embeddingValidation?.reachable === false
-                              ? "off"
-                              : "ok"
-                          }
-                        >
-                          {embeddingConfig?.profile?.dimension
-                            ? `${embeddingConfig.profile.dimension}D`
-                            : "-"}
-                        </span>
-                      </div>
-                      <label className="field">
-                        <span>
-                          {language === "zh" ? "模型配置" : "Model profile"}
-                        </span>
-                        <select
-                          value={activeBase.embeddingProfileId ?? ""}
-                          disabled={embeddingSaving}
-                          onChange={(event) =>
-                            saveEmbeddingConfig(event.target.value)
-                          }
-                        >
-                          <option value="">
-                            {language === "zh"
-                              ? "继承系统默认"
-                              : "System default"}
-                          </option>
-                          {embeddingProfiles
-                            .filter((profile) => profile.enabled)
-                            .map((profile) => (
-                              <option value={profile.id} key={profile.id}>
-                                {profile.name} · {profile.model} ·{" "}
-                                {profile.dimension}D
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                      {embeddingConfig?.profile && (
-                        <p className="field-hint">
-                          {embeddingConfig.profile.provider} /{" "}
-                          {embeddingConfig.profile.model} ·{" "}
-                          {embeddingConfig.profile.dimension} dimensions
-                        </p>
-                      )}
-                      <div className="document-actions">
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={embeddingSaving}
-                          onClick={validateEmbeddingConfig}
-                        >
-                          {language === "zh" ? "检测配置" : "Validate"}
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={embeddingSaving}
-                          onClick={runKnowledgeDiagnostics}
-                        >
-                          {language === "zh" ? "运行诊断" : "Diagnostics"}
-                        </button>
-                        {embeddingValidation && (
+                    {knowledgeSection === "basic" && (
+                      <section
+                        className="knowledge-config-panel"
+                        aria-labelledby="embedding-config-title"
+                      >
+                        <div className="knowledge-config-heading">
+                          <div>
+                            <h4 id="embedding-config-title">
+                              {language === "zh"
+                                ? "Embedding 配置"
+                                : "Embedding configuration"}
+                            </h4>
+                            <p>
+                              {language === "zh"
+                                ? "未单独配置时继承系统默认模型。保存前可调用服务验证实际维度。"
+                                : "Inherit the system default unless overridden for this knowledge base."}
+                            </p>
+                          </div>
                           <span
                             className={
-                              embeddingValidation.reachable ? "ok" : "off"
+                              embeddingValidation?.reachable === false
+                                ? "off"
+                                : "ok"
+                            }
+                          >
+                            {embeddingConfig?.profile?.dimension
+                              ? `${embeddingConfig.profile.dimension}D`
+                              : "-"}
+                          </span>
+                        </div>
+                        <label className="field">
+                          <span>
+                            {language === "zh" ? "模型配置" : "Model profile"}
+                          </span>
+                          <select
+                            value={activeBase.embeddingProfileId ?? ""}
+                            disabled={embeddingSaving}
+                            onChange={(event) =>
+                              saveEmbeddingConfig(event.target.value)
+                            }
+                          >
+                            <option value="">
+                              {language === "zh"
+                                ? "继承系统默认"
+                                : "System default"}
+                            </option>
+                            {embeddingProfiles
+                              .filter((profile) => profile.enabled)
+                              .map((profile) => (
+                                <option value={profile.id} key={profile.id}>
+                                  {profile.name} · {profile.model} ·{" "}
+                                  {profile.dimension}D
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                        {embeddingConfig?.profile && (
+                          <p className="field-hint">
+                            {embeddingConfig.profile.provider} /{" "}
+                            {embeddingConfig.profile.model} ·{" "}
+                            {embeddingConfig.profile.dimension} dimensions
+                          </p>
+                        )}
+                        <div className="document-actions">
+                          <button
+                            type="button"
+                            className="secondary"
+                            disabled={embeddingSaving}
+                            onClick={validateEmbeddingConfig}
+                          >
+                            {language === "zh" ? "检测配置" : "Validate"}
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            disabled={embeddingSaving}
+                            onClick={runKnowledgeDiagnostics}
+                          >
+                            {language === "zh" ? "运行诊断" : "Diagnostics"}
+                          </button>
+                          {embeddingValidation && (
+                            <span
+                              className={
+                                embeddingValidation.reachable ? "ok" : "off"
+                              }
+                              aria-live="polite"
+                            >
+                              {embeddingValidation.reachable
+                                ? `${language === "zh" ? "可用" : "Reachable"} · ${embeddingValidation.actualDimension}D · ${embeddingValidation.latencyMs}ms`
+                                : (embeddingValidation.error ??
+                                  (language === "zh"
+                                    ? "不可用"
+                                    : "Unavailable"))}
+                            </span>
+                          )}
+                        </div>
+                        {knowledgeDiagnostics && (
+                          <p
+                            className={
+                              knowledgeDiagnostics.issues.length
+                                ? "document-error"
+                                : "field-hint"
                             }
                             aria-live="polite"
                           >
-                            {embeddingValidation.reachable
-                              ? `${language === "zh" ? "可用" : "Reachable"} · ${embeddingValidation.actualDimension}D · ${embeddingValidation.latencyMs}ms`
-                              : (embeddingValidation.error ??
-                                (language === "zh" ? "不可用" : "Unavailable"))}
-                          </span>
+                            {knowledgeDiagnostics.issues.length
+                              ? knowledgeDiagnostics.issues.join(" · ")
+                              : language === "zh"
+                                ? `诊断通过：${knowledgeDiagnostics.documentCount} 个文档`
+                                : `Healthy: ${knowledgeDiagnostics.documentCount} documents`}
+                          </p>
                         )}
-                      </div>
-                      {knowledgeDiagnostics && (
-                        <p
-                          className={
-                            knowledgeDiagnostics.issues.length
-                              ? "document-error"
-                              : "field-hint"
-                          }
-                          aria-live="polite"
-                        >
-                          {knowledgeDiagnostics.issues.length
-                            ? knowledgeDiagnostics.issues.join(" · ")
-                            : language === "zh"
-                              ? `诊断通过：${knowledgeDiagnostics.documentCount} 个文档`
-                              : `Healthy: ${knowledgeDiagnostics.documentCount} documents`}
-                        </p>
-                      )}
-                    </section>
-                    <div className="upload-panel">
-                      <div>
-                        <h4>{t.maintenance}</h4>
-                        <p>{t.supportedDocs}</p>
-                      </div>
-                      <label className="upload-button">
-                        {uploadingBaseId === activeBase.id
-                          ? `${t.processing} ${uploadProgress.current}/${uploadProgress.total}`
-                          : t.chooseDocuments}
-                        <input
-                          type="file"
-                          multiple
-                          accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
-                          disabled={uploadingBaseId === activeBase.id}
-                          onChange={(event) =>
-                            uploadDocuments(
-                              activeBase.id,
-                              event.currentTarget.files,
-                              event.currentTarget,
-                            )
-                          }
-                        />
-                      </label>
-                    </div>
-                    {activeDocuments.length === 0 ? (
-                      <p className="empty-documents">{t.noDocuments}</p>
-                    ) : filteredDocuments.length === 0 ? (
-                      <p className="empty-documents">{t.noSearchResults}</p>
-                    ) : (
-                      <div className="document-list detail-document-list">
-                        {filteredDocuments.map((document) => (
-                          <div className="document-item" key={document.id}>
-                            <div className="document-main">
-                              <span
-                                className="document-name"
-                                title={document.filename}
-                              >
-                                {document.filename}
-                              </span>
-                              <span
-                                className={`document-status ${document.status.toLowerCase()}`}
-                              >
-                                {documentStatus(document.status, t)}
-                              </span>
-                            </div>
-                            {document.error && (
-                              <span className="document-error">
-                                {document.error}
-                              </span>
-                            )}
-                            <div className="document-actions">
-                              <button
-                                className="document-action"
-                                onClick={() => openDocumentDetails(document)}
-                              >
-                                {t.viewDocument}
-                              </button>
-                              <button
-                                className="document-action"
-                                disabled={documentActionId === document.id}
-                                onClick={() => reindexDocument(document)}
-                              >
-                                {t.reindex}
-                              </button>
-                              <button
-                                className="document-action danger"
-                                disabled={documentActionId === document.id}
-                                onClick={() => deleteDocument(document)}
-                              >
-                                {t.delete}
-                              </button>
-                            </div>
+                      </section>
+                    )}
+                    {knowledgeSection === "maintenance" && (
+                      <>
+                        <div className="upload-panel">
+                          <div>
+                            <h4>{t.maintenance}</h4>
+                            <p>{t.supportedDocs}</p>
                           </div>
-                        ))}
-                      </div>
+                          <label className="upload-button">
+                            {uploadingBaseId === activeBase.id
+                              ? `${t.processing} ${uploadProgress.current}/${uploadProgress.total}`
+                              : t.chooseDocuments}
+                            <input
+                              type="file"
+                              multiple
+                              accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
+                              disabled={uploadingBaseId === activeBase.id}
+                              onChange={(event) =>
+                                uploadDocuments(
+                                  activeBase.id,
+                                  event.currentTarget.files,
+                                  event.currentTarget,
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
+                        {activeDocuments.length === 0 ? (
+                          <p className="empty-documents">{t.noDocuments}</p>
+                        ) : filteredDocuments.length === 0 ? (
+                          <p className="empty-documents">{t.noSearchResults}</p>
+                        ) : (
+                          <div className="document-list detail-document-list">
+                            {filteredDocuments.map((document) => (
+                              <div className="document-item" key={document.id}>
+                                <div className="document-main">
+                                  <span
+                                    className="document-name"
+                                    title={document.filename}
+                                  >
+                                    {document.filename}
+                                  </span>
+                                  <span
+                                    className={`document-status ${document.status.toLowerCase()}`}
+                                  >
+                                    {documentStatus(document.status, t)}
+                                  </span>
+                                </div>
+                                {document.error && (
+                                  <span className="document-error">
+                                    {document.error}
+                                  </span>
+                                )}
+                                <div className="document-actions">
+                                  <button
+                                    className="document-action"
+                                    onClick={() =>
+                                      openDocumentDetails(document)
+                                    }
+                                  >
+                                    {t.viewDocument}
+                                  </button>
+                                  <button
+                                    className="document-action"
+                                    disabled={documentActionId === document.id}
+                                    onClick={() => reindexDocument(document)}
+                                  >
+                                    {t.reindex}
+                                  </button>
+                                  <button
+                                    className="document-action danger"
+                                    disabled={documentActionId === document.id}
+                                    onClick={() => deleteDocument(document)}
+                                  >
+                                    {t.delete}
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 ) : knowledgeSection === "qa" ? (
@@ -4963,11 +4995,11 @@ function App() {
                             aria-label={t.mcpErrorDetail}
                           >
                             <Icon
-                            name="warn"
-                            size={14}
-                            className="mcp-row-error-icon"
-                            title={t.mcpErrorHint}
-                          />
+                              name="warn"
+                              size={14}
+                              className="mcp-row-error-icon"
+                              title={t.mcpErrorHint}
+                            />
                             <span className="mcp-row-error-summary">
                               {truncateError(server.lastError)}
                             </span>
@@ -5107,7 +5139,10 @@ function App() {
                         <Dropdown
                           ariaLabel={t.toolActions}
                           trigger={
-                            <Icon name="more" className="dropdown-trigger-icon" />
+                            <Icon
+                              name="more"
+                              className="dropdown-trigger-icon"
+                            />
                           }
                           items={[
                             {
@@ -5206,7 +5241,10 @@ function App() {
                         <Dropdown
                           ariaLabel={t.skillActions}
                           trigger={
-                            <Icon name="more" className="dropdown-trigger-icon" />
+                            <Icon
+                              name="more"
+                              className="dropdown-trigger-icon"
+                            />
                           }
                           items={[
                             {
@@ -5834,7 +5872,10 @@ function App() {
                       try {
                         const json = JSON.stringify(route, null, 2);
                         const done = navigator.clipboard?.writeText(json);
-                        if (done && typeof (done as Promise<void>).then === "function") {
+                        if (
+                          done &&
+                          typeof (done as Promise<void>).then === "function"
+                        ) {
                           (done as Promise<void>).then(() =>
                             toast.success(t.routeCopied),
                           );
@@ -5843,9 +5884,7 @@ function App() {
                         }
                       } catch (error) {
                         toast.error(
-                          error instanceof Error
-                            ? error.message
-                            : t.copyFailed,
+                          error instanceof Error ? error.message : t.copyFailed,
                         );
                       }
                     }}
