@@ -32,6 +32,7 @@ import {
 } from "./components/useKeyboardShortcuts";
 import { KeyboardShortcutsHelp } from "./components/KeyboardShortcutsHelp";
 import { Skeleton } from "./components/Skeleton";
+import { InlineEditable } from "./components/InlineEditable";
 
 const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8080/api/v1";
 type Language = "zh" | "en";
@@ -2464,6 +2465,37 @@ function App() {
     } finally {
       setBaseSaving(false);
     }
+  };
+
+  const saveBaseField = async (
+    field: "name" | "description",
+    value: string,
+  ): Promise<string> => {
+    if (!activeBase) throw new Error(t.baseSaveFailed);
+    const nextName = field === "name" ? value : activeBase.name;
+    const nextDescription =
+      field === "description" ? value : activeBase.description ?? "";
+    if (field === "name" && !nextName.trim()) {
+      throw new Error(t.baseNameRequired);
+    }
+    const updated = await request<Base>(
+      `/admin/knowledge-bases/${activeBase.id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          id: activeBase.id,
+          name: nextName.trim(),
+          description: nextDescription.trim(),
+          enabled: activeBase.enabled,
+        }),
+      },
+    );
+    setBases((items) =>
+      items.map((item) => (item.id === updated.id ? updated : item)),
+    );
+    setBaseDraftName(updated.name);
+    setBaseDraftDescription(updated.description ?? "");
+    return field === "name" ? updated.name : updated.description ?? "";
   };
 
   const updateQaSettings = (patch: Partial<QASceneSettings>) => {
