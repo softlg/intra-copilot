@@ -26,6 +26,74 @@ type AttachmentView = {
   url: string;
 };
 
+// 附件原始 url 指向需要鉴权的后端接口；浏览器在加载 <img src> 或 <a download> 时
+// 不会附带 JWT，直接用它必然 401 而显示/下载失败。因此统一用 apiFetch 取回字节，
+// 转成同源 object URL 后再交给 img/下载使用，并按 id 缓存避免重复请求。
+const attachmentObjectUrlCache = new Map<string, string>();
+
+async function resolveAttachment(
+  fetchFn: (path: string, init?: RequestInit) => Promise<Response>,
+  id: string,
+): Promise<string> {
+  const cached = attachmentObjectUrlCache.get(id);
+  if (cached) return cached;
+  const response = await fetchFn(`/attachments/${id}`);
+  if (!response.ok) throw new Error(`attachment ${response.status}`);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  attachmentObjectUrlCache.set(id, objectUrl);
+  return objectUrl;
+}
+
+function MessageAttachmentView({
+  att,
+  fetchFn,
+  previewLabel,
+  onPreview,
+}: {
+  att: AttachmentView;
+  fetchFn: (path: string, init?: RequestInit) => Promise<Response>;
+  previewLabel: string;
+  onPreview: (id: string) => void;
+}) {
+  const [src, setSrc] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    resolveAttachment(fetchFn, att.id)
+      .then((u) => {
+        if (!cancelled) setSrc(u);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [att.id, fetchFn]);
+  if (att.isImage) {
+    return (
+      <button
+        type="button"
+        className="message-image-button"
+        onClick={() => onPreview(att.id)}
+        title={previewLabel}
+        aria-label={previewLabel}
+      >
+        {src ? <img src={src} alt={att.filename} /> : null}
+      </button>
+    );
+  }
+  return (
+    <a
+      className="message-file-chip"
+      href={src}
+      download={att.filename}
+      title={att.filename}
+    >
+      <span className="file-icon">📎</span>
+      <span className="file-name">{att.filename}</span>
+    </a>
+  );
+}
+
 type PendingAttachment = {
   id?: string;
   name: string;
@@ -1293,12 +1361,12 @@ function App() {
     const restored: PendingAttachment[] = [];
     for (const att of atts) {
       try {
-        const blob = await fetch(att.url).then((response) => response.blob());
-        const file = new File(
-          [blob],
-          att.filename,
-          { type: att.contentType || "application/octet-stream" },
+        const blob = await apiFetch(`/attachments/${att.id}`).then((response) =>
+          response.blob(),
         );
+        const file = new File([blob], att.filename, {
+          type: att.contentType || "application/octet-stream",
+        });
         restored.push({
           name: att.filename,
           size: file.size,
@@ -1350,13 +1418,18 @@ function App() {
       if (attachment.file) filesToUpload.push(attachment.file);
     }
     if (pendingScreenshot) {
-      filesToUpload.push(dataUrlToFile(pendingScreenshot, `screenshot-${Date.now()}.png`));
+      filesToUpload.push(
+        dataUrlToFile(pendingScreenshot, `screenshot-${Date.now()}.png`),
+      );
     }
     if (filesToUpload.length) {
       try {
         const form = new FormData();
         for (const file of filesToUpload) form.append("files", file, file.name);
-        const response = await apiFetch("/attachments", { method: "POST", body: form });
+        const response = await apiFetch("/attachments", {
+          method: "POST",
+          body: form,
+        });
         if (!response.ok) throw Error(t.uploadFailed);
         uploaded = await response.json();
       } catch (e) {
@@ -1744,31 +1817,19 @@ function App() {
                   <div className="bubble">
                     {!assistant && message.attachments?.length ? (
                       <div className="message-attachments">
-                        {message.attachments.map((att, attIndex) =>
-                          att.isImage ? (
-                            <button
-                              type="button"
-                              className="message-image-button"
-                              key={`${index}-img-${attIndex}`}
-                              onClick={() => setPreviewImage(att.url)}
-                              title={t.imagePreview}
-                              aria-label={t.imagePreview}
-                            >
-                              <img src={att.url} alt={att.filename} />
-                            </button>
-                          ) : (
-                            <a
-                              key={`${index}-file-${attIndex}`}
-                              className="message-file-chip"
-                              href={att.url}
-                              download={att.filename}
-                              title={att.filename}
-                            >
-                              <span className="file-icon">📎</span>
-                              <span className="file-name">{att.filename}</span>
-                            </a>
-                          ),
-                        )}
+                        {message.attachments.map((att, attIndex) => (
+                          <MessageAttachmentView
+                            key={`${index}-att-${attIndex}`}
+                            att={att}
+                            fetchFn={apiFetch}
+                            previewLabel={t.imagePreview}
+                            onPreview={(id) =>
+                              resolveAttachment(apiFetch, id)
+                                .then(setPreviewImage)
+                                .catch(() => {})
+                            }
+                          />
+                        ))}
                       </div>
                     ) : null}
                     {assistant ? (
