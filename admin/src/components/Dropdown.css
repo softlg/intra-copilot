@@ -67,7 +67,7 @@
 }
 
 .dropdown-item-danger {
-  color: #f48a8a;
+  color: var(--danger-text);
 }
 
 .dropdown-item-danger:hover:not(:disabled) {

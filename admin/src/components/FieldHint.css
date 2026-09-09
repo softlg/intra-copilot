@@ -2,27 +2,27 @@
   margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--muted-subtle, #8797ae);
+  color: var(--muted-subtle);
 }
 
 .field-hint-info {
-  color: var(--muted-subtle, #8797ae);
+  color: var(--muted-subtle);
 }
 
 .field-hint-warning {
-  color: #e9b46e;
+  color: var(--warning);
 }
 
 .field-hint-error {
-  color: #f48a8a;
+  color: var(--danger-text);
 }
 
 .field-hint code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
-  background: var(--control-bg, #0f1929);
-  border: 1px solid var(--border, #263852);
+  background: var(--control-bg);
+  border: 1px solid var(--border);
   border-radius: 3px;
   padding: 1px 4px;
-  color: var(--text, #f1f5fb);
+  color: var(--text);
 }

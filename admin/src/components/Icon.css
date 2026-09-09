@@ -10,7 +10,7 @@
 }
 
 .mcp-row-error-icon {
-  color: #e9b46e;
+  color: var(--warning);
 }
 
 .placeholder-mark {

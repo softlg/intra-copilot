@@ -60,7 +60,7 @@
 .pagination-btn.active {
   background: var(--brand);
   border-color: var(--brand);
-  color: #fff;
+  color: var(--text-on-brand);
 }
 
 .pagination-btn:disabled {

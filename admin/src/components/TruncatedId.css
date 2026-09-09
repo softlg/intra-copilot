@@ -10,8 +10,8 @@
 .truncated-id-short {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
-  background: var(--control-bg, #0f1929);
-  border: 1px solid var(--border, #263852);
+  background: var(--control-bg);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 1px 6px;
   white-space: nowrap;
@@ -19,7 +19,7 @@
 
 .truncated-id-copy {
   background: transparent;
-  color: var(--muted-subtle, #8797ae);
+  color: var(--muted-subtle);
   padding: 0;
   width: 22px;
   height: 22px;
@@ -29,8 +29,8 @@
 }
 
 .truncated-id-copy:hover {
-  background: var(--surface-hover, #18263d);
-  color: var(--text, #f1f5fb);
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .truncated-id-tooltip {
@@ -45,12 +45,12 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--muted-subtle, #8797ae);
+  color: var(--muted-subtle);
 }
 
 .truncated-id-tooltip code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
-  color: var(--text, #f1f5fb);
+  color: var(--text);
   word-break: break-all;
 }

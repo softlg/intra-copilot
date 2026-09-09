@@ -24,7 +24,7 @@
 .status-badge-ok {
   background: rgba(20, 59, 43, 0.95);
   border-color: rgba(100, 212, 155, 0.4);
-  color: #64d49b;
+  color: var(--success);
 }
 
 .status-badge-ok .status-badge-icon {
@@ -39,13 +39,13 @@
 
 .status-badge-off .status-badge-icon {
   background: rgba(120, 140, 180, 0.25);
-  color: #b8c4d6;
+  color: var(--muted);
 }
 
 .status-badge-warn {
   background: rgba(60, 44, 20, 0.95);
   border-color: rgba(233, 180, 110, 0.45);
-  color: #e9b46e;
+  color: var(--warning);
 }
 
 .status-badge-warn .status-badge-icon {
@@ -55,7 +55,7 @@
 .status-badge-error {
   background: rgba(60, 20, 20, 0.95);
   border-color: rgba(239, 100, 100, 0.45);
-  color: #f48a8a;
+  color: var(--danger-text);
 }
 
 .status-badge-error .status-badge-icon {

@@ -43,10 +43,10 @@
 }
 
 .confirm-danger {
-  background: var(--danger, #ef4444);
-  color: #fff;
+  background: var(--danger);
+  color: var(--text-on-brand);
 }
 
 .confirm-danger:hover:not(:disabled) {
-  background: #dc2626;
+  background: var(--danger-strong);
 }

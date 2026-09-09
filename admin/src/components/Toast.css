@@ -64,7 +64,7 @@
 .toast-action {
   flex: 0 0 auto;
   background: transparent;
-  color: var(--accent, #93b4ec);
+  color: var(--tag-text);
   font-weight: 600;
   font-size: 12px;
   padding: 4px 10px;
@@ -79,7 +79,7 @@
 }
 
 .toast-action:focus-visible {
-  outline: 2px solid var(--accent, #93b4ec);
+  outline: 2px solid var(--tag-text);
   outline-offset: 1px;
 }
 
@@ -90,7 +90,7 @@
 
 .toast-success .toast-icon {
   background: rgba(100, 212, 155, 0.25);
-  color: #64d49b;
+  color: var(--success);
 }
 
 .toast-info {
@@ -100,7 +100,7 @@
 
 .toast-info .toast-icon {
   background: rgba(147, 180, 236, 0.25);
-  color: #93b4ec;
+  color: var(--tag-text);
 }
 
 .toast-warning {
@@ -110,7 +110,7 @@
 
 .toast-warning .toast-icon {
   background: rgba(233, 180, 110, 0.25);
-  color: #e9b46e;
+  color: var(--warning);
 }
 
 .toast-error {
@@ -120,7 +120,7 @@
 
 .toast-error .toast-icon {
   background: rgba(239, 100, 100, 0.25);
-  color: #f48a8a;
+  color: var(--danger-text);
 }
 
 @keyframes toast-enter {

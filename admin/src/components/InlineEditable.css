@@ -22,14 +22,14 @@
 }
 
 .inline-editable-display:focus-visible {
-  outline: 2px solid var(--accent, #4776d0);
+  outline: 2px solid var(--tag-text);
   outline-offset: 2px;
   background: var(--surface-muted);
 }
 
 .inline-editable-display .inline-editable-pencil {
   opacity: 0;
-  color: var(--text-muted, #8a96a8);
+  color: var(--text-muted);
   font-size: 0.85em;
   line-height: inherit;
   transition:
@@ -44,7 +44,7 @@
 }
 
 .inline-editable-placeholder {
-  color: var(--text-muted, #8a96a8);
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -83,7 +83,7 @@
 .inline-editable-editing input,
 .inline-editable-editing textarea {
   width: 100%;
-  border: 1px solid #4776d0;
+  border: 1px solid var(--accent);
   border-radius: 8px;
   padding: 8px 10px;
   background: var(--control-bg);
@@ -102,20 +102,20 @@
 
 .inline-editable-error input,
 .inline-editable-error textarea {
-  border-color: #d0455a;
+  border-color: var(--danger-soft);
   box-shadow: 0 0 0 2px rgb(208 69 90 / 18%);
 }
 
 .inline-editable-error-text {
   align-self: center;
-  color: #d0455a;
+  color: var(--danger-soft);
   font-size: 0.85rem;
 }
 
 .inline-editable-spinner {
   display: inline-flex;
   align-items: center;
-  color: var(--text-muted, #8a96a8);
+  color: var(--text-muted);
   font-size: 0.9em;
   animation: inline-editable-pulse 1.1s ease-in-out infinite;
 }
