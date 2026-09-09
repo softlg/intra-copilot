@@ -1298,7 +1298,11 @@ article p {
   font-size: 11px;
 }
 
-@media (max-width: 1100px) and (min-width: 701px) {
+@media (min-width: 768px) and (max-width: 1199px) {
+  .feedback-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .mcp-list-header,
   .mcp-list-row {
     grid-template-columns:
@@ -1864,12 +1868,6 @@ article p {
   line-height: 1.55;
   white-space: pre-wrap;
 }
-@media (max-width: 760px) {
-  .feedback-summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 .feedback-card small {
   color: var(--muted);
   font-size: 11px;
@@ -2744,9 +2742,13 @@ pre {
   background: var(--control-hover);
 }
 
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .shell {
     display: block;
+  }
+
+  .feedback-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   aside {
@@ -2846,6 +2848,59 @@ pre {
     width: 100%;
     margin-left: 0;
     justify-content: flex-start;
+  }
+}
+
+/* Narrow phones: single column everywhere, tighter gutters, and every
+   fixed-width panel clamped so 320px never scrolls sideways. */
+@media (max-width: 479px) {
+  main {
+    padding: 16px 12px;
+  }
+
+  main > header {
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: -16px -12px 16px;
+    padding: 14px 12px;
+  }
+
+  .grid,
+  .feedback-list,
+  .feedback-summary-grid,
+  .field-grid,
+  .resource-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-popover {
+    width: min(220px, calc(100vw - 24px));
+  }
+
+  .modal,
+  .prompt-modal {
+    padding: 18px 16px;
+  }
+
+  .modal-actions {
+    margin-right: -16px;
+    margin-bottom: -16px;
+    margin-left: -16px;
+    padding: 12px 16px 16px;
+  }
+
+  .conversation-detail-overlay {
+    padding: 16px 12px;
+  }
+
+  .mcp-row-actions button {
+    min-height: 44px;
+  }
+
+  .toast-container {
+    right: 12px;
+    left: 12px;
+    max-width: none;
   }
 }
 
