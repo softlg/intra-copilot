@@ -317,16 +317,30 @@ function decodeAssistantEscapes(value: string): string {
 function normalizeAssistantMarkdown(value: string): string {
   return decodeAssistantEscapes(value)
     .replace(/\r\n?/g, "\n")
-    .split("```")
-    .map((part, index) => {
-      if (index % 2 === 1) return part;
+    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g)
+    .map((part) => {
+      if (/^(```|~~~)/.test(part)) return part;
       return part
         .replace(/(^|\n)([ \t]*#{1,6})(?=\S)/g, "$1$2 ")
         .replace(/([^\n])\s+(#{1,6})(?=\S)/g, "$1\n$2 ")
-        .replace(/([。！？.!?])\s+(?=(?:\d+\.|[-*•])\s*)/g, "$1\n")
+        .replace(/([^\n])\s+(?=(?:\d{1,2}[.)]|[-*+•])\s+\S)/g, "$1\n")
+        .replace(
+          /([。！？.!?])\s+(?=(?:下一步|注意|总结|说明|结论|示例)[:：])/g,
+          "$1\n\n",
+        )
         .replace(/([^\n])\s+(?=\|[^\n]+\|\s*\n)/g, "$1\n");
     })
-    .join("```");
+    .join("\n");
+}
+
+function isSafeAssistantUrl(value?: string): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value, window.location.href);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function AssistantMarkdown({
@@ -399,7 +413,14 @@ function AssistantMarkdown({
           );
         },
         img({ src, alt }) {
-          if (!src || !/^https?:\/\//i.test(src)) return null;
+          if (
+            !src ||
+            !(
+              isSafeAssistantUrl(src) ||
+              /^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(src)
+            )
+          )
+            return null;
           return (
             <img
               className="markdown-image"

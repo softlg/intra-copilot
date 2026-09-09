@@ -1445,3 +1445,44 @@ textarea::-webkit-scrollbar-thumb {
   cursor: not-allowed;
   opacity: 0.45;
 }
+
+/* AI 回复：保证长文本、多媒体和流式 Markdown 在窄侧栏中保持可读。 */
+.assistant-content {
+  font-size: 13px;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+}
+.assistant-content > :first-child {
+  margin-top: 0;
+}
+.assistant-content > :last-child {
+  margin-bottom: 0;
+}
+.assistant-content p {
+  margin: 0 0 10px;
+}
+.assistant-content ul,
+.assistant-content ol {
+  margin: 0 0 10px;
+}
+.assistant-content li > p {
+  margin-bottom: 4px;
+}
+.assistant-content pre {
+  max-width: 100%;
+}
+.assistant-content .markdown-image {
+  max-width: min(100%, 520px);
+}
+@media (max-width: 420px) {
+  .assistant-content {
+    font-size: 12px;
+    line-height: 1.65;
+  }
+  .assistant-content table {
+    min-width: 300px;
+  }
+  .assistant-content .code-block pre {
+    padding: 10px;
+  }
+}
