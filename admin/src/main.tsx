@@ -44,7 +44,7 @@ const translations = {
     subtitle: "管理控制台",
     agents: "Agent",
     knowledge: "知识库",
-    mcpServers: "MCP 服务",
+    mcpServers: "MCP",
     mcpServersTitle: "MCP 服务管理",
     mcpServersSubtitle: "注册 MCP Server，查看健康状态、接口数量和能力详情。",
     newMcpServer: "+ 新建 MCP 服务",
