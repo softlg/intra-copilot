@@ -3,6 +3,7 @@
 ## Project Structure & Module Organization
 
 - `backend/` contains the Spring Boot 3 service (Java 17). Application code is under `src/main/java/com/intra/copilot`, configuration under `src/main/resources`, and JUnit tests under `src/test/java`.
+- `admin/src` is organised as `components/`, `pages/` (one component per tab), `i18n/` (bilingual copy), `data/`, `lib/` (api client, formatting) and `types.ts`; `main.tsx` only wires the shell and shared state.
 - `extension/` contains the Chrome/Edge MV3 client. React/TypeScript UI code lives in `src/`; `content.ts` handles page context and actions, `service-worker.ts` handles extension messaging, and `sidepanel.tsx` contains the chat UI. `public/manifest.json` is copied into the production bundle.
 - `README.md` documents local setup. SQLite files and `extension/dist/` are generated artifacts; do not commit credentials or generated build output.
 - `agent.md` contains the management-console UI design system and accessibility rules. Read it before changing `admin/` pages or components.

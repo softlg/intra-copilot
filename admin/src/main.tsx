@@ -68,6 +68,9 @@ import type {
 import { AGENT_PRESETS } from "./data/agentPresets";
 import { API, request } from "./lib/api";
 import { formatDateTime } from "./lib/format";
+import { buildDailyFeedbackTrend } from "./lib/feedback";
+import { RatingsPage } from "./pages/RatingsPage";
+import { ConversationLogsPage } from "./pages/ConversationLogsPage";
 
 function App() {
   const [language, setLanguage] = useState<Language>(() => {
@@ -754,50 +757,6 @@ function App() {
     } finally {
       setMcpActionId(undefined);
     }
-  };
-
-  const buildDailyFeedbackTrend = (
-    items: AgentFeedback[],
-    lang: Language,
-  ): { points: SparklinePoint[]; total: number; days: number } => {
-    const days = 7;
-    const now = new Date();
-    const buckets: { date: Date; count: number; label: string }[] = [];
-    for (let offset = days - 1; offset >= 0; offset -= 1) {
-      const date = new Date(now);
-      date.setHours(0, 0, 0, 0);
-      date.setDate(date.getDate() - offset);
-      const label =
-        lang === "zh"
-          ? `${date.getMonth() + 1}/${date.getDate()}`
-          : `${date.getMonth() + 1}/${date.getDate()}`;
-      buckets.push({ date, count: 0, label });
-    }
-    let total = 0;
-    for (const item of items) {
-      if (!item.createdAt) continue;
-      const stamp = new Date(item.createdAt);
-      if (Number.isNaN(stamp.getTime())) continue;
-      const dayStart = new Date(stamp);
-      dayStart.setHours(0, 0, 0, 0);
-      const diff = Math.floor(
-        (now.getTime() - dayStart.getTime()) / (24 * 60 * 60 * 1000),
-      );
-      if (diff < 0 || diff >= days) continue;
-      const slot = buckets[days - 1 - diff];
-      if (slot) {
-        slot.count += 1;
-        total += 1;
-      }
-    }
-    return {
-      points: buckets.map((bucket) => ({
-        label: bucket.label,
-        value: bucket.count,
-      })),
-      total,
-      days,
-    };
   };
 
   const parseMcpInterfaces = (server: McpServer): McpInterface[] => {
@@ -4221,471 +4180,46 @@ function App() {
         )}
 
         {tab === "ratings" && (
-          <section>
-            <p className="muted">{t.ratingsSubtitle}</p>
-            {(() => {
-              const missingReasonCount = feedback.filter(
-                (item) => item.rating === "down" && !item.comment,
-              ).length;
-              if (missingReasonCount === 0) return null;
-              return (
-                <p className="feedback-summary-missing" role="status">
-                  <span aria-hidden="true">!</span>
-                  {t.missingReasonCount(missingReasonCount)}
-                </p>
-              );
-            })()}
-            {feedbackSummary && (
-              <div className="feedback-summary-grid">
-                <div className="feedback-summary-card">
-                  <span>{t.totalFeedback}</span>
-                  <strong>{feedbackSummary.total}</strong>
-                </div>
-                <div className="feedback-summary-card">
-                  <span>{t.satisfactionRate}</span>
-                  <strong>{feedbackSummary.satisfactionRate}%</strong>
-                </div>
-                <div className="feedback-summary-card positive">
-                  <span>{t.ratingUp}</span>
-                  <strong>{feedbackSummary.up}</strong>
-                </div>
-                <div className="feedback-summary-card negative">
-                  <span>{t.ratingDown}</span>
-                  <strong>{feedbackSummary.down}</strong>
-                </div>
-              </div>
-            )}
-            {(() => {
-              if (feedback.length === 0) return null;
-              const trend = buildDailyFeedbackTrend(feedback, language);
-              if (trend.total === 0) return null;
-              return (
-                <div className="feedback-trend" role="group">
-                  <Sparkline
-                    className="feedback-trend-chart"
-                    points={trend.points}
-                    width={180}
-                    height={40}
-                    ariaLabel={t.feedbackTrendAria}
-                  />
-                  <div className="feedback-trend-legend">
-                    <span>{t.feedbackTrendTitle}</span>
-                    <strong>
-                      {t.feedbackTrendCount(trend.total, trend.days)}
-                    </strong>
-                  </div>
-                </div>
-              );
-            })()}
-            {feedbackSummary && feedbackSummary.suggestions.length > 0 && (
-              <div className="feedback-guidance">
-                <h3>{t.improvementSuggestions}</h3>
-                <ul>
-                  {feedbackSummary.suggestions.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {feedbackSummary &&
-              Object.keys(feedbackSummary.downReasons).length > 0 && (
-                <div className="feedback-reasons">
-                  <h3>{t.downReasons}</h3>
-                  {Object.entries(feedbackSummary.downReasons).map(
-                    ([reason, count]) => (
-                      <div className="feedback-reason-row" key={reason}>
-                        <span>{reason}</span>
-                        <strong>{count}</strong>
-                      </div>
-                    ),
-                  )}
-                </div>
-              )}
-            {feedback.length === 0 ? (
-              <p className="empty-documents">{t.noFeedback}</p>
-            ) : filteredFeedback.length === 0 ? (
-              <p className="empty-documents">{t.noSearchResults}</p>
-            ) : (
-              <div className="feedback-list">
-                {filteredFeedback.map((item) => (
-                  <article className="feedback-card" key={item.id}>
-                    <div className="row">
-                      <strong>{item.agentId || "-"}</strong>
-                      <span className={item.rating === "up" ? "ok" : "off"}>
-                        {item.rating === "up" ? t.ratingUp : t.ratingDown}
-                      </span>
-                    </div>
-                    <code>{item.sessionId || item.messageId || ""}</code>
-                    {item.comment && (
-                      <p className="feedback-comment">{item.comment}</p>
-                    )}
-                    {(item.userMessage || item.messageContent) && (
-                      <details className="feedback-context">
-                        <summary>{t.feedbackContext}</summary>
-                        {item.userMessage && (
-                          <p>
-                            <strong>{t.userQuestion}：</strong>
-                            {item.userMessage}
-                          </p>
-                        )}
-                        {item.messageContent && (
-                          <p>
-                            <strong>{t.assistantAnswer}：</strong>
-                            {item.messageContent}
-                          </p>
-                        )}
-                      </details>
-                    )}
-                    {!item.comment && item.rating === "down" && (
-                      <span className="feedback-missing-reason">
-                        <span
-                          className="feedback-missing-reason-icon"
-                          aria-hidden="true"
-                        >
-                          !
-                        </span>
-                        {t.noReason}
-                      </span>
-                    )}
-                    {item.createdAt && (
-                      <small>{new Date(item.createdAt).toLocaleString()}</small>
-                    )}
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
+          <RatingsPage
+            t={t}
+            language={language}
+            feedback={feedback}
+            filteredFeedback={filteredFeedback}
+            feedbackSummary={feedbackSummary}
+          />
         )}
 
         {tab === "conversation-logs" && (
-          <>
-            <section className="conversation-logs-page">
-              <p className="muted">{t.conversationLogsSubtitle}</p>
-
-              <div className="conversation-filter" role="search">
-                <label className="conversation-filter-field">
-                  <span>{t.conversationSessionId}</span>
-                  <input
-                    type="text"
-                    value={conversationSessionIdDraft}
-                    onChange={(event) =>
-                      setConversationSessionIdDraft(event.target.value)
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        setConversationSessionId(
-                          conversationSessionIdDraft.trim(),
-                        );
-                        setConversationPage(1);
-                      }
-                    }}
-                    placeholder={t.conversationSessionIdPlaceholder}
-                  />
-                </label>
-                <div className="conversation-filter-actions">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setConversationSessionId(
-                        conversationSessionIdDraft.trim(),
-                      );
-                      setConversationPage(1);
-                    }}
-                  >
-                    {t.query}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => {
-                      setConversationSessionIdDraft("");
-                      setConversationSessionId("");
-                      setConversationPage(1);
-                    }}
-                  >
-                    {t.reset}
-                  </button>
-                </div>
-              </div>
-
-              {conversationLoading ? (
-                <p className="empty-documents">{t.loading}</p>
-              ) : conversationLogs.length === 0 ? (
-                <p className="empty-documents">
-                  {conversationSessionId
-                    ? t.noSearchResults
-                    : t.noConversationLogs}
-                </p>
-              ) : (
-                <>
-                  <div className="conversation-table-wrap">
-                    <table className="conversation-table">
-                      <colgroup>
-                        <col className="conversation-col-id" />
-                        <col className="conversation-col-title" />
-                        <col className="conversation-col-time" />
-                        <col className="conversation-col-count" />
-                        <col className="conversation-col-actions" />
-                      </colgroup>
-                      <thead>
-                        <tr>
-                          <th>{t.conversationSessionId}</th>
-                          <th>{t.conversationTitle}</th>
-                          <th>{t.updatedAt}</th>
-                          <th>{t.messageCount}</th>
-                          <th className="conversation-table-actions">
-                            {t.actions}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {conversationLogs.map((log) => (
-                          <tr key={log.id}>
-                            <td>
-                              <TruncatedId
-                                value={log.id}
-                                head={8}
-                                label={t.conversationSessionId}
-                              />
-                            </td>
-                            <td className="conversation-title-cell">
-                              {log.title || "-"}
-                            </td>
-                            <td className="conversation-time-cell">
-                              {formatDateTime(log.updatedAt)}
-                            </td>
-                            <td>{log.messageCount}</td>
-                            <td className="conversation-table-actions">
-                              <button
-                                type="button"
-                                className="secondary"
-                                onClick={() => openConversationDetail(log.id)}
-                              >
-                                {t.detail}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <Pagination
-                    page={conversationPage}
-                    pageSize={conversationPageSize}
-                    total={conversationTotal}
-                    labels={{
-                      total: t.paginationTotal,
-                      pageSize: t.perPage,
-                      position: t.paginationPosition,
-                      prev: t.prevPage,
-                      next: t.nextPage,
-                    }}
-                    onPageChange={setConversationPage}
-                    onPageSizeChange={(size) => {
-                      setConversationPageSize(size);
-                      setConversationPage(1);
-                    }}
-                  />
-                </>
-              )}
-            </section>
-
-            {conversationDetailOpen && (
-              <div
-                className="conversation-detail-overlay"
-                onClick={() => setConversationDetailOpen(false)}
-              >
-                <div
-                  className="conversation-detail-panel"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="conversation-detail-head">
-                    <div>
-                      <h3>
-                        {conversationDetail?.title ||
-                          conversationDetail?.id ||
-                          t.conversationDetailTitle}
-                      </h3>
-                      {conversationDetail && (
-                        <code>{conversationDetail.id}</code>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => setConversationDetailOpen(false)}
-                    >
-                      {t.close}
-                    </button>
-                  </div>
-
-                  {conversationDetailLoading ? (
-                    <p className="empty-documents">{t.loading}</p>
-                  ) : !conversationDetail ? (
-                    <p className="empty-documents">{t.noSearchResults}</p>
-                  ) : (
-                    <div className="conversation-log-body conversation-detail-body">
-                      <section>
-                        <h4>
-                          {t.userMessage} / {t.assistantMessage}
-                        </h4>
-                        <div className="conversation-log-messages">
-                          {conversationDetail.messages.length === 0 ? (
-                            <p className="binding-empty">-</p>
-                          ) : (
-                            conversationDetail.messages.map((item) => (
-                              <div
-                                className={
-                                  item.role === "user"
-                                    ? "conversation-log-message user"
-                                    : "conversation-log-message assistant"
-                                }
-                                key={item.id}
-                              >
-                                <div className="conversation-log-message-meta">
-                                  <strong>
-                                    {item.role === "user"
-                                      ? t.userMessage
-                                      : t.assistantMessage}
-                                  </strong>
-                                  {item.agentId && <code>{item.agentId}</code>}
-                                  {item.createdAt && (
-                                    <small>
-                                      {new Date(
-                                        item.createdAt,
-                                      ).toLocaleString()}
-                                    </small>
-                                  )}
-                                </div>
-                                <p>{item.content || "-"}</p>
-                                {item.contextSummary && (
-                                  <details>
-                                    <summary>Context</summary>
-                                    <pre>{item.contextSummary}</pre>
-                                  </details>
-                                )}
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </section>
-                      <section>
-                        <h4>{t.invocationDetails}</h4>
-                        {conversationDetail.invocations.length === 0 ? (
-                          <p className="binding-empty">-</p>
-                        ) : (
-                          <div className="conversation-log-invocations">
-                            {conversationDetail.invocations.map((item) => (
-                              <div
-                                className="conversation-log-invocation"
-                                key={item.id}
-                              >
-                                <div className="conversation-log-message-meta">
-                                  <strong>{item.selectedAgentId || "-"}</strong>
-                                  {item.createdAt && (
-                                    <small>
-                                      {new Date(
-                                        item.createdAt,
-                                      ).toLocaleString()}
-                                    </small>
-                                  )}
-                                </div>
-                                <div className="conversation-log-fields">
-                                  <span>
-                                    {t.route}: {item.requestedAgentId || "auto"}
-                                  </span>
-                                  <span>
-                                    {t.confidence}:{" "}
-                                    {item.confidence == null
-                                      ? "-"
-                                      : item.confidence.toFixed(2)}
-                                  </span>
-                                  <span>
-                                    {t.duration}:{" "}
-                                    {item.durationMs == null
-                                      ? "-"
-                                      : `${item.durationMs} ms`}
-                                  </span>
-                                  <span>
-                                    {t.routeSource}: {item.routeSource || "-"}
-                                  </span>
-                                  <span>
-                                    {t.clientIp}: {item.clientIp || "-"}
-                                  </span>
-                                  <span>
-                                    {t.routeTrail}:{" "}
-                                    {item.requestedAgentId || "auto"} →{" "}
-                                    {item.selectedAgentId || "-"}
-                                  </span>
-                                </div>
-                                <div className="conversation-log-trace">
-                                  <div>
-                                    <strong>{t.intentResult}</strong>
-                                    <p>
-                                      {item.intent || item.routeReason || "-"}
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <strong>{t.contextTransfer}</strong>
-                                    <pre>{item.contextSent || "-"}</pre>
-                                  </div>
-                                  <div>
-                                    <strong>{t.responseTransfer}</strong>
-                                    <pre>{item.responseContent || "-"}</pre>
-                                  </div>
-                                </div>
-                                {item.routeReason && <p>{item.routeReason}</p>}
-                                {item.error && (
-                                  <p className="error">{item.error}</p>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </section>
-                      <section>
-                        <h4>{t.actionDetails}</h4>
-                        {conversationDetail.actions.length === 0 ? (
-                          <p className="binding-empty">-</p>
-                        ) : (
-                          <div className="conversation-log-invocations">
-                            {conversationDetail.actions.map((item) => (
-                              <div
-                                className="conversation-log-invocation"
-                                key={item.actionId}
-                              >
-                                <div className="conversation-log-message-meta">
-                                  <strong>{item.type || "-"}</strong>
-                                  <span
-                                    className={
-                                      item.status === "COMPLETED"
-                                        ? "ok"
-                                        : item.status === "FAILED"
-                                          ? "off"
-                                          : "badge"
-                                    }
-                                  >
-                                    {item.status === "COMPLETED"
-                                      ? t.actionCompleted
-                                      : item.status === "FAILED"
-                                        ? t.actionFailed
-                                        : t.actionPending}
-                                  </span>
-                                </div>
-                                <code>{item.target || item.actionId}</code>
-                                {item.reason && <p>{item.reason}</p>}
-                                {item.result && <pre>{item.result}</pre>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </section>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </>
+          <ConversationLogsPage
+            t={t}
+            logs={conversationLogs}
+            total={conversationTotal}
+            page={conversationPage}
+            pageSize={conversationPageSize}
+            loading={conversationLoading}
+            sessionId={conversationSessionId}
+            sessionIdDraft={conversationSessionIdDraft}
+            onSessionIdDraftChange={setConversationSessionIdDraft}
+            onApplyFilter={() => {
+              setConversationSessionId(conversationSessionIdDraft.trim());
+              setConversationPage(1);
+            }}
+            onResetFilter={() => {
+              setConversationSessionIdDraft("");
+              setConversationSessionId("");
+              setConversationPage(1);
+            }}
+            onPageChange={setConversationPage}
+            onPageSizeChange={(size) => {
+              setConversationPageSize(size);
+              setConversationPage(1);
+            }}
+            onOpenLog={openConversationDetail}
+            detail={conversationDetail}
+            detailOpen={conversationDetailOpen}
+            detailLoading={conversationDetailLoading}
+            onCloseDetail={() => setConversationDetailOpen(false)}
+          />
         )}
 
         {tab === "router" && (
