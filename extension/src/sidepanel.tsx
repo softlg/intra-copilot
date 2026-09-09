@@ -6,8 +6,12 @@ import remarkGfm from "remark-gfm";
 import { bootstrapAuth, type AuthedFetch } from "./auth";
 import "./style.css";
 
-const API = "http://localhost:8080/api/v1";
-const API_BASE = "http://localhost:8080";
+const API_BASE = (
+  import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8080/api/v1"
+)
+  .replace(/\/api\/v1\/?$/, "")
+  .replace(/\/$/, "");
+const API = `${API_BASE}/api/v1`;
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
@@ -818,11 +822,15 @@ function App() {
   async function load() {
     if (authError) return; // 鉴权失败时不发请求
     try {
-      const sessions = await apiFetch("/sessions").then((r) => r.json());
+      const response = await apiFetch("/sessions");
+      if (!response.ok) throw new Error(`sessions: ${response.status}`);
+      const payload = await response.json();
+      const sessions = Array.isArray(payload) ? payload : [];
       setSessions(sessions);
       if (sessions[0]) await select(sessions[0]);
       else await create();
     } catch {
+      setSessions([]);
       setError(t.backendError);
     }
   }
@@ -843,11 +851,15 @@ function App() {
 
   async function select(conversation: any) {
     setSession(conversation);
-    setMsgs(
-      await apiFetch(`/sessions/${conversation.id}/messages`).then((r) =>
-        r.json(),
-      ),
-    );
+    try {
+      const response = await apiFetch(`/sessions/${conversation.id}/messages`);
+      if (!response.ok) throw new Error(`messages: ${response.status}`);
+      const payload = await response.json();
+      setMsgs(Array.isArray(payload) ? payload : []);
+    } catch {
+      setMsgs([]);
+      setError(t.backendError);
+    }
     loadFeedback(conversation.id);
   }
 

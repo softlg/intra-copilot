@@ -188,7 +188,10 @@ function makeAuthedFetch(
     if (init.body && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
     }
-    let response = await fetch(`${apiBase}${path}`, { ...init, headers });
+    let response = await fetch(`${apiBase}/api/v1${path}`, {
+      ...init,
+      headers,
+    });
     if (response.status === 401) {
       // 后端认为设备未注册/被禁用，重注册一次后重试一次
       try {
