@@ -229,6 +229,9 @@ const translations = {
     createBase: "创建知识库",
     baseNameRequired: "请输入知识库名称",
     baseSaveFailed: "知识库保存失败",
+    baseDeleteConfirm: (name: string) => "确定删除知识库“" + name + "”吗？该操作会删除其中的文档和索引，且不可撤销。",
+    baseDeleted: (name: string) => "知识库“" + name + "”已删除",
+    baseActionFailed: "知识库操作失败，请稍后重试",
     baseEditNameHint: "点击名称进行编辑",
     baseEditDescriptionHint: "点击描述进行编辑",
     baseNameEmptyHint: "未命名知识库",
@@ -678,6 +681,9 @@ const translations = {
     enter: "Open maintenance",
     back: "Back to knowledge bases",
     maintenance: "Knowledge maintenance",
+    baseDeleteConfirm: (name: string) => "Delete knowledge base “" + name + "”? Its documents and indexes will also be deleted.",
+    baseDeleted: (name: string) => "Knowledge base “" + name + "” deleted",
+    baseActionFailed: "Knowledge base action failed. Please try again.",
     qaSettings: "Q&A scene settings",
     documentCount: (count: number) =>
       `${count} document${count === 1 ? "" : "s"}`,
@@ -2936,6 +2942,52 @@ function App() {
   const agentRoleOf = (agent: Agent) =>
     agent.role ?? (agent.systemAgent ? "MAIN" : "DOMAIN");
 
+  const toggleBase = async (base: Base) => {
+    const enabled = !base.enabled;
+    try {
+      const updated = await request<Base>(`/admin/knowledge-bases/${base.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...base, enabled }),
+      });
+      setBases((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      if (activeBaseId === base.id && !enabled) {
+        setActiveBaseId(undefined);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t.baseActionFailed);
+    }
+  };
+
+  const deleteBase = (base: Base) => {
+    askConfirm({
+      title: t.confirmDeleteTitle,
+      description: t.baseDeleteConfirm(base.name),
+      confirmLabel: t.delete,
+      cancelLabel: t.cancelLabel,
+      tone: "danger",
+      onConfirm: async () => {
+        try {
+          await request(`/admin/knowledge-bases/${base.id}`, {
+            method: "DELETE",
+          });
+          setBases((items) => items.filter((item) => item.id !== base.id));
+          setDocuments((items) => {
+            const next = { ...items };
+            delete next[base.id];
+            return next;
+          });
+          if (activeBaseId === base.id) closeKnowledgeBase();
+          toast.success(t.baseDeleted(base.name));
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : t.baseActionFailed);
+          throw error;
+        }
+      },
+    });
+  };
+
   const addBase = () => {
     setBaseName("");
     setBaseDescription("");
@@ -3188,6 +3240,36 @@ function App() {
   const filteredAgents = agents;
   const filteredBases = bases;
   const activeDocuments = activeBaseId ? (documents[activeBaseId] ?? []) : [];
+  const hasProcessingDocuments = activeDocuments.some((document) =>
+    ["PENDING", "QUEUED", "PARSING", "CHUNKING", "EMBEDDING", "INDEXING"].includes(
+      document.status,
+    ),
+  );
+
+  useEffect(() => {
+    if (!activeBaseId || !hasProcessingDocuments) return;
+    const intervalId = window.setInterval(() => {
+      request<KnowledgeDocument[]>(
+        `/admin/knowledge-bases/${activeBaseId}/documents`,
+      )
+        .then((updated) => {
+          setDocuments((current) => ({
+            ...current,
+            [activeBaseId]: updated,
+          }));
+          setSelectedDocument((current) =>
+            current
+              ? updated.find((document) => document.id === current.id) ?? current
+              : current,
+          );
+        })
+        .catch(() => {
+          // Keep the current status and retry on the next interval.
+        });
+    }, 1500);
+    return () => window.clearInterval(intervalId);
+  }, [activeBaseId, hasProcessingDocuments]);
+
   const filteredDocuments = activeDocuments;
   const filteredTools = tools.filter(
     (tool) =>
@@ -4371,6 +4453,24 @@ function App() {
                           }}
                         >
                           {t.enter}
+                        </button>
+                        <button
+                          className="secondary"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void toggleBase(base);
+                          }}
+                        >
+                          {base.enabled ? t.stop : t.enable}
+                        </button>
+                        <button
+                          className="danger-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            deleteBase(base);
+                          }}
+                        >
+                          {t.delete}
                         </button>
                       </div>
                     </article>
