@@ -8,15 +8,18 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /** Stores documents under {@code ${app.upload-dir}/kb/{baseId}/{documentId}{ext}}. */
 @Component
+@ConditionalOnProperty(name = "minio.enabled", havingValue = "false", matchIfMissing = true)
 public class LocalDocumentStorage implements DocumentStorage {
 
     private final Path root;
 
-    public LocalDocumentStorage(@Value("${app.upload-dir:${user.home}/.intra-copilot/uploads}") String uploadDir) {
+    public LocalDocumentStorage(
+            @Value("${app.upload-dir:${user.home}/.intra-copilot/uploads}") String uploadDir) {
         this.root = Path.of(uploadDir).toAbsolutePath().normalize().resolve("kb");
     }
 
@@ -26,11 +29,17 @@ public class LocalDocumentStorage implements DocumentStorage {
     }
 
     @Override
-    public StoredObject store(String baseId, String documentId, String filename, byte[] bytes) throws IOException {
+    public StoredObject store(String baseId, String documentId, String filename, byte[] bytes)
+            throws IOException {
         String extension = extensionOf(filename);
         Path target = resolve(baseId, documentId + extension);
         Files.createDirectories(target.getParent());
-        Files.write(target, bytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+        Files.write(
+                target,
+                bytes,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE);
         return new StoredObject(relative(target), sha256(bytes), bytes.length);
     }
 

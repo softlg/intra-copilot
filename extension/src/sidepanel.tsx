@@ -17,12 +17,30 @@ type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
 type Feedback = "up" | "down" | null;
 type FeedbackToast = { index: number; kind: "cleared" | "thanks" };
+type AttachmentView = {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  isImage: boolean;
+  url: string;
+};
+
+type PendingAttachment = {
+  id?: string;
+  name: string;
+  size: number;
+  type: string;
+  url: string;
+  file?: File;
+};
+
 type Msg = {
   role: string;
   content: string;
   id?: string;
   agentId?: string;
-  imageData?: string[];
+  attachments?: AttachmentView[];
   stopped?: boolean;
 };
 type PageInfoKey = "url" | "title" | "selection" | "visibleText" | "domSummary";
@@ -86,6 +104,7 @@ const translations = {
     reorderFailed: "调整会话顺序失败",
     backendError: "无法连接后端，请确认 Spring Boot 已启用。",
     requestFailed: "请求失败",
+    uploadFailed: "附件上传失败",
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
     inputPlaceholder: "描述问题或输入你的需求,Shift+Enter换行...",
@@ -199,6 +218,7 @@ const translations = {
     backendError:
       "Unable to connect to the backend. Please make sure Spring Boot is enabled.",
     requestFailed: "Request failed",
+    uploadFailed: "Attachment upload failed",
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
     inputPlaceholder: "Describe the problem or enter your request…",
@@ -486,9 +506,7 @@ function App() {
   const [currentTabEnabled, setCurrentTabEnabled] = useState(false);
   const [availableTabs, setAvailableTabs] = useState<chrome.tabs.Tab[]>([]);
   const [selectedTabIds, setSelectedTabIds] = useState<number[]>([]);
-  const [attachments, setAttachments] = useState<
-    { name: string; size: number; type: string; url: string }[]
-  >([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [screenshot, setScreenshot] = useState<string>();
   const [screenshotSelection, setScreenshotSelection] = useState<string>();
   const [selectionRect, setSelectionRect] = useState({
@@ -1082,6 +1100,7 @@ function App() {
         size: file.size,
         type: file.type || "application/octet-stream",
         url: URL.createObjectURL(file),
+        file,
       })),
     ]);
   }
@@ -1261,19 +1280,37 @@ function App() {
     });
   }
 
-  async function restoreImageAttachments(images: string[]) {
-    const restored = await Promise.all(
-      images.map(async (data, index) => {
-        const blob = await fetch(data).then((response) => response.blob());
-        return {
-          name: `image-${index + 1}.png`,
-          size: blob.size,
-          type: blob.type || "image/png",
-          url: URL.createObjectURL(blob),
-        };
-      }),
-    );
-    setAttachments(restored);
+  function dataUrlToFile(dataUrl: string, name: string): File {
+    const [meta, base64] = dataUrl.split(",");
+    const mime = (meta.match(/:(.*?);/) || [])[1] || "image/png";
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], name, { type: mime });
+  }
+
+  async function restoreAttachments(atts: AttachmentView[]) {
+    const restored: PendingAttachment[] = [];
+    for (const att of atts) {
+      try {
+        const blob = await fetch(att.url).then((response) => response.blob());
+        const file = new File(
+          [blob],
+          att.filename,
+          { type: att.contentType || "application/octet-stream" },
+        );
+        restored.push({
+          name: att.filename,
+          size: file.size,
+          type: file.type || "application/octet-stream",
+          url: URL.createObjectURL(file),
+          file,
+        });
+      } catch {
+        // 单条附件恢复失败不影响其余
+      }
+    }
+    setAttachments((items) => [...items, ...restored]);
   }
 
   async function editAndResend(message: Msg, messageIndex: number) {
@@ -1282,9 +1319,9 @@ function App() {
     setScreenshot(undefined);
     setAttachments([]);
     setMsgs((items) => items.slice(0, messageIndex));
-    if (message.imageData?.length) {
+    if (message.attachments?.length) {
       try {
-        await restoreImageAttachments(message.imageData);
+        await restoreAttachments(message.attachments);
       } catch {
         setError(t.copyFailed);
       }
@@ -1304,26 +1341,48 @@ function App() {
     const text = input.trim();
     const pendingAttachments = attachments;
     const pendingScreenshot = screenshot;
-    let imageData: string[] = [];
-    try {
-      imageData = await Promise.all([
-        ...pendingAttachments
-          .filter((attachment) => attachment.type.startsWith("image/"))
-          .map((attachment) => dataUrlFromObjectUrl(attachment.url)),
-        ...(pendingScreenshot ? [dataUrlFromObjectUrl(pendingScreenshot)] : []),
-      ]);
-    } catch {
-      setError(t.copyFailed);
-      return;
+
+    // 先把附件（含截图）上传到后端（MinIO/本地），拿到带 id 与取回地址的视图。
+    // 这样无论图片还是文件，重进会话后都能从历史接口恢复。
+    let uploaded: AttachmentView[] = [];
+    const filesToUpload: File[] = [];
+    for (const attachment of pendingAttachments) {
+      if (attachment.file) filesToUpload.push(attachment.file);
     }
+    if (pendingScreenshot) {
+      filesToUpload.push(dataUrlToFile(pendingScreenshot, `screenshot-${Date.now()}.png`));
+    }
+    if (filesToUpload.length) {
+      try {
+        const form = new FormData();
+        for (const file of filesToUpload) form.append("files", file, file.name);
+        const response = await apiFetch("/attachments", { method: "POST", body: form });
+        if (!response.ok) throw Error(t.uploadFailed);
+        uploaded = await response.json();
+      } catch (e) {
+        setError((e as Error).message || t.uploadFailed);
+        setBusy(false);
+        return;
+      }
+    }
+
     setInput("");
     setAttachments([]);
     setScreenshot(undefined);
     setBusy(true);
     setError("");
+
+    // 组装乐观消息：用后端返回的 url 直接渲染，重进后也能恢复
+    const messageAttachments: AttachmentView[] = [];
+    let uploadIndex = 0;
+    for (const attachment of pendingAttachments) {
+      if (attachment.file) messageAttachments.push(uploaded[uploadIndex++]);
+    }
+    if (pendingScreenshot) messageAttachments.push(uploaded[uploadIndex++]);
+
     setMsgs((items) => [
       ...items,
-      { role: "user", content: text, imageData },
+      { role: "user", content: text, attachments: messageAttachments },
       { role: "assistant", content: "" },
     ]);
 
@@ -1379,7 +1438,7 @@ function App() {
         body: JSON.stringify({
           sessionId: session.id,
           message: text,
-          images: imageData,
+          attachmentIds: uploaded.map((u) => u.id),
           agentId: null,
           pageContext,
           permissions: {
@@ -1683,20 +1742,33 @@ function App() {
                 </div>
                 <div className="message-stack">
                   <div className="bubble">
-                    {!assistant && message.imageData?.length ? (
-                      <div className="message-images">
-                        {message.imageData.map((image, imageIndex) => (
-                          <button
-                            type="button"
-                            className="message-image-button"
-                            key={`${index}-${imageIndex}`}
-                            onClick={() => setPreviewImage(image)}
-                            title={t.imagePreview}
-                            aria-label={t.imagePreview}
-                          >
-                            <img src={image} alt={t.imageOnly} />
-                          </button>
-                        ))}
+                    {!assistant && message.attachments?.length ? (
+                      <div className="message-attachments">
+                        {message.attachments.map((att, attIndex) =>
+                          att.isImage ? (
+                            <button
+                              type="button"
+                              className="message-image-button"
+                              key={`${index}-img-${attIndex}`}
+                              onClick={() => setPreviewImage(att.url)}
+                              title={t.imagePreview}
+                              aria-label={t.imagePreview}
+                            >
+                              <img src={att.url} alt={att.filename} />
+                            </button>
+                          ) : (
+                            <a
+                              key={`${index}-file-${attIndex}`}
+                              className="message-file-chip"
+                              href={att.url}
+                              download={att.filename}
+                              title={att.filename}
+                            >
+                              <span className="file-icon">📎</span>
+                              <span className="file-name">{att.filename}</span>
+                            </a>
+                          ),
+                        )}
                       </div>
                     ) : null}
                     {assistant ? (
@@ -1716,7 +1788,7 @@ function App() {
                       )
                     ) : (
                       message.content ||
-                      (message.imageData?.length ? t.imageOnly : t.thinking)
+                      (message.attachments?.length ? t.imageOnly : t.thinking)
                     )}
                   </div>
                   {!assistant &&

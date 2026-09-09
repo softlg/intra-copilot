@@ -27,6 +27,7 @@ public class ChatService {
         private final HookService hooks;
         private final LlmClient llm;
         private final KnowledgeRetriever knowledge;
+        private final AttachmentService attachments;
         private final int ragTopK;
         private final ObjectMapper json = new ObjectMapper();
 
@@ -39,6 +40,7 @@ public class ChatService {
                         HookService hooks,
                         LlmClient l,
                         KnowledgeRetriever knowledge,
+                        AttachmentService attachments,
                         @Value("${rag.top-k:5}") int ragTopK) {
                 conversations = c;
                 messages = m;
@@ -48,6 +50,7 @@ public class ChatService {
                 this.hooks = hooks;
                 llm = l;
                 this.knowledge = knowledge;
+                this.attachments = attachments;
                 this.ragTopK = Math.max(1, Math.min(20, ragTopK));
         }
 
@@ -83,6 +86,22 @@ public class ChatService {
         public List<Message> history(String source, String userId, String id) {
                 Conversation conversation = requireOwned(source, userId, id);
                 return messages.findByConversationIdOrderByCreatedAtAsc(conversation.getId());
+        }
+
+        /** 与 {@link #history} 相同，但每条消息附带其附件视图，供历史接口返回。 */
+        public List<MessageView> historyWithAttachments(String source, String userId, String id) {
+                Conversation conversation = requireOwned(source, userId, id);
+                return messages.findByConversationIdOrderByCreatedAtAsc(conversation.getId()).stream()
+                                .map(message -> new MessageView(
+                                                message.getId(),
+                                                message.getConversationId(),
+                                                message.getRole(),
+                                                message.getContent(),
+                                                message.getAgentId(),
+                                                message.getContextSummary(),
+                                                message.getCreatedAt(),
+                                                attachments.listForMessage(message.getId())))
+                                .toList();
         }
 
         public Conversation rename(String source, String userId, String id, String title) {
@@ -215,7 +234,7 @@ public class ChatService {
                         String requestedAgent,
                         String pageContext,
                         Map<String, Boolean> permissions,
-                        List<String> images,
+                        List<String> attachmentIds,
                         String clientIp) {
                 Conversation c;
                 if (sessionId == null || sessionId.isBlank()) {
@@ -291,13 +310,14 @@ public class ChatService {
                         invocations.save(childInvocation);
                 }
                 SseEmitter out = new SseEmitter(120000L);
-                messages.save(
-                                new Message(
-                                                c.getId(),
-                                                "user",
-                                                text,
-                                                routeAgent == null ? "router" : routeAgent.id(),
-                                                readPage ? pageContext : null));
+                Message userMessage = new Message(
+                                c.getId(),
+                                "user",
+                                text,
+                                routeAgent == null ? "router" : routeAgent.id(),
+                                readPage ? pageContext : null);
+                messages.save(userMessage);
+                attachments.linkToMessage(attachmentIds, userMessage.getId());
                 try {
                         out.send(
                                         SseEmitter.event()
@@ -367,7 +387,8 @@ public class ChatService {
                 }
                 StringBuilder full = new StringBuilder();
                 AgentInvocation finalChildInvocation = childInvocation;
-                llm.stream(agent.systemPrompt(), h, enriched, sanitizeImages(images))
+                llm.stream(agent.systemPrompt(), h, enriched,
+                                sanitizeImages(attachments.imageDataUrls(attachmentIds)))
                                 .subscribe(
                                                 token -> {
                                                         full.append(token);

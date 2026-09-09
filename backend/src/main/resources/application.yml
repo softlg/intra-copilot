@@ -81,3 +81,13 @@ mcp:
   allow-private-network: ${MCP_ALLOW_PRIVATE_NETWORK:true}
 app:
   cors-origins: ${CORS_ALLOWED_ORIGINS:chrome-extension://*,http://localhost:4174,http://127.0.0.1:4174,http://localhost:5173,http://127.0.0.1:5173}
+  # 单条聊天附件最大体积（字节）。servlet 上限见 spring.servlet.multipart。
+  max-attachment-bytes: ${APP_MAX_ATTACHMENT_BYTES:26214400}
+minio:
+  # 设为 true 时，文档与聊天附件的字节统一存到 MinIO；否则使用本地磁盘（默认）。
+  enabled: ${MINIO_ENABLED:false}
+  endpoint: ${MINIO_ENDPOINT:}
+  access-key: ${MINIO_ACCESS_KEY:}
+  secret-key: ${MINIO_SECRET_KEY:}
+  bucket: ${MINIO_BUCKET:intra-copilot}
+  region: ${MINIO_REGION:}

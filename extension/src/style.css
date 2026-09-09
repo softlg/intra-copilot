@@ -353,6 +353,12 @@ small {
   gap: 6px;
   margin-bottom: 8px;
 }
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
 .message-image-button {
   display: inline-flex;
   max-width: 220px;
@@ -368,6 +374,28 @@ small {
   max-width: 218px;
   max-height: 160px;
   object-fit: contain;
+}
+.message-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 5px 9px;
+  border: 1px solid #ffffff33;
+  border-radius: 7px;
+  background: #ffffff14;
+  color: inherit;
+  text-decoration: none;
+  font-size: 12px;
+  cursor: pointer;
+}
+.message-file-chip:hover {
+  background: #ffffff22;
+}
+.message-file-chip .file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .assistant-content {
   min-width: 0;
