@@ -89,10 +89,16 @@ button:disabled {
 }
 
 aside {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
   width: 240px;
+  height: 100vh;
   padding: 28px 18px;
   background: var(--surface-muted);
   border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   transition:
     width 0.2s ease,
     padding 0.2s ease;
@@ -263,10 +269,32 @@ aside.sidebar-collapsed .nav-icon {
 }
 
 main {
-  flex: 1;
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
   min-width: 0;
   padding: 32px;
   animation: tab-fade-in 0.18s ease-out;
+}
+
+main > header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -32px -32px 24px;
+  padding: 20px 32px;
+  background: var(--page-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+main > header > h2 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
 }
 
 @keyframes tab-fade-in {
@@ -2578,8 +2606,11 @@ pre {
   }
 
   aside {
+    position: static;
     width: auto;
+    height: auto;
     padding: 18px;
+    overflow-y: visible;
   }
 
   aside.sidebar-collapsed {
@@ -2595,6 +2626,12 @@ pre {
 
   main {
     padding: 24px 18px;
+  }
+
+  main > header {
+    position: static;
+    margin: -24px -18px 18px;
+    padding: 16px 18px;
   }
 
   .grid,
