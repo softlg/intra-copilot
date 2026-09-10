@@ -240,6 +240,9 @@ function App() {
   const [resourceStatus, setResourceStatus] = useState<
     "all" | "enabled" | "disabled"
   >("all");
+  const [knowledgeStatus, setKnowledgeStatus] = useState<
+    "all" | "enabled" | "disabled"
+  >("all");
   const [message, setMessage] = useState("");
   const [routePageContext, setRoutePageContext] = useState("");
   const [route, setRoute] = useState<Record<string, unknown>>();
@@ -310,7 +313,6 @@ function App() {
   const [knowledgeDiagnostics, setKnowledgeDiagnostics] =
     useState<KnowledgeDiagnostics>();
   const t = translations[language];
-
 
   const normalizedName = (value: string) => value.trim().toLocaleLowerCase();
 
@@ -1975,8 +1977,6 @@ function App() {
     }
   };
 
-
-
   const testRoute = async () => {
     if (!message.trim()) return;
     setRouteAnalysis("");
@@ -2029,7 +2029,11 @@ function App() {
     setResourceError("");
   };
   const filteredAgents = agents;
-  const filteredBases = bases;
+  const filteredBases = bases.filter(
+    (base) =>
+      knowledgeStatus === "all" ||
+      (knowledgeStatus === "enabled" ? base.enabled : !base.enabled),
+  );
   const activeDocuments = activeBaseId ? (documents[activeBaseId] ?? []) : [];
   const hasProcessingDocuments = activeDocuments.some((document) =>
     [
@@ -2486,6 +2490,8 @@ function App() {
             bases={bases}
             filteredBases={filteredBases}
             basesLoading={basesLoading}
+            status={knowledgeStatus}
+            onStatusChange={setKnowledgeStatus}
             documents={documents}
             activeBase={activeBase}
             activeDocuments={activeDocuments}

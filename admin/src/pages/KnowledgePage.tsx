@@ -16,6 +16,7 @@ import type {
   EmbeddingValidation,
   KnowledgeDiagnostics,
   RetrievalResult,
+  ResourceStatus,
 } from "../types";
 
 export type KnowledgeSection = "basic" | "maintenance" | "qa" | "retrieval";
@@ -26,6 +27,8 @@ export interface KnowledgePageProps {
   bases: Base[];
   filteredBases: Base[];
   basesLoading: boolean;
+  status: ResourceStatus;
+  onStatusChange: (status: ResourceStatus) => void;
   documents: Record<string, KnowledgeDocument[]>;
   activeBase: Base | undefined;
   activeDocuments: KnowledgeDocument[];
@@ -115,92 +118,116 @@ export function KnowledgePage({
   validateEmbeddingConfig,
   knowledgeDiagnostics,
   runKnowledgeDiagnostics,
+  status,
+  onStatusChange,
 }: KnowledgePageProps) {
   return (
     <section>
       {!activeBase ? (
         <>
-          <button onClick={addBase}>{t.newBase}</button>
-          {basesLoading && bases.length === 0 ? (
-            <Skeleton.CardList count={3} />
-          ) : (
-            <div className="grid">
-              {filteredBases.map((base) => (
-                <article
-                  className="knowledge-card knowledge-card-clickable"
-                  key={base.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openKnowledgeBase(base)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      openKnowledgeBase(base);
-                    }
-                  }}
-                >
-                  <div className="row">
-                    <strong>{base.name}</strong>
-                    <span className={base.enabled ? "ok" : "off"}>
-                      {base.enabled ? t.enabled : t.disabled}
-                    </span>
-                  </div>
-                  <TruncatedId value={base.id} label="Knowledge base ID" />
-                  <p>{base.description || t.supportedDocs}</p>
-                  <div className="resource-meta">
-                    <span>
-                      {t.documentCount((documents[base.id] ?? []).length)}
-                    </span>
-                  </div>
-                  <div
-                    className="agent-actions"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <button
-                      className="secondary"
-                      onClick={() => openKnowledgeBase(base)}
-                    >
-                      {t.enter}
-                    </button>
-                    <Dropdown
-                      ariaLabel={t.moreActions}
-                      trigger={
-                        <Icon name="more" className="dropdown-trigger-icon" />
-                      }
-                      items={[
-                        {
-                          key: "toggle",
-                          label: base.enabled ? t.stop : t.enable,
-                          onSelect: () => void toggleBase(base),
-                        },
-                        {
-                          key: "delete",
-                          label: t.delete,
-                          tone: "danger",
-                          onSelect: () => deleteBase(base),
-                        },
-                      ]}
-                    />
-                  </div>
-                </article>
-              ))}
+          <div className="resource-toolbar">
+            <div>
+              <p className="muted">{t.knowledgeSubtitle}</p>
             </div>
-          )}
-          {bases.length === 0 ? (
-            <EmptyState
-              icon={<Icon name="knowledge" size={22} />}
-              title={t.noKnowledgeBases}
-              hint={t.noKnowledgeBasesHint}
-              action={<button onClick={addBase}>{t.newBase}</button>}
-            />
-          ) : filteredBases.length === 0 ? (
-            <EmptyState
-              compact
-              icon={<Icon name="search" size={22} />}
-              title={t.noSearchResults}
-              hint={t.noSearchResultsHint}
-            />
-          ) : null}
+            <div className="resource-toolbar-actions">
+              <select
+                className="resource-filter"
+                value={status}
+                onChange={(event) =>
+                  onStatusChange(event.target.value as ResourceStatus)
+                }
+                aria-label={t.statusFilter}
+              >
+                <option value="all">{t.allStatuses}</option>
+                <option value="enabled">{t.enabled}</option>
+                <option value="disabled">{t.disabled}</option>
+              </select>
+              <button onClick={addBase}>{t.newBase}</button>
+            </div>
+          </div>
+          <div className="resource-section">
+            <h3>{t.knowledgeBaseHeading}</h3>
+            {basesLoading && bases.length === 0 ? (
+              <Skeleton.CardList count={3} />
+            ) : (
+              <div className="grid">
+                {filteredBases.map((base) => (
+                  <article
+                    className="knowledge-card knowledge-card-clickable"
+                    key={base.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openKnowledgeBase(base)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openKnowledgeBase(base);
+                      }
+                    }}
+                  >
+                    <div className="row">
+                      <strong>{base.name}</strong>
+                      <span className={base.enabled ? "ok" : "off"}>
+                        {base.enabled ? t.enabled : t.disabled}
+                      </span>
+                    </div>
+                    <TruncatedId value={base.id} label="Knowledge base ID" />
+                    <p>{base.description || t.supportedDocs}</p>
+                    <div className="resource-meta">
+                      <span>
+                        {t.documentCount((documents[base.id] ?? []).length)}
+                      </span>
+                    </div>
+                    <div
+                      className="agent-actions"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <button
+                        className="secondary"
+                        onClick={() => openKnowledgeBase(base)}
+                      >
+                        {t.enter}
+                      </button>
+                      <Dropdown
+                        ariaLabel={t.moreActions}
+                        trigger={
+                          <Icon name="more" className="dropdown-trigger-icon" />
+                        }
+                        items={[
+                          {
+                            key: "toggle",
+                            label: base.enabled ? t.stop : t.enable,
+                            onSelect: () => void toggleBase(base),
+                          },
+                          {
+                            key: "delete",
+                            label: t.delete,
+                            tone: "danger",
+                            onSelect: () => deleteBase(base),
+                          },
+                        ]}
+                      />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+            {bases.length === 0 ? (
+              <EmptyState
+                icon={<Icon name="knowledge" size={22} />}
+                title={t.noKnowledgeBases}
+                hint={t.noKnowledgeBasesHint}
+                action={<button onClick={addBase}>{t.newBase}</button>}
+              />
+            ) : filteredBases.length === 0 ? (
+              <EmptyState
+                compact
+                icon={<Icon name="search" size={22} />}
+                title={t.noSearchResults}
+                hint={t.noSearchResultsHint}
+              />
+            ) : null}
+          </div>
         </>
       ) : (
         <div className="knowledge-detail">

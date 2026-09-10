@@ -304,6 +304,8 @@ export const translations = {
     noKnowledgeBases: "暂无可用知识库，请先创建知识库。",
     noKnowledgeBasesHint:
       "知识库用于存放产品文档、FAQ 等资料，Agent 在回答前会先检索这里。点上方按钮创建第一个。",
+    knowledgeSubtitle: "维护供 Agent 检索的产品文档、FAQ 等资料。",
+    knowledgeBaseHeading: "知识库",
     noMcpServerHint:
       "MCP 服务提供 Agent 可以调用的外部能力（搜索、数据库、自定义 API 等）。新建后记得运行健康检查。",
     noSystemAgentHint:
@@ -743,6 +745,9 @@ export const translations = {
     noKnowledgeBases: "No knowledge bases available. Create one first.",
     noKnowledgeBasesHint:
       "Knowledge bases store product docs, FAQs, etc. Agents retrieve from them before answering. Use the button above to add the first one.",
+    knowledgeSubtitle:
+      "Maintain product docs, FAQs and other material the agent can retrieve.",
+    knowledgeBaseHeading: "Knowledge bases",
     noMcpServerHint:
       "MCP servers expose capabilities (search, databases, custom APIs) the agent can call. Run a health check after adding one.",
     noSystemAgentHint:
