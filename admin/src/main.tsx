@@ -82,6 +82,85 @@ import { SkillsPage } from "./pages/SkillsPage";
 import { AgentSettingsPage } from "./pages/AgentSettingsPage";
 import { KnowledgePage } from "./pages/KnowledgePage";
 
+type AgentConfigSnapshot = {
+  id: string;
+  displayName: string;
+  description: string;
+  systemPrompt: string;
+  browserActions: boolean;
+  enabled: boolean;
+  priority: number;
+  routingRules: string;
+  role: string;
+  parentAgentId: string;
+  handlingMode: string;
+  returnMode: string;
+  model: string;
+  temperature: string;
+  knowledgeBaseIds: string;
+  toolIds: string[];
+  skillIds: string[];
+  childIds: string[];
+  childRules: Record<string, string>;
+};
+
+function normalizeIdList(ids: string[]) {
+  return [...new Set(ids)].sort();
+}
+
+function serializeAgentConfig(snapshot: AgentConfigSnapshot) {
+  return JSON.stringify({
+    ...snapshot,
+    knowledgeBaseIds: normalizeIdList(parseIds(snapshot.knowledgeBaseIds)),
+    toolIds: normalizeIdList(snapshot.toolIds),
+    skillIds: normalizeIdList(snapshot.skillIds),
+    childIds: normalizeIdList(snapshot.childIds),
+    childRules: Object.fromEntries(
+      Object.entries(snapshot.childRules).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ),
+  });
+}
+
+function agentConfigSnapshot(
+  agent: Agent,
+  childIds: string[] = [],
+  childRules: Record<string, string> = {},
+): AgentConfigSnapshot {
+  return {
+    id: agent.id,
+    displayName: agent.displayName,
+    description: agent.description ?? "",
+    systemPrompt: agent.systemPrompt ?? "",
+    browserActions: Boolean(agent.supportsBrowserActions),
+    enabled: agent.enabled,
+    priority: agent.priority ?? 100,
+    routingRules: agent.routingRules ?? "",
+    role: agent.role ?? (agent.systemAgent ? "MAIN" : "DOMAIN"),
+    parentAgentId: agent.parentAgentId ?? "",
+    handlingMode: agent.handlingMode ?? "AUTO",
+    returnMode: agent.returnMode ?? "CHILD_DIRECT",
+    model: agent.model ?? "",
+    temperature:
+      agent.temperature === undefined || agent.temperature === null
+        ? ""
+        : String(agent.temperature),
+    knowledgeBaseIds: agent.knowledgeBaseIds ?? "",
+    toolIds: parseIds(agent.toolIds),
+    skillIds: parseIds(agent.skillIds),
+    childIds,
+    childRules,
+  };
+}
+
+function agentTabForRole(role: string) {
+  if (role === "GENERAL") return "agents-general";
+  if (role === "DOMAIN") return "agents-domain";
+  if (role === "SUB") return "agents-sub";
+  return "agents";
+}
+
 function App() {
   const [language, setLanguage] = useState<Language>(() => {
     return localStorage.getItem("admin-language") === "en" ? "en" : "zh";
@@ -374,12 +453,18 @@ function App() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [settingsOpen]);
 
-  const loadAgents = () => {
+  const loadAgents = async () => {
     setAgentsLoading(true);
-    request<Agent[]>("/admin/agents")
-      .then(setAgents)
-      .catch(() => setAgents([]))
-      .finally(() => setAgentsLoading(false));
+    try {
+      const list = await request<Agent[]>("/admin/agents");
+      setAgents(list);
+      return list;
+    } catch {
+      setAgents([]);
+      return [];
+    } finally {
+      setAgentsLoading(false);
+    }
   };
 
   const loadConversationLogs = () => {
@@ -492,48 +577,9 @@ function App() {
 
   // 记录已按需加载过的资源，避免进入页面时重复请求
   const loadedResources = useRef<Set<string>>(new Set());
-  const [agentConfigDirty, setAgentConfigDirty] = useState(false);
-  const agentConfigSeeded = useRef(false);
-
-  // Reset the dirty tracker whenever a new agent config is opened.
-  useEffect(() => {
-    if (agentConfigId) {
-      agentConfigSeeded.current = false;
-      setAgentConfigDirty(false);
-    }
-  }, [agentConfigId]);
-
-  // Mark the form dirty whenever any field changes after the initial seed
-  // completes. We rely on `openAgentSettings` calling each `setX` first;
-  // these renders land before the seed completes, so dirty stays false.
-  useEffect(() => {
-    if (!agentConfigId) return;
-    if (!agentConfigSeeded.current) {
-      agentConfigSeeded.current = true;
-      return;
-    }
-    setAgentConfigDirty(true);
-  }, [
-    agentId,
-    agentDisplayName,
-    agentDescription,
-    agentSystemPrompt,
-    agentBrowserActions,
-    agentEnabled,
-    agentPriority,
-    agentRoutingRules,
-    agentRole,
-    agentParentId,
-    agentHandlingMode,
-    agentReturnMode,
-    agentModel,
-    agentTemperature,
-    agentKnowledgeBaseIds,
-    agentToolIds,
-    agentSkillIds,
-    agentChildIds,
-    agentChildRules,
-  ]);
+  const [agentConfigBaseline, setAgentConfigBaseline] =
+    useState<AgentConfigSnapshot>();
+  const agentSettingsRequestId = useRef(0);
   const ensureResourceLoaded = (key: string, loader: () => void) => {
     if (loadedResources.current.has(key)) return;
     loadedResources.current.add(key);
@@ -1435,16 +1481,12 @@ function App() {
     setAgentDialogOpen(true);
   };
 
-  const openAgentSettings = (agent: Agent) => {
-    setAgentConfigDirty(false);
-    setAgentReturnTab(
-      ["agents-general", "agents-domain", "agents-sub"].includes(tab)
-        ? tab
-        : "agents",
-    );
+  const populateAgentConfig = (
+    agent: Agent,
+    requestId: number,
+    resetSearch: boolean,
+  ) => {
     setAgentConfigId(agent.id);
-    setTab("agent-settings");
-    setAgentConfigSection("basic");
     setEditingAgentId(agent.id);
     setAgentId(agent.id);
     setAgentDisplayName(agent.displayName);
@@ -1458,25 +1500,9 @@ function App() {
     setAgentParentId(agent.parentAgentId ?? "");
     setAgentHandlingMode(agent.handlingMode ?? "AUTO");
     setAgentReturnMode(agent.returnMode ?? "CHILD_DIRECT");
-    setAgentChildSearch("");
     setAgentChildIds([]);
     setAgentChildRules({});
-    request<AgentChildBinding[]>(`/admin/agents/${agent.id}/children`)
-      .then((items) => {
-        setAgentChildIds(items.map((item) => item.childAgentId));
-        setAgentChildRules(
-          Object.fromEntries(
-            items.map((item) => [item.childAgentId, item.routingRule ?? ""]),
-          ),
-        );
-      })
-      .catch(() => {
-        setAgentChildIds([]);
-        setAgentChildRules({});
-      });
-    request<AgentConfigVersion[]>(`/admin/agents/${agent.id}/versions`)
-      .then(setAgentVersions)
-      .catch(() => setAgentVersions([]));
+    setAgentVersions([]);
     setAgentModel(agent.model ?? "");
     setAgentTemperature(
       agent.temperature === undefined || agent.temperature === null
@@ -1486,16 +1512,64 @@ function App() {
     setAgentKnowledgeBaseIds(agent.knowledgeBaseIds ?? "");
     setAgentToolIds(parseIds(agent.toolIds));
     setAgentSkillIds(parseIds(agent.skillIds));
-    setAgentKnowledgeSearch("");
-    setAgentToolSearch("");
-    setAgentSkillSearch("");
+    if (resetSearch) {
+      setAgentChildSearch("");
+      setAgentKnowledgeSearch("");
+      setAgentToolSearch("");
+      setAgentSkillSearch("");
+    }
+    setAgentConfigBaseline(agentConfigSnapshot(agent));
+
+    request<AgentChildBinding[]>(`/admin/agents/${agent.id}/children`)
+      .then((items) => {
+        if (agentSettingsRequestId.current !== requestId) return;
+        const childIds = items.map((item) => item.childAgentId);
+        const childRules = Object.fromEntries(
+          items.map((item) => [item.childAgentId, item.routingRule ?? ""]),
+        );
+        setAgentChildIds(childIds);
+        setAgentChildRules(childRules);
+        setAgentConfigBaseline((current) => ({
+          ...agentConfigSnapshot(agent, childIds, childRules),
+          enabled: current?.enabled ?? agent.enabled,
+        }));
+      })
+      .catch(() => {
+        if (agentSettingsRequestId.current !== requestId) return;
+        setAgentChildIds([]);
+        setAgentChildRules({});
+      });
+    request<AgentConfigVersion[]>(`/admin/agents/${agent.id}/versions`)
+      .then((items) => {
+        if (agentSettingsRequestId.current === requestId) {
+          setAgentVersions(items);
+        }
+      })
+      .catch(() => {
+        if (agentSettingsRequestId.current === requestId) {
+          setAgentVersions([]);
+        }
+      });
+  };
+
+  const openAgentSettings = (agent: Agent) => {
+    const requestId = ++agentSettingsRequestId.current;
+    setAgentReturnTab(
+      ["agents-general", "agents-domain", "agents-sub"].includes(tab)
+        ? tab
+        : agentTabForRole(agent.role ?? ""),
+    );
+    setTab("agent-settings");
+    setAgentConfigSection("basic");
+    populateAgentConfig(agent, requestId, true);
     setAgentError("");
     setAgentDialogOpen(false);
   };
 
   const closeAgentConfig = () => {
     const performClose = () => {
-      setAgentConfigDirty(false);
+      agentSettingsRequestId.current += 1;
+      setAgentConfigBaseline(undefined);
       setAgentConfigId(undefined);
       setTab(agentReturnTab);
     };
@@ -1640,9 +1714,13 @@ function App() {
           ),
         });
       }
-      setAgentConfigDirty(false);
       setAgentDialogOpen(false);
-      loadAgents();
+      const refreshedAgents = await loadAgents();
+      const refreshedAgent =
+        refreshedAgents.find((item) => item.id === savedAgent.id) ?? savedAgent;
+      const requestId = ++agentSettingsRequestId.current;
+      setAgentReturnTab(agentTabForRole(refreshedAgent.role ?? agentRole));
+      populateAgentConfig(refreshedAgent, requestId, false);
     } catch (error) {
       setAgentError(
         error instanceof Error ? error.message : t.createAgentFailed,
@@ -1701,7 +1779,12 @@ function App() {
       method: "PATCH",
       body: JSON.stringify({ enabled }),
     });
-    if (agentConfigId === agent.id) setAgentEnabled(enabled);
+    if (agentConfigId === agent.id) {
+      setAgentEnabled(enabled);
+      setAgentConfigBaseline((current) =>
+        current ? { ...current, enabled } : current,
+      );
+    }
     loadAgents();
   };
 
@@ -2023,6 +2106,33 @@ function App() {
     }
   };
 
+  const currentAgentConfigSnapshot: AgentConfigSnapshot = {
+    id: agentId,
+    displayName: agentDisplayName,
+    description: agentDescription,
+    systemPrompt: agentSystemPrompt,
+    browserActions: agentBrowserActions,
+    enabled: agentEnabled,
+    priority: agentPriority,
+    routingRules: agentRoutingRules,
+    role: agentRole,
+    parentAgentId: agentParentId,
+    handlingMode: agentHandlingMode,
+    returnMode: agentReturnMode,
+    model: agentModel,
+    temperature: agentTemperature,
+    knowledgeBaseIds: agentKnowledgeBaseIds,
+    toolIds: agentToolIds,
+    skillIds: agentSkillIds,
+    childIds: agentChildIds,
+    childRules: agentChildRules,
+  };
+  const agentConfigDirty = Boolean(
+    agentConfigId &&
+    agentConfigBaseline &&
+    serializeAgentConfig(currentAgentConfigSnapshot) !==
+      serializeAgentConfig(agentConfigBaseline),
+  );
   const configuredAgent = agents.find((item) => item.id === agentConfigId);
   const configuredAgentIsSystem = configuredAgent
     ? isSystemAgent(configuredAgent)
@@ -2332,6 +2442,7 @@ function App() {
 
         {tab === "agent-settings" && agentConfigId && (
           <AgentSettingsPage
+            key={agentConfigId}
             t={t}
             agentId={agentId}
             agentDisplayName={agentDisplayName}
