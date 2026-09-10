@@ -12,6 +12,7 @@ const API_BASE = (
   .replace(/\/api\/v1\/?$/, "")
   .replace(/\/$/, "");
 const API = `${API_BASE}/api/v1`;
+const CHAT_STREAM_TIMEOUT_MS = 125_000;
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
@@ -176,6 +177,7 @@ const translations = {
     reorderFailed: "调整会话顺序失败",
     backendError: "无法连接后端，请确认 Spring Boot 已启用。",
     requestFailed: "请求失败",
+    requestTimeout: "请求超时，请稍后重试。",
     uploadFailed: "附件上传失败",
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
@@ -297,6 +299,7 @@ const translations = {
     backendError:
       "Unable to connect to the backend. Please make sure Spring Boot is enabled.",
     requestFailed: "Request failed",
+    requestTimeout: "The request timed out. Please try again.",
     uploadFailed: "Attachment upload failed",
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
@@ -1380,6 +1383,27 @@ function App() {
     });
   }
 
+  function markGenerationFailed(message: string) {
+    const visibleMessage = message || t.requestFailed;
+    setError(visibleMessage);
+    setMsgs((items) => {
+      if (!items.length) return items;
+      const next = [...items];
+      const index = next.length - 1;
+      const last = next[index];
+      if (last.role !== "assistant" || last.content.includes(visibleMessage)) {
+        return next;
+      }
+      next[index] = {
+        ...last,
+        content: last.content
+          ? `${last.content}\n\n> ${visibleMessage}`
+          : visibleMessage,
+      };
+      return next;
+    });
+  }
+
   async function dataUrlFromObjectUrl(url: string): Promise<string> {
     if (url.startsWith("data:")) return url;
     const blob = await fetch(url).then((response) => {
@@ -1545,11 +1569,19 @@ function App() {
       // The active tab may not allow content scripts (for example chrome:// pages).
     }
 
+    let streamError = "";
+    let sawContent = false;
+    let timedOut = false;
+    let timeoutId: number | undefined;
     try {
       if (controller.signal.aborted) {
         markGenerationStopped();
         return;
       }
+      timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, CHAT_STREAM_TIMEOUT_MS);
       const response = await apiFetch("/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1594,6 +1626,7 @@ function App() {
           const name = (part.match(/^event: ?(.+)$/m) || [])[1];
           const data = (part.match(/^data: ?(.+)$/m) || [])[1];
           if (name === "token" && data) {
+            sawContent = true;
             setMsgs((items) => {
               const next = [...items];
               const index = next.length - 1;
@@ -1630,6 +1663,7 @@ function App() {
             try {
               const completed = JSON.parse(data);
               if (typeof completed.content === "string") {
+                if (completed.content) sawContent = true;
                 patchLastMsg((last) =>
                   last.content ? {} : { content: completed.content },
                 );
@@ -1697,21 +1731,31 @@ function App() {
             let message = data;
             try {
               const parsed = JSON.parse(data);
-              if (parsed && typeof parsed.message === "string") message = parsed.message;
+              if (parsed && typeof parsed.message === "string")
+                message = parsed.message;
             } catch {
               /* 非 JSON 时按纯文本处理 */
             }
-            setError(message);
+            streamError = message;
+            markGenerationFailed(message);
           }
         }
       }
+      if (!sawContent && !streamError) markGenerationFailed(t.requestFailed);
     } catch (e) {
       if ((e as { name?: string })?.name === "AbortError") {
-        markGenerationStopped();
-      } else {
-        setError((e as Error).message);
+        if (timedOut) markGenerationFailed(t.requestTimeout);
+        else markGenerationStopped();
+      } else if (!streamError) {
+        const rawMessage = (e as Error).message?.trim();
+        markGenerationFailed(
+          !rawMessage || rawMessage === "Failed to fetch"
+            ? t.backendError
+            : rawMessage,
+        );
       }
     } finally {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
       }
