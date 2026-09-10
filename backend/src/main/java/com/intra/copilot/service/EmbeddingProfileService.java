@@ -19,7 +19,7 @@ public class EmbeddingProfileService {
     public EmbeddingProfileService(EmbeddingProfileRepository profiles, KnowledgeBaseRepository bases,
             @Value("${embedding.default-provider:openai}") String defaultProvider,
             @Value("${spring.ai.openai.embedding.options.model:text-embedding-3-small}") String defaultModel,
-            @Value("${embedding.dimension:1536}") int defaultDimension) {
+            @Value("${embedding.dimension:1024}") int defaultDimension) {
         this.profiles = profiles; this.bases = bases; this.defaultProvider = defaultProvider;
         this.defaultModel = defaultModel; this.defaultDimension = defaultDimension;
     }
