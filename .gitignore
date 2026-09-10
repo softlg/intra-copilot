@@ -1,6 +1,10 @@
 **/target/
 **/node_modules/
 extension/dist/
+admin/dist/
+admin/dist-verify/
+.lithe/
+.workbuddy/
 backend/data/
 *.db
 *.db-journal
