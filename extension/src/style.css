@@ -662,6 +662,13 @@ small {
   background: var(--page-bg);
   color: #2563eb;
 }
+.message-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.retry-action {
+  font-size: 16px;
+}
 .feedback-action {
   width: 30px;
   height: 28px;

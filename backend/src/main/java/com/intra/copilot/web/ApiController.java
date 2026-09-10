@@ -109,7 +109,8 @@ public class ApiController {
             String agentId,
             String pageContext,
             Map<String, Boolean> permissions,
-            List<String> attachmentIds) {}
+            List<String> attachmentIds,
+            boolean retry) {}
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestBody ChatRequest req, HttpServletRequest request) {
@@ -123,6 +124,7 @@ public class ApiController {
                 req.pageContext(),
                 req.permissions(),
                 req.attachmentIds(),
+                req.retry(),
                 request.getRemoteAddr());
     }
 

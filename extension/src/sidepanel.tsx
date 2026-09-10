@@ -241,6 +241,7 @@ const translations = {
     copyCode: "复制代码",
     copied: "已复制",
     copyFailed: "复制失败，请手动选择文本复制。",
+    retry: "重试",
     editResend: "重新编辑并发送",
     imageOnly: "图片",
     pagePermission: "页面权限",
@@ -370,6 +371,7 @@ const translations = {
     copyCode: "Copy code",
     copied: "Copied",
     copyFailed: "Copy failed. Please select and copy the text manually.",
+    retry: "Retry",
     editResend: "Edit and resend",
     imageOnly: "Image",
     pagePermission: "Page permissions",
@@ -1404,13 +1406,17 @@ function App() {
     image.src = screenshotSelection;
   }
 
-  function markGenerationStopped() {
+  function markGenerationStopped(messageIndex?: number) {
     setMsgs((items) => {
       if (!items.length) return items;
       const next = [...items];
-      const index = next.length - 1;
+      const index = messageIndex ?? next.length - 1;
       const last = next[index];
-      if (last.role !== "assistant" || last.content.includes(t.stopped)) {
+      if (
+        !last ||
+        last.role !== "assistant" ||
+        last.content.includes(t.stopped)
+      ) {
         return next;
       }
       next[index] = {
@@ -1422,15 +1428,19 @@ function App() {
     });
   }
 
-  function markGenerationFailed(message: string) {
+  function markGenerationFailed(message: string, messageIndex?: number) {
     const visibleMessage = message || t.requestFailed;
     setError(visibleMessage);
     setMsgs((items) => {
       if (!items.length) return items;
       const next = [...items];
-      const index = next.length - 1;
+      const index = messageIndex ?? next.length - 1;
       const last = next[index];
-      if (last.role !== "assistant" || last.content.includes(visibleMessage)) {
+      if (
+        !last ||
+        last.role !== "assistant" ||
+        last.content.includes(visibleMessage)
+      ) {
         return next;
       }
       next[index] = {
@@ -1506,67 +1516,109 @@ function App() {
     window.setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
-  async function send() {
+  async function send(retryRequest?: {
+    assistantIndex: number;
+    userMessage: Msg;
+  }) {
+    const text = retryRequest
+      ? retryRequest.userMessage.content.trim()
+      : input.trim();
+    const pendingAttachments: PendingAttachment[] = retryRequest
+      ? (retryRequest.userMessage.attachments || []).map((attachment) => ({
+          id: attachment.id,
+          name: attachment.filename,
+          size: attachment.size,
+          type: attachment.contentType,
+          url: attachment.url,
+        }))
+      : attachments;
+    const pendingScreenshot = retryRequest ? undefined : screenshot;
     if (
-      (!input.trim() && !attachments.length && !screenshot) ||
+      (!text && !pendingAttachments.length && !pendingScreenshot) ||
       busy ||
       !session
     )
       return;
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    const text = input.trim();
-    const pendingAttachments = attachments;
-    const pendingScreenshot = screenshot;
 
     // 先把附件（含截图）上传到后端（MinIO/本地），拿到带 id 与取回地址的视图。
     // 这样无论图片还是文件，重进会话后都能从历史接口恢复。
     let uploaded: AttachmentView[] = [];
-    const filesToUpload: File[] = [];
-    for (const attachment of pendingAttachments) {
-      if (attachment.file) filesToUpload.push(attachment.file);
-    }
-    if (pendingScreenshot) {
-      filesToUpload.push(
-        dataUrlToFile(pendingScreenshot, `screenshot-${Date.now()}.png`),
-      );
-    }
-    if (filesToUpload.length) {
-      try {
-        const form = new FormData();
-        for (const file of filesToUpload) form.append("files", file, file.name);
-        const response = await apiFetch("/attachments", {
-          method: "POST",
-          body: form,
-        });
-        if (!response.ok) throw Error(t.uploadFailed);
-        uploaded = await response.json();
-      } catch (e) {
-        setError((e as Error).message || t.uploadFailed);
-        setBusy(false);
-        return;
+    if (!retryRequest) {
+      const filesToUpload: File[] = [];
+      for (const attachment of pendingAttachments) {
+        if (attachment.file) filesToUpload.push(attachment.file);
+      }
+      if (pendingScreenshot) {
+        filesToUpload.push(
+          dataUrlToFile(pendingScreenshot, `screenshot-${Date.now()}.png`),
+        );
+      }
+      if (filesToUpload.length) {
+        try {
+          const form = new FormData();
+          for (const file of filesToUpload)
+            form.append("files", file, file.name);
+          const response = await apiFetch("/attachments", {
+            method: "POST",
+            body: form,
+          });
+          if (!response.ok) throw Error(t.uploadFailed);
+          uploaded = await response.json();
+        } catch (e) {
+          setError((e as Error).message || t.uploadFailed);
+          setBusy(false);
+          return;
+        }
       }
     }
 
-    setInput("");
-    setAttachments([]);
-    setScreenshot(undefined);
+    const retryAttachmentIds = retryRequest
+      ? pendingAttachments.flatMap((attachment) =>
+          attachment.id ? [attachment.id] : [],
+        )
+      : [];
+    const assistantIndex = retryRequest
+      ? retryRequest.assistantIndex
+      : msgs.length + 1;
+
+    if (!retryRequest) {
+      setInput("");
+      setAttachments([]);
+      setScreenshot(undefined);
+    }
     setBusy(true);
     setError("");
 
-    // 组装乐观消息：用后端返回的 url 直接渲染，重进后也能恢复
-    const messageAttachments: AttachmentView[] = [];
-    let uploadIndex = 0;
-    for (const attachment of pendingAttachments) {
-      if (attachment.file) messageAttachments.push(uploaded[uploadIndex++]);
+    if (retryRequest) {
+      setMsgs((items) =>
+        items.map((item, index) =>
+          index === assistantIndex
+            ? {
+                ...item,
+                content: "",
+                stopped: false,
+                agentName: undefined,
+                delegatedTo: undefined,
+              }
+            : item,
+        ),
+      );
+    } else {
+      // 组装乐观消息：用后端返回的 url 直接渲染，重进后也能恢复。
+      const messageAttachments: AttachmentView[] = [];
+      let uploadIndex = 0;
+      for (const attachment of pendingAttachments) {
+        if (attachment.file) messageAttachments.push(uploaded[uploadIndex++]);
+      }
+      if (pendingScreenshot) messageAttachments.push(uploaded[uploadIndex++]);
+      setMsgs((items) => [
+        ...items,
+        { role: "user", content: text, attachments: messageAttachments },
+        { role: "assistant", content: "" },
+      ]);
     }
-    if (pendingScreenshot) messageAttachments.push(uploaded[uploadIndex++]);
-
-    setMsgs((items) => [
-      ...items,
-      { role: "user", content: text, attachments: messageAttachments },
-      { role: "assistant", content: "" },
-    ]);
 
     let pageContext = "";
     try {
@@ -1614,7 +1666,7 @@ function App() {
     let timeoutId: number | undefined;
     try {
       if (controller.signal.aborted) {
-        markGenerationStopped();
+        markGenerationStopped(assistantIndex);
         return;
       }
       timeoutId = window.setTimeout(() => {
@@ -1628,7 +1680,10 @@ function App() {
         body: JSON.stringify({
           sessionId: session.id,
           message: text,
-          attachmentIds: uploaded.map((u) => u.id),
+          attachmentIds: retryRequest
+            ? retryAttachmentIds
+            : uploaded.map((u) => u.id),
+          retry: Boolean(retryRequest),
           agentId: selectedAgentId || null,
           pageContext,
           permissions: {
@@ -1642,18 +1697,21 @@ function App() {
       const decoder = new TextDecoder();
       let buffer = "";
       // 修改当前助手消息的元信息（内容、Agent 归属、委派关系等）。
-      const patchLastMsg = (patch: (last: Msg) => Partial<Msg>) => {
+      const patchAssistantMsg = (patch: (last: Msg) => Partial<Msg>) => {
         setMsgs((items) => {
-          if (!items.length) return items;
+          const target = items[assistantIndex];
+          if (!target || target.role !== "assistant") return items;
           const next = [...items];
-          const index = next.length - 1;
-          next[index] = { ...next[index], ...patch(next[index]) };
+          next[assistantIndex] = {
+            ...target,
+            ...patch(target),
+          };
           return next;
         });
       };
       // 把工具调用过程追加到当前助手消息中（与 token 追加逻辑保持一致）。
       const appendToolLine = (line: string) => {
-        patchLastMsg((last) => ({ content: last.content + line }));
+        patchAssistantMsg((last) => ({ content: last.content + line }));
       };
       for (;;) {
         const { value, done } = await reader.read();
@@ -1667,11 +1725,12 @@ function App() {
           if (name === "token" && data) {
             sawContent = true;
             setMsgs((items) => {
+              const target = items[assistantIndex];
+              if (!target || target.role !== "assistant") return items;
               const next = [...items];
-              const index = next.length - 1;
-              next[index] = {
-                ...next[index],
-                content: next[index].content + data,
+              next[assistantIndex] = {
+                ...target,
+                content: target.content + data,
               };
               return next;
             });
@@ -1680,7 +1739,7 @@ function App() {
             // 让用户看到这条消息实际由哪个 Agent 处理（自动路由时尤其重要）。
             try {
               const selected = JSON.parse(data);
-              patchLastMsg(() => ({
+              patchAssistantMsg(() => ({
                 agentId: selected.agentId,
                 agentName: selected.displayName || selected.agentId,
               }));
@@ -1691,7 +1750,9 @@ function App() {
           if (name === "delegation_decided" && data) {
             try {
               const delegation = JSON.parse(data);
-              patchLastMsg(() => ({ delegatedTo: delegation.childAgentId }));
+              patchAssistantMsg(() => ({
+                delegatedTo: delegation.childAgentId,
+              }));
             } catch {
               /* 忽略无法解析的事件 */
             }
@@ -1703,7 +1764,7 @@ function App() {
               const completed = JSON.parse(data);
               if (typeof completed.content === "string") {
                 if (completed.content) sawContent = true;
-                patchLastMsg((last) =>
+                patchAssistantMsg((last) =>
                   last.content ? {} : { content: completed.content },
                 );
               }
@@ -1776,21 +1837,23 @@ function App() {
               /* 非 JSON 时按纯文本处理 */
             }
             streamError = message;
-            markGenerationFailed(message);
+            markGenerationFailed(message, assistantIndex);
           }
         }
       }
-      if (!sawContent && !streamError) markGenerationFailed(t.requestFailed);
+      if (!sawContent && !streamError)
+        markGenerationFailed(t.requestFailed, assistantIndex);
     } catch (e) {
       if ((e as { name?: string })?.name === "AbortError") {
-        if (timedOut) markGenerationFailed(t.requestTimeout);
-        else markGenerationStopped();
+        if (timedOut) markGenerationFailed(t.requestTimeout, assistantIndex);
+        else markGenerationStopped(assistantIndex);
       } else if (!streamError) {
         const rawMessage = (e as Error).message?.trim();
         markGenerationFailed(
           !rawMessage || rawMessage === "Failed to fetch"
             ? t.backendError
             : rawMessage,
+          assistantIndex,
         );
       }
     } finally {
@@ -1800,6 +1863,21 @@ function App() {
       }
       setBusy(false);
     }
+  }
+
+  function retryMessage(messageIndex: number) {
+    if (busy || messageIndex !== msgs.length - 1) return;
+    const assistantMessage = msgs[messageIndex];
+    const userMessage = msgs[messageIndex - 1];
+    if (
+      !assistantMessage ||
+      assistantMessage.role !== "assistant" ||
+      !userMessage ||
+      userMessage.role !== "user"
+    ) {
+      return;
+    }
+    void send({ assistantIndex: messageIndex, userMessage });
   }
 
   function stopGeneration() {
@@ -2149,6 +2227,19 @@ function App() {
                       >
                         {copiedMessage === index ? "✓" : "⧉"}
                       </button>
+                      {index === msgs.length - 1 &&
+                        msgs[index - 1]?.role === "user" && (
+                          <button
+                            type="button"
+                            className="message-action retry-action"
+                            onClick={() => retryMessage(index)}
+                            disabled={busy}
+                            title={t.retry}
+                            aria-label={t.retry}
+                          >
+                            ↻
+                          </button>
+                        )}
                     </div>
                   )}
                   {assistant &&
@@ -2582,7 +2673,7 @@ function App() {
             </div>
             <button
               className={"send-button" + (busy ? " stop-button" : "")}
-              onClick={busy ? stopGeneration : send}
+              onClick={busy ? stopGeneration : () => void send()}
               title={busy ? t.stop : t.send}
               aria-label={busy ? t.stop : t.send}
             >

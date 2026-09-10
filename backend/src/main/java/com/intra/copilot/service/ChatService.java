@@ -86,6 +86,32 @@ public class ChatService {
                 return new ArrayList<>(all.subList(all.size() - limit, all.size()));
         }
 
+        /**
+         * 重试最新一轮对话时，去掉原来的用户消息和助手回复，再交给正常的生成流程。
+         * 如果消息尚未成功写入数据库，则保留现有历史，并按普通发送流程补写用户消息。
+         */
+        static RetryContext resolveRetryContext(List<Message> all, String text) {
+                if (all == null || all.isEmpty()) return new RetryContext(List.of(), false, null);
+                int lastUserIndex = -1;
+                for (int i = all.size() - 1; i >= 0; i--) {
+                        Message candidate = all.get(i);
+                        if ("user".equals(candidate.getRole()) && Objects.equals(candidate.getContent(), text)) {
+                                lastUserIndex = i;
+                                break;
+                        }
+                }
+                if (lastUserIndex < 0) return new RetryContext(all, false, null);
+                boolean userIsLatest = lastUserIndex == all.size() - 1;
+                boolean assistantIsLatest =
+                                lastUserIndex == all.size() - 2 && "assistant".equals(all.get(all.size() - 1).getRole());
+                if (!userIsLatest && !assistantIsLatest) return new RetryContext(all, false, null);
+                String replacedAssistantId = assistantIsLatest ? all.get(all.size() - 1).getId() : null;
+                return new RetryContext(
+                                new ArrayList<>(all.subList(0, lastUserIndex)), true, replacedAssistantId);
+        }
+
+        record RetryContext(List<Message> history, boolean reuseUserMessage, String replacedAssistantId) {}
+
         public Conversation create(String source, String userId) {
                 Conversation conversation = new Conversation();
                 conversation.setSource(source);
@@ -267,6 +293,7 @@ public class ChatService {
                         String pageContext,
                         Map<String, Boolean> permissions,
                         List<String> attachmentIds,
+                        boolean retry,
                         String clientIp) {
                 Conversation c;
                 if (sessionId == null || sessionId.isBlank()) {
@@ -277,9 +304,14 @@ public class ChatService {
                 boolean readPage =
                                 Boolean.TRUE.equals(permissions == null ? null : permissions.get("readPage"));
                 boolean autoRoute = requestedAgent == null || requestedAgent.isBlank();
+                List<Message> fullHistory = history(callerSource, callerUserId, c.getId());
+                RetryContext retryContext =
+                                retry
+                                                ? resolveRetryContext(fullHistory, text)
+                                                : new RetryContext(fullHistory, false, null);
                 List<Map<String, String>> h =
                                 recentMessages(
-                                                history(callerSource, callerUserId, c.getId()), maxHistoryMessages)
+                                                retryContext.history(), maxHistoryMessages)
                                                 .stream()
                                                 .map(
                                                                 x -> {
@@ -451,14 +483,16 @@ public class ChatService {
                         recordDelegationEvents(childInvocation.getId(), correlationId, delegation, delegationTrace, readPage, pageContext);
                 }
                 SseEmitter out = new SseEmitter(120000L);
-                Message userMessage = new Message(
-                                c.getId(),
-                                "user",
-                                text,
-                                routeAgent == null ? "router" : routeAgent.id(),
-                                readPage ? pageContext : null);
-                messages.save(userMessage);
-                attachments.linkToMessage(attachmentIds, userMessage.getId());
+                if (!retryContext.reuseUserMessage()) {
+                        Message userMessage = new Message(
+                                        c.getId(),
+                                        "user",
+                                        text,
+                                        routeAgent == null ? "router" : routeAgent.id(),
+                                        readPage ? pageContext : null);
+                        messages.save(userMessage);
+                        attachments.linkToMessage(attachmentIds, userMessage.getId());
+                }
                 try {
                         out.send(
                                         SseEmitter.event()
@@ -627,6 +661,7 @@ public class ChatService {
         final String capturedEnriched = enriched;
         final List<String> capturedImages = images;
         final String capturedTargetInvocationId = targetInvocationId;
+        final String capturedRetryAssistantId = retryContext.replacedAssistantId();
         final long capturedRouteStarted = routeStarted;
         final SseEmitter capturedOut = out;
         final AtomicBoolean capturedFinished = finished;
@@ -646,7 +681,7 @@ public class ChatService {
                                         runReActLoop(capturedOut, capturedFinished, capturedC, capturedInvocation, capturedChild,
                                                         capturedCorrelationId, capturedInvocationId, capturedAgent, capturedRouteAgent,
                                                         capturedDelegation, capturedBaseHistory, capturedEnriched, capturedImages,
-                                                        capturedTargetInvocationId, capturedRouteStarted);
+                                                        capturedTargetInvocationId, capturedRetryAssistantId, capturedRouteStarted);
                                 } finally {
                                         finished.set(true);
                                         try { heartbeatTask.cancel(true); } catch (Exception ignored) { }
@@ -861,6 +896,7 @@ public class ChatService {
                         String userInput,
                         List<String> images,
                         String targetInvocationId,
+                        String replacedAssistantId,
                         long routeStarted) {
                 try {
                         // 1) 构建有效 system prompt：追加启用的 Skill 提示词，以及工具使用说明（让模型真正能发起工具调用）。
@@ -1032,6 +1068,9 @@ public class ChatService {
                         String finalAgentId = delegatedSummary && routeAgent != null ? routeAgent.id() : agent.id();
                         invocation.setResponseContent(currentAnswer);
                         messages.save(new Message(conversation.getId(), "assistant", currentAnswer, finalAgentId, null));
+                        if (replacedAssistantId != null) {
+                                messages.deleteById(replacedAssistantId);
+                        }
                         invocation.setDurationMs(completedMs);
                         invocation.setStatus("COMPLETED");
                         invocations.save(invocation);
