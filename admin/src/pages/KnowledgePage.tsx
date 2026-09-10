@@ -1,4 +1,5 @@
 import { Icon } from "../components/Icon";
+import { Dropdown } from "../components/Dropdown";
 import { Skeleton } from "../components/Skeleton";
 import { EmptyState } from "../components/EmptyState";
 import { InlineEditable } from "../components/InlineEditable";
@@ -43,7 +44,11 @@ export interface KnowledgePageProps {
   saveBaseField: (field: "name" | "description", value: string) => void;
   updateQaSettings: (patch: Partial<QASceneSettings>) => void;
   saveKnowledgeSettings: () => void;
-  uploadDocuments: (baseId: string, files: FileList | null, input: HTMLInputElement) => void;
+  uploadDocuments: (
+    baseId: string,
+    files: FileList | null,
+    input: HTMLInputElement,
+  ) => void;
   uploadProgress: { current: number; total: number };
   uploadingBaseId: string | undefined;
   deleteDocument: (document: KnowledgeDocument) => void;
@@ -140,42 +145,42 @@ export function KnowledgePage({
                       {base.enabled ? t.enabled : t.disabled}
                     </span>
                   </div>
+                  <TruncatedId value={base.id} label="Knowledge base ID" />
                   <p>{base.description || t.supportedDocs}</p>
-                  <TruncatedId
-                    value={base.id}
-                    label="Knowledge base ID"
-                  />
-                  <div className="knowledge-card-footer">
-                    <span className="upload-hint">
+                  <div className="resource-meta">
+                    <span>
                       {t.documentCount((documents[base.id] ?? []).length)}
                     </span>
+                  </div>
+                  <div
+                    className="agent-actions"
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <button
-                      className="enter-button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openKnowledgeBase(base);
-                      }}
+                      className="secondary"
+                      onClick={() => openKnowledgeBase(base)}
                     >
                       {t.enter}
                     </button>
-                    <button
-                      className="secondary"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void toggleBase(base);
-                      }}
-                    >
-                      {base.enabled ? t.stop : t.enable}
-                    </button>
-                    <button
-                      className="danger-button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        deleteBase(base);
-                      }}
-                    >
-                      {t.delete}
-                    </button>
+                    <Dropdown
+                      ariaLabel={t.moreActions}
+                      trigger={
+                        <Icon name="more" className="dropdown-trigger-icon" />
+                      }
+                      items={[
+                        {
+                          key: "toggle",
+                          label: base.enabled ? t.stop : t.enable,
+                          onSelect: () => void toggleBase(base),
+                        },
+                        {
+                          key: "delete",
+                          label: t.delete,
+                          tone: "danger",
+                          onSelect: () => deleteBase(base),
+                        },
+                      ]}
+                    />
                   </div>
                 </article>
               ))}
@@ -258,9 +263,7 @@ export function KnowledgePage({
               role="tab"
               aria-selected={section === "basic"}
               className={
-                section === "basic"
-                  ? "detail-tab active"
-                  : "detail-tab"
+                section === "basic" ? "detail-tab active" : "detail-tab"
               }
               onClick={() => onSectionChange("basic")}
             >
@@ -270,9 +273,7 @@ export function KnowledgePage({
               role="tab"
               aria-selected={section === "maintenance"}
               className={
-                section === "maintenance"
-                  ? "detail-tab active"
-                  : "detail-tab"
+                section === "maintenance" ? "detail-tab active" : "detail-tab"
               }
               onClick={() => onSectionChange("maintenance")}
             >
@@ -281,11 +282,7 @@ export function KnowledgePage({
             <button
               role="tab"
               aria-selected={section === "qa"}
-              className={
-                section === "qa"
-                  ? "detail-tab active"
-                  : "detail-tab"
-              }
+              className={section === "qa" ? "detail-tab active" : "detail-tab"}
               onClick={() => onSectionChange("qa")}
             >
               {t.qaSettings}
@@ -294,17 +291,14 @@ export function KnowledgePage({
               role="tab"
               aria-selected={section === "retrieval"}
               className={
-                section === "retrieval"
-                  ? "detail-tab active"
-                  : "detail-tab"
+                section === "retrieval" ? "detail-tab active" : "detail-tab"
               }
               onClick={() => onSectionChange("retrieval")}
             >
               {t.retrievalTest}
             </button>
           </div>
-          {section === "basic" ||
-          section === "maintenance" ? (
+          {section === "basic" || section === "maintenance" ? (
             <div className="maintenance-panel">
               {section === "basic" && (
                 <section
@@ -326,9 +320,7 @@ export function KnowledgePage({
                     </div>
                     <span
                       className={
-                        embeddingValidation?.reachable === false
-                          ? "off"
-                          : "ok"
+                        embeddingValidation?.reachable === false ? "off" : "ok"
                       }
                     >
                       {embeddingConfig?.profile?.dimension
@@ -348,9 +340,7 @@ export function KnowledgePage({
                       }
                     >
                       <option value="">
-                        {language === "zh"
-                          ? "继承系统默认"
-                          : "System default"}
+                        {language === "zh" ? "继承系统默认" : "System default"}
                       </option>
                       {embeddingProfiles
                         .filter((profile) => profile.enabled)
@@ -388,17 +378,13 @@ export function KnowledgePage({
                     </button>
                     {embeddingValidation && (
                       <span
-                        className={
-                          embeddingValidation.reachable ? "ok" : "off"
-                        }
+                        className={embeddingValidation.reachable ? "ok" : "off"}
                         aria-live="polite"
                       >
                         {embeddingValidation.reachable
                           ? `${language === "zh" ? "可用" : "Reachable"} · ${embeddingValidation.actualDimension}D · ${embeddingValidation.latencyMs}ms`
                           : (embeddingValidation.error ??
-                            (language === "zh"
-                              ? "不可用"
-                              : "Unavailable"))}
+                            (language === "zh" ? "不可用" : "Unavailable"))}
                       </span>
                     )}
                   </div>
@@ -475,9 +461,7 @@ export function KnowledgePage({
                           <div className="document-actions">
                             <button
                               className="document-action"
-                              onClick={() =>
-                                openDocumentDetails(document)
-                              }
+                              onClick={() => openDocumentDetails(document)}
                             >
                               {t.viewDocument}
                             </button>
@@ -542,9 +526,7 @@ export function KnowledgePage({
                   <h4>{t.retrievalTest}</h4>
                   <p>{t.retrievalPlaceholder}</p>
                 </div>
-                <span className="binding-count">
-                  {activeQaSettings.topK}
-                </span>
+                <span className="binding-count">{activeQaSettings.topK}</span>
               </div>
               <form
                 className="knowledge-retrieval-form"
@@ -565,9 +547,7 @@ export function KnowledgePage({
                   {retrievalLoading ? t.loading : t.runRetrieval}
                 </button>
               </form>
-              {retrievalError && (
-                <p className="error">{retrievalError}</p>
-              )}
+              {retrievalError && <p className="error">{retrievalError}</p>}
               {!retrievalLoading &&
                 retrievalQuery.trim() &&
                 retrievalResults.length === 0 &&

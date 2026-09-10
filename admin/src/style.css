@@ -669,6 +669,13 @@ article p {
 .knowledge-card {
   display: flex;
   flex-direction: column;
+  min-height: 206px;
+}
+
+.knowledge-card > p {
+  min-height: 42px;
+  margin: 14px 0 0;
+  line-height: 1.55;
 }
 
 .knowledge-card-clickable {
@@ -685,18 +692,9 @@ article p {
   transform: translateY(-1px);
 }
 
-.knowledge-card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+.knowledge-card .agent-actions {
   margin-top: auto;
-  padding-top: 18px;
-}
-
-.enter-button {
-  padding: 7px 10px;
-  font-size: 12px;
+  padding-top: 16px;
 }
 
 .knowledge-detail {
@@ -1010,11 +1008,6 @@ article p {
   height: 100%;
   cursor: pointer;
   opacity: 0;
-}
-
-.upload-hint {
-  color: var(--muted-subtle);
-  font-size: 11px;
 }
 
 .document-list {
