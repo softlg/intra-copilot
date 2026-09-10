@@ -161,6 +161,7 @@ public class AgentConfigurationService {
         String role = definition.getRole() == null ? "DOMAIN" : definition.getRole().toUpperCase();
         if (!List.of("MAIN", "GENERAL", "DOMAIN", "SUB").contains(role)) throw new IllegalArgumentException("Agent 类型无效");
         definition.setRole(role);
+        if (definition.getPriority() < 0) definition.setPriority(0);
         if (List.of("MAIN", "GENERAL").contains(role) && definition.getParentAgentId() != null) {
             throw new IllegalArgumentException("系统 Agent 和通用 Agent 不能有父 Agent");
         }
