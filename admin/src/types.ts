@@ -205,6 +205,14 @@ export type QASceneSettings = {
   topK: number;
 };
 
+export type ConversationAttachment = {
+  id: string;
+  filename: string;
+  contentType?: string;
+  size?: number;
+  isImage: boolean;
+};
+
 export type ConversationLog = {
   id: string;
   title: string;
@@ -217,6 +225,7 @@ export type ConversationLog = {
     agentId?: string;
     contextSummary?: string;
     createdAt?: string;
+    attachments?: ConversationAttachment[];
   }[];
   invocations: {
     id: string;

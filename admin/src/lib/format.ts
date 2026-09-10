@@ -27,3 +27,10 @@ export function formatDateTime(value?: string | null): string {
     ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
   );
 }
+
+export function formatFileSize(value?: number): string {
+  if (value == null || !Number.isFinite(value) || value < 0) return "-";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}

@@ -2003,6 +2003,52 @@ article p {
   font-size: 11px;
 }
 
+.conversation-log-attachments {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.conversation-log-attachment {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.conversation-log-attachment-kind {
+  width: fit-content;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--brand-surface);
+  color: var(--brand-surface-text);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.conversation-log-attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-log-attachment small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .conversation-log-message details pre,
 .conversation-log-invocation pre {
   max-height: 180px;

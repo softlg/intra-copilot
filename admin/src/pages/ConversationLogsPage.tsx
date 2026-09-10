@@ -1,6 +1,6 @@
 import Pagination from "../components/Pagination";
 import { TruncatedId } from "../components/TruncatedId";
-import { formatDateTime } from "../lib/format";
+import { formatDateTime, formatFileSize } from "../lib/format";
 import type { Translations } from "../i18n/translations";
 import type { ConversationLog, ConversationLogSummary } from "../types";
 
@@ -224,6 +224,33 @@ export function ConversationLogsPage({
                             )}
                           </div>
                           <p>{item.content || "-"}</p>
+                          {item.attachments?.length ? (
+                            <div
+                              className="conversation-log-attachments"
+                              aria-label={t.attachments}
+                            >
+                              {item.attachments.map((attachment) => (
+                                <div
+                                  className="conversation-log-attachment"
+                                  key={attachment.id}
+                                  title={attachment.filename}
+                                >
+                                  <span className="conversation-log-attachment-kind">
+                                    {attachment.isImage
+                                      ? t.imageAttachment
+                                      : t.fileAttachment}
+                                  </span>
+                                  <span className="conversation-log-attachment-name">
+                                    {attachment.filename}
+                                  </span>
+                                  <small>
+                                    {attachment.contentType || "-"} ·{" "}
+                                    {formatFileSize(attachment.size)}
+                                  </small>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                           {item.contextSummary && (
                             <details>
                               <summary>Context</summary>

@@ -2,12 +2,13 @@ package com.intra.copilot.web;
 
 import com.intra.copilot.model.ActionProposal;
 import com.intra.copilot.model.AgentInvocation;
+import com.intra.copilot.model.AttachmentView;
 import com.intra.copilot.model.Conversation;
-import com.intra.copilot.model.Message;
 import com.intra.copilot.repo.ActionProposalRepository;
 import com.intra.copilot.repo.AgentInvocationRepository;
 import com.intra.copilot.repo.ConversationRepository;
 import com.intra.copilot.repo.MessageRepository;
+import com.intra.copilot.service.AttachmentService;
 import com.intra.copilot.service.TraceRecorder;
 import java.time.Instant;
 import java.util.List;
@@ -26,6 +27,7 @@ public class ConversationLogAdminController {
         private final MessageRepository messages;
         private final AgentInvocationRepository invocations;
         private final ActionProposalRepository actions;
+        private final AttachmentService attachments;
         private final TraceRecorder trace;
 
         public ConversationLogAdminController(
@@ -33,11 +35,13 @@ public class ConversationLogAdminController {
                         MessageRepository messages,
                         AgentInvocationRepository invocations,
                         ActionProposalRepository actions,
+                        AttachmentService attachments,
                         TraceRecorder trace) {
                 this.conversations = conversations;
                 this.messages = messages;
                 this.invocations = invocations;
                 this.actions = actions;
+                this.attachments = attachments;
                 this.trace = trace;
         }
 
@@ -114,9 +118,24 @@ public class ConversationLogAdminController {
         }
 
         private ConversationLog toLog(Conversation conversation) {
+                List<ConversationMessage> messageViews =
+                                messages.findByConversationIdOrderByCreatedAtAsc(conversation.getId()).stream()
+                                                .map(
+                                                                message -> new ConversationMessage(
+                                                                                message.getId(),
+                                                                                message.getConversationId(),
+                                                                                message.getRole(),
+                                                                                message.getContent(),
+                                                                                message.getAgentId(),
+                                                                                message.getContextSummary(),
+                                                                                message.getCreatedAt(),
+                                                                                attachments.listForMessage(message.getId()).stream()
+                                                                                                .map(AttachmentMetadata::from)
+                                                                                                .toList()))
+                                                .toList();
                 return new ConversationLog(
                                 conversation,
-                                messages.findByConversationIdOrderByCreatedAtAsc(conversation.getId()),
+                                messageViews,
                                 invocations.findByConversationIdOrderByCreatedAtAsc(conversation.getId()),
                                 actions.findByConversationIdOrderByExpiresAtAsc(conversation.getId()));
         }
@@ -138,17 +157,40 @@ public class ConversationLogAdminController {
         public record ConversationPage(
                         List<ConversationSummary> items, int total, int page, int size) {}
 
+        /** 后台日志只展示附件元数据，不暴露可直接读取附件字节的公开入口。 */
+        public record AttachmentMetadata(
+                        String id, String filename, String contentType, long size, boolean isImage) {
+                static AttachmentMetadata from(AttachmentView attachment) {
+                        return new AttachmentMetadata(
+                                        attachment.id(),
+                                        attachment.filename(),
+                                        attachment.contentType(),
+                                        attachment.size(),
+                                        attachment.isImage());
+                }
+        }
+
+        public record ConversationMessage(
+                        String id,
+                        String conversationId,
+                        String role,
+                        String content,
+                        String agentId,
+                        String contextSummary,
+                        Instant createdAt,
+                        List<AttachmentMetadata> attachments) {}
+
         public record ConversationLog(
                         String id,
                         String title,
                         Instant createdAt,
                         Instant updatedAt,
-                        List<Message> messages,
+                        List<ConversationMessage> messages,
                         List<AgentInvocation> invocations,
                         List<ActionProposal> actions) {
                 ConversationLog(
                                 Conversation conversation,
-                                List<Message> messages,
+                                List<ConversationMessage> messages,
                                 List<AgentInvocation> invocations,
                                 List<ActionProposal> actions) {
                         this(
