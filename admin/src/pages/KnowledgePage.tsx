@@ -12,6 +12,7 @@ import type {
   KnowledgeDocument,
   QASceneSettings,
   EmbeddingConfig,
+  EmbeddingConfigRequest,
   EmbeddingProfile,
   EmbeddingValidation,
   KnowledgeDiagnostics,
@@ -67,7 +68,7 @@ export interface KnowledgePageProps {
   embeddingProfiles: EmbeddingProfile[];
   embeddingValidation: EmbeddingValidation | undefined;
   embeddingSaving: boolean;
-  saveEmbeddingConfig: (profileId: string) => void;
+  saveEmbeddingConfig: (config: EmbeddingConfigRequest) => void;
   validateEmbeddingConfig: () => void;
   knowledgeDiagnostics: KnowledgeDiagnostics | undefined;
   runKnowledgeDiagnostics: () => void;
@@ -362,9 +363,14 @@ export function KnowledgePage({
                     <select
                       value={activeBase.embeddingProfileId ?? ""}
                       disabled={embeddingSaving}
-                      onChange={(event) =>
-                        saveEmbeddingConfig(event.target.value)
-                      }
+                      onChange={(event) => {
+                        const profileId = event.target.value;
+                        saveEmbeddingConfig(
+                          profileId
+                            ? { profileId }
+                            : { useSystemEmbedding: true },
+                        );
+                      }}
                     >
                       <option value="">
                         {language === "zh" ? "继承系统默认" : "System default"}

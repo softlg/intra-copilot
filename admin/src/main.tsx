@@ -49,6 +49,7 @@ import type {
   ConversationLogSummary,
   DocumentChunk,
   EmbeddingConfig,
+  EmbeddingConfigRequest,
   EmbeddingProfile,
   EmbeddingValidation,
   FeedbackSummary,
@@ -1323,24 +1324,31 @@ function App() {
     saveQaSettings();
   };
 
-  const saveEmbeddingConfig = async (profileId: string) => {
+  const saveEmbeddingConfig = async (config: EmbeddingConfigRequest) => {
     if (!activeBaseId) return;
     setEmbeddingSaving(true);
     setUploadError("");
     try {
-      const config = await request<EmbeddingConfig>(
+      const savedConfig = await request<EmbeddingConfig>(
         `/admin/knowledge-bases/${activeBaseId}/embedding-config`,
         {
           method: "PUT",
-          body: JSON.stringify({ profileId: profileId || null }),
+          body: JSON.stringify(config),
         },
       );
-      setEmbeddingConfig(config);
+      setEmbeddingConfig(savedConfig);
       setEmbeddingValidation(undefined);
       setBases((items) =>
         items.map((item) =>
           item.id === activeBaseId
-            ? { ...item, embeddingProfileId: profileId || undefined }
+            ? {
+                ...item,
+                useSystemEmbedding: config.useSystemEmbedding ?? false,
+                embeddingProfileId: config.profileId || undefined,
+                embeddingProvider: config.provider || undefined,
+                embeddingModel: config.model || undefined,
+                embeddingDimension: config.dimension,
+              }
             : item,
         ),
       );

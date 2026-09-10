@@ -15,6 +15,10 @@ public class KnowledgeBase {
     private String description;
     private boolean enabled = true;
     private String embeddingProfileId;
+    private Boolean useSystemEmbedding = true;
+    private String embeddingProvider;
+    private String embeddingModel;
+    private Integer embeddingDimension;
     private String createdBy;
     private String updatedBy;
     private String status = "READY";
@@ -58,6 +62,18 @@ public class KnowledgeBase {
 
     public String getEmbeddingProfileId() { return embeddingProfileId; }
     public void setEmbeddingProfileId(String value) { embeddingProfileId = value; }
+
+    public Boolean getUseSystemEmbedding() { return useSystemEmbedding; }
+    public void setUseSystemEmbedding(Boolean value) { useSystemEmbedding = value; }
+
+    public String getEmbeddingProvider() { return embeddingProvider; }
+    public void setEmbeddingProvider(String value) { embeddingProvider = value; }
+
+    public String getEmbeddingModel() { return embeddingModel; }
+    public void setEmbeddingModel(String value) { embeddingModel = value; }
+
+    public Integer getEmbeddingDimension() { return embeddingDimension; }
+    public void setEmbeddingDimension(Integer value) { embeddingDimension = value; }
 
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String value) { createdBy = value; }

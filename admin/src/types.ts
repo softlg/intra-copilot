@@ -142,6 +142,10 @@ export type Base = {
   description?: string;
   enabled: boolean;
   embeddingProfileId?: string;
+  useSystemEmbedding?: boolean;
+  embeddingProvider?: string;
+  embeddingModel?: string;
+  embeddingDimension?: number;
 };
 export type EmbeddingProfile = {
   id: string;
@@ -156,6 +160,13 @@ export type EmbeddingProfile = {
 export type EmbeddingConfig = {
   profile: EmbeddingProfile;
   inheritedOrResolved: boolean;
+};
+export type EmbeddingConfigRequest = {
+  useSystemEmbedding?: boolean;
+  provider?: string;
+  model?: string;
+  dimension?: number;
+  profileId?: string;
 };
 export type EmbeddingValidation = {
   reachable: boolean;

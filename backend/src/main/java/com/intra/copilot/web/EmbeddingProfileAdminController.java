@@ -16,14 +16,19 @@ public class EmbeddingProfileAdminController {
     @GetMapping("/embedding-profiles") public List<EmbeddingProfile> list() { return profiles.listAll(); }
     @PostMapping("/embedding-profiles") @ResponseStatus(HttpStatus.CREATED) public EmbeddingProfile create(@RequestBody EmbeddingProfile profile) { return profiles.save(profile); }
     @PutMapping("/embedding-profiles/{profileId}") public EmbeddingProfile update(@PathVariable String profileId, @RequestBody EmbeddingProfile profile) { profile.setId(profileId); return profiles.save(profile); }
-    @GetMapping("/knowledge-bases/{id}/embedding-config") public Config config(@PathVariable String id) { return new Config(profiles.resolveByKnowledgeBaseId(id), true); }
-    @PutMapping("/knowledge-bases/{id}/embedding-config") public Config update(@PathVariable String id, @RequestBody UpdateRequest request) { return new Config(profiles.setForBase(id, request.profileId()), true); }
+    @GetMapping("/knowledge-bases/{id}/embedding-config") public Config config(@PathVariable String id) {
+        EmbeddingProfile profile = profiles.resolveByKnowledgeBaseId(id);
+        return new Config(profile, "system-default-embedding".equals(profile.getId()));
+    }
+    @PutMapping("/knowledge-bases/{id}/embedding-config") public Config update(@PathVariable String id, @RequestBody EmbeddingProfileService.EmbeddingConfigRequest request) {
+        EmbeddingProfile profile = profiles.applyConfig(id, request);
+        return new Config(profile, "system-default-embedding".equals(profile.getId()));
+    }
     @PostMapping("/knowledge-bases/{id}/embedding-config/validate") public Validation validate(@PathVariable String id) {
         EmbeddingProfile profile = profiles.resolveByKnowledgeBaseId(id); long started = System.currentTimeMillis();
         try { int actual = embeddings.embed("embedding configuration health check", profile).size(); return new Validation(true, profile, actual, System.currentTimeMillis() - started, null); }
         catch (RuntimeException error) { return new Validation(false, profile, null, System.currentTimeMillis() - started, error.getMessage()); }
     }
-    public record UpdateRequest(String profileId) {}
     public record Config(EmbeddingProfile profile, boolean inheritedOrResolved) {}
     public record Validation(boolean reachable, EmbeddingProfile profile, Integer actualDimension, long latencyMs, String error) {}
 }

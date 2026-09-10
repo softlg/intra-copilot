@@ -230,6 +230,24 @@ export const translations = {
     maintenance: "知识维护",
     basicConfig: "基本配置",
     qaSettings: "问答场景设置",
+    useSystemModel: "使用系统模型配置",
+    useSystemModelHint:
+      "开启后该知识库复用服务端默认的 Embedding 模型，无需单独配置。",
+    systemModelActive: "当前继承系统默认模型",
+    customModel: "自定义模型",
+    provider: "提供方",
+    modelName: "模型名称",
+    dimension: "向量维度",
+    saveModelConfig: "保存模型配置",
+    modelSwitchRiskTitle: "切换模型的风险提示",
+    modelSwitchRisk1:
+      "更换模型会改变向量空间，已索引文档的向量与新模型不兼容，检索将失效。",
+    modelSwitchRisk2:
+      "保存后必须对已上传文档执行「重建索引 / 重新 Embedding」，否则回答质量下降甚至检索不到内容。",
+    modelSwitchRisk3:
+      "自定义模型的 API 密钥使用服务端环境变量中对应提供方的凭证，请确认该提供方已在服务端配置且可用。",
+    modelSwitchRisk4:
+      "向量维度必须与所选模型实际输出维度一致，否则会报维度不匹配错误。",
     documentCount: (count: number) => `${count} 个文档`,
     noDocuments: "暂无文档，请上传资料开始维护。",
     chooseDocuments: "选择文档",
@@ -667,6 +685,24 @@ export const translations = {
     baseDeleted: (name: string) => "Knowledge base “" + name + "” deleted",
     baseActionFailed: "Knowledge base action failed. Please try again.",
     qaSettings: "Q&A scene settings",
+    useSystemModel: "Use system model configuration",
+    useSystemModelHint:
+      "When on, this knowledge base reuses the server's default embedding model; no separate setup needed.",
+    systemModelActive: "Currently inheriting the system default model",
+    customModel: "Custom model",
+    provider: "Provider",
+    modelName: "Model name",
+    dimension: "Vector dimension",
+    saveModelConfig: "Save model config",
+    modelSwitchRiskTitle: "Risks of switching the model",
+    modelSwitchRisk1:
+      "Changing the model changes the vector space; already-indexed vectors become incompatible and retrieval will fail.",
+    modelSwitchRisk2:
+      "After saving you must rebuild / re-embed the uploaded documents, otherwise answer quality drops or nothing is retrieved.",
+    modelSwitchRisk3:
+      "Custom models use the provider credentials from server environment variables; ensure the provider is configured and reachable on the server.",
+    modelSwitchRisk4:
+      "The vector dimension must match the model's actual output dimension, otherwise a dimension-mismatch error is raised.",
     documentCount: (count: number) =>
       `${count} document${count === 1 ? "" : "s"}`,
     noDocuments:
