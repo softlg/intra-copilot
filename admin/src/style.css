@@ -2003,6 +2003,39 @@ article p {
   font-size: 11px;
 }
 
+.conversation-log-route-events {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.conversation-log-route-events > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.conversation-log-route-event {
+  margin-top: 10px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+}
+
+.conversation-log-route-event pre {
+  max-height: 260px;
+  margin: 7px 0 0;
+  padding: 9px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .conversation-log-attachments {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

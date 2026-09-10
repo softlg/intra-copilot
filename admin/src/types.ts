@@ -224,6 +224,38 @@ export type ConversationAttachment = {
   isImage: boolean;
 };
 
+export type ConversationInvocation = {
+  id: string;
+  requestedAgentId?: string;
+  selectedAgentId?: string;
+  routeReason?: string;
+  confidence?: number;
+  routeSource?: string;
+  intent?: string;
+  contextSent?: string;
+  responseContent?: string;
+  clientIp?: string;
+  durationMs?: number;
+  error?: string;
+  createdAt?: string;
+};
+
+export type ConversationInvocationEvent = {
+  id: string;
+  eventType: string;
+  eventName?: string;
+  status?: string;
+  payload?: Record<string, unknown> | null;
+  durationMs?: number;
+  sequence?: number;
+  createdAt?: string;
+};
+
+export type ConversationInvocationTrace = {
+  invocation: ConversationInvocation;
+  events: ConversationInvocationEvent[];
+};
+
 export type ConversationLog = {
   id: string;
   title: string;
@@ -238,21 +270,8 @@ export type ConversationLog = {
     createdAt?: string;
     attachments?: ConversationAttachment[];
   }[];
-  invocations: {
-    id: string;
-    requestedAgentId?: string;
-    selectedAgentId?: string;
-    routeReason?: string;
-    confidence?: number;
-    routeSource?: string;
-    intent?: string;
-    contextSent?: string;
-    responseContent?: string;
-    clientIp?: string;
-    durationMs?: number;
-    error?: string;
-    createdAt?: string;
-  }[];
+  invocations: ConversationInvocation[];
+  invocationTraces?: ConversationInvocationTrace[];
   actions: {
     actionId: string;
     type?: string;

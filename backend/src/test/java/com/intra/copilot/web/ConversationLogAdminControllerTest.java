@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.intra.copilot.model.AgentInvocation;
+import com.intra.copilot.model.AgentInvocationEvent;
 import com.intra.copilot.model.AttachmentView;
 import com.intra.copilot.model.Conversation;
 import com.intra.copilot.model.Message;
@@ -41,8 +43,15 @@ class ConversationLogAdminControllerTest {
         Message message = new Message("conversation-1", "user", "请查看图片", null, null);
         when(messages.findByConversationIdOrderByCreatedAtAsc("conversation-1"))
                 .thenReturn(List.of(message));
+        AgentInvocation invocation = new AgentInvocation();
+        invocation.setConversationId("conversation-1");
+        invocation.setSequence(1);
         when(invocations.findByConversationIdOrderByCreatedAtAsc("conversation-1"))
-                .thenReturn(List.of());
+                .thenReturn(List.of(invocation));
+        AgentInvocationEvent routeEvent = new AgentInvocationEvent();
+        routeEvent.setInvocationId(invocation.getId());
+        routeEvent.setEventType("ROUTE_START");
+        when(trace.listByInvocation(invocation.getId())).thenReturn(List.of(routeEvent));
         when(actions.findByConversationIdOrderByExpiresAtAsc("conversation-1"))
                 .thenReturn(List.of());
         AttachmentView attachment =
@@ -56,5 +65,7 @@ class ConversationLogAdminControllerTest {
         assertEquals("screen.png", detail.messages().get(0).attachments().get(0).filename());
         assertEquals("image/png", detail.messages().get(0).attachments().get(0).contentType());
         assertEquals(128, detail.messages().get(0).attachments().get(0).size());
+        assertEquals(1, detail.invocationTraces().size());
+        assertEquals("ROUTE_START", detail.invocationTraces().get(0).events().get(0).getEventType());
     }
 }

@@ -281,7 +281,16 @@ public class ChatService {
                                 recentMessages(
                                                 history(callerSource, callerUserId, c.getId()), maxHistoryMessages)
                                                 .stream()
-                                                .map(x -> Map.of("role", x.getRole(), "content", x.getContent()))
+                                                .map(
+                                                                x -> {
+                                                                        Map<String, String> item = new LinkedHashMap<>();
+                                                                        item.put("role", x.getRole());
+                                                                        item.put("content", x.getContent());
+                                                                        if (x.getAgentId() != null && !x.getAgentId().isBlank()) {
+                                                                                item.put("agentId", x.getAgentId());
+                                                                        }
+                                                                        return item;
+                                                                })
                                                 .toList();
                 long routeStarted = System.nanoTime();
                 // 路由与委派阶段的追踪回调：把中间状态写入 agent_invocation_event。
@@ -744,6 +753,7 @@ public class ChatService {
                 trace.event(invocationId, correlationId, TraceRecorder.Type.ROUTE_START)
                                 .name("接收用户请求")
                                 .status("OK")
+                                .put("routerAgentId", "route-copilot")
                                 .put("userMessage", text)
                                 .put("requestedAgentId", requestedAgent)
                                 .put("pageContextIncluded", routeTrace.pageContextIncluded)
@@ -751,6 +761,7 @@ public class ChatService {
                                 .put("permissions", permissions == null ? Map.of() : permissions)
                                 .save();
                 Map<String, Object> details = new LinkedHashMap<>();
+                details.put("routerAgentId", "route-copilot");
                 details.put("selectedAgentId", routing.selectedAgentId());
                 details.put("confidence", routing.confidence());
                 details.put("reason", routing.reason());
@@ -761,9 +772,12 @@ public class ChatService {
                 details.put("durationMs", routeTrace.durationMs > 0 ? routeTrace.durationMs : routeDuration);
                 details.put("systemPrompt", routeTrace.systemPrompt != null ? routeTrace.systemPrompt : routeTrace.startSystemPrompt);
                 details.put("userInput", routeTrace.userInput != null ? routeTrace.userInput : routeTrace.startUserInput);
+                String routeStatus = routeTrace.error != null
+                                ? "ERROR"
+                                : (List.of("llm", "user").contains(routing.routeSource()) ? "OK" : "DEGRADED");
                 trace.event(invocationId, correlationId, TraceRecorder.Type.ROUTE_END)
                                 .name("路由分发决策")
-                                .status(routeTrace.error == null ? "OK" : "ERROR")
+                                .status(routeStatus)
                                 .put("decision", details)
                                 .save();
                 if (routeTrace.error != null) {

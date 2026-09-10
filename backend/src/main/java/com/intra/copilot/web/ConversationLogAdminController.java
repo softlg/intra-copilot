@@ -133,10 +133,15 @@ public class ConversationLogAdminController {
                                                                                                 .map(AttachmentMetadata::from)
                                                                                                 .toList()))
                                                 .toList();
+                List<AgentInvocation> invocationViews = sortedInvocations(conversation.getId());
+                List<InvocationTrace> invocationTraces = invocationViews.stream()
+                                .map(item -> new InvocationTrace(item, trace.listByInvocation(item.getId())))
+                                .toList();
                 return new ConversationLog(
                                 conversation,
                                 messageViews,
-                                invocations.findByConversationIdOrderByCreatedAtAsc(conversation.getId()),
+                                invocationViews,
+                                invocationTraces,
                                 actions.findByConversationIdOrderByExpiresAtAsc(conversation.getId()));
         }
 
@@ -187,11 +192,13 @@ public class ConversationLogAdminController {
                         Instant updatedAt,
                         List<ConversationMessage> messages,
                         List<AgentInvocation> invocations,
+                        List<InvocationTrace> invocationTraces,
                         List<ActionProposal> actions) {
                 ConversationLog(
                                 Conversation conversation,
                                 List<ConversationMessage> messages,
                                 List<AgentInvocation> invocations,
+                                List<InvocationTrace> invocationTraces,
                                 List<ActionProposal> actions) {
                         this(
                                         conversation.getId(),
@@ -200,6 +207,7 @@ public class ConversationLogAdminController {
                                         conversation.getUpdatedAt(),
                                         messages,
                                         invocations,
+                                        invocationTraces,
                                         actions);
                 }
         }

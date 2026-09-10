@@ -2,7 +2,11 @@ import Pagination from "../components/Pagination";
 import { TruncatedId } from "../components/TruncatedId";
 import { formatDateTime, formatFileSize } from "../lib/format";
 import type { Translations } from "../i18n/translations";
-import type { ConversationLog, ConversationLogSummary } from "../types";
+import type {
+  ConversationInvocationTrace,
+  ConversationLog,
+  ConversationLogSummary,
+} from "../types";
 
 export interface ConversationLogsPageProps {
   t: Translations;
@@ -23,6 +27,37 @@ export interface ConversationLogsPageProps {
   detailOpen: boolean;
   detailLoading: boolean;
   onCloseDetail: () => void;
+}
+
+function RouteCopilotTrace({
+  trace,
+  t,
+}: {
+  trace?: ConversationInvocationTrace;
+  t: Translations;
+}) {
+  const events =
+    trace?.events.filter(
+      (event) =>
+        event.eventType === "ROUTE_START" || event.eventType === "ROUTE_END",
+    ) ?? [];
+  if (events.length === 0) return null;
+  return (
+    <details className="conversation-log-route-events">
+      <summary>{t.routeCopilotTrace}</summary>
+      {events.map((event) => (
+        <div className="conversation-log-route-event" key={event.id}>
+          <div className="conversation-log-message-meta">
+            <strong>{event.eventName || event.eventType}</strong>
+            <code>{event.eventType}</code>
+            {event.status && <span>{event.status}</span>}
+            {event.durationMs != null && <small>{event.durationMs} ms</small>}
+          </div>
+          <pre>{JSON.stringify(event.payload ?? {}, null, 2)}</pre>
+        </div>
+      ))}
+    </details>
+  );
 }
 
 /** Searchable list of stored conversations with a detail overlay. */
@@ -322,6 +357,12 @@ export function ConversationLogsPage({
                               <pre>{item.responseContent || "-"}</pre>
                             </div>
                           </div>
+                          <RouteCopilotTrace
+                            trace={detail.invocationTraces?.find(
+                              (trace) => trace.invocation.id === item.id,
+                            )}
+                            t={t}
+                          />
                           {item.routeReason && <p>{item.routeReason}</p>}
                           {item.error && <p className="error">{item.error}</p>}
                         </div>
