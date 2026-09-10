@@ -10,7 +10,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
  * 会话接口的 JWT 鉴权拦截器。
- * - 仅对白名单 path 生效（/api/v1/sessions、/api/v1/chat/stream、/api/v1/feedback*）
+ * - 仅对白名单 path 生效（/api/v1/sessions、/api/v1/chat/*、/api/v1/attachments*、/api/v1/feedback*）
  * - 解析 Authorization: Bearer <jwt>
  * - 验签后把 (source, userId) 写入 RequestContext
  * - 请求结束清理 ThreadLocal
@@ -70,6 +70,7 @@ public class JwtAuthFilter implements HandlerInterceptor {
         if (path == null) return false;
         return path.startsWith("/api/v1/sessions")
                 || path.startsWith("/api/v1/chat/")
+                || path.startsWith("/api/v1/attachments")
                 || path.startsWith("/api/v1/feedback");
     }
 }
