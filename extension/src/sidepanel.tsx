@@ -185,8 +185,10 @@ const translations = {
     inputPlaceholder: "描述问题或输入你的需求,Shift+Enter换行...",
     chatInput: "聊天输入框",
     agentSelector: "选择 Agent",
-    agentAuto: "自动（智能路由）",
-    agentLoading: "加载 Agent 列表…",
+    agentAuto: "自动",
+    agentGeneralGroup: "通用 Agent",
+    agentDomainGroup: "领域 Agent",
+    agentRefresh: "刷新 Agent 列表",
     toolInvoked: "调用工具",
     toolResult: "工具返回",
     handledBy: "处理 Agent",
@@ -308,12 +310,14 @@ const translations = {
     inputPlaceholder: "Describe the problem or enter your request…",
     chatInput: "Chat input",
     agentSelector: "Select Agent",
-    agentAuto: "Auto (smart routing)",
+    agentAuto: "Auto",
+    agentGeneralGroup: "General Agents",
+    agentDomainGroup: "Domain Agents",
+    agentRefresh: "Refresh agents",
     toolInvoked: "Calling tool",
     toolResult: "Tool returned",
     handledBy: "Handled by",
     delegatedTo: "Delegated to",
-    agentLoading: "Loading agents…",
     expandComposer: "Expand input",
     collapseComposer: "Collapse input",
     send: "Send",
@@ -625,6 +629,7 @@ function App() {
   const [agents, setAgents] = useState<
     { id: string; displayName: string; role: string; description?: string }[]
   >([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const reorderRef = useRef<string[] | null>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -634,6 +639,7 @@ function App() {
   const end = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const authedFetchRef = useRef<AuthedFetch | null>(null);
+  const agentsRequestRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -659,27 +665,19 @@ function App() {
 
   // 拉取可选 Agent 列表，供用户显式选择（解决插件从不指定 agentId 的问题）。
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await apiFetch("/agents");
-        if (!response.ok) return;
-        const data = (await response.json()) as {
-          id: string;
-          displayName: string;
-          role: string;
-          description?: string;
-        }[];
-        if (cancelled) return;
-        setAgents(data || []);
-      } catch {
-        // 非致命：拿不到列表时退化为自动路由。
-      }
-    })();
+    if (!authedFetch) return;
+    void loadAgents();
     return () => {
-      cancelled = true;
+      agentsRequestRef.current?.abort();
+      agentsRequestRef.current = null;
     };
-  }, []);
+  }, [authedFetch]);
+
+  useEffect(() => {
+    setSelectedAgentId((current) =>
+      current && !agents.some((agent) => agent.id === current) ? "" : current,
+    );
+  }, [agents]);
 
   useEffect(() => {
     const messageList = mainRef.current;
@@ -983,6 +981,34 @@ function App() {
       return Promise.reject(new Error("Backend auth not ready"));
     }
     return fetcher(path, init);
+  }
+
+  async function loadAgents() {
+    const fetcher = authedFetchRef.current;
+    if (!fetcher) return;
+    agentsRequestRef.current?.abort();
+    const controller = new AbortController();
+    agentsRequestRef.current = controller;
+    setAgentsLoading(true);
+    try {
+      const response = await fetcher("/agents", { signal: controller.signal });
+      if (!response.ok) throw new Error(`agents: ${response.status}`);
+      const data = (await response.json()) as {
+        id: string;
+        displayName: string;
+        role: string;
+        description?: string;
+      }[];
+      if (Array.isArray(data)) setAgents(data);
+    } catch (error) {
+      if ((error as { name?: string })?.name === "AbortError") return;
+      // 非致命：刷新失败时保留上一次成功结果，仍可继续使用自动路由。
+    } finally {
+      if (agentsRequestRef.current === controller) {
+        agentsRequestRef.current = null;
+        setAgentsLoading(false);
+      }
+    }
   }
 
   async function load() {
@@ -1780,6 +1806,9 @@ function App() {
     abortControllerRef.current?.abort();
   }
 
+  const generalAgents = agents.filter((agent) => agent.role === "GENERAL");
+  const domainAgents = agents.filter((agent) => agent.role === "DOMAIN");
+
   return (
     <div className="app">
       <header>
@@ -2401,24 +2430,68 @@ function App() {
           ref={composerRef}
         >
           <div className="composer-agent-row">
-            <label className="agent-select-label" title={t.agentSelector}>
-              <span>{t.agentSelector}</span>
+            <label className="agent-picker" title={t.agentSelector}>
+              <span className="sr-only">{t.agentSelector}</span>
               <select
                 value={selectedAgentId}
                 onChange={(event) => setSelectedAgentId(event.target.value)}
-                disabled={busy || agents.length === 0}
+                disabled={busy}
+                aria-label={t.agentSelector}
               >
                 <option value="">{t.agentAuto}</option>
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.displayName}
-                  </option>
-                ))}
+                {generalAgents.length > 0 && (
+                  <optgroup label={t.agentGeneralGroup}>
+                    {generalAgents.map((agent) => (
+                      <option
+                        key={agent.id}
+                        value={agent.id}
+                        title={agent.description}
+                      >
+                        {agent.displayName}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {domainAgents.length > 0 && (
+                  <optgroup label={t.agentDomainGroup}>
+                    {domainAgents.map((agent) => (
+                      <option
+                        key={agent.id}
+                        value={agent.id}
+                        title={agent.description}
+                      >
+                        {agent.displayName}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
+              <svg
+                className="agent-picker-chevron"
+                viewBox="0 0 20 20"
+                aria-hidden="true"
+              >
+                <path d="m6 8 4 4 4-4" />
+              </svg>
             </label>
-            {agents.length === 0 && (
-              <span className="agent-select-hint">{t.agentLoading}</span>
-            )}
+            <button
+              type="button"
+              className={
+                "agent-refresh-button" + (agentsLoading ? " loading" : "")
+              }
+              onClick={() => void loadAgents()}
+              disabled={!authedFetch || agentsLoading}
+              title={t.agentRefresh}
+              aria-label={t.agentRefresh}
+              aria-busy={agentsLoading}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 11a8 8 0 0 0-13.7-5.7L4 7.5" />
+                <path d="M4 3v4.5h4.5" />
+                <path d="M4 13a8 8 0 0 0 13.7 5.7L20 16.5" />
+                <path d="M20 21v-4.5h-4.5" />
+              </svg>
+            </button>
           </div>
           <div className="composer-row">
             {(attachments.length > 0 || screenshot) && (
