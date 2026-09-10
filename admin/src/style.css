@@ -2053,6 +2053,26 @@ article p {
   background: var(--surface);
 }
 
+.conversation-log-attachment-preview {
+  display: block;
+  overflow: hidden;
+  margin: -8px -9px 5px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.conversation-log-attachment-preview img {
+  display: block;
+  width: 100%;
+  height: 180px;
+  object-fit: contain;
+  transition: opacity 160ms ease;
+}
+
+.conversation-log-attachment-preview:hover img {
+  opacity: 0.86;
+}
+
 .conversation-log-attachment-kind {
   width: fit-content;
   padding: 1px 6px;

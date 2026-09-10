@@ -19,6 +19,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.ResponseEntity;
 
 class ConversationLogAdminControllerTest {
 
@@ -65,7 +67,34 @@ class ConversationLogAdminControllerTest {
         assertEquals("screen.png", detail.messages().get(0).attachments().get(0).filename());
         assertEquals("image/png", detail.messages().get(0).attachments().get(0).contentType());
         assertEquals(128, detail.messages().get(0).attachments().get(0).size());
+        assertEquals(
+                "/admin/conversation-logs/attachments/attachment-1",
+                detail.messages().get(0).attachments().get(0).url());
         assertEquals(1, detail.invocationTraces().size());
         assertEquals("ROUTE_START", detail.invocationTraces().get(0).events().get(0).getEventType());
+    }
+
+    @Test
+    void servesAttachmentFromAdminEndpoint() throws Exception {
+        AttachmentService attachments = mock(AttachmentService.class);
+        ConversationLogAdminController controller =
+                new ConversationLogAdminController(
+                        mock(ConversationRepository.class),
+                        mock(MessageRepository.class),
+                        mock(AgentInvocationRepository.class),
+                        mock(ActionProposalRepository.class),
+                        attachments,
+                        mock(TraceRecorder.class));
+        byte[] bytes = new byte[] {1, 2, 3};
+        when(attachments.serve("attachment-1"))
+                .thenReturn(new AttachmentService.StoredBytes(bytes, "image/png", "screen.png"));
+
+        ResponseEntity<ByteArrayResource> response = controller.attachment("attachment-1");
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("image/png", response.getHeaders().getContentType().toString());
+        assertEquals("inline", response.getHeaders().getContentDisposition().getType());
+        assertEquals("screen.png", response.getHeaders().getContentDisposition().getFilename());
+        assertEquals(bytes.length, response.getBody().contentLength());
     }
 }

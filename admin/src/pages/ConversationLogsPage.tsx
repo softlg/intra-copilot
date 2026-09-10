@@ -1,5 +1,6 @@
 import Pagination from "../components/Pagination";
 import { TruncatedId } from "../components/TruncatedId";
+import { API } from "../lib/api";
 import { formatDateTime, formatFileSize } from "../lib/format";
 import type { Translations } from "../i18n/translations";
 import type {
@@ -266,10 +267,29 @@ export function ConversationLogsPage({
                             >
                               {item.attachments.map((attachment) => (
                                 <div
-                                  className="conversation-log-attachment"
+                                  className={
+                                    attachment.isImage
+                                      ? "conversation-log-attachment image"
+                                      : "conversation-log-attachment"
+                                  }
                                   key={attachment.id}
                                   title={attachment.filename}
                                 >
+                                  {attachment.isImage && attachment.url && (
+                                    <a
+                                      className="conversation-log-attachment-preview"
+                                      href={`${API}${attachment.url}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      aria-label={`${t.imageAttachment}: ${attachment.filename}`}
+                                    >
+                                      <img
+                                        src={`${API}${attachment.url}`}
+                                        alt={attachment.filename}
+                                        loading="lazy"
+                                      />
+                                    </a>
+                                  )}
                                   <span className="conversation-log-attachment-kind">
                                     {attachment.isImage
                                       ? t.imageAttachment

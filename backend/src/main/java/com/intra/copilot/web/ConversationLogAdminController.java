@@ -13,6 +13,9 @@ import com.intra.copilot.service.TraceRecorder;
 import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -84,6 +87,23 @@ public class ConversationLogAdminController {
                                                 item, trace.listByInvocation(item.getId())))
                                 .toList();
                 return new Trace(conversation.getId(), values);
+        }
+
+        /** 后台日志图片取回入口，避免依赖需要 JWT 的插件附件接口。 */
+        @GetMapping("/attachments/{attachmentId}")
+        public ResponseEntity<ByteArrayResource> attachment(@PathVariable String attachmentId)
+                        throws Exception {
+                AttachmentService.StoredBytes stored = attachments.serve(attachmentId);
+                byte[] bytes = stored.bytes();
+                String contentType = stored.contentType() == null
+                                ? "application/octet-stream"
+                                : stored.contentType();
+                String filename = stored.filename().replace("\"", "");
+                return ResponseEntity.ok()
+                                .header(HttpHeaders.CONTENT_TYPE, contentType)
+                                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
+                                .contentLength(bytes.length)
+                                .body(new ByteArrayResource(bytes));
         }
 
         /** 按调用 ID 查询单个 Agent 调用的事件明细。 */
@@ -162,16 +182,17 @@ public class ConversationLogAdminController {
         public record ConversationPage(
                         List<ConversationSummary> items, int total, int page, int size) {}
 
-        /** 后台日志只展示附件元数据，不暴露可直接读取附件字节的公开入口。 */
+        /** 后台日志附件元数据及仅供管理端使用的读取地址。 */
         public record AttachmentMetadata(
-                        String id, String filename, String contentType, long size, boolean isImage) {
+                        String id, String filename, String contentType, long size, boolean isImage, String url) {
                 static AttachmentMetadata from(AttachmentView attachment) {
                         return new AttachmentMetadata(
                                         attachment.id(),
                                         attachment.filename(),
                                         attachment.contentType(),
                                         attachment.size(),
-                                        attachment.isImage());
+                                        attachment.isImage(),
+                                        "/admin/conversation-logs/attachments/" + attachment.id());
                 }
         }
 

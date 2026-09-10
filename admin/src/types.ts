@@ -222,6 +222,7 @@ export type ConversationAttachment = {
   contentType?: string;
   size?: number;
   isImage: boolean;
+  url: string;
 };
 
 export type ConversationInvocation = {
