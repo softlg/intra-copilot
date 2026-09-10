@@ -5,6 +5,7 @@ import { EmptyState } from "../components/EmptyState";
 import { InlineEditable } from "../components/InlineEditable";
 import { TruncatedId } from "../components/TruncatedId";
 import { documentStatus } from "../lib/knowledge";
+import { useEffect, useState } from "react";
 import type { FormEventHandler } from "react";
 import type { Language, Translations } from "../i18n/translations";
 import type {
@@ -122,6 +123,53 @@ export function KnowledgePage({
   status,
   onStatusChange,
 }: KnowledgePageProps) {
+  const [useSystemModel, setUseSystemModel] = useState<boolean>(
+    activeBase?.useSystemEmbedding ?? true,
+  );
+  const [customProvider, setCustomProvider] = useState<string>(
+    activeBase?.embeddingProvider ?? "",
+  );
+  const [customModel, setCustomModel] = useState<string>(
+    activeBase?.embeddingModel ?? "",
+  );
+  const [customDimension, setCustomDimension] = useState<string>(
+    activeBase?.embeddingDimension != null
+      ? String(activeBase.embeddingDimension)
+      : "",
+  );
+
+  // Reset the embedding config draft whenever a different knowledge base is opened.
+  useEffect(() => {
+    if (!activeBase) return;
+    setUseSystemModel(activeBase.useSystemEmbedding ?? true);
+    setCustomProvider(activeBase.embeddingProvider ?? "");
+    setCustomModel(activeBase.embeddingModel ?? "");
+    setCustomDimension(
+      activeBase.embeddingDimension != null
+        ? String(activeBase.embeddingDimension)
+        : "",
+    );
+  }, [activeBase?.id]);
+
+  const customValid =
+    !useSystemModel &&
+    customProvider.trim() !== "" &&
+    customModel.trim() !== "" &&
+    Number(customDimension) > 0;
+
+  const handleSaveEmbedding = () => {
+    saveEmbeddingConfig({
+      useSystemEmbedding: useSystemModel,
+      provider: useSystemModel ? undefined : customProvider.trim() || undefined,
+      model: useSystemModel ? undefined : customModel.trim() || undefined,
+      dimension: useSystemModel
+        ? undefined
+        : Number(customDimension) > 0
+          ? Number(customDimension)
+          : undefined,
+    });
+  };
+
   return (
     <section>
       {!activeBase ? (
@@ -356,43 +404,105 @@ export function KnowledgePage({
                         : "-"}
                     </span>
                   </div>
-                  <label className="field">
-                    <span>
-                      {language === "zh" ? "模型配置" : "Model profile"}
-                    </span>
-                    <select
-                      value={activeBase.embeddingProfileId ?? ""}
-                      disabled={embeddingSaving}
-                      onChange={(event) => {
-                        const profileId = event.target.value;
-                        saveEmbeddingConfig(
-                          profileId
-                            ? { profileId }
-                            : { useSystemEmbedding: true },
-                        );
-                      }}
-                    >
-                      <option value="">
-                        {language === "zh" ? "继承系统默认" : "System default"}
-                      </option>
-                      {embeddingProfiles
-                        .filter((profile) => profile.enabled)
-                        .map((profile) => (
-                          <option value={profile.id} key={profile.id}>
-                            {profile.name} · {profile.model} ·{" "}
-                            {profile.dimension}D
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  {embeddingConfig?.profile && (
-                    <p className="field-hint">
-                      {embeddingConfig.profile.provider} /{" "}
-                      {embeddingConfig.profile.model} ·{" "}
-                      {embeddingConfig.profile.dimension} dimensions
+                  <div className="embedding-toggle-row">
+                    <div>
+                      <span className="embedding-toggle-label">
+                        {t.useSystemModel}
+                      </span>
+                      <p className="field-hint">{t.useSystemModelHint}</p>
+                    </div>
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        role="switch"
+                        checked={useSystemModel}
+                        disabled={embeddingSaving}
+                        onChange={(event) =>
+                          setUseSystemModel(event.target.checked)
+                        }
+                      />
+                      <span className="switch-track" aria-hidden="true" />
+                    </label>
+                  </div>
+                  {useSystemModel ? (
+                    <p className="field-hint embedding-inherit-note">
+                      {t.systemModelActive}：
+                      <code>
+                        {embeddingConfig?.profile?.provider} /{" "}
+                        {embeddingConfig?.profile?.model} ·{" "}
+                        {embeddingConfig?.profile?.dimension}D
+                      </code>
                     </p>
+                  ) : (
+                    <>
+                      <div className="embedding-risk-banner" role="alert">
+                        <Icon name="warn" size={16} />
+                        <div>
+                          <strong>{t.modelSwitchRiskTitle}</strong>
+                          <ul>
+                            <li>{t.modelSwitchRisk1}</li>
+                            <li>{t.modelSwitchRisk2}</li>
+                            <li>{t.modelSwitchRisk3}</li>
+                            <li>{t.modelSwitchRisk4}</li>
+                          </ul>
+                        </div>
+                      </div>
+                      <label className="field">
+                        <span>{t.provider}</span>
+                        <input
+                          type="text"
+                          value={customProvider}
+                          disabled={embeddingSaving}
+                          placeholder={
+                            language === "zh"
+                              ? "例如 openai / azure-openai"
+                              : "e.g. openai / azure-openai"
+                          }
+                          onChange={(event) =>
+                            setCustomProvider(event.target.value)
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>{t.modelName}</span>
+                        <input
+                          type="text"
+                          value={customModel}
+                          disabled={embeddingSaving}
+                          placeholder={
+                            language === "zh"
+                              ? "例如 text-embedding-3-large"
+                              : "e.g. text-embedding-3-large"
+                          }
+                          onChange={(event) =>
+                            setCustomModel(event.target.value)
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>{t.dimension}</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={customDimension}
+                          disabled={embeddingSaving}
+                          placeholder="1536"
+                          onChange={(event) =>
+                            setCustomDimension(event.target.value)
+                          }
+                        />
+                      </label>
+                    </>
                   )}
                   <div className="document-actions">
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={embeddingSaving || !customValid}
+                      onClick={handleSaveEmbedding}
+                    >
+                      {embeddingSaving ? t.savingSettings : t.saveModelConfig}
+                    </button>
                     <button
                       type="button"
                       className="secondary"
