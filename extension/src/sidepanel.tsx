@@ -150,6 +150,7 @@ const translations = {
     assistant: "助手",
     thinking: "思考中…",
     stopped: "已停止生成",
+    responseUnavailable: "本次回复未保存，请重新发送。",
     closeHistory: "关闭历史",
     selectAll: "全选",
     noHistory: "暂无历史会话",
@@ -271,6 +272,7 @@ const translations = {
     assistant: "Assistant",
     thinking: "Thinking…",
     stopped: "Generation stopped",
+    responseUnavailable: "This reply was not saved. Please send again.",
     closeHistory: "Close history",
     selectAll: "Select all",
     noHistory: "No chat history",
@@ -1019,7 +1021,18 @@ function App() {
       const response = await apiFetch(`/sessions/${conversation.id}/messages`);
       if (!response.ok) throw new Error(`messages: ${response.status}`);
       const payload = await response.json();
-      setMsgs(Array.isArray(payload) ? payload : []);
+      const history: Msg[] = Array.isArray(payload) ? payload : [];
+      setMsgs(
+        history.map((message) =>
+          message.role === "assistant" && !message.content.trim()
+            ? {
+                ...message,
+                content: t.responseUnavailable,
+                stopped: true,
+              }
+            : message,
+        ),
+      );
     } catch {
       setMsgs([]);
       setError(t.backendError);

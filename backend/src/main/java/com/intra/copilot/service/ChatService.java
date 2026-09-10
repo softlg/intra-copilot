@@ -1009,19 +1009,12 @@ public class ChatService {
                                                 .save();
                         }
 
-                        // 5) 流式写出最终答复（DOMAIN_SUMMARY 时为总结后内容；其余为子 Agent 答案）。
-                        long completedMs = (System.nanoTime() - routeStarted) / 1_000_000L;
-                        for (String chunk : splitForStreaming(currentAnswer)) {
-                                if (finished.get()) return;
-                                try {
-                                        out.send(SseEmitter.event().name("token").data(chunk));
-                                } catch (IOException e) {
-                                        finished.set(true);
-                                        return;
-                                }
+                        if (currentAnswer == null || currentAnswer.isBlank()) {
+                                throw new IllegalStateException("模型未返回有效内容，请重试");
                         }
 
-                        // 6) 落库主 invocation + 消息
+                        // 5) 先落库主 invocation + 消息，避免客户端中途断开导致回复丢失。
+                        long completedMs = (System.nanoTime() - routeStarted) / 1_000_000L;
                         String finalAgentId = delegatedSummary && routeAgent != null ? routeAgent.id() : agent.id();
                         invocation.setResponseContent(currentAnswer);
                         messages.save(new Message(conversation.getId(), "assistant", currentAnswer, finalAgentId, null));
@@ -1042,6 +1035,17 @@ public class ChatService {
                                         .put("durationMs", completedMs)
                                         .put("finalAgentId", finalAgentId)
                                         .save();
+
+                        // 6) 流式写出最终答复（DOMAIN_SUMMARY 时为总结后内容；其余为子 Agent 答案）。
+                        for (String chunk : splitForStreaming(currentAnswer)) {
+                                if (finished.get()) return;
+                                try {
+                                        out.send(SseEmitter.event().name("token").data(chunk));
+                                } catch (IOException e) {
+                                        finished.set(true);
+                                        return;
+                                }
+                        }
 
                         // 7) 兼容旧的游离式 action 提案（模型在正文里直接输出 {"type":...}）。
                         emitFreeformProposal(out, finished, conversation.getId(), currentAnswer, correlationId, invocationId);
