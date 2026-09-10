@@ -84,7 +84,7 @@ app:
   # 单条聊天附件最大体积（字节）。servlet 上限见 spring.servlet.multipart。
   max-attachment-bytes: ${APP_MAX_ATTACHMENT_BYTES:26214400}
 minio:
-  # 设为 true 时，文档与聊天附件的字节统一存到 MinIO；否则使用本地磁盘（默认）。
+  # 设为 true 时，文档与聊天附件统一存储到 MinIO；否则使用本地磁盘（默认）。
   enabled: ${MINIO_ENABLED:false}
   endpoint: ${MINIO_ENDPOINT:}
   access-key: ${MINIO_ACCESS_KEY:}
