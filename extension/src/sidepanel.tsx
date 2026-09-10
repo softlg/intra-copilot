@@ -586,7 +586,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
-  const [readPageEnabled, setReadPageEnabled] = useState(false);
+  const [readPageEnabled, setReadPageEnabled] = useState(true);
   const [pageInfoSelection, setPageInfoSelection] = useState<
     Record<PageInfoKey, boolean>
   >({
