@@ -13,10 +13,13 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AgentOrchestrator {
+    private static final Logger LOG = LoggerFactory.getLogger(AgentOrchestrator.class);
     private static final double MIN_CONFIDENCE = 0.55;
     private final AgentRegistry registry;
     private final RouterAgent rules;
@@ -102,11 +105,11 @@ public class AgentOrchestrator {
         if ("assistant".equals(id)) return general;
         Optional<Agent> configured = registry.findEnabled(id);
         if (configured.isPresent()) return configured.get();
-        // A configured but disabled agent must never be reachable through the
-        // built-in fallback implementations.
-        if (registry.allDefinitions().stream().anyMatch(definition -> id.equals(definition.getId()))) {
-            return general;
-        }
+        // 降级到通用 Agent 时必须留下可观测证据，否则"配置存在但不生效"的问题无法定位。
+        boolean existsButDisabled =
+                registry.allDefinitions().stream().anyMatch(definition -> id.equals(definition.getId()));
+        LOG.warn("Agent 解析降级：id={}，原因={}，已回退到通用 Agent",
+                id, existsButDisabled ? "已停用或未发布" : "不存在");
         return general;
     }
 
@@ -143,6 +146,7 @@ public class AgentOrchestrator {
                         .filter(child -> "SUB".equals(child.getRole()))
                         .map(child -> new ChildCandidate(binding, child)))
                 .flatMap(Optional::stream)
+                .sorted(java.util.Comparator.comparingInt(binding -> binding.binding().getPriority()))
                 .toList();
         if (listener != null) listener.onCandidates(domain.getId(), candidates);
         if (candidates.isEmpty()) {
@@ -250,8 +254,28 @@ public class AgentOrchestrator {
     private boolean matchesRule(String text, String rule) {
         if (text == null || rule == null || rule.isBlank()) return false;
         String normalized = text.toLowerCase();
-        return List.of(rule.toLowerCase().split("[,，;；\\n]")).stream()
-                .map(String::trim).filter(token -> token.length() >= 2).anyMatch(normalized::contains);
+        for (String raw : rule.toLowerCase().split("[,，;；\\n]")) {
+            String token = raw.trim();
+            if (token.isEmpty()) continue;
+            // 支持首尾通配：*发货* / 发货* / *发货
+            boolean wildcard = token.startsWith("*") || token.endsWith("*");
+            String core = token.replace("*", "");
+            if (core.isEmpty()) continue;
+            if (wildcard) {
+                if (normalized.contains(core)) return true;
+                continue;
+            }
+            // 纯 ASCII 关键词按词边界匹配，避免 "ai" 命中 "said" 这类误伤；
+            // 中文等无空格语言仍按子串匹配。
+            if (core.matches("[\\x00-\\x7F]+")) {
+                if (core.length() < 2) continue;
+                if (normalized.matches("(?s).*(^|[^a-z0-9])" + java.util.regex.Pattern.quote(core)
+                        + "([^a-z0-9]|$).*")) return true;
+            } else if (normalized.contains(core)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String routingPrompt() {

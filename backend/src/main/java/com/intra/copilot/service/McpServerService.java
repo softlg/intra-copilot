@@ -11,6 +11,7 @@ import java.net.InetAddress;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -157,6 +158,55 @@ public class McpServerService {
 
     private Map<String, Object> toolsListRequest() {
         return Map.of("jsonrpc", "2.0", "id", 2, "method", "tools/list", "params", Map.of());
+    }
+
+    /**
+     * Calls a tool on the given MCP server (initialize to obtain a session id, then tools/call).
+     * Used by the agent execution path so MCP-backed ToolDefinitions become real actions.
+     * Returns the tool result content (truncated); callers should treat any exception as a failed tool call.
+     */
+    public String callTool(McpServer server, String toolName, String argumentsJson) {
+        try {
+            ResponseEntity<String> initialized = postJson(server, initializeRequest());
+            String sessionId = initialized.getHeaders().getFirst("Mcp-Session-Id");
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("name", toolName);
+            try {
+                params.put("arguments", mapper.readValue(argumentsJson == null ? "{}" : argumentsJson, Map.class));
+            } catch (Exception ignored) {
+                params.put("arguments", Map.of());
+            }
+            Map<String, Object> body = Map.of(
+                    "jsonrpc", "2.0",
+                    "id", 3,
+                    "method", "tools/call",
+                    "params", params);
+            ResponseEntity<String> called = postJson(server, body, sessionId);
+            JsonNode root = parseResponse(called.getBody());
+            JsonNode result = root.path("result");
+            if (!result.isMissingNode()) {
+                StringBuilder sb = new StringBuilder();
+                JsonNode content = result.path("content");
+                if (content.isArray()) {
+                    for (JsonNode item : content) {
+                        if ("text".equals(item.path("type").asText())) {
+                            sb.append(item.path("text").asText());
+                        }
+                    }
+                } else {
+                    sb.append(result.asText());
+                }
+                String text = sb.toString();
+                return text.length() <= 8000 ? text : text.substring(0, 8000) + "\n...[truncated]";
+            }
+            JsonNode error = root.path("error");
+            if (!error.isMissingNode()) {
+                return "MCP 工具调用返回错误：" + error.asText();
+            }
+            return called.getBody() == null ? "" : called.getBody();
+        } catch (Exception error) {
+            return "MCP 工具调用失败：" + safeMessage(error);
+        }
     }
 
     private Discovery parseDiscovery(String initializeBody, String toolsBody) throws Exception {

@@ -38,13 +38,14 @@ public class LlmClient {
             return Flux.just("[未配置 LLM_API_KEY] 后端已启用，请配置 OpenAI 兼容模型后重试。");
         }
         try {
+            // 不再用 onErrorResume 把异常吞成普通 token——那样会被当成正常回答渲染并落库。
+            // 异常直接向上传播，由 ChatService 的订阅 error 回调发送 SSE error 事件并标记 invocation FAILED。
             return chatModel
                     .stream(new Prompt(messages(system, history, user, images)))
                     .map(this::textOf)
-                    .filter(text -> text != null && !text.isBlank())
-                    .onErrorResume(error -> Flux.just("模型请求失败：" + safeMessage(error)));
+                    .filter(text -> text != null && !text.isBlank());
         } catch (Exception error) {
-            return Flux.just("模型请求失败：" + safeMessage(error));
+            return Flux.error(error);
         }
     }
 
@@ -53,15 +54,25 @@ public class LlmClient {
      * Some OpenAI-compatible gateways reject non-streaming requests, even for short router calls.
      */
     public Mono<String> complete(String system, List<Map<String, String>> history, String user) {
+        return complete(system, history, user, List.of());
+    }
+
+    /**
+     * Non-streaming aggregation variant that can also attach images (used by the first turn of the
+     * agent ReAct loop, where the user message may carry multimodal attachments).
+     * 与 stream() 一致：模型/网关异常直接向上传播，由调用方（路由降级或 SSE error 事件）处理，
+     * 不再用 onErrorResume 把异常吞成空串。
+     */
+    public Mono<String> complete(
+            String system, List<Map<String, String>> history, String user, List<String> images) {
         if (apiKey == null || apiKey.isBlank()) return Mono.empty();
         return chatModel
-                .stream(new Prompt(messages(system, history, user, List.of())))
+                .stream(new Prompt(messages(system, history, user, images == null ? List.of() : images)))
                 .map(this::textOf)
                 .filter(text -> text != null && !text.isBlank())
                 .collectList()
                 .map(parts -> String.join("", parts))
-                .filter(text -> !text.isBlank())
-                .onErrorResume(error -> Mono.empty());
+                .filter(text -> !text.isBlank());
     }
 
     private List<Message> messages(
@@ -77,6 +88,11 @@ public class LlmClient {
             }
         }
         String prompt = user == null ? "" : user;
+        // 当 prompt 为空（调用方已把用户消息放进 history）时不追加空 UserMessage，
+        // 否则部分 OpenAI 兼容网关会对空 content 报错。
+        if (prompt.isBlank()) {
+            return messages;
+        }
         if (images == null || images.isEmpty()) {
             messages.add(new UserMessage(prompt));
         } else {

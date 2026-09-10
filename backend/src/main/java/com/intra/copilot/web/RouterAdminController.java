@@ -109,10 +109,18 @@ public class RouterAdminController {
                         + message
                         + "\n路由结果："
                         + String.valueOf(request.route());
-        String analysis =
+        String analysis;
+        try {
+            analysis =
                 llm.complete("你是 Agent 路由巡检助手，只输出简洁、可执行的中文分析。", List.of(), input)
                         .blockOptional(Duration.ofSeconds(20))
                         .orElse("模型暂不可用。请根据调用链路检查意图、置信度、分发 Agent 及钩子校验结果。");
+        } catch (Exception error) {
+            String reason = error.getMessage() == null || error.getMessage().isBlank()
+                    ? error.getClass().getSimpleName()
+                    : error.getMessage();
+            analysis = "模型调用失败：" + reason + "。请根据调用链路检查意图、置信度、分发 Agent 及钩子校验结果。";
+        }
         return Map.of("analysis", analysis);
     }
 

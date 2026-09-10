@@ -891,6 +891,36 @@ small {
   flex-wrap: wrap;
   gap: 8px;
 }
+.composer-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--muted);
+}
+.agent-select-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-select-label select {
+  max-width: 220px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+}
+.agent-select-label select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.agent-select-hint {
+  font-size: 11px;
+  opacity: 0.75;
+}
 .composer-previews {
   display: flex;
   flex-basis: 100%;

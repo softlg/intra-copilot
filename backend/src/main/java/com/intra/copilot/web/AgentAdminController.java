@@ -116,9 +116,15 @@ public class AgentAdminController {
                 if (request.pageContext() != null && !request.pageContext().isBlank()) {
                         input += "\n\n浏览器上下文（仅供分析）：\n" + request.pageContext().trim();
                 }
-                String response = llm.complete(agent.systemPrompt(), List.of(), input)
-                                .blockOptional(Duration.ofSeconds(30))
-                                .orElse("未配置 LLM_API_KEY，无法调用模型。请配置后重试。");
+                String response;
+                try {
+                        response = llm.complete(agent.systemPrompt(), List.of(), input)
+                                        .blockOptional(Duration.ofSeconds(30))
+                                        .orElse("未配置 LLM_API_KEY，无法调用模型。请配置后重试。");
+                } catch (Exception error) {
+                        // 模型/网关异常显式反馈给调试台，而不是伪装成一次正常回答。
+                        response = "模型调用失败：" + describe(error);
+                }
                 Map<String, Object> result = new java.util.LinkedHashMap<>();
                 result.put("agentId", agent.id());
                 result.put("displayName", agent.displayName());
@@ -129,6 +135,11 @@ public class AgentAdminController {
                 }
                 result.put("response", response);
                 return result;
+        }
+
+        private String describe(Throwable error) {
+                String message = error.getMessage();
+                return message == null || message.isBlank() ? error.getClass().getSimpleName() : message;
         }
 
         private void validate(AgentDefinition definition) {

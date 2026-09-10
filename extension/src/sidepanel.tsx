@@ -177,6 +177,11 @@ const translations = {
     rejected: "用户拒绝",
     inputPlaceholder: "描述问题或输入你的需求,Shift+Enter换行...",
     chatInput: "聊天输入框",
+    agentSelector: "选择 Agent",
+    agentAuto: "自动（智能路由）",
+    agentLoading: "加载 Agent 列表…",
+    toolInvoked: "调用工具",
+    toolResult: "工具返回",
     expandComposer: "展开输入框",
     collapseComposer: "收起输入框",
     send: "发送",
@@ -291,6 +296,11 @@ const translations = {
     rejected: "Rejected by user",
     inputPlaceholder: "Describe the problem or enter your request…",
     chatInput: "Chat input",
+    agentSelector: "Select Agent",
+    agentAuto: "Auto (smart routing)",
+    toolInvoked: "Calling tool",
+    toolResult: "Tool returned",
+    agentLoading: "Loading agents…",
     expandComposer: "Expand input",
     collapseComposer: "Collapse input",
     send: "Send",
@@ -599,6 +609,10 @@ function App() {
     id: string;
     before: boolean;
   }>();
+  const [agents, setAgents] = useState<
+    { id: string; displayName: string; role: string; description?: string }[]
+  >([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const reorderRef = useRef<string[] | null>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -623,6 +637,30 @@ function App() {
           (error as Error).message || "Failed to register device with backend";
         setAuthError(message);
         setError(`Device registration failed: ${message}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 拉取可选 Agent 列表，供用户显式选择（解决插件从不指定 agentId 的问题）。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await apiFetch("/agents");
+        if (!response.ok) return;
+        const data = (await response.json()) as {
+          id: string;
+          displayName: string;
+          role: string;
+          description?: string;
+        }[];
+        if (cancelled) return;
+        setAgents(data || []);
+      } catch {
+        // 非致命：拿不到列表时退化为自动路由。
       }
     })();
     return () => {
@@ -1512,7 +1550,7 @@ function App() {
           sessionId: session.id,
           message: text,
           attachmentIds: uploaded.map((u) => u.id),
-          agentId: null,
+          agentId: selectedAgentId || null,
           pageContext,
           permissions: {
             readPage: readPageEnabled,
@@ -1524,6 +1562,16 @@ function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      // 把工具调用过程追加到当前助手消息中（与 token 追加逻辑保持一致）。
+      const appendToolLine = (line: string) => {
+        setMsgs((items) => {
+          if (!items.length) return items;
+          const next = [...items];
+          const index = next.length - 1;
+          next[index] = { ...next[index], content: next[index].content + line };
+          return next;
+        });
+      };
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -1579,7 +1627,36 @@ function App() {
               setError(t.invalidAction);
             }
           }
-          if (name === "error") setError(data);
+          if (name === "tool_invoked" && data) {
+            // 工具调用过程可视化：让用户看到 Agent 实际执行了什么，而不是只有最终答案。
+            try {
+              const payload = JSON.parse(data);
+              appendToolLine(`\n\n> ${t.toolInvoked} \`${payload.tool}\`\n`);
+            } catch {
+              /* 忽略无法解析的工具事件 */
+            }
+          }
+          if (name === "tool_result" && data) {
+            try {
+              const payload = JSON.parse(data);
+              appendToolLine(
+                `\n\n> ${t.toolResult} \`${payload.tool}\`\n\n\`\`\`\n${payload.result}\n\`\`\`\n`,
+              );
+            } catch {
+              /* 忽略无法解析的工具事件 */
+            }
+          }
+          if (name === "error") {
+            // 后端以 JSON 形式下发 { code, message }，直接展示原始 data 会把 JSON 暴露给用户。
+            let message = data;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed && typeof parsed.message === "string") message = parsed.message;
+            } catch {
+              /* 非 JSON 时按纯文本处理 */
+            }
+            setError(message);
+          }
         }
       }
     } catch (e) {
@@ -2200,6 +2277,26 @@ function App() {
           className={"composer" + (composerExpanded ? " expanded" : "")}
           ref={composerRef}
         >
+          <div className="composer-agent-row">
+            <label className="agent-select-label" title={t.agentSelector}>
+              <span>{t.agentSelector}</span>
+              <select
+                value={selectedAgentId}
+                onChange={(event) => setSelectedAgentId(event.target.value)}
+                disabled={busy || agents.length === 0}
+              >
+                <option value="">{t.agentAuto}</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {agents.length === 0 && (
+              <span className="agent-select-hint">{t.agentLoading}</span>
+            )}
+          </div>
           <div className="composer-row">
             {(attachments.length > 0 || screenshot) && (
               <div className="composer-previews">

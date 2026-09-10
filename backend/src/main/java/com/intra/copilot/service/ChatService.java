@@ -1,5 +1,6 @@
 package com.intra.copilot.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intra.copilot.agent.*;
 import com.intra.copilot.model.*;
@@ -8,6 +9,8 @@ import java.io.IOException;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +32,12 @@ public class ChatService {
         private final KnowledgeRetriever knowledge;
         private final AttachmentService attachments;
         private final TraceRecorder trace;
+        private final ToolExecutor toolExecutor;
+        private final SkillDefinitionRepository skillRepository;
         private final int ragTopK;
+        private final int maxToolIterations;
+        private final int maxHistoryTokens;
+        private final int maxHistoryMessages;
         private final ObjectMapper json = new ObjectMapper();
 
         public ChatService(
@@ -43,7 +51,12 @@ public class ChatService {
                         KnowledgeRetriever knowledge,
                         AttachmentService attachments,
                         TraceRecorder trace,
-                        @Value("${rag.top-k:5}") int ragTopK) {
+                        ToolExecutor toolExecutor,
+                        SkillDefinitionRepository skillRepository,
+                        @Value("${rag.top-k:5}") int ragTopK,
+                        @Value("${agent.max-tool-iterations:5}") int maxToolIterations,
+                        @Value("${agent.max-history-tokens:6000}") int maxHistoryTokens,
+                        @Value("${agent.max-history-messages:40}") int maxHistoryMessages) {
                 conversations = c;
                 messages = m;
                 actions = a;
@@ -54,7 +67,22 @@ public class ChatService {
                 this.knowledge = knowledge;
                 this.attachments = attachments;
                 this.trace = trace;
+                this.toolExecutor = toolExecutor;
+                this.skillRepository = skillRepository;
                 this.ragTopK = Math.max(1, Math.min(20, ragTopK));
+                this.maxToolIterations = Math.max(1, Math.min(10, maxToolIterations));
+                this.maxHistoryTokens = Math.max(1000, maxHistoryTokens);
+                this.maxHistoryMessages = Math.max(4, Math.min(200, maxHistoryMessages));
+        }
+
+        /**
+         * 取最近的 N 条消息并保持时间正序。
+         * 仓库按 createdAt 升序返回，直接 limit(N) 会截断成最早的一批，导致长会话丢失最新上下文。
+         */
+        private List<Message> recentMessages(List<Message> all, int limit) {
+                if (all == null || all.isEmpty()) return List.of();
+                if (all.size() <= limit) return all;
+                return new ArrayList<>(all.subList(all.size() - limit, all.size()));
         }
 
         public Conversation create(String source, String userId) {
@@ -249,9 +277,9 @@ public class ChatService {
                                 Boolean.TRUE.equals(permissions == null ? null : permissions.get("readPage"));
                 boolean autoRoute = requestedAgent == null || requestedAgent.isBlank();
                 List<Map<String, String>> h =
-                                history(callerSource, callerUserId, c.getId())
+                                recentMessages(
+                                                history(callerSource, callerUserId, c.getId()), maxHistoryMessages)
                                                 .stream()
-                                                .limit(20)
                                                 .map(x -> Map.of("role", x.getRole(), "content", x.getContent()))
                                                 .toList();
                 long routeStarted = System.nanoTime();
@@ -552,167 +580,64 @@ public class ChatService {
                                 .put("pageContextIncluded", readPage && pageContext != null && !pageContext.isBlank())
                                 .put("imageCount", sanitizeImages(attachments.imageDataUrls(attachmentIds)).size())
                                 .save();
-                StringBuilder full = new StringBuilder();
-                AgentInvocation finalChildInvocation = childInvocation;
-                llm.stream(agent.systemPrompt(), h, enriched,
-                                sanitizeImages(attachments.imageDataUrls(attachmentIds)))
-                                .subscribe(
-                                                token -> {
-                                                        full.append(token);
-                                                        try {
-                                                                if (!(delegation.delegated()
-                                                                                && routeAgent instanceof ConfigurableAgent parent
-                                                                                && "DOMAIN_SUMMARY".equals(parent.definition().getReturnMode()))) {
-                                                                        out.send(SseEmitter.event().name("token").data(token));
-                                                                }
-                                                        } catch (IOException e) {
-                                                                out.completeWithError(e);
-                                                        }
-                                                },
-                                                error -> {
-                                                        long failedMs = (System.nanoTime() - routeStarted) / 1_000_000L;
-                                                        invocation.setError(error.getMessage());
-                                                        invocation.setStatus("FAILED");
-                                                        invocation.setErrorCode("MODEL_ERROR");
-                                                        invocation.setDurationMs(failedMs);
-                                                        invocations.save(invocation);
-                                                        trace.event(invocationId, correlationId, TraceRecorder.Type.ERROR)
-                                                                        .name("模型调用失败")
-                                                                        .status("FAILED")
-                                                                        .put("stage", "LLM")
-                                                                        .put("agentId", agent.id())
-                                                                        .put("message", error.getMessage())
-                                                                        .put("exception", error.getClass().getName())
-                                                                        .save();
-                                                        trace.event(invocationId, correlationId, TraceRecorder.Type.FAILED)
-                                                                        .name("执行失败")
-                                                                        .status("FAILED")
-                                                                        .put("errorCode", "MODEL_ERROR")
-                                                                        .put("durationMs", failedMs)
-                                                                        .save();
-                                                        if (finalChildInvocation != null) {
-                                                                finalChildInvocation.setError(error.getMessage());
-                                                                finalChildInvocation.setStatus("FAILED");
-                                                                finalChildInvocation.setErrorCode("MODEL_ERROR");
-                                                                finalChildInvocation.setDurationMs(failedMs);
-                                                                invocations.save(finalChildInvocation);
-                                                                trace.event(finalChildInvocation.getId(), correlationId, TraceRecorder.Type.FAILED)
-                                                                                .name("子 Agent 执行失败")
-                                                                                .status("FAILED")
-                                                                                .put("errorCode", "MODEL_ERROR")
-                                                                                .put("durationMs", failedMs)
-                                                                                .save();
-                                                        }
-                                                        out.completeWithError(error);
-                                                },
-                                                () -> {
-                                                        long completedMs = (System.nanoTime() - routeStarted) / 1_000_000L;
-                                                        String response = full.toString();
-                                                        String childRaw = full.toString();
-                                                        if (finalChildInvocation != null) {
-                                                                finalChildInvocation.setResponseContent(childRaw);
-                                                                finalChildInvocation.setStatus("COMPLETED");
-                                                                finalChildInvocation.setDurationMs(completedMs);
-                                                                invocations.save(finalChildInvocation);
-                                                                trace.event(finalChildInvocation.getId(), correlationId, TraceRecorder.Type.LLM_RESPONSE)
-                                                                                .name("子 Agent 模型响应")
-                                                                                .status("OK")
-                                                                                .put("agentId", agent.id())
-                                                                                .put("content", childRaw)
-                                                                                .put("contentLength", childRaw.length())
-                                                                                .put("durationMs", completedMs)
-                                                                                .save();
-                                                                trace.event(finalChildInvocation.getId(), correlationId, TraceRecorder.Type.COMPLETED)
-                                                                                .name("子 Agent 执行完成")
-                                                                                .status("COMPLETED")
-                                                                                .put("durationMs", completedMs)
-                                                                                .save();
-                                                        }
-                                                        // DOMAIN_SUMMARY：领域 Agent 会对子 Agent 结果做二次总结，这里单独记录。
-                                                        if (delegation.delegated()
-                                                                        && routeAgent instanceof ConfigurableAgent parent
-                                                                        && "DOMAIN_SUMMARY".equals(parent.definition().getReturnMode())) {
-                                                                long summaryStarted = System.nanoTime();
-                                                                response = llm.complete(parent.systemPrompt(), h,
-                                                                                "子 Agent 返回结果（仅供参考）：\n" + response
-                                                                                                + "\n请根据领域边界整理最终答复，不要暴露内部调用链。")
-                                                                                .blockOptional(Duration.ofSeconds(30)).orElse(response);
-                                                                long summaryMs = (System.nanoTime() - summaryStarted) / 1_000_000L;
-                                                                trace.event(invocationId, correlationId, TraceRecorder.Type.LLM_RESPONSE)
-                                                                                .name("领域 Agent 二次总结")
-                                                                                .status("OK")
-                                                                                .put("parentAgentId", parent.id())
-                                                                                .put("returnMode", "DOMAIN_SUMMARY")
-                                                                                .put("childRawOutput", childRaw)
-                                                                                .put("summaryOutput", response)
-                                                                                .put("durationMs", summaryMs)
-                                                                                .save();
-                                                                try { out.send(SseEmitter.event().name("token").data(response)); } catch (IOException ignored) { }
-                                                        } else {
-                                                                trace.event(invocationId, correlationId, TraceRecorder.Type.LLM_RESPONSE)
-                                                                                .name("模型响应")
-                                                                                .status("OK")
-                                                                                .put("agentId", agent.id())
-                                                                                .put("content", response)
-                                                                                .put("contentLength", response.length())
-                                                                                .put("durationMs", completedMs)
-                                                                                .save();
-                                                        }
-                                                        invocation.setResponseContent(response);
-                                                        messages.save(new Message(c.getId(), "assistant", response, agent.id(), null));
-                                                        invocation.setDurationMs(completedMs);
-                                                        invocation.setStatus("COMPLETED");
-                                                        invocations.save(invocation);
-                                                        trace.event(invocationId, correlationId, TraceRecorder.Type.COMPLETED)
-                                                                        .name("执行完成")
-                                                                        .status("COMPLETED")
-                                                                        .put("durationMs", completedMs)
-                                                                        .put("finalAgentId", agent.id())
-                                                                        .save();
-                                                        try {
-                                                                 ActionProposal proposal = parseProposal(c.getId(), response);
-                                                                if (proposal != null) {
-                                                                        trace.event(invocationId, correlationId, TraceRecorder.Type.ACTION_PROPOSED)
-                                                                                        .name("页面操作提案：" + proposal.getType())
-                                                                                        .status("PENDING")
-                                                                                        .put("actionId", proposal.getActionId())
-                                                                                        .put("type", proposal.getType())
-                                                                                        .put("target", proposal.getTarget())
-                                                                                        .put("arguments", proposal.getArguments())
-                                                                                        .put("reason", proposal.getReason())
-                                                                                        .put("risk", proposal.getRisk())
-                                                                                        .put("expiresAt", proposal.getExpiresAt().toString())
-                                                                                        .save();
-                                                                        out.send(
-                                                                                        SseEmitter.event()
-                                                                                                        .name("action_proposed")
-                                                                                                        .data(
-                                                                                                                        Map.of(
-                                                                                                                                        "actionId",
-                                                                                                                                        proposal.getActionId(),
-                                                                                                                                        "type",
-                                                                                                                                        proposal.getType(),
-                                                                                                                                        "target",
-                                                                                                                                        proposal.getTarget(),
-                                                                                                                                        "arguments",
-                                                                                                                                        proposal.getArguments(),
-                                                                                                                                        "reason",
-                                                                                                                                        proposal.getReason(),
-                                                                                                                                        "risk",
-                                                                                                                                        proposal.getRisk(),
-                                                                                                                                        "expiresAt",
-                                                                                                                                        proposal.getExpiresAt().toString())));
-                                                                }
-                                                                out.send(
-                                                                                SseEmitter.event()
-                                                                                                .name("message_completed")
-                                                                                                .data(Map.of("content", response)));
-                                                                out.complete();
-                                                        } catch (IOException e) {
-                                                                out.completeWithError(e);
-                                                        }
-                                                });
-                return out;
+        final List<String> images = sanitizeImages(attachments.imageDataUrls(attachmentIds));
+        // 历史长度预算（P2）：粗略按字符数估算 token，超过预算则丢弃最旧的若干条，至少保留最近 4 条。
+        List<Map<String, String>> baseHistory = new ArrayList<>(budgetHistory(h, maxHistoryTokens * 4));
+
+        AtomicBoolean finished = new AtomicBoolean(false);
+        // 客户端断开 / 超时即标记 finished，让后台循环尽早退出，避免无谓的模型调用。
+        out.onCompletion(() -> finished.set(true));
+        out.onTimeout(() -> finished.set(true));
+        // SSE 心跳（P1）：长工具循环 / 二次总结期间周期性发送注释帧，避免代理或浏览器在空闲时断开连接。
+        ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "sse-hb-" + invocationId);
+            t.setDaemon(true);
+            return t;
+        });
+        ScheduledFuture<?> heartbeatTask = heartbeat.scheduleAtFixedRate(() -> {
+            if (finished.get()) return;
+            try {
+                out.send(SseEmitter.event().comment("keep-alive"));
+            } catch (IOException ignored) {
+            }
+        }, 15, 15, TimeUnit.SECONDS);
+
+        // 工具循环在独立线程执行，主线程立即返回 SseEmitter，由 runReActLoop 内的回调驱动流式写出。
+        // childInvocation 可能为 null，且被赋值两次，需用 final 包装以便 lambda 捕获；
+        // 同时为所有被 lambda 捕获的局部变量建立 final 别名，规避"必须 final/事实 final"约束。
+        final AgentInvocation capturedChild = childInvocation;
+        final Conversation capturedC = c;
+        final AgentInvocation capturedInvocation = invocation;
+        final String capturedCorrelationId = correlationId;
+        final String capturedInvocationId = invocationId;
+        final Agent capturedAgent = agent;
+        final Agent capturedRouteAgent = routeAgent;
+        final AgentOrchestrator.DelegationResult capturedDelegation = delegation;
+        final List<Map<String, String>> capturedBaseHistory = baseHistory;
+        final String capturedEnriched = enriched;
+        final List<String> capturedImages = images;
+        final String capturedTargetInvocationId = targetInvocationId;
+        final long capturedRouteStarted = routeStarted;
+        final SseEmitter capturedOut = out;
+        final AtomicBoolean capturedFinished = finished;
+        ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "react-" + invocationId);
+            t.setDaemon(true);
+            return t;
+        });
+        worker.submit(() -> {
+            try {
+                runReActLoop(capturedOut, capturedFinished, capturedC, capturedInvocation, capturedChild, capturedCorrelationId,
+                        capturedInvocationId, capturedAgent, capturedRouteAgent, capturedDelegation, capturedBaseHistory, capturedEnriched, capturedImages,
+                        capturedTargetInvocationId, capturedRouteStarted);
+            } finally {
+                finished.set(true);
+                try { heartbeatTask.cancel(true); } catch (Exception ignored) { }
+                try { heartbeat.shutdownNow(); } catch (Exception ignored) { }
+                try { worker.shutdownNow(); } catch (Exception ignored) { }
+            }
+        });
+        return out;
         }
 
         /** 收集路由阶段的中间状态，稍后一次性落库为事件。 */
@@ -893,13 +818,384 @@ public class ChatService {
                                 .toList();
         }
 
-        private ActionProposal parseProposal(String conversationId, String text) {
+        /**
+         * 代理执行主循环（ReAct）：让模型在「推理 → 调用工具 → 观察结果 → 再推理」之间迭代，
+         * 直到模型给出最终答复或达到最大轮次。工具调用通过 {@link ToolExecutor} 真正执行（HTTP/MCP/浏览器提案），
+         * 结果作为下一轮上下文回灌给模型。技能（Skill）以提示词 + 工具集合的形式注入 system prompt。
+         */
+        private void runReActLoop(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        Conversation conversation,
+                        AgentInvocation invocation,
+                        AgentInvocation childInvocation,
+                        String correlationId,
+                        String invocationId,
+                        Agent agent,
+                        Agent routeAgent,
+                        AgentOrchestrator.DelegationResult delegation,
+                        List<Map<String, String>> baseHistory,
+                        String userInput,
+                        List<String> images,
+                        String targetInvocationId,
+                        long routeStarted) {
+                try {
+                        // 1) 构建有效 system prompt：追加启用的 Skill 提示词，以及工具使用说明（让模型真正能发起工具调用）。
+                        StringBuilder systemBuilder = new StringBuilder(agent.systemPrompt() == null ? "" : agent.systemPrompt());
+                        List<String> agentToolIds = new ArrayList<>();
+                        if (agent instanceof ConfigurableAgent configurable) {
+                                AgentDefinition def = configurable.definition();
+                                for (String sid : parseIdList(def.getSkillIds())) {
+                                        SkillDefinition sk = skillRepository.findById(sid).orElse(null);
+                                        if (sk != null && sk.isEnabled() && sk.getPrompt() != null && !sk.getPrompt().isBlank()) {
+                                                systemBuilder.append("\n\n[技能：")
+                                                                .append(sk.getName() == null ? sid : sk.getName())
+                                                                .append("]\n").append(sk.getPrompt());
+                                                for (String tid : parseIdList(sk.getToolIds())) {
+                                                        if (!agentToolIds.contains(tid)) agentToolIds.add(tid);
+                                                }
+                                        }
+                                }
+                                for (String tid : parseIdList(def.getToolIds())) {
+                                        if (!agentToolIds.contains(tid)) agentToolIds.add(tid);
+                                }
+                        }
+                        boolean hasTools = !agentToolIds.isEmpty();
+                        if (hasTools) {
+                                String toolList = toolExecutor.describeTools(agentToolIds);
+                                if (!toolList.isBlank()) {
+                                        systemBuilder.append("\n\n[可用工具] 当你需要调用工具时，只输出一个 JSON 对象（不要 Markdown 代码块、不要多余解释），格式：")
+                                                        .append("{\"tool\":\"<工具名>\",\"arguments\":{...}}。")
+                                                        .append("工具执行结果会作为下一轮输入返回给你，你可以据此继续推理或给出最终答复。可用工具：\n")
+                                                        .append(toolList);
+                                } else {
+                                        hasTools = false;
+                                }
+                        }
+                        final String systemEffective = systemBuilder.toString();
+
+                        // 2) ReAct 工具循环
+                        List<Map<String, String>> turns = new ArrayList<>(baseHistory);
+                        // 把用户原始消息固化进上下文：第一轮通过 complete 的 user 参数携带（含图片），
+                        // 后续轮次直接作为 turns 的一部分参与，避免工具循环丢失原始诉求。
+                        turns.add(Map.of("role", "user", "content", userInput));
+                        String currentAnswer = null;
+                        String lastReply = null;
+                        boolean endedWithToolCall = false;
+                        for (int iter = 0; iter < maxToolIterations; iter++) {
+                                if (finished.get()) return;
+                                String reply;
+                                if (iter == 0) {
+                                        reply = llm.complete(systemEffective, turns, userInput, images)
+                                                        .blockOptional(Duration.ofSeconds(60)).orElse(null);
+                                } else {
+                                        reply = llm.complete(systemEffective, turns, "")
+                                                        .blockOptional(Duration.ofSeconds(60)).orElse(null);
+                                }
+                                if (reply == null) reply = "";
+                                lastReply = reply;
+                                ToolCall call = hasTools ? parseToolCall(reply) : null;
+                                if (call == null) {
+                                        currentAnswer = reply;
+                                        break;
+                                }
+                                endedWithToolCall = true;
+                                // 只在当前 Agent 绑定的工具集合内解析，避免越权调用其他已启用工具。
+                                ToolDefinition toolDef = toolExecutor.resolveWithin(agentToolIds, call.name);
+                                if (toolDef == null) {
+                                        // 工具未配置：把错误作为观察值喂回，避免无限循环。
+                                        emitToolResult(out, finished, call.name, "未找到已启用的工具：" + call.name);
+                                        turns.add(Map.of("role", "user", "content",
+                                                        "工具调用失败：未找到已启用的工具 \"" + call.name + "\"。请直接给出最终答复，不要继续调用该工具。"));
+                                        continue;
+                                }
+                                emitToolInvoked(out, finished, toolDef.getName(), call.argumentsJson);
+                                String result = toolExecutor.execute(toolDef, call.argumentsJson);
+                                trace.event(targetInvocationId, correlationId, TraceRecorder.Type.TOOL_CALL)
+                                                .name("工具调用：" + toolDef.getName())
+                                                .status("OK")
+                                                .put("toolName", toolDef.getName())
+                                                .put("arguments", call.argumentsJson)
+                                                .put("resultPreview", result.length() > 500 ? result.substring(0, 500) : result)
+                                                .put("iteration", iter)
+                                                .save();
+                                if (result.startsWith("BROWSER_PROPOSAL:")) {
+                                        // 浏览器动作提案：转成 action_proposed 事件，并终止循环。
+                                        String proposalJson = result.substring("BROWSER_PROPOSAL:".length());
+                                        ActionProposal proposal = buildProposal(conversation.getId(), proposalJson);
+                                        if (proposal != null) {
+                                                emitActionProposed(out, finished, proposal);
+                                        }
+                                        currentAnswer = proposal != null
+                                                        ? "已在浏览器中为你准备好操作，请在插件侧确认执行。"
+                                                        : reply;
+                                        break;
+                                }
+                                emitToolResult(out, finished, toolDef.getName(), result);
+                                turns.add(Map.of("role", "user", "content",
+                                                "工具「" + toolDef.getName() + "」执行结果：\n" + result));
+                        }
+                        if (currentAnswer == null) {
+                                currentAnswer = lastReply == null ? "" : lastReply;
+                        }
+                        if (endedWithToolCall && parseToolCall(currentAnswer) != null) {
+                                // 达到最大轮次仍以工具调用收尾：避免把原始 JSON 透传给用户。
+                                currentAnswer = "（已达到最大工具调用次数，未能生成最终答复。请调整问题或工具配置后重试。）";
+                        }
+
+                        // 3) DOMAIN_SUMMARY：领域 Agent 对子 Agent 结果做二次总结（原本被吞掉，这里补上追踪与流式）。
+                        boolean delegatedSummary = delegation.delegated()
+                                        && routeAgent instanceof ConfigurableAgent parent
+                                        && "DOMAIN_SUMMARY".equals(parent.definition().getReturnMode());
+                        if (delegatedSummary) {
+                                long summaryStarted = System.nanoTime();
+                                String summary = null;
+                                String summaryError = null;
+                                try {
+                                        summary = llm.complete(
+                                                        routeAgent.systemPrompt(),
+                                                        List.of(),
+                                                        "子 Agent 返回结果（仅供参考，不可直接暴露内部调用链）：\n" + currentAnswer
+                                                                        + "\n请根据领域边界整理最终答复，使用中文，不要透露内部调用链或工具细节。")
+                                                        .blockOptional(Duration.ofSeconds(30))
+                                                        .orElse(null);
+                                } catch (Exception summaryFailure) {
+                                        // 二次总结失败不应拖垮整轮应答：降级为直接透传子 Agent 答案。
+                                        summaryError = summaryFailure.getMessage();
+                                }
+                                long summaryMs = (System.nanoTime() - summaryStarted) / 1_000_000L;
+                                boolean summaryOk = summary != null && !summary.isBlank();
+                                trace.event(invocationId, correlationId, TraceRecorder.Type.LLM_RESPONSE)
+                                                .name("领域 Agent 二次总结")
+                                                .status(summaryOk ? "OK" : "DEGRADED")
+                                                .put("returnMode", "DOMAIN_SUMMARY")
+                                                .put("summaryOutput", summaryOk ? summary : currentAnswer)
+                                                .put("durationMs", summaryMs)
+                                                .put("fallback", !summaryOk)
+                                                .put("message", summaryError == null ? "" : summaryError)
+                                                .save();
+                                if (summaryOk) {
+                                        currentAnswer = summary;
+                                }
+                        }
+
+                        // 4) 落库子 Agent 结果
+                        if (childInvocation != null) {
+                                childInvocation.setResponseContent(lastReply == null ? currentAnswer : lastReply);
+                                childInvocation.setStatus("COMPLETED");
+                                childInvocation.setDurationMs((System.nanoTime() - routeStarted) / 1_000_000L);
+                                invocations.save(childInvocation);
+                                trace.event(childInvocation.getId(), correlationId, TraceRecorder.Type.LLM_RESPONSE)
+                                                .name("子 Agent 模型响应")
+                                                .status("OK")
+                                                .put("agentId", agent.id())
+                                                .put("content", lastReply == null ? currentAnswer : lastReply)
+                                                .put("contentLength", (lastReply == null ? currentAnswer : lastReply).length())
+                                                .put("durationMs", childInvocation.getDurationMs())
+                                                .save();
+                                trace.event(childInvocation.getId(), correlationId, TraceRecorder.Type.COMPLETED)
+                                                .name("子 Agent 执行完成")
+                                                .status("COMPLETED")
+                                                .put("durationMs", childInvocation.getDurationMs())
+                                                .save();
+                        }
+
+                        // 5) 流式写出最终答复（DOMAIN_SUMMARY 时为总结后内容；其余为子 Agent 答案）。
+                        long completedMs = (System.nanoTime() - routeStarted) / 1_000_000L;
+                        for (String chunk : splitForStreaming(currentAnswer)) {
+                                if (finished.get()) return;
+                                try {
+                                        out.send(SseEmitter.event().name("token").data(chunk));
+                                } catch (IOException e) {
+                                        finished.set(true);
+                                        return;
+                                }
+                        }
+
+                        // 6) 落库主 invocation + 消息
+                        String finalAgentId = delegatedSummary && routeAgent != null ? routeAgent.id() : agent.id();
+                        invocation.setResponseContent(currentAnswer);
+                        messages.save(new Message(conversation.getId(), "assistant", currentAnswer, finalAgentId, null));
+                        invocation.setDurationMs(completedMs);
+                        invocation.setStatus("COMPLETED");
+                        invocations.save(invocation);
+                        trace.event(invocationId, correlationId, TraceRecorder.Type.LLM_RESPONSE)
+                                        .name("模型响应")
+                                        .status("OK")
+                                        .put("agentId", finalAgentId)
+                                        .put("content", currentAnswer)
+                                        .put("contentLength", currentAnswer.length())
+                                        .put("durationMs", completedMs)
+                                        .save();
+                        trace.event(invocationId, correlationId, TraceRecorder.Type.COMPLETED)
+                                        .name("执行完成")
+                                        .status("COMPLETED")
+                                        .put("durationMs", completedMs)
+                                        .put("finalAgentId", finalAgentId)
+                                        .save();
+
+                        // 7) 兼容旧的游离式 action 提案（模型在正文里直接输出 {"type":...}）。
+                        emitFreeformProposal(out, finished, conversation.getId(), currentAnswer, correlationId, invocationId);
+
+                        try {
+                                out.send(SseEmitter.event().name("message_completed").data(Map.of("content", currentAnswer)));
+                                out.complete();
+                        } catch (IOException e) {
+                                finished.set(true);
+                        }
+                } catch (Throwable t) {
+                        handleLoopError(out, finished, invocation, childInvocation, correlationId, invocationId, t, routeStarted);
+                }
+        }
+
+        /** 任何未捕获异常都转成 SSE error 事件，并标记 invocation FAILED（P0-3）。 */
+        private void handleLoopError(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        AgentInvocation invocation,
+                        AgentInvocation childInvocation,
+                        String correlationId,
+                        String invocationId,
+                        Throwable error,
+                        long routeStarted) {
+                long failedMs = (System.nanoTime() - routeStarted) / 1_000_000L;
+                String message = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+                invocation.setError(message);
+                invocation.setStatus("FAILED");
+                invocation.setErrorCode("MODEL_ERROR");
+                invocation.setDurationMs(failedMs);
+                invocations.save(invocation);
+                trace.event(invocationId, correlationId, TraceRecorder.Type.ERROR)
+                                .name("执行失败").status("FAILED")
+                                .put("stage", "AGENT_LOOP").put("message", message)
+                                .put("exception", error.getClass().getName()).save();
+                trace.event(invocationId, correlationId, TraceRecorder.Type.FAILED)
+                                .name("执行失败").status("FAILED").put("errorCode", "MODEL_ERROR").put("durationMs", failedMs).save();
+                if (childInvocation != null) {
+                        childInvocation.setError(message);
+                        childInvocation.setStatus("FAILED");
+                        childInvocation.setErrorCode("MODEL_ERROR");
+                        childInvocation.setDurationMs(failedMs);
+                        invocations.save(childInvocation);
+                }
+                try {
+                        out.send(SseEmitter.event().name("error").data(Map.of("code", "MODEL_ERROR", "message", message)));
+                        out.completeWithError(error);
+                } catch (IOException e) {
+                        out.complete();
+                }
+                finished.set(true);
+        }
+
+        /** 从模型输出中解析工具调用 JSON。支持 {"tool":"name","arguments":{...}} 或 {"name":"name","arguments":{...}}。 */
+        private ToolCall parseToolCall(String text) {
+                if (text == null) return null;
+                int marker = text.indexOf("\"tool\"");
+                if (marker < 0) marker = text.indexOf("\"name\"");
+                if (marker < 0) return null;
+                int brace = text.lastIndexOf('{', marker);
+                if (brace < 0) return null;
+                int depth = 0, end = -1;
+                for (int i = brace; i < text.length(); i++) {
+                        char ch = text.charAt(i);
+                        if (ch == '{') depth++;
+                        else if (ch == '}') { depth--; if (depth == 0) { end = i; break; } }
+                }
+                if (end < 0) return null;
+                try {
+                        JsonNode node = json.readTree(text.substring(brace, end + 1));
+                        String name = node.path("tool").asText(null);
+                        boolean hasToolKey = name != null && !name.isBlank();
+                        if (!hasToolKey) {
+                                name = node.path("name").asText(null);
+                                if (name == null || name.isBlank()) return null;
+                                // 仅含 "name" 而无 arguments 时不视为工具调用，避免误判普通 JSON 配置。
+                                if (!node.has("arguments")) return null;
+                        }
+                        if (name == null || name.isBlank()) return null;
+                        JsonNode args = node.path("arguments");
+                        String argsJson = (args.isMissingNode() || args.isNull()) ? "{}" : json.writeValueAsString(args);
+                        return new ToolCall(name.trim(), argsJson);
+                } catch (Exception e) {
+                        return null;
+                }
+        }
+
+        private record ToolCall(String name, String argumentsJson) {}
+
+        private void emitToolInvoked(SseEmitter out, AtomicBoolean finished, String name, String argumentsJson) {
+                if (finished.get()) return;
+                try {
+                        out.send(SseEmitter.event().name("tool_invoked").data(Map.of("tool", name, "arguments", argumentsJson)));
+                } catch (IOException ignored) { }
+        }
+
+        private void emitToolResult(SseEmitter out, AtomicBoolean finished, String name, String result) {
+                if (finished.get()) return;
+                String preview = result.length() > 2000 ? result.substring(0, 2000) + "\n...[truncated]" : result;
+                try {
+                        out.send(SseEmitter.event().name("tool_result").data(Map.of("tool", name, "result", preview)));
+                } catch (IOException ignored) { }
+        }
+
+        private void emitActionProposed(SseEmitter out, AtomicBoolean finished, ActionProposal proposal) {
+                if (finished.get()) return;
+                try {
+                        out.send(SseEmitter.event().name("action_proposed").data(Map.of(
+                                        "actionId", proposal.getActionId(),
+                                        "type", proposal.getType(),
+                                        "target", proposal.getTarget(),
+                                        "arguments", proposal.getArguments(),
+                                        "reason", proposal.getReason(),
+                                        "risk", proposal.getRisk(),
+                                        "expiresAt", proposal.getExpiresAt().toString())));
+                } catch (IOException ignored) { }
+        }
+
+        private void emitFreeformProposal(
+                        SseEmitter out, AtomicBoolean finished, String conversationId,
+                        String text, String correlationId, String invocationId) {
+                if (finished.get()) return;
+                ActionProposal proposal = buildProposal(conversationId, text);
+                if (proposal == null) return;
+                trace.event(invocationId, correlationId, TraceRecorder.Type.ACTION_PROPOSED)
+                                .name("页面操作提案：" + proposal.getType())
+                                .status("PENDING")
+                                .put("actionId", proposal.getActionId())
+                                .put("type", proposal.getType())
+                                .put("target", proposal.getTarget())
+                                .put("arguments", proposal.getArguments())
+                                .put("reason", proposal.getReason())
+                                .put("risk", proposal.getRisk())
+                                .put("expiresAt", proposal.getExpiresAt().toString())
+                                .save();
+                emitActionProposed(out, finished, proposal);
+        }
+
+        /** 将工具/模型返回的 JSON 提案解析为 ActionProposal 实体（复用原 parseProposal 逻辑）。 */
+        private ActionProposal buildProposal(String conversationId, String text) {
                 try {
                         int s = text.indexOf("{\"type\"");
                         if (s < 0) return null;
-                        int e = text.indexOf('}', s);
+                        // 括号配平扫描：arguments 是嵌套对象时，indexOf('}') 会在第一个内层括号处截断。
+                        int depth = 0, e = -1;
+                        boolean inString = false;
+                        for (int i = s; i < text.length(); i++) {
+                                char ch = text.charAt(i);
+                                if (inString) {
+                                        if (ch == '\\') i++;
+                                        else if (ch == '"') inString = false;
+                                        continue;
+                                }
+                                if (ch == '"') inString = true;
+                                else if (ch == '{') depth++;
+                                else if (ch == '}') {
+                                        depth--;
+                                        if (depth == 0) { e = i; break; }
+                                }
+                        }
                         if (e < 0) return null;
-                        var n = json.readTree(text.substring(s, e + 1));
+                        JsonNode n = json.readTree(text.substring(s, e + 1));
                         String type = n.path("type").asText();
                         if (!List.of("CLICK", "FILL", "NAVIGATE").contains(type)) return null;
                         ActionProposal a = new ActionProposal();
@@ -911,9 +1207,50 @@ public class ChatService {
                         a.setRisk(n.path("risk").asText("medium"));
                         a.setExpiresAt(Instant.now().plusSeconds(300));
                         return actions.save(a);
-                } catch (Exception e) {
+                } catch (Exception ex) {
                         return null;
                 }
+        }
+
+        /** 将历史按字符预算裁剪，从最旧开始丢弃，至少保留最近 4 条（P2 历史长度控制）。 */
+        private List<Map<String, String>> budgetHistory(List<Map<String, String>> history, int maxChars) {
+                if (history == null || history.isEmpty()) return List.of();
+                List<Map<String, String>> copy = new ArrayList<>(history);
+                while (copy.size() > 4) {
+                        int total = copy.stream()
+                                        .mapToInt(m -> m.get("content") == null ? 0 : m.get("content").length())
+                                        .sum();
+                        if (total <= maxChars) break;
+                        copy.remove(0);
+                }
+                return copy;
+        }
+
+        private List<String> parseIdList(String jsonList) {
+                if (jsonList == null || jsonList.isBlank()) return List.of();
+                try {
+                        List<String> list = json.readValue(
+                                        jsonList, json.getTypeFactory().constructCollectionType(List.class, String.class));
+                        return list == null ? List.of() : list;
+                } catch (Exception e) {
+                        return List.of();
+                }
+        }
+
+        /** 把长文本切成小块用于模拟流式输出（英文按词、超长词按字符兜底）。 */
+        private List<String> splitForStreaming(String text) {
+                if (text == null) return List.of("");
+                List<String> chunks = new ArrayList<>();
+                for (String word : text.split("(?<=(\\s+))", -1)) {
+                        if (word.length() <= 40) {
+                                chunks.add(word);
+                        } else {
+                                for (int i = 0; i < word.length(); i += 20) {
+                                        chunks.add(word.substring(i, Math.min(word.length(), i + 20)));
+                                }
+                        }
+                }
+                return chunks;
         }
 
         public ActionProposal result(String id, String status, String result) {
