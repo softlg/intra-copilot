@@ -110,6 +110,10 @@ type Msg = {
   agentId?: string;
   attachments?: AttachmentView[];
   stopped?: boolean;
+  /** 由 SSE agent_selected 事件填充：实际处理该消息的 Agent 展示名。 */
+  agentName?: string;
+  /** 由 SSE delegation_decided 事件填充：领域 Agent 委派给了哪个子 Agent。 */
+  delegatedTo?: string;
 };
 type PageInfoKey = "url" | "title" | "selection" | "visibleText" | "domSummary";
 const PAGE_INFO_KEYS: PageInfoKey[] = [
@@ -182,6 +186,8 @@ const translations = {
     agentLoading: "加载 Agent 列表…",
     toolInvoked: "调用工具",
     toolResult: "工具返回",
+    handledBy: "处理 Agent",
+    delegatedTo: "委派子 Agent",
     expandComposer: "展开输入框",
     collapseComposer: "收起输入框",
     send: "发送",
@@ -300,6 +306,8 @@ const translations = {
     agentAuto: "Auto (smart routing)",
     toolInvoked: "Calling tool",
     toolResult: "Tool returned",
+    handledBy: "Handled by",
+    delegatedTo: "Delegated to",
     agentLoading: "Loading agents…",
     expandComposer: "Expand input",
     collapseComposer: "Collapse input",
@@ -1562,15 +1570,19 @@ function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      // 把工具调用过程追加到当前助手消息中（与 token 追加逻辑保持一致）。
-      const appendToolLine = (line: string) => {
+      // 修改当前助手消息的元信息（内容、Agent 归属、委派关系等）。
+      const patchLastMsg = (patch: (last: Msg) => Partial<Msg>) => {
         setMsgs((items) => {
           if (!items.length) return items;
           const next = [...items];
           const index = next.length - 1;
-          next[index] = { ...next[index], content: next[index].content + line };
+          next[index] = { ...next[index], ...patch(next[index]) };
           return next;
         });
+      };
+      // 把工具调用过程追加到当前助手消息中（与 token 追加逻辑保持一致）。
+      const appendToolLine = (line: string) => {
+        patchLastMsg((last) => ({ content: last.content + line }));
       };
       for (;;) {
         const { value, done } = await reader.read();
@@ -1591,6 +1603,40 @@ function App() {
               };
               return next;
             });
+          }
+          if (name === "agent_selected" && data) {
+            // 让用户看到这条消息实际由哪个 Agent 处理（自动路由时尤其重要）。
+            try {
+              const selected = JSON.parse(data);
+              patchLastMsg(() => ({
+                agentId: selected.agentId,
+                agentName: selected.displayName || selected.agentId,
+              }));
+            } catch {
+              /* 忽略无法解析的事件 */
+            }
+          }
+          if (name === "delegation_decided" && data) {
+            try {
+              const delegation = JSON.parse(data);
+              patchLastMsg(() => ({ delegatedTo: delegation.childAgentId }));
+            } catch {
+              /* 忽略无法解析的事件 */
+            }
+          }
+          if (name === "message_completed" && data) {
+            // 兜底：若中途没有收到任何 token（例如流被代理缓冲），用完整内容补齐，
+            // 避免界面上出现一条空的助手消息。
+            try {
+              const completed = JSON.parse(data);
+              if (typeof completed.content === "string") {
+                patchLastMsg((last) =>
+                  last.content ? {} : { content: completed.content },
+                );
+              }
+            } catch {
+              /* 忽略无法解析的事件 */
+            }
           }
           if (name === "action_proposed" && data) {
             try {
@@ -1892,6 +1938,26 @@ function App() {
                 </div>
                 <div className="message-stack">
                   <div className="bubble">
+                    {assistant && (message.agentName || message.delegatedTo) ? (
+                      <div className="agent-badges">
+                        {message.agentName ? (
+                          <span
+                            className="agent-badge"
+                            title={`${t.handledBy}: ${message.agentName}`}
+                          >
+                            {message.agentName}
+                          </span>
+                        ) : null}
+                        {message.delegatedTo ? (
+                          <span
+                            className="agent-badge delegated"
+                            title={`${t.delegatedTo}: ${message.delegatedTo}`}
+                          >
+                            → {message.delegatedTo}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {!assistant && message.attachments?.length ? (
                       <div className="message-attachments">
                         {message.attachments.map((att, attIndex) => (

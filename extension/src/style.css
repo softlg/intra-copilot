@@ -921,6 +921,30 @@ small {
   font-size: 11px;
   opacity: 0.75;
 }
+/* 助手消息上的 Agent 归属 / 委派徽标 */
+.agent-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 8px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  opacity: 0.85;
+}
+.agent-badge.delegated {
+  opacity: 0.7;
+}
 .composer-previews {
   display: flex;
   flex-basis: 100%;

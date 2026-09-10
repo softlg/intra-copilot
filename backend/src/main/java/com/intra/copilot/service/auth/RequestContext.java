@@ -14,8 +14,34 @@ public final class RequestContext {
         CURRENT.set(new Identity(source, userId));
     }
 
+    /** 绑定已有身份；传 null 表示清空（例如匿名线程）。 */
+    public static void set(Identity identity) {
+        if (identity == null) CURRENT.remove();
+        else CURRENT.set(identity);
+    }
+
     public static void clear() {
         CURRENT.remove();
+    }
+
+    /** 未绑定身份时返回 null（区别于 {@link #currentOrAnonymous()} 的匿名兜底）。 */
+    public static Identity currentOrNull() {
+        return CURRENT.get();
+    }
+
+    /**
+     * 在指定身份下执行任务，结束后恢复原绑定。
+     * 用于把请求线程的身份显式带入异步线程——ThreadLocal 不会跨线程，
+     * 而 SseEmitter 的生成循环是在自建线程里跑的。
+     */
+    public static void runWith(Identity identity, Runnable task) {
+        Identity previous = CURRENT.get();
+        try {
+            set(identity);
+            task.run();
+        } finally {
+            set(previous);
+        }
     }
 
     public static Identity current() {

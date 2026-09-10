@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intra.copilot.agent.*;
 import com.intra.copilot.model.*;
 import com.intra.copilot.repo.*;
+import com.intra.copilot.service.auth.RequestContext;
 import java.io.IOException;
 import java.time.*;
 import java.util.*;
@@ -625,17 +626,25 @@ public class ChatService {
             t.setDaemon(true);
             return t;
         });
+        // ThreadLocal 不跨线程：SseEmitter 返回后请求线程即结束（JwtAuthFilter 会 clear），
+        // 因此必须把身份显式带进工作线程，否则循环内的鉴权 / 审计拿不到身份。
+        final RequestContext.Identity capturedIdentity = RequestContext.currentOrNull();
         worker.submit(() -> {
-            try {
-                runReActLoop(capturedOut, capturedFinished, capturedC, capturedInvocation, capturedChild, capturedCorrelationId,
-                        capturedInvocationId, capturedAgent, capturedRouteAgent, capturedDelegation, capturedBaseHistory, capturedEnriched, capturedImages,
-                        capturedTargetInvocationId, capturedRouteStarted);
-            } finally {
-                finished.set(true);
-                try { heartbeatTask.cancel(true); } catch (Exception ignored) { }
-                try { heartbeat.shutdownNow(); } catch (Exception ignored) { }
-                try { worker.shutdownNow(); } catch (Exception ignored) { }
-            }
+            RequestContext.runWith(
+                            capturedIdentity,
+                            () -> {
+                                try {
+                                        runReActLoop(capturedOut, capturedFinished, capturedC, capturedInvocation, capturedChild,
+                                                        capturedCorrelationId, capturedInvocationId, capturedAgent, capturedRouteAgent,
+                                                        capturedDelegation, capturedBaseHistory, capturedEnriched, capturedImages,
+                                                        capturedTargetInvocationId, capturedRouteStarted);
+                                } finally {
+                                        finished.set(true);
+                                        try { heartbeatTask.cancel(true); } catch (Exception ignored) { }
+                                        try { heartbeat.shutdownNow(); } catch (Exception ignored) { }
+                                        try { worker.shutdownNow(); } catch (Exception ignored) { }
+                                }
+                            });
         });
         return out;
         }

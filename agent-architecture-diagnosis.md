@@ -116,8 +116,20 @@
 - `resolve()` 静默降级改为 `LOG.warn` 记录 id 与原因（已停用 / 不存在），问题可定位
 - 取消传导：`out.onCompletion` / `onTimeout` 置 `finished`，后台循环每轮检查并提前退出
 
-### 已知未处理
+### 收尾（第二轮，均已处理）
 
-- `RequestContext` ThreadLocal 跨 Reactor 线程问题：本轮未改（ReAct 循环已改为自建线程同步执行，
-  身份信息在进入循环前已取用，实际风险降低；若要彻底解决需改为 Reactor Context 传递）
-- 委派 / 路由阶段的 `agent_selected` 等 SSE 事件前端仍未消费（仅新增了工具事件）
+- `RequestContext` 跨线程身份丢失：新增 `currentOrNull()` / `set(Identity)` / `runWith(identity, task)`；
+  `ChatService` 在提交工作线程前捕获身份并通过 `runWith` 带入，任务结束后恢复原绑定
+  （SseEmitter 返回后请求线程即结束、`JwtAuthFilter` 会 clear，不显式传播则循环内拿不到身份）。
+  未采用 `InheritableThreadLocal`：线程池复用会导致身份串号，显式传播可确定性验证。
+  新增 `RequestContextTest` 覆盖「跨线程传播」「null 处理」「嵌套恢复」三个场景。
+- 插件消费路由 / 委派事件：`Msg` 增加 `agentName` / `delegatedTo`，处理 `agent_selected` /
+  `delegation_decided`，并在助手气泡上方渲染 Agent 徽标；`message_completed` 作为兜底——
+  若整轮没收到任何 token（如被代理缓冲），用完整内容补齐，避免出现空气泡。
+  `context_forwarded` 无展示价值，前端忽略。
+
+### 仍未处理（有意保留）
+
+- `agent_selected` 的 `needsClarification` 仅记录未做交互（暂不打断流式体验）。
+- 路由 / 委派阶段的耗时（8s + 8s 串行 blockOptional）未做并行化：属于架构级调整，
+  需要把委派决策改为与首次生成流水化，建议单独排期。
