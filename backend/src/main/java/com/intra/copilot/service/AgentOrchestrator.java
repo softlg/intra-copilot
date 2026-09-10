@@ -11,9 +11,11 @@ import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.model.AgentChildBinding;
 import com.intra.copilot.repo.AgentChildBindingRepository;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -62,14 +64,25 @@ public class AgentOrchestrator {
         String prompt = routingPrompt();
         String previousAgentId = lastAssistantAgentId(history).orElse("");
         String input =
-                "用户消息：\n"
-                        + text
-                        + "\n\n页面上下文（可能为空）：\n"
-                        + (pageContext == null ? "" : pageContext)
-                        + "\n\n上一轮实际处理 Agent（仅用于澄清续答）："
-                        + (previousAgentId.isBlank() ? "无" : previousAgentId)
-                        + "\n如果当前消息只是对上一轮澄清问题的选择、确认或补充，请优先沿用该 Agent；"
-                        + "如果是新的独立意图，请按当前消息重新路由。";
+                """
+                用户消息：
+                %s
+
+                页面上下文：
+                %s
+
+                上一轮实际处理 Agent：
+                %s
+
+                判断原则：
+                - 如果当前消息只是对上一轮澄清问题的选择、确认或补充，请优先沿用上一轮实际处理 Agent。
+                - 如果是新的独立意图，请根据当前消息重新路由。
+                """
+                        .formatted(
+                                textOrNone(text),
+                                textOrNone(pageContext),
+                                previousAgentId.isBlank() ? "无" : previousAgentId)
+                        .strip();
         if (listener != null) {
             listener.onRouteStart(prompt, input, history, pageContext);
         }
@@ -201,17 +214,47 @@ public class AgentOrchestrator {
             return new DelegationResult(true, child, "DELEGATE",
                     "领域 Agent 配置为优先委派", 0.8, candidates, null);
         }
-        String available = candidates.stream()
-                .map(candidate -> "- " + candidate.definition().getId() + ": " + candidate.definition().getDescription())
-                .reduce("", (left, right) -> left + right + "\n");
-        String prompt = "你是领域 Agent 的任务分发器。判断应该由领域 Agent 直接处理，还是委派给一个子 Agent。"
-                + "只输出 JSON：{\"mode\":\"DIRECT或DELEGATE\",\"childAgentId\":\"\",\"reason\":\"\",\"confidence\":0到1}。"
-                + "只能选择以下子 Agent：\n" + available;
+        String domainName = displayName(domain);
+        String available =
+                candidates.stream()
+                        .map(candidate -> formatAgentOption(candidate.definition()))
+                        .collect(Collectors.joining("\n"));
+        String prompt =
+                """
+                你是领域 Agent 的任务分发器。
+                当前领域 Agent：%s（ID：%s）
+
+                任务：
+                - 判断当前请求应由该领域 Agent 直接处理，还是委派给一个子 Agent。
+                - 仅在子 Agent 的专门能力更适合处理当前请求时选择 DELEGATE。
+
+                可选子 Agent（只能从以下列表中选择）：
+                %s
+
+                输出要求：
+                - 只输出 JSON，不要 Markdown、代码块或额外说明。
+                - 输出格式：{"mode":"DIRECT或DELEGATE","childAgentId":"","reason":"","confidence":0到1}
+                - mode 为 DELEGATE 时，childAgentId 必须来自上述列表。
+                - confidence 必须是 0 到 1 之间的数字。
+                - reason 使用简体中文简要说明判断依据。
+                """
+                        .formatted(domainName, domain.getId(), available)
+                        .strip();
         if (listener != null) listener.onDispatchStart(domain.getId(), prompt, text, pageContext);
         try {
             long started = System.nanoTime();
+            String input =
+                    """
+                    用户消息：
+                    %s
+
+                    页面上下文：
+                    %s
+                    """
+                            .formatted(textOrNone(text), textOrNone(pageContext))
+                            .strip();
             Optional<String> response = llm.complete(prompt, history,
-                    "用户消息：\n" + text + "\n页面上下文：\n" + (pageContext == null ? "" : pageContext))
+                            input)
                     .blockOptional(Duration.ofSeconds(8));
             long durationMs = (System.nanoTime() - started) / 1_000_000L;
             if (response.isPresent()) {
@@ -424,7 +467,6 @@ public class AgentOrchestrator {
     }
 
     private String routingPrompt() {
-        StringBuilder available = new StringBuilder();
         String routingRules = "";
         String routeSystemPrompt = routeCopilot.systemPrompt() == null ? "" : routeCopilot.systemPrompt();
         for (AgentDefinition definition : registry.allDefinitions()) {
@@ -436,24 +478,70 @@ public class AgentOrchestrator {
                 break;
             }
         }
-        for (AgentDefinition definition : registry.enabledDefinitions()) {
-            if (!List.of("GENERAL", "DOMAIN").contains(definition.getRole())) continue;
-            available
-                    .append("- ")
-                    .append(definition.getId())
-                    .append(": ")
-                    .append(definition.getDescription())
-                    .append('\n');
+        String available =
+                registry.enabledDefinitions().stream()
+                        .filter(definition -> List.of("GENERAL", "DOMAIN").contains(definition.getRole()))
+                        .map(this::formatAgentOption)
+                        .collect(Collectors.joining("\n"));
+        List<String> sections = new ArrayList<>();
+        sections.add(textOrNone(routeSystemPrompt));
+        sections.add(
+                """
+                你的任务：
+                - 识别用户的真实意图。
+                - 从“可选 Agent”中选择一个最适合处理当前请求的后台 Agent。
+                - 只负责路由与必要的澄清，不直接回答业务问题。
+                """);
+        if (routingRules != null && !routingRules.isBlank()) {
+            sections.add("管理员配置的意图路由规则（优先遵循）：\n" + routingRules.strip());
         }
-        return routeSystemPrompt
-                + "\n你只负责识别用户意图并选择一个后台 Agent。\n"
-                + (routingRules == null || routingRules.isBlank()
-                        ? ""
-                        : "管理员配置的意图路由规则（优先遵循）：\n" + routingRules + "\n")
-                + "可选 Agent：\n"
-                + available
-                + "只输出 JSON，不要 Markdown：{\"targetAgentId\":\"...\",\"confidence\":0到1,\"reason\":\"...\",\"needsClarification\":false}。"
-                + "无法判断时选择 assistant 并将 needsClarification 设为 true。不要编造不存在的 Agent。";
+        sections.add(
+                "可选 Agent（只能从以下列表中选择）：\n"
+                        + (available.isBlank() ? "- 暂无可用 Agent" : available));
+        sections.add(
+                """
+                输出要求：
+                - 只输出 JSON，不要 Markdown、代码块或额外说明。
+                - 输出格式：{"targetAgentId":"...","confidence":0到1,"reason":"...","needsClarification":false}
+                - targetAgentId 必须是“可选 Agent”中存在的 ID。
+                - confidence 必须是 0 到 1 之间的数字。
+                - reason 使用简体中文简要说明选择依据。
+                - 无法判断时选择 assistant，并将 needsClarification 设为 true。
+                - 不要编造不存在的 Agent。
+                """);
+        return sections.stream().map(String::strip).collect(Collectors.joining("\n\n"));
+    }
+
+    private String formatAgentOption(AgentDefinition definition) {
+        String id = textOrNone(definition.getId());
+        return "- "
+                + displayName(definition)
+                + "（ID："
+                + id
+                + "）\n"
+                + "  类型："
+                + roleLabel(definition.getRole())
+                + "\n"
+                + "  描述："
+                + textOrNone(definition.getDescription());
+    }
+
+    private static String displayName(AgentDefinition definition) {
+        if (definition.getDisplayName() != null && !definition.getDisplayName().isBlank()) {
+            return definition.getDisplayName().strip();
+        }
+        return textOrNone(definition.getId());
+    }
+
+    private static String roleLabel(String role) {
+        if ("GENERAL".equals(role)) return "通用 Agent";
+        if ("DOMAIN".equals(role)) return "领域 Agent";
+        if ("SUB".equals(role)) return "子 Agent";
+        return textOrNone(role);
+    }
+
+    private static String textOrNone(String value) {
+        return value == null || value.isBlank() ? "无" : value.strip();
     }
 
     public record RoutingResult(
