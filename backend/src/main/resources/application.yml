@@ -54,12 +54,6 @@ embedding:
       path: ${EMBEDDING_PATH:/embeddings}
       qps: ${EMBEDDING_OPENAI_QPS:60}
       cost-per-1k-tokens: ${EMBEDDING_OPENAI_COST_PER_1K:0.00002}
-    local:
-      base-url: ${LOCAL_EMBEDDING_BASE_URL:http://127.0.0.1:8000/v1}
-      api-key: ${LOCAL_EMBEDDING_API_KEY:}
-      path: ${LOCAL_EMBEDDING_PATH:/embeddings}
-      qps: ${LOCAL_EMBEDDING_QPS:200}
-      cost-per-1k-tokens: ${LOCAL_EMBEDDING_COST_PER_1K:0}
 rag:
   top-k: ${RAG_TOP_K:5}
   chunk-size: ${RAG_CHUNK_SIZE:1200}
