@@ -18,16 +18,19 @@ public class AgentConfigurationService {
     private final AgentDefinitionRepository definitions;
     private final AgentConfigVersionRepository versions;
     private final AgentChildBindingRepository bindings;
+    private final AgentRegistry registry;
     private final ObjectMapper mapper;
 
     public AgentConfigurationService(
             AgentDefinitionRepository definitions,
             AgentConfigVersionRepository versions,
             AgentChildBindingRepository bindings,
+            AgentRegistry registry,
             ObjectMapper mapper) {
         this.definitions = definitions;
         this.versions = versions;
         this.bindings = bindings;
+        this.registry = registry;
         this.mapper = mapper;
     }
 
@@ -48,7 +51,9 @@ public class AgentConfigurationService {
             definition.setPublishedVersion(0);
             definition.setVersion(1);
         }
-        return definitions.save(definition);
+        AgentDefinition saved = definitions.save(definition);
+        registry.evict();
+        return saved;
     }
 
     @Transactional
@@ -70,7 +75,9 @@ public class AgentConfigurationService {
         } catch (Exception error) {
             throw new IllegalArgumentException("Agent 配置无法生成版本快照");
         }
-        return versions.save(version);
+        AgentConfigVersion saved = versions.save(version);
+        registry.evict();
+        return saved;
     }
 
     @Transactional
@@ -100,6 +107,7 @@ public class AgentConfigurationService {
             restored.setPublishedVersion(next);
             definitions.save(restored);
             versions.save(release);
+            registry.evict();
             return restored;
         } catch (Exception error) {
             throw new IllegalArgumentException("Agent 版本快照无法恢复");
@@ -131,6 +139,7 @@ public class AgentConfigurationService {
         }
         bindings.deleteByParent(parentId);
         values.forEach(bindings::insert);
+        registry.evict();
         return bindings.findByParent(parentId);
     }
 
