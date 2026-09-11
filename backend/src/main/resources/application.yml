@@ -60,6 +60,10 @@ rag:
   chunk-overlap: ${RAG_CHUNK_OVERLAP:200}
   similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.65}
   max-document-bytes: ${RAG_MAX_DOCUMENT_BYTES:104857600}
+agent:
+  # 单次模型调用与 SSE 连接的最大等待时间。图片理解等请求可能超过原来的 60 秒。
+  llm-timeout-seconds: ${AGENT_LLM_TIMEOUT_SECONDS:180}
+  sse-timeout-seconds: ${AGENT_SSE_TIMEOUT_SECONDS:600}
 kb:
   indexing:
     enabled: ${KB_INDEXING_ENABLED:true}

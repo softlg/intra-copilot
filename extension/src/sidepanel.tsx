@@ -12,7 +12,8 @@ const API_BASE = (
   .replace(/\/api\/v1\/?$/, "")
   .replace(/\/$/, "");
 const API = `${API_BASE}/api/v1`;
-const CHAT_STREAM_TIMEOUT_MS = 125_000;
+// Keep this above the backend agent.sse-timeout-seconds default.
+const CHAT_STREAM_TIMEOUT_MS = 610_000;
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
@@ -179,6 +180,8 @@ const translations = {
     backendError: "无法连接后端，请确认 Spring Boot 已启用。",
     requestFailed: "请求失败",
     requestTimeout: "请求超时，请稍后重试。",
+    modelTimeout: "模型响应超时，请稍后重试。",
+    modelUnavailable: "模型服务暂时不可用，请稍后重试。",
     uploadFailed: "附件上传失败",
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
@@ -305,6 +308,9 @@ const translations = {
       "Unable to connect to the backend. Please make sure Spring Boot is enabled.",
     requestFailed: "Request failed",
     requestTimeout: "The request timed out. Please try again.",
+    modelTimeout: "The model timed out. Please try again.",
+    modelUnavailable:
+      "The model service is temporarily unavailable. Please try again.",
     uploadFailed: "Attachment upload failed",
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
@@ -1840,7 +1846,10 @@ function App() {
             let message = data;
             try {
               const parsed = JSON.parse(data);
-              if (parsed && typeof parsed.message === "string")
+              if (parsed?.code === "MODEL_TIMEOUT") message = t.modelTimeout;
+              else if (parsed?.code === "MODEL_ERROR")
+                message = t.modelUnavailable;
+              else if (parsed && typeof parsed.message === "string")
                 message = parsed.message;
             } catch {
               /* 非 JSON 时按纯文本处理 */

@@ -15,6 +15,8 @@ mvn spring-boot:run
 
 后端模型调用统一通过 Spring AI OpenAI Starter，兼容 OpenAI API 及兼容协议服务。聊天模型使用 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`，Embedding 使用 `EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY`、`EMBEDDING_MODEL`；业务 Agent 不直接拼接模型 HTTP 请求。`LLM_BASE_URL`/`EMBEDDING_BASE_URL` 通常填写带 `/v1` 的服务地址（例如 `https://api.openai.com/v1`），路径由 `LLM_COMPLETIONS_PATH`（默认 `/chat/completions`）和 `EMBEDDING_PATH`（默认 `/embeddings`）补充，避免出现 `/v1/v1/...` 导致 404。
 
+图片理解等长请求可通过 `AGENT_LLM_TIMEOUT_SECONDS`（默认 180 秒）调整单次模型调用超时，通过 `AGENT_SSE_TIMEOUT_SECONDS`（默认 600 秒）调整流式连接超时；SSE 超时会自动保持在模型调用超时之上。
+
 如需迁移旧 SQLite 数据，先启动 PostgreSQL 并让 Flyway 完成建表，再安装 `psycopg[binary]`，执行 `python backend/scripts/migrate-sqlite-to-postgres.py --sqlite backend/intra-copilot.db`。迁移脚本不会修改源文件。
 
 ## 构建并加载插件

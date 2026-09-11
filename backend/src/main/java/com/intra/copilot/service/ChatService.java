@@ -12,6 +12,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +21,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Service
 public class ChatService {
+        private static final Logger log = LoggerFactory.getLogger(ChatService.class);
+
         // 会话拖拽排序的 sort_order 步长。步长足够大时，绝大多数插入无需重排；
         // 相邻项间距耗尽时才触发全量重排。
         private static final long SORT_STEP = 1024L;
@@ -39,6 +43,8 @@ public class ChatService {
         private final int maxToolIterations;
         private final int maxHistoryTokens;
         private final int maxHistoryMessages;
+        private final Duration llmTimeout;
+        private final long sseTimeoutMs;
         private final ObjectMapper json = new ObjectMapper();
 
         public ChatService(
@@ -57,7 +63,9 @@ public class ChatService {
                         @Value("${rag.top-k:5}") int ragTopK,
                         @Value("${agent.max-tool-iterations:5}") int maxToolIterations,
                         @Value("${agent.max-history-tokens:6000}") int maxHistoryTokens,
-                        @Value("${agent.max-history-messages:40}") int maxHistoryMessages) {
+                        @Value("${agent.max-history-messages:40}") int maxHistoryMessages,
+                        @Value("${agent.llm-timeout-seconds:180}") long llmTimeoutSeconds,
+                        @Value("${agent.sse-timeout-seconds:600}") long sseTimeoutSeconds) {
                 conversations = c;
                 messages = m;
                 actions = a;
@@ -74,6 +82,14 @@ public class ChatService {
                 this.maxToolIterations = Math.max(1, Math.min(10, maxToolIterations));
                 this.maxHistoryTokens = Math.max(1000, maxHistoryTokens);
                 this.maxHistoryMessages = Math.max(4, Math.min(200, maxHistoryMessages));
+                long normalizedLlmTimeoutSeconds = Math.max(10L, Math.min(3600L, llmTimeoutSeconds));
+                this.llmTimeout = Duration.ofSeconds(normalizedLlmTimeoutSeconds);
+                this.sseTimeoutMs =
+                                Duration.ofSeconds(
+                                                Math.max(
+                                                                normalizedLlmTimeoutSeconds + 30L,
+                                                                Math.max(60L, Math.min(86400L, sseTimeoutSeconds))))
+                                        .toMillis();
         }
 
         /**
@@ -111,6 +127,23 @@ public class ChatService {
         }
 
         record RetryContext(List<Message> history, boolean reuseUserMessage, String replacedAssistantId) {}
+
+        record LoopError(String code, String userMessage) {}
+
+        /** Classify model failures for both persistence and the user-facing SSE event. */
+        static LoopError classifyLoopError(Throwable error) {
+                Throwable current = error;
+                while (current != null) {
+                        String message = current.getMessage();
+                        if (current instanceof TimeoutException
+                                        || current.getClass().getSimpleName().endsWith("TimeoutException")
+                                        || (message != null && message.contains("Timeout on blocking read"))) {
+                                return new LoopError("MODEL_TIMEOUT", "模型响应超时，请稍后重试。");
+                        }
+                        current = current.getCause();
+                }
+                return new LoopError("MODEL_ERROR", "模型服务暂时不可用，请稍后重试。");
+        }
 
         public Conversation create(String source, String userId) {
                 Conversation conversation = new Conversation();
@@ -483,7 +516,7 @@ public class ChatService {
                         invocations.save(childInvocation);
                         recordDelegationEvents(childInvocation.getId(), correlationId, delegation, delegationTrace, readPage, pageContext);
                 }
-                SseEmitter out = new SseEmitter(120000L);
+                SseEmitter out = new SseEmitter(sseTimeoutMs);
                 if (!retryContext.reuseUserMessage()) {
                         Message userMessage = new Message(
                                         c.getId(),
@@ -946,10 +979,10 @@ public class ChatService {
                                 String reply;
                                 if (iter == 0) {
                                         reply = llm.complete(systemEffective, turns, userInput, images)
-                                                        .blockOptional(Duration.ofSeconds(60)).orElse(null);
+                                                        .blockOptional(llmTimeout).orElse(null);
                                 } else {
                                         reply = llm.complete(systemEffective, turns, "")
-                                                        .blockOptional(Duration.ofSeconds(60)).orElse(null);
+                                                        .blockOptional(llmTimeout).orElse(null);
                                 }
                                 if (reply == null) reply = "";
                                 lastReply = reply;
@@ -1125,32 +1158,42 @@ public class ChatService {
                         Throwable error,
                         long routeStarted) {
                 long failedMs = (System.nanoTime() - routeStarted) / 1_000_000L;
-                String message = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
-                invocation.setError(message);
+                String diagnosticMessage =
+                                error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+                LoopError loopError = classifyLoopError(error);
+                invocation.setError(diagnosticMessage);
                 invocation.setStatus("FAILED");
-                invocation.setErrorCode("MODEL_ERROR");
+                invocation.setErrorCode(loopError.code());
                 invocation.setDurationMs(failedMs);
                 invocations.save(invocation);
                 trace.event(invocationId, correlationId, TraceRecorder.Type.ERROR)
                                 .name("执行失败").status("FAILED")
-                                .put("stage", "AGENT_LOOP").put("message", message)
+                                .put("stage", "AGENT_LOOP").put("message", diagnosticMessage)
                                 .put("exception", error.getClass().getName()).save();
                 trace.event(invocationId, correlationId, TraceRecorder.Type.FAILED)
-                                .name("执行失败").status("FAILED").put("errorCode", "MODEL_ERROR").put("durationMs", failedMs).save();
+                                .name("执行失败").status("FAILED").put("errorCode", loopError.code()).put("durationMs", failedMs).save();
                 if (childInvocation != null) {
-                        childInvocation.setError(message);
+                        childInvocation.setError(diagnosticMessage);
                         childInvocation.setStatus("FAILED");
-                        childInvocation.setErrorCode("MODEL_ERROR");
+                        childInvocation.setErrorCode(loopError.code());
                         childInvocation.setDurationMs(failedMs);
                         invocations.save(childInvocation);
                 }
-                try {
-                        out.send(SseEmitter.event().name("error").data(Map.of("code", "MODEL_ERROR", "message", message)));
-                        out.completeWithError(error);
-                } catch (IOException e) {
-                        out.complete();
+                if ("MODEL_TIMEOUT".equals(loopError.code())) {
+                        log.warn("Agent model call timed out [invocation={}]: {}", invocationId, diagnosticMessage);
+                } else {
+                        log.error("Agent loop failed [invocation={}]", invocationId, error);
                 }
                 finished.set(true);
+                try {
+                        out.send(
+                                        SseEmitter.event()
+                                                .name("error")
+                                                .data(Map.of("code", loopError.code(), "message", loopError.userMessage())));
+                } catch (IOException ignored) {
+                } finally {
+                        out.complete();
+                }
         }
 
         /** 从模型输出中解析工具调用 JSON。支持 {"tool":"name","arguments":{...}} 或 {"name":"name","arguments":{...}}。 */
