@@ -40,6 +40,8 @@ Add backend tests beside the relevant package using `*Test.java` names and JUnit
 
 Use concise Conventional Commit-style subjects with a module scope: `<type>(<module>): <summary>`. The scope must identify the primary changed module, for example `fix(admin): ...`, `feat(extension): ...`, `fix(backend): ...`, or `docs(repo): ...`. Use types such as `feat`, `fix`, `style`, `docs`, or `chore`; do not omit the scope for repository changes. Pull requests should explain user-visible behavior, list verification commands, identify configuration or permission changes, and include screenshots for side-panel or floating-ball UI work. Keep API keys in environment variables only.
 
+After each requested change is complete, create a commit without waiting for a separate commit request once all applicable verification passes. Do not commit while checks are failing or the task is incomplete. Stage only files that belong to the current task, and leave unrelated working-tree changes untouched.
+
 ## Security & Configuration
 
 Configure `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, and CORS settings in the backend environment. Never place secrets in the extension, source files, logs, or committed configuration.
