@@ -5,14 +5,14 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.intra.copilot.persistence.PostgresJsonNodeTypeHandler;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
-import java.util.UUID;
 import org.apache.ibatis.type.JdbcType;
 
 /** Agent 执行链路中的一个事件节点，用于在管理后台还原完整交互流程。 */
 @TableName(value = "agent_invocation_event", autoResultMap = true)
 public class AgentInvocationEvent {
-  @TableId private String id = UUID.randomUUID().toString();
+  @TableId private String id = EntityIdGenerator.next("EV");
   private String invocationId;
   private String correlationId;
   private String eventType;

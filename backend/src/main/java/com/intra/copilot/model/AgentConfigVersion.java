@@ -2,12 +2,12 @@ package com.intra.copilot.model;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
-import java.util.UUID;
 
 @TableName("agent_config_version")
 public class AgentConfigVersion {
-    @TableId private String id = UUID.randomUUID().toString();
+    @TableId private String id = EntityIdGenerator.next("AV");
     private String agentId;
     private long version;
     private String status = "DRAFT";

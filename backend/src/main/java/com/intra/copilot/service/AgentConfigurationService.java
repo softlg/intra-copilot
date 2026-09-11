@@ -7,9 +7,9 @@ import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.repo.AgentChildBindingRepository;
 import com.intra.copilot.repo.AgentConfigVersionRepository;
 import com.intra.copilot.repo.AgentDefinitionRepository;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -132,7 +132,7 @@ public class AgentConfigurationService {
                     && !parentId.equals(child.getParentAgentId())) {
                 throw new IllegalArgumentException("一个子 Agent 只能绑定一个领域 Agent");
             }
-            binding.setId(UUID.randomUUID().toString());
+            binding.setId(EntityIdGenerator.next("AB"));
             binding.setParentAgentId(parentId);
             binding.setEnabled(true);
             if (binding.getPriority() < 0) binding.setPriority(0);

@@ -2,12 +2,12 @@ package com.intra.copilot.model;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
-import java.util.UUID;
 
 @TableName("conversation")
 public class Conversation {
-    @TableId private String id = UUID.randomUUID().toString();
+    @TableId private String id = EntityIdGenerator.next("SS");
     private String title = "新会话";
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();

@@ -2,8 +2,8 @@ package com.intra.copilot.model;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
-import java.util.UUID;
 
 /**
  * A unit of background work for the knowledge base pipeline.
@@ -27,7 +27,7 @@ public class IndexingJob {
     public static final String TYPE_REINDEX = "REINDEX";
     public static final String TYPE_REBUILD_BASE = "REBUILD_BASE";
 
-    @TableId private String id = UUID.randomUUID().toString();
+    @TableId private String id = EntityIdGenerator.next("JB");
     private String parentId;
     private String documentId;
     private String knowledgeBaseId;

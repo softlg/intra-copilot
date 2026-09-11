@@ -78,6 +78,8 @@ mcp:
   timeout-ms: ${MCP_TIMEOUT_MS:8000}
   allow-private-network: ${MCP_ALLOW_PRIVATE_NETWORK:true}
 app:
+  # 多实例部署时为每个实例设置唯一的 0-31 节点号；未配置时按主机与进程信息自动分配。
+  node-id: ${APP_NODE_ID:}
   cors-origins: ${CORS_ALLOWED_ORIGINS:chrome-extension://*,http://localhost:4174,http://127.0.0.1:4174,http://localhost:5173,http://127.0.0.1:5173}
   # 单条聊天附件最大体积（字节）。servlet 上限见 spring.servlet.multipart。
   max-attachment-bytes: ${APP_MAX_ATTACHMENT_BYTES:26214400}

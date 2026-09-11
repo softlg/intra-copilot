@@ -2,12 +2,12 @@ package com.intra.copilot.model;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
-import java.util.UUID;
 
 @TableName("agent_child_binding")
 public class AgentChildBinding {
-    @TableId private String id = UUID.randomUUID().toString();
+    @TableId private String id = EntityIdGenerator.next("AB");
     private String parentAgentId;
     private String childAgentId;
     private int priority = 100;

@@ -1660,7 +1660,7 @@ function AdminApp({
     const id = agentId.trim();
     const displayName = agentDisplayName.trim();
     const systemPrompt = agentSystemPrompt.trim();
-    if (editingAgentId && !/^[a-z0-9][a-z0-9-]{1,127}$/.test(id)) {
+    if (editingAgentId && !/^[A-Za-z0-9][A-Za-z0-9-]{1,127}$/.test(id)) {
       setAgentError(t.agentIdInvalid);
       return;
     }

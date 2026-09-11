@@ -160,8 +160,8 @@ export const translations = {
     newAgentTitle: "新建 Agent",
     newAgentSubtitle: "先填写基础信息，创建后可在设置中配置能力和关联资源。",
     agentId: "Agent ID",
-    agentIdHint: "使用 2-128 位小写字母、数字和连字符。",
-    agentIdPlaceholder: "例如：release-helper",
+    agentIdHint: "系统生成的 ID 使用 2 位模块码加 11 位 Base58 字符。",
+    agentIdPlaceholder: "例如：AG2Yp6dNq4Xm1",
     displayName: "显示名称",
     displayNamePlaceholder: "例如：发布助手",
     descriptionOptional: "描述（可选）",
@@ -210,7 +210,7 @@ export const translations = {
     baseEditNameHint: "点击名称进行编辑",
     baseEditDescriptionHint: "点击描述进行编辑",
     baseNameEmptyHint: "未命名知识库",
-    agentIdInvalid: "Agent ID 只能使用 2-128 位小写字母、数字和连字符",
+    agentIdInvalid: "Agent ID 只能使用 2-128 位字母、数字和连字符",
     agentNameRequired: "Agent 名称不能为空",
     promptRequired: "系统提示词不能为空",
     agentDescriptionRequired:
@@ -652,8 +652,9 @@ export const translations = {
     newAgentSubtitle:
       "Enter the basic information first; configure capabilities and resources after creation.",
     agentId: "Agent ID",
-    agentIdHint: "Use 2-128 lowercase letters, numbers, and hyphens.",
-    agentIdPlaceholder: "e.g. release-helper",
+    agentIdHint:
+      "Generated IDs contain a two-character module code and eleven Base58 characters.",
+    agentIdPlaceholder: "e.g. AG2Yp6dNq4Xm1",
     displayName: "Display name",
     displayNamePlaceholder: "e.g. Release assistant",
     descriptionOptional: "Description (optional)",
@@ -701,7 +702,7 @@ export const translations = {
     baseEditDescriptionHint: "Click to edit description",
     baseNameEmptyHint: "Untitled knowledge base",
     agentIdInvalid:
-      "Agent ID must be 2-128 lowercase letters, numbers, or hyphens",
+      "Agent ID must be 2-128 letters, numbers, or hyphens",
     agentNameRequired: "Agent name is required",
     promptRequired: "System prompt is required",
     agentDescriptionRequired:

@@ -6,6 +6,7 @@ import com.intra.copilot.agent.*;
 import com.intra.copilot.model.*;
 import com.intra.copilot.repo.*;
 import com.intra.copilot.service.auth.RequestContext;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.io.IOException;
 import java.time.*;
 import java.util.*;
@@ -543,7 +544,7 @@ public class ChatService {
                                                 : null;
                 AgentInvocation invocation = new AgentInvocation();
                 invocation.setConversationId(c.getId());
-                invocation.setCorrelationId(UUID.randomUUID().toString());
+                invocation.setCorrelationId(EntityIdGenerator.next("TR"));
                 invocation.setSequence(1);
                 invocation.setDepth(1);
                 invocation.setAgentRole(routeAgent instanceof ConfigurableAgent configurable

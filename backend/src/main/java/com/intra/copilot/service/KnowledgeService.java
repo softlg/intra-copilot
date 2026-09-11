@@ -12,6 +12,7 @@ import com.intra.copilot.repo.KnowledgeDocumentRepository;
 import com.intra.copilot.repo.KnowledgeDocumentStorageRepository;
 import com.intra.copilot.service.parser.DocumentParserRegistry;
 import com.intra.copilot.storage.DocumentStorage;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -89,7 +90,7 @@ public class KnowledgeService implements KnowledgeRetriever {
         String name = normalizeName(base.getName());
         ensureNameAvailable(name, null);
         base.setName(name);
-        if (base.getId() == null || base.getId().isBlank()) base.setId(java.util.UUID.randomUUID().toString());
+        if (base.getId() == null || base.getId().isBlank()) base.setId(EntityIdGenerator.next("KB"));
         if (base.getStatus() == null || base.getStatus().isBlank()) base.setStatus(KnowledgeBase.STATUS_READY);
         if (base.getChunkStrategy() == null || base.getChunkStrategy().isBlank()) base.setChunkStrategy("structured");
         KnowledgeBase saved = bases.save(base);

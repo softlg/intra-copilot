@@ -2,8 +2,8 @@ package com.intra.copilot.model;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
-import java.util.UUID;
 
 /** Append-only record of knowledge base maintenance actions. */
 @TableName("knowledge_audit_log")
@@ -17,7 +17,7 @@ public class KnowledgeAuditLog {
     public static final String ACTION_CREATE_BASE = "CREATE_BASE";
     public static final String ACTION_UPDATE_BASE = "UPDATE_BASE";
 
-    @TableId private String id = UUID.randomUUID().toString();
+    @TableId private String id = EntityIdGenerator.next("AL");
     private String knowledgeBaseId;
     private String documentId;
     private String actor = "system";

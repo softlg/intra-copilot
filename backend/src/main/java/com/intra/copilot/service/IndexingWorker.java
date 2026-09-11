@@ -4,12 +4,12 @@ import com.intra.copilot.model.IndexingJob;
 import com.intra.copilot.model.KnowledgeBase;
 import com.intra.copilot.repo.IndexingJobRepository;
 import com.intra.copilot.repo.KnowledgeBaseRepository;
+import com.intra.copilot.util.EntityIdGenerator;
 import jakarta.annotation.PreDestroy;
 import java.lang.management.ManagementFactory;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -131,7 +131,7 @@ public class IndexingWorker {
             });
             jdbc.update("INSERT INTO indexing_dead_letter (id, job_id, document_id, knowledge_base_id, job_type, payload, error)"
                             + " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    UUID.randomUUID().toString(), job.getId(), job.getDocumentId(), job.getKnowledgeBaseId(),
+                    EntityIdGenerator.next("DL"), job.getId(), job.getDocumentId(), job.getKnowledgeBaseId(),
                     job.getJobType(), job.getPayload(), message);
             return;
         }

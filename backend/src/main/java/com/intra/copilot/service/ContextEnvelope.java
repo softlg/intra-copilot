@@ -1,8 +1,8 @@
 package com.intra.copilot.service;
 
+import com.intra.copilot.util.EntityIdGenerator;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Bounded, explicit context passed between orchestration nodes.  Page text and
@@ -25,7 +25,7 @@ public record ContextEnvelope(
 
     public ContextEnvelope {
         correlationId = correlationId == null || correlationId.isBlank()
-                ? UUID.randomUUID().toString() : correlationId;
+                ? EntityIdGenerator.next("TR") : correlationId;
         message = limit(message, MAX_MESSAGE_CHARS);
         pageContext = limit(pageContext, MAX_PAGE_CONTEXT_CHARS);
         history = history == null ? List.of() : List.copyOf(history);

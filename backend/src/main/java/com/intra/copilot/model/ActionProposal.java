@@ -2,13 +2,13 @@ package com.intra.copilot.model;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
-import java.util.UUID;
 
 @TableName("action_proposal")
 public class ActionProposal {
     @TableId("action_id")
-    private String actionId = UUID.randomUUID().toString();
+    private String actionId = EntityIdGenerator.next("AP");
 
     private String conversationId;
     private String type;

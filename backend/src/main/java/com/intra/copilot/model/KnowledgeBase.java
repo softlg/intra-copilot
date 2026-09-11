@@ -2,15 +2,15 @@ package com.intra.copilot.model;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
-import java.util.UUID;
 
 @TableName("knowledge_base")
 public class KnowledgeBase {
     public static final String STATUS_READY = "READY";
     public static final String STATUS_REBUILDING = "REBUILDING";
 
-    @TableId private String id = UUID.randomUUID().toString();
+    @TableId private String id = EntityIdGenerator.next("KB");
     private String name;
     private String description;
     private boolean enabled = true;

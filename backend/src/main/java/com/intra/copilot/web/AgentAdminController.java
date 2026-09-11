@@ -6,10 +6,10 @@ import com.intra.copilot.agent.ConfigurableAgent;
 import com.intra.copilot.service.AgentRegistry;
 import com.intra.copilot.service.AgentConfigurationService;
 import com.intra.copilot.service.LlmClient;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Duration;
 import java.util.Map;
 import java.util.List;
-import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -36,7 +36,7 @@ public class AgentAdminController {
         @ResponseStatus(HttpStatus.CREATED)
         public AgentDefinition create(@RequestBody AgentDefinition definition) {
                 if (definition == null) throw new IllegalArgumentException("Agent 配置不能为空");
-                definition.setId(UUID.randomUUID().toString());
+                definition.setId(EntityIdGenerator.next("AG"));
                 if (definition.getRole() == null || definition.getRole().isBlank()) definition.setRole("DOMAIN");
                 validate(definition);
                 definition.setSystemAgent(false);
@@ -145,8 +145,8 @@ public class AgentAdminController {
         private void validate(AgentDefinition definition) {
                 if (definition == null
                                 || definition.getId() == null
-                                || !definition.getId().matches("[a-z0-9][a-z0-9-]{1,127}")) {
-                        throw new IllegalArgumentException("Agent ID 只能使用 2-128 位小写字母、数字和连字符");
+                                || !definition.getId().matches("[A-Za-z0-9][A-Za-z0-9-]{1,127}")) {
+                        throw new IllegalArgumentException("Agent ID 只能使用 2-128 位字母、数字和连字符");
                 }
                 if (definition.getDisplayName() == null || definition.getDisplayName().isBlank()) {
                         throw new IllegalArgumentException("Agent 名称不能为空");

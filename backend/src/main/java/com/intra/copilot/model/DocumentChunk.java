@@ -2,11 +2,11 @@ package com.intra.copilot.model;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import java.util.UUID;
+import com.intra.copilot.util.EntityIdGenerator;
 
 @TableName("document_chunk")
 public class DocumentChunk {
-    @TableId private String id = UUID.randomUUID().toString();
+    @TableId private String id = EntityIdGenerator.next("CH");
     private String documentId;
     private int chunkIndex;
     private String content;
