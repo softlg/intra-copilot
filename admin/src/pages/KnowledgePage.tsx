@@ -396,7 +396,11 @@ export function KnowledgePage({
                     </div>
                     <span
                       className={
-                        embeddingValidation?.reachable === false ? "off" : "ok"
+                        embeddingValidation?.reachable === false
+                          ? "off"
+                          : embeddingValidation?.reachable === true
+                            ? "ok"
+                            : "badge"
                       }
                     >
                       {embeddingConfig?.profile?.dimension
@@ -559,7 +563,9 @@ export function KnowledgePage({
                       <h4 id="retrieval-config-title">{t.retrievalConfig}</h4>
                       <p>{t.retrievalConfigHint}</p>
                     </div>
-                    <span className="ok">{activeQaSettings.retrievalMode}</span>
+                    <span className="badge">
+                      {activeQaSettings.retrievalMode}
+                    </span>
                   </div>
                   <div className="retrieval-settings-grid">
                     <div className="field">
