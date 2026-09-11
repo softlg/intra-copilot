@@ -11,9 +11,9 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 /**
  * Records who changed a knowledge base and when.
  *
- * <p>Admin endpoints are not authenticated today, so the actor falls back to the
- * {@code X-Actor} header and finally to {@code system}. Wiring real authentication in
- * later only requires the header/identity lookup below to stay as is.
+ * <p>Admin requests use the authenticated management identity. The {@code X-Actor}
+ * header remains as a fallback for legacy internal callers, then defaults to
+ * {@code system}.
  */
 @Service
 public class KnowledgeAuditService {

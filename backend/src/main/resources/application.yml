@@ -81,6 +81,12 @@ app:
   cors-origins: ${CORS_ALLOWED_ORIGINS:chrome-extension://*,http://localhost:4174,http://127.0.0.1:4174,http://localhost:5173,http://127.0.0.1:5173}
   # 单条聊天附件最大体积（字节）。servlet 上限见 spring.servlet.multipart。
   max-attachment-bytes: ${APP_MAX_ATTACHMENT_BYTES:26214400}
+admin:
+  username: ${ADMIN_USERNAME:admin}
+  password: ${ADMIN_PASSWORD:admin}
+  session-ttl-minutes: ${ADMIN_SESSION_TTL_MINUTES:480}
+  # 未配置时每次启动生成随机密钥，重启后已有登录会失效。
+  session-secret: ${ADMIN_SESSION_SECRET:}
 minio:
   # 设为 true 时，文档与聊天附件统一存储到 MinIO；否则使用本地磁盘（默认）。
   enabled: ${MINIO_ENABLED:false}

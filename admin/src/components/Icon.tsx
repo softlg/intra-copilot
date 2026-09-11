@@ -24,6 +24,7 @@ export type IconName =
   | "circle"
   | "alert"
   | "clock"
+  | "logout"
   /* Navigation */
   | "agents"
   | "knowledge"
@@ -65,6 +66,7 @@ const PATHS: Record<IconName, string> = {
   circle: "M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9Z",
   alert: "M12 8v4.5m0 3v.01M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9Z",
   clock: "M12 7.5V12l3 2M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9Z",
+  logout: "M10 17l5-5-5-5M15 12H3M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4",
   agents: "M12 3l9 9-9 9-9-9 9-9Zm0 5-4 4 4 4 4-4-4-4Z",
   knowledge: "M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5Zm0 16h13",
   mcp: "M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3Z",

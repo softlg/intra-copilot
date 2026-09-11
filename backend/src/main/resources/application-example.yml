@@ -53,3 +53,9 @@ mcp:
 app:
   # 管理端开发服务器默认使用 4174；插件来源请替换为实际扩展 ID。
   cors-origins: chrome-extension://YOUR_EXTENSION_ID,http://localhost:4174,http://127.0.0.1:4174
+admin:
+  username: admin
+  password: replace-me
+  session-ttl-minutes: 480
+  # Production deployments should set this to a long random value.
+  session-secret: replace-me

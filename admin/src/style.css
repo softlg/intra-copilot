@@ -531,6 +531,44 @@ main > section {
   color: var(--text-on-brand);
 }
 
+.settings-account {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-account-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-logout {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid var(--danger-border);
+  background: transparent;
+  color: var(--danger-text);
+  font-size: 13px;
+}
+
+.settings-logout:hover:not(:disabled) {
+  background: var(--danger-tint);
+}
+
 header {
   display: flex;
   align-items: center;

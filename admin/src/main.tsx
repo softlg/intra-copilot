@@ -32,6 +32,7 @@ import {
 import { KeyboardShortcutsHelp } from "./components/KeyboardShortcutsHelp";
 import { Skeleton } from "./components/Skeleton";
 import { InlineEditable } from "./components/InlineEditable";
+import { LoginScreen } from "./components/LoginScreen";
 import {
   translations,
   type Language,
@@ -68,7 +69,13 @@ import type {
   ToolDefinition,
 } from "./types";
 import { AGENT_PRESETS } from "./data/agentPresets";
-import { API, request } from "./lib/api";
+import {
+  apiFetch,
+  clearAuthToken,
+  fetchAdminIdentity,
+  getAuthToken,
+  request,
+} from "./lib/api";
 import { formatDateTime, parseIds } from "./lib/format";
 import { mcpStatusLabel, truncateError } from "./lib/mcp";
 import { documentStatus } from "./lib/knowledge";
@@ -162,7 +169,13 @@ function agentTabForRole(role: string) {
   return "agents";
 }
 
-function App() {
+function AdminApp({
+  username,
+  onLogout,
+}: {
+  username: string;
+  onLogout: () => void;
+}) {
   const [language, setLanguage] = useState<Language>(() => {
     return localStorage.getItem("admin-language") === "en" ? "en" : "zh";
   });
@@ -1934,8 +1947,8 @@ function App() {
   const uploadDocument = async (baseId: string, file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch(
-      `${API}/admin/knowledge-bases/${baseId}/documents`,
+    const response = await apiFetch(
+      `/admin/knowledge-bases/${baseId}/documents`,
       {
         method: "POST",
         body: formData,
@@ -2088,7 +2101,7 @@ function App() {
       for (const file of selectedFiles) {
         form.append("files", file, file.name);
       }
-      const response = await fetch(`${API}/admin/router/attachments`, {
+      const response = await apiFetch("/admin/router/attachments", {
         method: "POST",
         body: form,
       });
@@ -2482,6 +2495,18 @@ function App() {
                     {t.light}
                   </button>
                 </div>
+                <div className="settings-account">
+                  <span>{t.signedInAs}</span>
+                  <span className="settings-account-name">{username}</span>
+                </div>
+                <button
+                  type="button"
+                  className="settings-logout"
+                  onClick={onLogout}
+                >
+                  <Icon name="logout" size={16} />
+                  {t.logout}
+                </button>
               </div>
             )}
           </div>
@@ -4093,6 +4118,97 @@ function App() {
       )}
     </div>
   );
+}
+
+function App() {
+  const [language, setLanguage] = useState<Language>(() => {
+    return localStorage.getItem("admin-language") === "en" ? "en" : "zh";
+  });
+  const [theme, setTheme] = useState<Theme>(() => {
+    return localStorage.getItem("admin-theme") === "light" ? "light" : "dark";
+  });
+  const [session, setSession] = useState<
+    { username: string } | null | undefined
+  >(() => (getAuthToken() ? undefined : null));
+  const [authNotice, setAuthNotice] = useState("");
+  const t = translations[language];
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("admin-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("admin-language", language);
+  }, [language]);
+
+  useEffect(() => {
+    if (session !== undefined || !getAuthToken()) return undefined;
+    let cancelled = false;
+    fetchAdminIdentity()
+      .then((identity) => {
+        if (!cancelled) setSession(identity);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          clearAuthToken();
+          setSession(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setAuthNotice(t.sessionExpired);
+      setSession(null);
+    };
+    window.addEventListener("admin:unauthorized", handleUnauthorized);
+    return () =>
+      window.removeEventListener("admin:unauthorized", handleUnauthorized);
+  }, [t.sessionExpired]);
+
+  const login = (username: string) => {
+    setAuthNotice("");
+    setSession({ username });
+  };
+
+  const logout = () => {
+    clearAuthToken();
+    setAuthNotice("");
+    setSession(null);
+  };
+
+  if (session === undefined) {
+    return (
+      <div className="login-page">
+        <div className="auth-loading" role="status" aria-live="polite">
+          <span className="login-brand-mark" aria-hidden="true">
+            <Icon name="agents" size={24} />
+          </span>
+          <span>{t.checkingSession}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <LoginScreen
+        language={language}
+        theme={theme}
+        t={t}
+        notice={authNotice}
+        onLanguageChange={setLanguage}
+        onThemeChange={setTheme}
+        onAuthenticated={login}
+      />
+    );
+  }
+
+  return <AdminApp username={session.username} onLogout={logout} />;
 }
 
 createRoot(document.getElementById("root")!).render(
