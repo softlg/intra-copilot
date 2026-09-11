@@ -50,6 +50,7 @@ npm run dev
 - `/api/v1/admin/knowledge-bases`：知识库、Markdown/TXT/PDF 文档上传、重建索引和删除。
 - `/api/v1/admin/tools`、`/api/v1/admin/skills`：注册 HTTP 工具和 Skill；HTTP 工具仅允许 HTTPS 公网域名。
 - `/api/v1/admin/mcp-servers`：MCP 服务注册、编辑、启停、删除和健康检查；`POST /{id}/health` 会执行 MCP `initialize` 与 `tools/list`，缓存接口数量、能力和接口详情。
-- `POST /api/v1/admin/router/test`：使用当前配置测试主 Agent 路由。
+- `POST /api/v1/admin/router/test`：按插件请求协议测试系统 Agent 路由，支持页面权限、图片附件和领域/子 Agent 委派链路。
+- `POST /api/v1/admin/router/attachments`：上传路由测试图片并返回管理端预览地址。
 
 知识库索引依赖 pgvector 与 Embedding API；未配置 Embedding Key 时文档会标记为 `ERROR`，不会阻塞会话功能。

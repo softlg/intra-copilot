@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -214,6 +215,54 @@ class AgentOrchestratorTest {
         assertTrue(prompt.contains("输出要求：\n- 只输出 JSON，不要 Markdown、代码块或额外说明。"));
         assertTrue(input.contains("用户消息：\n我要报销\n\n页面上下文：\n/orders"));
         assertTrue(input.contains("上一轮实际处理 Agent：\n无\n\n判断原则："));
+    }
+
+    @Test
+    void passesImagesToRoutingModelAndDescribesAttachment() {
+        AgentRegistry registry = mock(AgentRegistry.class);
+        RouterAgent rules = mock(RouterAgent.class);
+        LlmClient llm = mock(LlmClient.class);
+        AgentChildBindingRepository childBindings = mock(AgentChildBindingRepository.class);
+        TraceRecorder trace = mock(TraceRecorder.class);
+        GeneralAgent general = new GeneralAgent();
+
+        AgentDefinition finance = new AgentDefinition();
+        finance.setId("finance-agent");
+        finance.setDisplayName("财务助手");
+        finance.setRole("GENERAL");
+        finance.setDescription("处理财务问题");
+        finance.setEnabled(true);
+        finance.setPublished(true);
+
+        when(registry.allDefinitions()).thenReturn(List.of(finance));
+        when(registry.enabledDefinitions()).thenReturn(List.of(finance));
+        when(registry.findEnabled("finance-agent"))
+                .thenReturn(Optional.of(new com.intra.copilot.agent.ConfigurableAgent(finance)));
+        when(registry.findPublished("finance-agent")).thenReturn(Optional.of(finance));
+        List<String> images = List.of("data:image/png;base64,aW1hZ2U=");
+        when(llm.complete(anyString(), anyList(), anyString(), eq(images)))
+                .thenReturn(
+                        Mono.just(
+                                "{\"targetAgentId\":\"finance-agent\",\"confidence\":0.91,"
+                                        + "\"reason\":\"图片是报销凭证\",\"needsClarification\":false}"));
+
+        AgentOrchestrator orchestrator =
+                new AgentOrchestrator(
+                        registry,
+                        rules,
+                        general,
+                        new RouteCopilotAgent(),
+                        llm,
+                        childBindings,
+                        trace);
+
+        AgentOrchestrator.RoutingResult result =
+                orchestrator.route("请看图片", "", List.of(), images);
+
+        assertEquals("finance-agent", result.selectedAgentId());
+        ArgumentCaptor<String> inputCaptor = ArgumentCaptor.forClass(String.class);
+        verify(llm).complete(anyString(), anyList(), inputCaptor.capture(), eq(images));
+        assertTrue(inputCaptor.getValue().contains("图片附件：\n1 张图片"));
     }
 
     @Test

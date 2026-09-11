@@ -324,6 +324,7 @@ public class ChatService {
                                                                         return item;
                                                                 })
                                                 .toList();
+                final List<String> images = sanitizeImages(attachments.imageDataUrls(attachmentIds));
                 long routeStarted = System.nanoTime();
                 // 路由与委派阶段的追踪回调：把中间状态写入 agent_invocation_event。
                 RouteTrace routeTrace = new RouteTrace();
@@ -361,7 +362,7 @@ public class ChatService {
                                 };
                 AgentOrchestrator.RoutingResult routing =
                                 autoRoute
-                                                ? orchestrator.route(text, pageContext, h, routeListener)
+                                                ? orchestrator.route(text, pageContext, h, images, routeListener)
                                                 : new AgentOrchestrator.RoutingResult(
                                                                 orchestrator.resolveUserAgent(requestedAgent),
                                                                 requestedAgent,
@@ -622,9 +623,8 @@ public class ChatService {
                                 .put("finalInput", enriched)
                                 .put("finalInputLength", enriched.length())
                                 .put("pageContextIncluded", readPage && pageContext != null && !pageContext.isBlank())
-                                .put("imageCount", sanitizeImages(attachments.imageDataUrls(attachmentIds)).size())
+                                .put("imageCount", images.size())
                                 .save();
-        final List<String> images = sanitizeImages(attachments.imageDataUrls(attachmentIds));
         // 历史长度预算（P2）：粗略按字符数估算 token，超过预算则丢弃最旧的若干条，至少保留最近 4 条。
         List<Map<String, String>> baseHistory = new ArrayList<>(budgetHistory(h, maxHistoryTokens * 4));
 

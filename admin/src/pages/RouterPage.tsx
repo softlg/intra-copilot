@@ -1,6 +1,8 @@
 import { Icon } from "../components/Icon";
 import { toast } from "../components/Toast";
 import type { Translations } from "../i18n/translations";
+import { API } from "../lib/api";
+import type { ConversationAttachment } from "../types";
 
 export interface RouterPageProps {
   t: Translations;
@@ -9,13 +11,22 @@ export interface RouterPageProps {
   pageContext: string;
   onPageContextChange: (value: string) => void;
   onTestRoute: () => void;
+  attachments: ConversationAttachment[];
+  uploadingAttachments: boolean;
+  readPage: boolean;
+  onReadPageChange: (value: boolean) => void;
+  onUploadAttachments: (
+    files: FileList | null,
+    input: HTMLInputElement,
+  ) => void;
+  onRemoveAttachment: (id: string) => void;
   route?: Record<string, unknown>;
   analyzing: boolean;
   onAnalyze: () => void;
   analysis: string;
 }
 
-/** Router playground: send a message and inspect the dispatch chain. */
+/** Router playground: send the same inputs as the side panel and inspect dispatch. */
 export function RouterPage({
   t,
   message,
@@ -23,6 +34,12 @@ export function RouterPage({
   pageContext,
   onPageContextChange,
   onTestRoute,
+  attachments,
+  uploadingAttachments,
+  readPage,
+  onReadPageChange,
+  onUploadAttachments,
+  onRemoveAttachment,
   route,
   analyzing,
   onAnalyze,
@@ -43,11 +60,68 @@ export function RouterPage({
           placeholder={t.routerContextPlaceholder}
           rows={3}
         />
+        <div className="router-test-options">
+          <label
+            className={
+              "router-upload-button" +
+              (uploadingAttachments ? " uploading" : "")
+            }
+            aria-disabled={uploadingAttachments}
+          >
+            <Icon name="plus" size={14} />
+            {uploadingAttachments ? t.routerUploading : t.routerAddImages}
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              disabled={uploadingAttachments}
+              onChange={(event) =>
+                onUploadAttachments(event.target.files, event.target)
+              }
+            />
+          </label>
+          <label className="checkbox-field router-read-page">
+            <input
+              type="checkbox"
+              checked={readPage}
+              onChange={(event) => onReadPageChange(event.target.checked)}
+            />
+            <span>{t.routerReadPage}</span>
+          </label>
+        </div>
+        {attachments.length > 0 && (
+          <div className="router-attachments" aria-label={t.routerImages}>
+            {attachments.map((attachment) => (
+              <div className="router-attachment" key={attachment.id}>
+                {attachment.isImage ? (
+                  <img
+                    src={`${API}${attachment.url}`}
+                    alt={attachment.filename}
+                  />
+                ) : (
+                  <span className="router-attachment-kind">
+                    {t.routerImages}
+                  </span>
+                )}
+                <span title={attachment.filename}>{attachment.filename}</span>
+                <button
+                  type="button"
+                  className="router-attachment-remove"
+                  onClick={() => onRemoveAttachment(attachment.id)}
+                  aria-label={`${t.routerRemoveImage}: ${attachment.filename}`}
+                  title={t.routerRemoveImage}
+                >
+                  <Icon name="close" size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="router-test-actions">
           <button
             type="button"
             onClick={onTestRoute}
-            disabled={!message.trim()}
+            disabled={!message.trim() && attachments.length === 0}
           >
             {t.testRoute}
           </button>
@@ -130,12 +204,15 @@ export function RouterPage({
                       ? t.routeIntent
                       : type === "dispatch"
                         ? t.routeDispatch
-                        : type === "hooks"
-                          ? t.routeHooks
-                          : String(step.title ?? type);
+                        : type === "delegation"
+                          ? t.routeDelegation
+                          : type === "hooks"
+                            ? t.routeHooks
+                            : String(step.title ?? type);
                 const checks = Array.isArray(details.checks)
                   ? (details.checks as Array<Record<string, unknown>>)
                   : [];
+                const imageCount = Number(details.imageCount ?? 0);
                 return (
                   <div className="router-chain-step" key={`${type}-${index}`}>
                     <span className="router-chain-index">{index + 1}</span>
@@ -154,11 +231,22 @@ export function RouterPage({
                           )}
                         </p>
                       )}
+                      {type === "delegation" && (
+                        <p>
+                          {String(
+                            details.displayName ?? details.agentId ?? "-",
+                          )}
+                          {details.reason ? ` · ${String(details.reason)}` : ""}
+                        </p>
+                      )}
                       {type === "input" && (
                         <p>
                           {details.pageContextIncluded
                             ? "✓ 页面上下文"
                             : "— 无页面上下文"}
+                          {imageCount > 0
+                            ? ` · ${t.routerImages}: ${imageCount}`
+                            : ""}
                         </p>
                       )}
                       {type === "hooks" &&

@@ -44,6 +44,7 @@ import type {
   AgentFeedback,
   AgentPreset,
   Base,
+  ConversationAttachment,
   ConversationLog,
   ConversationLogPage,
   ConversationLogSummary,
@@ -325,6 +326,11 @@ function App() {
   >("all");
   const [message, setMessage] = useState("");
   const [routePageContext, setRoutePageContext] = useState("");
+  const [routeAttachments, setRouteAttachments] = useState<
+    ConversationAttachment[]
+  >([]);
+  const [routeUploading, setRouteUploading] = useState(false);
+  const [routeReadPage, setRouteReadPage] = useState(true);
   const [route, setRoute] = useState<Record<string, unknown>>();
   const [routeAnalysis, setRouteAnalysis] = useState("");
   const [routeAnalyzing, setRouteAnalyzing] = useState(false);
@@ -2068,8 +2074,47 @@ function App() {
     }
   };
 
+  const uploadRouteAttachments = async (
+    files: FileList | null,
+    input: HTMLInputElement,
+  ) => {
+    const selectedFiles = files ? Array.from(files) : [];
+    input.value = "";
+    if (!selectedFiles.length) return;
+
+    setRouteUploading(true);
+    try {
+      const form = new FormData();
+      for (const file of selectedFiles) {
+        form.append("files", file, file.name);
+      }
+      const response = await fetch(`${API}/admin/router/attachments`, {
+        method: "POST",
+        body: form,
+      });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || t.routerUploadFailed);
+      }
+      const uploaded = (await response.json()) as ConversationAttachment[];
+      setRouteAttachments((current) => [...current, ...uploaded]);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t.routerUploadFailed,
+      );
+    } finally {
+      setRouteUploading(false);
+    }
+  };
+
+  const removeRouteAttachment = (id: string) => {
+    setRouteAttachments((current) =>
+      current.filter((attachment) => attachment.id !== id),
+    );
+  };
+
   const testRoute = async () => {
-    if (!message.trim()) return;
+    if (!message.trim() && !routeAttachments.length) return;
     setRouteAnalysis("");
     setRoute(
       await request<Record<string, unknown>>("/admin/router/test", {
@@ -2077,13 +2122,15 @@ function App() {
         body: JSON.stringify({
           message: message.trim(),
           pageContext: routePageContext.trim(),
+          attachmentIds: routeAttachments.map((attachment) => attachment.id),
+          permissions: { readPage: routeReadPage },
         }),
       }),
     );
   };
 
   const analyzeRoute = async () => {
-    if (!route || !message.trim()) return;
+    if (!route) return;
     setRouteAnalyzing(true);
     setRouteAnalysis("");
     try {
@@ -2766,6 +2813,12 @@ function App() {
             pageContext={routePageContext}
             onPageContextChange={setRoutePageContext}
             onTestRoute={testRoute}
+            attachments={routeAttachments}
+            uploadingAttachments={routeUploading}
+            readPage={routeReadPage}
+            onReadPageChange={setRouteReadPage}
+            onUploadAttachments={uploadRouteAttachments}
+            onRemoveAttachment={removeRouteAttachment}
             route={route}
             analyzing={routeAnalyzing}
             onAnalyze={analyzeRoute}

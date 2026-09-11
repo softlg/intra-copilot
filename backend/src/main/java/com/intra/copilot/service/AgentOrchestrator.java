@@ -52,7 +52,15 @@ public class AgentOrchestrator {
     }
 
     public RoutingResult route(String text, String pageContext, List<Map<String, String>> history) {
-        return route(text, pageContext, history, null);
+        return route(text, pageContext, history, List.of(), null);
+    }
+
+    public RoutingResult route(
+            String text,
+            String pageContext,
+            List<Map<String, String>> history,
+            List<String> images) {
+        return route(text, pageContext, history, images, null);
     }
 
     /**
@@ -61,15 +69,30 @@ public class AgentOrchestrator {
      */
     public RoutingResult route(
             String text, String pageContext, List<Map<String, String>> history, RouteTraceListener listener) {
+        return route(text, pageContext, history, List.of(), listener);
+    }
+
+    public RoutingResult route(
+            String text,
+            String pageContext,
+            List<Map<String, String>> history,
+            List<String> images,
+            RouteTraceListener listener) {
         String prompt = routingPrompt();
         String previousAgentId = lastAssistantAgentId(history).orElse("");
+        String imageContext =
+                images == null || images.isEmpty()
+                        ? ""
+                        : "\n\n图片附件：\n"
+                                + images.size()
+                                + " 张图片（请结合图片内容判断用户意图）";
         String input =
                 """
                 用户消息：
                 %s
 
                 页面上下文：
-                %s
+                %s%s
 
                 上一轮实际处理 Agent：
                 %s
@@ -81,6 +104,7 @@ public class AgentOrchestrator {
                         .formatted(
                                 textOrNone(text),
                                 textOrNone(pageContext),
+                                imageContext,
                                 previousAgentId.isBlank() ? "无" : previousAgentId)
                         .strip();
         if (listener != null) {
@@ -92,7 +116,10 @@ public class AgentOrchestrator {
         try {
             long started = System.nanoTime();
             Optional<String> response =
-                    llm.complete(prompt, history, input).blockOptional(Duration.ofSeconds(8));
+                    (images == null || images.isEmpty()
+                                    ? llm.complete(prompt, history, input)
+                                    : llm.complete(prompt, history, input, images))
+                            .blockOptional(Duration.ofSeconds(8));
             durationMs = (System.nanoTime() - started) / 1_000_000L;
             if (response.isPresent()) {
                 rawModelOutput = response.get();
