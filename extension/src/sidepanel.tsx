@@ -603,6 +603,7 @@ function App() {
   const [currentTabEnabled, setCurrentTabEnabled] = useState(false);
   const [availableTabs, setAvailableTabs] = useState<chrome.tabs.Tab[]>([]);
   const [selectedTabIds, setSelectedTabIds] = useState<number[]>([]);
+  const tabSelectionInitializedRef = useRef(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [screenshot, setScreenshot] = useState<string>();
   const [screenshotSelection, setScreenshotSelection] = useState<string>();
@@ -1223,7 +1224,15 @@ function App() {
     setToolsOpen((open) => !open);
     if (!toolsOpen) {
       const tabs = await chrome.tabs.query({ currentWindow: true });
-      setAvailableTabs(tabs.filter((tab) => tab.id != null));
+      const selectableTabs = tabs.filter((tab) => tab.id != null);
+      setAvailableTabs(selectableTabs);
+      if (!tabSelectionInitializedRef.current) {
+        const activeTab = selectableTabs.find((tab) => tab.active);
+        if (activeTab?.id != null) {
+          setSelectedTabIds([activeTab.id]);
+          tabSelectionInitializedRef.current = true;
+        }
+      }
     }
   }
 
