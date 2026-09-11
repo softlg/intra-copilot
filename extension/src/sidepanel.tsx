@@ -16,7 +16,7 @@ const API = `${API_BASE}/api/v1`;
 const CHAT_STREAM_TIMEOUT_MS = 610_000;
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
-type ActivationMode = "all_pages" | "manual";
+type ActivationMode = "all_pages" | "current_page";
 type Feedback = "up" | "down" | null;
 type FeedbackToast = { index: number; kind: "cleared" | "thanks" };
 type AttachmentView = {
@@ -138,8 +138,8 @@ const translations = {
     light: "浅色",
     dark: "深色",
     activationScope: "插件启用范围",
+    defaultCurrentPage: "默认在当前页面打开",
     allPages: "所有页面开启",
-    manualPages: "仅在手动开启的页面使用",
     currentPage: "当前页面",
     enableCurrentPage: "在当前页面开启",
     disableCurrentPage: "关闭当前页面插件",
@@ -272,8 +272,8 @@ const translations = {
     light: "Light",
     dark: "Dark",
     activationScope: "Extension activation",
+    defaultCurrentPage: "Open on the current page by default",
     allPages: "Enable on all pages",
-    manualPages: "Only use on pages enabled manually",
     currentPage: "Current page",
     enableCurrentPage: "Enable on current page",
     disableCurrentPage: "Disable on current page",
@@ -621,7 +621,8 @@ function App() {
   });
   const [pageInfoOpen, setPageInfoOpen] = useState(false);
   const [activationMode, setActivationMode] =
-    useState<ActivationMode>("manual");
+    useState<ActivationMode>("current_page");
+  const [defaultCurrentPage, setDefaultCurrentPage] = useState(true);
   const [currentTabId, setCurrentTabId] = useState<number>();
   const [currentTabEnabled, setCurrentTabEnabled] = useState(false);
   const [availableTabs, setAvailableTabs] = useState<chrome.tabs.Tab[]>([]);
@@ -746,6 +747,7 @@ function App() {
         "language",
         "readPageEnabled",
         "activationMode",
+        "defaultCurrentPage",
         "pageInfoSelection",
       ],
       (value: {
@@ -753,6 +755,7 @@ function App() {
         language?: Language;
         readPageEnabled?: boolean;
         activationMode?: ActivationMode;
+        defaultCurrentPage?: boolean;
         pageInfoSelection?: Partial<Record<PageInfoKey, boolean>>;
       }) => {
         if (value.theme === "light" || value.theme === "dark") {
@@ -766,9 +769,12 @@ function App() {
         }
         if (
           value.activationMode === "all_pages" ||
-          value.activationMode === "manual"
+          value.activationMode === "current_page"
         ) {
           setActivationMode(value.activationMode);
+        }
+        if (typeof value.defaultCurrentPage === "boolean") {
+          setDefaultCurrentPage(value.defaultCurrentPage);
         }
         if (value.pageInfoSelection) {
           setPageInfoSelection((current) => ({
@@ -795,9 +801,9 @@ function App() {
 
   useEffect(() => {
     if (!preferencesLoaded) return;
-    chrome.storage.local.set({ activationMode });
+    chrome.storage.local.set({ activationMode, defaultCurrentPage });
     refreshCurrentTabState();
-  }, [activationMode, preferencesLoaded]);
+  }, [activationMode, defaultCurrentPage, preferencesLoaded]);
 
   useEffect(() => {
     if (!preferencesLoaded) return;
@@ -2042,23 +2048,28 @@ function App() {
               </div>
               <label>
                 <input
-                  type="radio"
-                  name="activationMode"
-                  checked={activationMode === "all_pages"}
-                  onChange={() => setActivationMode("all_pages")}
+                  type="checkbox"
+                  checked={defaultCurrentPage}
+                  disabled={activationMode === "all_pages"}
+                  onChange={(event) =>
+                    setDefaultCurrentPage(event.target.checked)
+                  }
                 />
-                {t.allPages}
+                {t.defaultCurrentPage}
               </label>
               <label>
                 <input
-                  type="radio"
-                  name="activationMode"
-                  checked={activationMode === "manual"}
-                  onChange={() => setActivationMode("manual")}
+                  type="checkbox"
+                  checked={activationMode === "all_pages"}
+                  onChange={(event) =>
+                    setActivationMode(
+                      event.target.checked ? "all_pages" : "current_page",
+                    )
+                  }
                 />
-                {t.manualPages}
+                {t.allPages}
               </label>
-              {activationMode === "manual" && (
+              {activationMode === "current_page" && !defaultCurrentPage && (
                 <button
                   className="current-page-toggle"
                   onClick={toggleCurrentTab}

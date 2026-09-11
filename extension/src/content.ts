@@ -82,7 +82,12 @@ refreshPageEnabled();
 chrome.storage.onChanged.addListener((changes) => {
   const next = changes.language?.newValue;
   if (next === "en" || next === "zh") updateBallLanguage(next);
-  if (changes.activationMode || changes.enabledTabIds) refreshPageEnabled();
+  if (
+    changes.activationMode ||
+    changes.defaultCurrentPage ||
+    changes.enabledTabIds
+  )
+    refreshPageEnabled();
 });
 window.addEventListener("resize", clampBall);
 window.visualViewport?.addEventListener("resize", clampBall);
@@ -179,6 +184,11 @@ export function collectContext(): Ctx {
   };
 }
 chrome.runtime.onMessage.addListener((msg: any, _sender: any, send: any) => {
+  if (msg?.type === "REFRESH_ACTIVATION") {
+    refreshPageEnabled();
+    send({ ok: true });
+    return true;
+  }
   if (msg?.type === "COLLECT_CONTEXT") {
     send(collectContext());
     return true;
