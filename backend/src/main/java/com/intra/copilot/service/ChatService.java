@@ -130,6 +130,8 @@ public class ChatService {
 
         record LoopError(String code, String userMessage) {}
 
+        record ModelReply(String content, boolean streamed) {}
+
         /** Classify model failures for both persistence and the user-facing SSE event. */
         static LoopError classifyLoopError(Throwable error) {
                 Throwable current = error;
@@ -328,6 +330,78 @@ public class ChatService {
                         List<String> attachmentIds,
                         boolean retry,
                         String clientIp) {
+                SseEmitter out = new SseEmitter(sseTimeoutMs);
+                AtomicBoolean finished = new AtomicBoolean(false);
+                out.onCompletion(() -> finished.set(true));
+                out.onTimeout(() -> finished.set(true));
+
+                ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(r -> {
+                        Thread t = new Thread(r, "sse-hb-" + Integer.toHexString(System.identityHashCode(out)));
+                        t.setDaemon(true);
+                        return t;
+                });
+                ScheduledFuture<?> heartbeatTask = heartbeat.scheduleAtFixedRate(() -> {
+                        if (finished.get()) return;
+                        try {
+                                out.send(SseEmitter.event().comment("keep-alive"));
+                        } catch (IOException ignored) {
+                        }
+                }, 15, 15, TimeUnit.SECONDS);
+
+                // 先返回 emitter，让路由、委派、检索和模型生成都能持续向插件推进度。
+                RequestContext.Identity identity = RequestContext.currentOrNull();
+                Thread worker = new Thread(
+                                () -> RequestContext.runWith(
+                                                identity,
+                                                () -> {
+                                                        try {
+                                                                emitStage(out, finished, "analyzing", "正在分析问题…");
+                                                                runChat(
+                                                                                out,
+                                                                                finished,
+                                                                                callerSource,
+                                                                                callerUserId,
+                                                                                sessionId,
+                                                                                text,
+                                                                                requestedAgent,
+                                                                                pageContext,
+                                                                                permissions,
+                                                                                attachmentIds,
+                                                                                retry,
+                                                                                clientIp);
+                                                        } catch (Throwable error) {
+                                                                handleUnhandledStreamError(out, finished, error);
+                                                        } finally {
+                                                                finished.set(true);
+                                                                try {
+                                                                        heartbeatTask.cancel(true);
+                                                                } catch (Exception ignored) {
+                                                                }
+                                                                try {
+                                                                        heartbeat.shutdownNow();
+                                                                } catch (Exception ignored) {
+                                                                }
+                                                        }
+                                                }),
+                                "chat-" + Integer.toHexString(System.identityHashCode(out)));
+                worker.setDaemon(true);
+                worker.start();
+                return out;
+        }
+
+        private void runChat(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        String callerSource,
+                        String callerUserId,
+                        String sessionId,
+                        String text,
+                        String requestedAgent,
+                        String pageContext,
+                        Map<String, Boolean> permissions,
+                        List<String> attachmentIds,
+                        boolean retry,
+                        String clientIp) {
                 Conversation c;
                 if (sessionId == null || sessionId.isBlank()) {
                         c = create(callerSource, callerUserId);
@@ -393,6 +467,7 @@ public class ChatService {
                                                 routeTrace.userInput = userInput;
                                         }
                                 };
+                emitStage(out, finished, "routing", "正在选择处理 Agent…");
                 AgentOrchestrator.RoutingResult routing =
                                 autoRoute
                                                 ? orchestrator.route(text, pageContext, h, images, routeListener)
@@ -450,6 +525,7 @@ public class ChatService {
                                                 delegationTrace.dispatchError = error;
                                         }
                                 };
+                emitStage(out, finished, "delegating", "正在分配处理任务…");
                 AgentOrchestrator.DelegationResult delegation =
                                 routeAgent instanceof ConfigurableAgent configurable
                                                 ? orchestrator.decideDomain(configurable.definition(), text, pageContext, h, delegationListener)
@@ -516,7 +592,6 @@ public class ChatService {
                         invocations.save(childInvocation);
                         recordDelegationEvents(childInvocation.getId(), correlationId, delegation, delegationTrace, readPage, pageContext);
                 }
-                SseEmitter out = new SseEmitter(sseTimeoutMs);
                 if (!retryContext.reuseUserMessage()) {
                         Message userMessage = new Message(
                                         c.getId(),
@@ -599,7 +674,7 @@ public class ChatService {
                         } catch (IOException error) {
                                 out.completeWithError(error);
                         }
-                        return out;
+                        return;
                 }
                 String enriched =
                                 !readPage || pageContext == null || pageContext.isBlank()
@@ -609,6 +684,9 @@ public class ChatService {
                 if (agent instanceof com.intra.copilot.agent.ConfigurableAgent configurable) {
                         try {
                                 List<String> kbIds = json.readValue(configurable.definition().getKnowledgeBaseIds(), json.getTypeFactory().constructCollectionType(List.class, String.class));
+                                if (kbIds != null && !kbIds.isEmpty()) {
+                                        emitStage(out, finished, "knowledge", "正在查询知识库…");
+                                }
                                 long ragStarted = System.nanoTime();
                                 var sources = knowledge.search(text, kbIds, ragTopK);
                                 long ragDuration = (System.nanoTime() - ragStarted) / 1_000_000L;
@@ -661,69 +739,10 @@ public class ChatService {
         // 历史长度预算（P2）：粗略按字符数估算 token，超过预算则丢弃最旧的若干条，至少保留最近 4 条。
         List<Map<String, String>> baseHistory = new ArrayList<>(budgetHistory(h, maxHistoryTokens * 4));
 
-        AtomicBoolean finished = new AtomicBoolean(false);
-        // 客户端断开 / 超时即标记 finished，让后台循环尽早退出，避免无谓的模型调用。
-        out.onCompletion(() -> finished.set(true));
-        out.onTimeout(() -> finished.set(true));
-        // SSE 心跳（P1）：长工具循环 / 二次总结期间周期性发送注释帧，避免代理或浏览器在空闲时断开连接。
-        ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "sse-hb-" + invocationId);
-            t.setDaemon(true);
-            return t;
-        });
-        ScheduledFuture<?> heartbeatTask = heartbeat.scheduleAtFixedRate(() -> {
-            if (finished.get()) return;
-            try {
-                out.send(SseEmitter.event().comment("keep-alive"));
-            } catch (IOException ignored) {
-            }
-        }, 15, 15, TimeUnit.SECONDS);
-
-        // 工具循环在独立线程执行，主线程立即返回 SseEmitter，由 runReActLoop 内的回调驱动流式写出。
-        // childInvocation 可能为 null，且被赋值两次，需用 final 包装以便 lambda 捕获；
-        // 同时为所有被 lambda 捕获的局部变量建立 final 别名，规避"必须 final/事实 final"约束。
-        final AgentInvocation capturedChild = childInvocation;
-        final Conversation capturedC = c;
-        final AgentInvocation capturedInvocation = invocation;
-        final String capturedCorrelationId = correlationId;
-        final String capturedInvocationId = invocationId;
-        final Agent capturedAgent = agent;
-        final Agent capturedRouteAgent = routeAgent;
-        final AgentOrchestrator.DelegationResult capturedDelegation = delegation;
-        final List<Map<String, String>> capturedBaseHistory = baseHistory;
-        final String capturedEnriched = enriched;
-        final List<String> capturedImages = images;
-        final String capturedTargetInvocationId = targetInvocationId;
-        final String capturedRetryAssistantId = retryContext.replacedAssistantId();
-        final long capturedRouteStarted = routeStarted;
-        final SseEmitter capturedOut = out;
-        final AtomicBoolean capturedFinished = finished;
-        ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "react-" + invocationId);
-            t.setDaemon(true);
-            return t;
-        });
-        // ThreadLocal 不跨线程：SseEmitter 返回后请求线程即结束（JwtAuthFilter 会 clear），
-        // 因此必须把身份显式带进工作线程，否则循环内的鉴权 / 审计拿不到身份。
-        final RequestContext.Identity capturedIdentity = RequestContext.currentOrNull();
-        worker.submit(() -> {
-            RequestContext.runWith(
-                            capturedIdentity,
-                            () -> {
-                                try {
-                                        runReActLoop(capturedOut, capturedFinished, capturedC, capturedInvocation, capturedChild,
-                                                        capturedCorrelationId, capturedInvocationId, capturedAgent, capturedRouteAgent,
-                                                        capturedDelegation, capturedBaseHistory, capturedEnriched, capturedImages,
-                                                        capturedTargetInvocationId, capturedRetryAssistantId, capturedRouteStarted);
-                                } finally {
-                                        finished.set(true);
-                                        try { heartbeatTask.cancel(true); } catch (Exception ignored) { }
-                                        try { heartbeat.shutdownNow(); } catch (Exception ignored) { }
-                                        try { worker.shutdownNow(); } catch (Exception ignored) { }
-                                }
-                            });
-        });
-        return out;
+        runReActLoop(out, finished, c, invocation, childInvocation,
+                        correlationId, invocationId, agent, routeAgent,
+                        delegation, baseHistory, enriched, images,
+                        targetInvocationId, retryContext.replacedAssistantId(), routeStarted);
         }
 
         /** 收集路由阶段的中间状态，稍后一次性落库为事件。 */
@@ -909,6 +928,191 @@ public class ChatService {
                                 .toList();
         }
 
+        private ModelReply streamModelReply(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        boolean detectToolCall,
+                        boolean streamToUser,
+                        String system,
+                        List<Map<String, String>> history,
+                        String user,
+                        List<String> images) {
+                if (finished.get()) return new ModelReply("", false);
+                StringBuilder full = new StringBuilder();
+                AtomicBoolean streamed = new AtomicBoolean(false);
+                StreamingReplyEmitter emitter =
+                                streamToUser ? new StreamingReplyEmitter(out, finished, detectToolCall) : null;
+                try {
+                        llm.stream(system, history, user, images)
+                                        .doOnNext(
+                                                        chunk -> {
+                                                                if (chunk == null || chunk.isEmpty()) return;
+                                                                full.append(chunk);
+                                                                if (emitter != null && emitter.accept(chunk)) {
+                                                                        streamed.set(true);
+                                                                }
+                                                        })
+                                        .collectList()
+                                        .blockOptional(llmTimeout)
+                                        .orElse(List.of());
+                } finally {
+                        if (emitter != null && emitter.finish()) {
+                                streamed.set(true);
+                        }
+                }
+                return new ModelReply(full.toString(), streamed.get());
+        }
+
+        private boolean emitToken(SseEmitter out, AtomicBoolean finished, String chunk) {
+                if (finished.get() || chunk == null || chunk.isEmpty()) return false;
+                try {
+                        out.send(SseEmitter.event().name("token").data(chunk));
+                        return true;
+                } catch (IOException error) {
+                        finished.set(true);
+                        return false;
+                }
+        }
+
+        private boolean emitStage(
+                        SseEmitter out, AtomicBoolean finished, String key, String message) {
+                if (finished.get()) return false;
+                try {
+                        out.send(
+                                        SseEmitter.event()
+                                                .name("stage")
+                                                .data(Map.of("key", key, "message", message)));
+                        return true;
+                } catch (IOException error) {
+                        finished.set(true);
+                        return false;
+                }
+        }
+
+        /** 在前台准备阶段发生异常时，也必须通过已经建立的 SSE 返回可读错误并正常关闭。 */
+        private void handleUnhandledStreamError(
+                        SseEmitter out, AtomicBoolean finished, Throwable error) {
+                LoopError loopError = classifyLoopError(error);
+                String diagnosticMessage =
+                                error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+                if ("MODEL_TIMEOUT".equals(loopError.code())) {
+                        log.warn("Chat preparation timed out: {}", diagnosticMessage);
+                } else {
+                        log.error("Chat preparation failed", error);
+                }
+                finished.set(true);
+                try {
+                        out.send(
+                                        SseEmitter.event()
+                                                .name("error")
+                                                .data(Map.of("code", loopError.code(), "message", loopError.userMessage())));
+                } catch (IOException ignored) {
+                } finally {
+                        out.complete();
+                }
+        }
+
+        /**
+         * 只有确认不是工具调用 JSON 后才把模型片段发往插件，避免把内部协议内容展示给用户。
+         */
+        private final class StreamingReplyEmitter {
+                private final SseEmitter out;
+                private final AtomicBoolean finished;
+                private final boolean detectToolCall;
+                private final StringBuilder pending = new StringBuilder();
+                private boolean emitting;
+                private boolean suppressed;
+
+                private StreamingReplyEmitter(
+                                SseEmitter out, AtomicBoolean finished, boolean detectToolCall) {
+                        this.out = out;
+                        this.finished = finished;
+                        this.detectToolCall = detectToolCall;
+                }
+
+                private boolean accept(String chunk) {
+                        if (finished.get() || chunk == null || chunk.isEmpty()) return false;
+                        if (!detectToolCall || emitting) {
+                                return emitToken(out, finished, chunk);
+                        }
+                        if (suppressed) return false;
+                        pending.append(chunk);
+                        String text = pending.toString().stripLeading();
+                        boolean possibleJson = text.startsWith("{") || text.startsWith("```");
+                        if (!possibleJson) {
+                                if (text.length() < 24) return false;
+                                emitting = true;
+                                return flush();
+                        }
+                        String candidate = completeJsonObject(text);
+                        if (candidate != null) {
+                                if (parseToolCall(candidate) != null) {
+                                        suppressed = true;
+                                        pending.setLength(0);
+                                        return false;
+                                }
+                                emitting = true;
+                                return flush();
+                        }
+                        if (text.length() > 8192) {
+                                emitting = true;
+                                return flush();
+                        }
+                        return false;
+                }
+
+                private boolean finish() {
+                        if (!detectToolCall || emitting || suppressed) return false;
+                        String text = pending.toString().stripLeading();
+                        if (!text.isBlank() && parseToolCall(text) != null) {
+                                suppressed = true;
+                                pending.setLength(0);
+                                return false;
+                        }
+                        emitting = true;
+                        return flush();
+                }
+
+                private boolean flush() {
+                        if (pending.length() == 0) return false;
+                        String text = pending.toString();
+                        pending.setLength(0);
+                        return emitToken(out, finished, text);
+                }
+
+                private String completeJsonObject(String text) {
+                        int start = text.indexOf('{');
+                        if (start < 0) return null;
+                        int depth = 0;
+                        boolean inString = false;
+                        boolean escaped = false;
+                        for (int i = start; i < text.length(); i++) {
+                                char ch = text.charAt(i);
+                                if (inString) {
+                                        if (escaped) {
+                                                escaped = false;
+                                        } else if (ch == '\\') {
+                                                escaped = true;
+                                        } else if (ch == '"') {
+                                                inString = false;
+                                        }
+                                        continue;
+                                }
+                                if (ch == '"') {
+                                        inString = true;
+                                } else if (ch == '{') {
+                                        depth++;
+                                } else if (ch == '}') {
+                                        depth--;
+                                        if (depth == 0) {
+                                                return text.substring(start, i + 1);
+                                        }
+                                }
+                        }
+                        return null;
+                }
+        }
+
         /**
          * 代理执行主循环（ReAct）：让模型在「推理 → 调用工具 → 观察结果 → 再推理」之间迭代，
          * 直到模型给出最终答复或达到最大轮次。工具调用通过 {@link ToolExecutor} 真正执行（HTTP/MCP/浏览器提案），
@@ -974,21 +1178,33 @@ public class ChatService {
                         String currentAnswer = null;
                         String lastReply = null;
                         boolean endedWithToolCall = false;
+                        boolean answerStreamed = false;
+                        boolean delegatedSummary = delegation.delegated()
+                                        && routeAgent instanceof ConfigurableAgent parent
+                                        && "DOMAIN_SUMMARY".equals(parent.definition().getReturnMode());
                         for (int iter = 0; iter < maxToolIterations; iter++) {
                                 if (finished.get()) return;
-                                String reply;
-                                if (iter == 0) {
-                                        reply = llm.complete(systemEffective, turns, userInput, images)
-                                                        .blockOptional(llmTimeout).orElse(null);
-                                } else {
-                                        reply = llm.complete(systemEffective, turns, "")
-                                                        .blockOptional(llmTimeout).orElse(null);
-                                }
-                                if (reply == null) reply = "";
+                                emitStage(
+                                                out,
+                                                finished,
+                                                iter == 0 ? "generating" : "processing",
+                                                iter == 0 ? "正在生成回答…" : "正在整理处理结果…");
+                                ModelReply modelReply = streamModelReply(
+                                                out,
+                                                finished,
+                                                hasTools,
+                                                !delegatedSummary,
+                                                systemEffective,
+                                                turns,
+                                                iter == 0 ? userInput : "",
+                                                iter == 0 ? images : List.of());
+                                if (finished.get()) return;
+                                String reply = modelReply.content();
                                 lastReply = reply;
                                 ToolCall call = hasTools ? parseToolCall(reply) : null;
                                 if (call == null) {
                                         currentAnswer = reply;
+                                        answerStreamed = modelReply.streamed();
                                         break;
                                 }
                                 endedWithToolCall = true;
@@ -1001,6 +1217,7 @@ public class ChatService {
                                                         "工具调用失败：未找到已启用的工具 \"" + call.name + "\"。请直接给出最终答复，不要继续调用该工具。"));
                                         continue;
                                 }
+                                emitStage(out, finished, "tool", "正在调用工具：" + toolDef.getName());
                                 emitToolInvoked(out, finished, toolDef.getName(), call.argumentsJson);
                                 String result = toolExecutor.execute(toolDef, call.argumentsJson);
                                 trace.event(targetInvocationId, correlationId, TraceRecorder.Type.TOOL_CALL)
@@ -1036,10 +1253,8 @@ public class ChatService {
                         }
 
                         // 3) DOMAIN_SUMMARY：领域 Agent 对子 Agent 结果做二次总结（原本被吞掉，这里补上追踪与流式）。
-                        boolean delegatedSummary = delegation.delegated()
-                                        && routeAgent instanceof ConfigurableAgent parent
-                                        && "DOMAIN_SUMMARY".equals(parent.definition().getReturnMode());
                         if (delegatedSummary) {
+                                emitStage(out, finished, "summarizing", "正在整理最终回答…");
                                 long summaryStarted = System.nanoTime();
                                 String summary = null;
                                 String summaryError = null;
@@ -1068,6 +1283,7 @@ public class ChatService {
                                                 .save();
                                 if (summaryOk) {
                                         currentAnswer = summary;
+                                        answerStreamed = false;
                                 }
                         }
 
@@ -1123,13 +1339,15 @@ public class ChatService {
                                         .save();
 
                         // 6) 流式写出最终答复（DOMAIN_SUMMARY 时为总结后内容；其余为子 Agent 答案）。
-                        for (String chunk : splitForStreaming(currentAnswer)) {
-                                if (finished.get()) return;
-                                try {
-                                        out.send(SseEmitter.event().name("token").data(chunk));
-                                } catch (IOException e) {
-                                        finished.set(true);
-                                        return;
+                        if (!answerStreamed) {
+                                for (String chunk : splitForStreaming(currentAnswer)) {
+                                        if (finished.get()) return;
+                                        try {
+                                                out.send(SseEmitter.event().name("token").data(chunk));
+                                        } catch (IOException e) {
+                                                finished.set(true);
+                                                return;
+                                        }
                                 }
                         }
 

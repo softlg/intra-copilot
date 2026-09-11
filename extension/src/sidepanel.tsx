@@ -112,6 +112,7 @@ type Msg = {
   agentId?: string;
   attachments?: AttachmentView[];
   stopped?: boolean;
+  stage?: string;
   /** 由 SSE agent_selected 事件填充：实际处理该消息的 Agent 展示名。 */
   agentName?: string;
   /** 由 SSE delegation_decided 事件填充：领域 Agent 委派给了哪个子 Agent。 */
@@ -182,6 +183,14 @@ const translations = {
     requestTimeout: "请求超时，请稍后重试。",
     modelTimeout: "模型响应超时，请稍后重试。",
     modelUnavailable: "模型服务暂时不可用，请稍后重试。",
+    stageAnalyzing: "正在分析问题…",
+    stageRouting: "正在选择处理 Agent…",
+    stageDelegating: "正在分配处理任务…",
+    stageKnowledge: "正在查询知识库…",
+    stageGenerating: "正在生成回答…",
+    stageProcessing: "正在整理处理结果…",
+    stageSummarizing: "正在整理最终回答…",
+    stageTool: (tool: string) => `正在调用工具：${tool}`,
     uploadFailed: "附件上传失败",
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
@@ -311,6 +320,14 @@ const translations = {
     modelTimeout: "The model timed out. Please try again.",
     modelUnavailable:
       "The model service is temporarily unavailable. Please try again.",
+    stageAnalyzing: "Analyzing your question…",
+    stageRouting: "Selecting an Agent…",
+    stageDelegating: "Assigning the task…",
+    stageKnowledge: "Searching the knowledge base…",
+    stageGenerating: "Generating a response…",
+    stageProcessing: "Processing the result…",
+    stageSummarizing: "Preparing the final response…",
+    stageTool: (tool: string) => `Calling tool: ${tool}`,
     uploadFailed: "Attachment upload failed",
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
@@ -1438,6 +1455,7 @@ function App() {
         ...last,
         content: last.content ? `${last.content}\n\n${t.stopped}` : t.stopped,
         stopped: true,
+        stage: undefined,
       };
       return next;
     });
@@ -1463,9 +1481,33 @@ function App() {
         content: last.content
           ? `${last.content}\n\n> ${visibleMessage}`
           : visibleMessage,
+        stage: undefined,
       };
       return next;
     });
+  }
+
+  function stageLabel(key: string, tool?: string) {
+    switch (key) {
+      case "analyzing":
+        return t.stageAnalyzing;
+      case "routing":
+        return t.stageRouting;
+      case "delegating":
+        return t.stageDelegating;
+      case "knowledge":
+        return t.stageKnowledge;
+      case "generating":
+        return t.stageGenerating;
+      case "processing":
+        return t.stageProcessing;
+      case "summarizing":
+        return t.stageSummarizing;
+      case "tool":
+        return t.stageTool(tool || "");
+      default:
+        return t.thinking;
+    }
   }
 
   async function dataUrlFromObjectUrl(url: string): Promise<string> {
@@ -1614,6 +1656,7 @@ function App() {
                 ...item,
                 content: "",
                 stopped: false,
+                stage: undefined,
                 agentName: undefined,
                 delegatedTo: undefined,
               }
@@ -1746,9 +1789,20 @@ function App() {
               next[assistantIndex] = {
                 ...target,
                 content: target.content + data,
+                stage: undefined,
               };
               return next;
             });
+          }
+          if (name === "stage" && data) {
+            try {
+              const parsed = JSON.parse(data);
+              patchAssistantMsg(() => ({
+                stage: stageLabel(parsed.key, parsed.tool),
+              }));
+            } catch {
+              /* 忽略无法解析的阶段事件 */
+            }
           }
           if (name === "agent_selected" && data) {
             // 让用户看到这条消息实际由哪个 Agent 处理（自动路由时尤其重要）。
@@ -1780,7 +1834,9 @@ function App() {
               if (typeof completed.content === "string") {
                 if (completed.content) sawContent = true;
                 patchAssistantMsg((last) =>
-                  last.content ? {} : { content: completed.content },
+                  last.content
+                    ? { stage: undefined }
+                    : { content: completed.content, stage: undefined },
                 );
               }
             } catch {
@@ -2170,7 +2226,9 @@ function App() {
                           />
                         </div>
                       ) : (
-                        <span className="thinking-indicator">{t.thinking}</span>
+                        <span className="thinking-indicator">
+                          {message.stage || t.thinking}
+                        </span>
                       )
                     ) : (
                       message.content ||
