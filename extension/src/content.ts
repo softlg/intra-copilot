@@ -12,9 +12,10 @@ root.id = "intra-copilot-root";
 root.style.display = "none";
 const shadow = root.attachShadow({ mode: "open" });
 document.documentElement.appendChild(root);
-shadow.innerHTML = `<style>.ball{position:fixed;right:22px;bottom:80px;width:52px;height:52px;border-radius:50%;background:#2563eb;color:#fff;z-index:2147483647;display:grid;place-items:center;font:700 18px sans-serif;box-shadow:0 5px 16px #0004;cursor:grab;user-select:none}.ball.edge{width:26px;height:68px;right:0;border-radius:24px 0 0 24px;font-size:12px}.mini{position:absolute;right:2px;top:-18px;background:#111;color:#fff;border:0;border-radius:8px;font-size:11px}</style><div class="ball" title="打开 Intra Copilot">✦<button class="mini" title="收缩">−</button></div>`;
+shadow.innerHTML = `<style>.ball{position:fixed;right:22px;bottom:80px;width:52px;height:52px;border-radius:50%;background:#2563eb;color:#fff;z-index:2147483647;display:grid;place-items:center;font:700 18px sans-serif;box-shadow:0 5px 16px #0004;cursor:grab;user-select:none}.ball.edge{width:26px;height:68px;right:0;border-radius:24px 0 0 24px;font-size:12px}.ball-button{position:absolute;width:20px;height:20px;padding:0;border:1px solid #fff;border-radius:50%;background:#111;color:#fff;box-shadow:0 2px 6px #0004;cursor:pointer;font:600 13px/18px sans-serif;place-items:center}.mini{top:-11px;right:-11px;display:grid}.dismiss{top:-11px;left:-11px;display:grid}.dismiss:hover{background:#dc2626}</style><div class="ball" title="打开 Intra Copilot">✦<button class="ball-button mini" title="收缩">−</button><button class="ball-button dismiss" title="关闭悬浮球" aria-label="关闭悬浮球">×</button></div>`;
 const ball = shadow.querySelector(".ball") as HTMLElement;
 const mini = shadow.querySelector(".mini") as HTMLButtonElement;
+const dismiss = shadow.querySelector(".dismiss") as HTMLButtonElement;
 let language: Language = "zh";
 let pageEnabled = false;
 function setPageEnabled(enabled: boolean) {
@@ -33,6 +34,11 @@ function updateBallLanguage(next: Language) {
   language = next;
   ball.title = language === "en" ? "Open Intra Copilot" : "打开 Intra Copilot";
   mini.title = language === "en" ? "Collapse" : "收缩";
+  dismiss.title = language === "en" ? "Hide floating button" : "关闭悬浮球";
+  dismiss.setAttribute(
+    "aria-label",
+    language === "en" ? "Hide floating button" : "关闭悬浮球",
+  );
 }
 let drag = false,
   moved = false,
@@ -92,7 +98,7 @@ new MutationObserver(() => {
   }
 }).observe(document.documentElement, { childList: true, subtree: true });
 ball.addEventListener("pointerdown", (e) => {
-  if ((e.target as HTMLElement).classList.contains("mini")) return;
+  if ((e.target as HTMLElement).closest("button")) return;
   drag = true;
   moved = false;
   sx = e.clientX - ball.offsetLeft;
@@ -160,6 +166,13 @@ mini.addEventListener("click", (e) => {
     chrome.storage.local.set({ ballEdge: false });
   }
 });
+dismiss.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setPageEnabled(false);
+  chrome.runtime.sendMessage({ type: "DISMISS_FLOATING_BALL" }, (response) => {
+    if (chrome.runtime.lastError || !response?.ok) refreshPageEnabled();
+  });
+});
 export function collectContext(): Ctx {
   return {
     url: location.href,
@@ -179,6 +192,11 @@ export function collectContext(): Ctx {
   };
 }
 chrome.runtime.onMessage.addListener((msg: any, _sender: any, send: any) => {
+  if (msg?.type === "REFRESH_PAGE_ENABLED") {
+    refreshPageEnabled();
+    send({ ok: true });
+    return true;
+  }
   if (msg?.type === "COLLECT_CONTEXT") {
     send(collectContext());
     return true;

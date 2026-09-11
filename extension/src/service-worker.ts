@@ -1,5 +1,6 @@
 const SIDE_PANEL_PATH = "sidepanel.html";
 const SIDE_PANEL_ALL_TABS_KEY = "sidePanelAllTabs";
+const DISMISSED_BALL_TAB_IDS_KEY = "dismissedBallTabIds";
 let sidePanelAllTabs = false;
 
 async function configureTabSidePanel(tabId: number) {
@@ -104,9 +105,16 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 });
 
-function tabIsEnabled(tabId: number, mode: unknown, enabled: unknown) {
+function tabIsEnabled(
+  tabId: number,
+  mode: unknown,
+  enabled: unknown,
+  dismissed: unknown,
+) {
   return (
-    mode === "all_pages" || (Array.isArray(enabled) && enabled.includes(tabId))
+    !(Array.isArray(dismissed) && dismissed.includes(tabId)) &&
+    (mode === "all_pages" ||
+      (Array.isArray(enabled) && enabled.includes(tabId)))
   );
 }
 
@@ -121,13 +129,42 @@ chrome.runtime.onMessage.addListener(
     }
     if (msg?.type === "CONTENT_READY" && sender.tab?.id != null) {
       chrome.storage.local.get(["activationMode", "enabledTabIds"], (value) => {
-        sendResponse({
-          enabled: tabIsEnabled(
-            sender.tab.id,
-            value.activationMode ?? "manual",
-            value.enabledTabIds,
-          ),
+        chrome.storage.session.get([DISMISSED_BALL_TAB_IDS_KEY], (session) => {
+          sendResponse({
+            enabled: tabIsEnabled(
+              sender.tab.id,
+              value.activationMode ?? "manual",
+              value.enabledTabIds,
+              session[DISMISSED_BALL_TAB_IDS_KEY],
+            ),
+          });
         });
+      });
+      return true;
+    }
+    if (msg?.type === "DISMISS_FLOATING_BALL" && sender.tab?.id != null) {
+      const tabId = sender.tab.id;
+      chrome.storage.session.get([DISMISSED_BALL_TAB_IDS_KEY], (session) => {
+        const ids = Array.isArray(session[DISMISSED_BALL_TAB_IDS_KEY])
+          ? session[DISMISSED_BALL_TAB_IDS_KEY].filter((id: unknown) =>
+              Number.isInteger(id),
+            )
+          : [];
+        chrome.storage.session.set(
+          {
+            [DISMISSED_BALL_TAB_IDS_KEY]: Array.from(new Set([...ids, tabId])),
+          },
+          () => {
+            void chrome.runtime
+              .sendMessage({
+                type: "BALL_VISIBILITY_CHANGED",
+                tabId,
+                enabled: false,
+              })
+              .catch(() => {});
+            sendResponse({ ok: true, enabled: false });
+          },
+        );
       });
       return true;
     }
@@ -144,28 +181,46 @@ chrome.runtime.onMessage.addListener(
         const ids = Array.isArray(value.enabledTabIds)
           ? value.enabledTabIds.filter((id: unknown) => Number.isInteger(id))
           : [];
-        const next =
-          msg.type === "ENABLE_CURRENT_TAB"
-            ? Array.from(new Set([...ids, tabId]))
-            : ids.filter((id: number) => id !== tabId);
-        chrome.storage.local.set({ enabledTabIds: next }, () =>
-          sendResponse({
-            ok: true,
-            enabled: msg.type === "ENABLE_CURRENT_TAB",
-          }),
-        );
+        const enabling = msg.type === "ENABLE_CURRENT_TAB";
+        const next = enabling
+          ? Array.from(new Set([...ids, tabId]))
+          : ids.filter((id: number) => id !== tabId);
+        chrome.storage.session.get([DISMISSED_BALL_TAB_IDS_KEY], (session) => {
+          const dismissed = Array.isArray(session[DISMISSED_BALL_TAB_IDS_KEY])
+            ? session[DISMISSED_BALL_TAB_IDS_KEY].filter((id: unknown) =>
+                Number.isInteger(id),
+              )
+            : [];
+          const nextDismissed = enabling
+            ? dismissed.filter((id: number) => id !== tabId)
+            : Array.from(new Set([...dismissed, tabId]));
+          chrome.storage.local.set({ enabledTabIds: next }, () => {
+            chrome.storage.session.set(
+              { [DISMISSED_BALL_TAB_IDS_KEY]: nextDismissed },
+              () => {
+                void chrome.tabs
+                  .sendMessage(tabId, { type: "REFRESH_PAGE_ENABLED" })
+                  .catch(() => {});
+                sendResponse({ ok: true, enabled: enabling });
+              },
+            );
+          });
+        });
       });
       return true;
     }
     if (msg?.type === "GET_TAB_ENABLED") {
       const tabId = Number(msg.tabId);
       chrome.storage.local.get(["activationMode", "enabledTabIds"], (value) => {
-        sendResponse({
-          enabled: tabIsEnabled(
-            tabId,
-            value.activationMode ?? "manual",
-            value.enabledTabIds,
-          ),
+        chrome.storage.session.get([DISMISSED_BALL_TAB_IDS_KEY], (session) => {
+          sendResponse({
+            enabled: tabIsEnabled(
+              tabId,
+              value.activationMode ?? "manual",
+              value.enabledTabIds,
+              session[DISMISSED_BALL_TAB_IDS_KEY],
+            ),
+          });
         });
       });
       return true;
@@ -214,13 +269,27 @@ chrome.runtime.onMessage.addListener(
 chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.local.get(["enabledTabIds"], (value) => {
     if (
-      !Array.isArray(value.enabledTabIds) ||
-      !value.enabledTabIds.includes(tabId)
+      Array.isArray(value.enabledTabIds) &&
+      value.enabledTabIds.includes(tabId)
+    ) {
+      chrome.storage.local.set({
+        enabledTabIds: value.enabledTabIds.filter(
+          (id: unknown) => id !== tabId,
+        ),
+      });
+    }
+  });
+  chrome.storage.session.get([DISMISSED_BALL_TAB_IDS_KEY], (value) => {
+    if (
+      !Array.isArray(value[DISMISSED_BALL_TAB_IDS_KEY]) ||
+      !value[DISMISSED_BALL_TAB_IDS_KEY].includes(tabId)
     ) {
       return;
     }
-    chrome.storage.local.set({
-      enabledTabIds: value.enabledTabIds.filter((id: unknown) => id !== tabId),
+    chrome.storage.session.set({
+      [DISMISSED_BALL_TAB_IDS_KEY]: value[DISMISSED_BALL_TAB_IDS_KEY].filter(
+        (id: unknown) => id !== tabId,
+      ),
     });
   });
 });

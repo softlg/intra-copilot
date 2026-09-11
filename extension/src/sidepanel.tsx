@@ -143,8 +143,8 @@ const translations = {
     allPages: "所有页面开启",
     manualPages: "仅在手动开启的页面使用",
     currentPage: "当前页面",
-    enableCurrentPage: "在当前页面开启",
-    disableCurrentPage: "关闭当前页面插件",
+    enableCurrentPage: "在当前页面显示悬浮球",
+    disableCurrentPage: "关闭当前页面悬浮球",
     language: "语言",
     chinese: "中文",
     english: "English",
@@ -279,8 +279,8 @@ const translations = {
     allPages: "Enable on all pages",
     manualPages: "Only use on pages enabled manually",
     currentPage: "Current page",
-    enableCurrentPage: "Enable on current page",
-    disableCurrentPage: "Disable on current page",
+    enableCurrentPage: "Show floating button on current page",
+    disableCurrentPage: "Hide floating button on current page",
     language: "Language",
     chinese: "中文",
     english: "English",
@@ -814,6 +814,19 @@ function App() {
     if (!preferencesLoaded) return;
     chrome.storage.local.set({ pageInfoSelection });
   }, [pageInfoSelection, preferencesLoaded]);
+
+  useEffect(() => {
+    const handleMessage = (message: any) => {
+      if (
+        message?.type === "BALL_VISIBILITY_CHANGED" &&
+        message.tabId === currentTabId
+      ) {
+        setCurrentTabEnabled(Boolean(message.enabled));
+      }
+    };
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => chrome.runtime.onMessage.removeListener(handleMessage);
+  }, [currentTabId]);
 
   async function refreshCurrentTabState() {
     try {
@@ -2115,7 +2128,7 @@ function App() {
                 />
                 {t.manualPages}
               </label>
-              {activationMode === "manual" && (
+              {(activationMode === "manual" || !currentTabEnabled) && (
                 <button
                   className="current-page-toggle"
                   onClick={toggleCurrentTab}
