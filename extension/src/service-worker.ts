@@ -1,61 +1,134 @@
+const SIDE_PANEL_PATH = "sidepanel.html";
+const SIDE_PANEL_ALL_TABS_KEY = "sidePanelAllTabs";
+let sidePanelAllTabs = false;
+
+async function configureTabSidePanel(tabId: number) {
+  await chrome.sidePanel
+    .setOptions({
+      tabId,
+      path: SIDE_PANEL_PATH,
+      enabled: true,
+    })
+    .catch(() => {});
+}
+
+async function configureOpenTabs() {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs.flatMap((tab) =>
+      tab.id == null ? [] : [configureTabSidePanel(tab.id)],
+    ),
+  );
+}
+
+async function applySidePanelMode(allTabs: boolean) {
+  sidePanelAllTabs = allTabs;
+  await chrome.sidePanel
+    .setOptions({
+      path: SIDE_PANEL_PATH,
+      enabled: allTabs,
+    })
+    .catch(() => {});
+  if (!allTabs) await configureOpenTabs();
+}
+
+async function loadSidePanelMode() {
+  const value = await chrome.storage.local.get(SIDE_PANEL_ALL_TABS_KEY);
+  await applySidePanelMode(value[SIDE_PANEL_ALL_TABS_KEY] === true);
+}
+
+function openSidePanelForTab(tabId: number, windowId: number) {
+  if (sidePanelAllTabs) {
+    void chrome.sidePanel.open({ windowId }).catch(() => {});
+    return;
+  }
+
+  void configureTabSidePanel(tabId);
+  void chrome.sidePanel.open({ tabId }).catch(() => {});
+}
+
+chrome.sidePanel
+  .setPanelBehavior({ openPanelOnActionClick: false })
+  .catch(() => {});
+void loadSidePanelMode();
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
+    .setPanelBehavior({ openPanelOnActionClick: false })
     .catch(() => {});
   chrome.storage.local.get(
-    ["activationMode", "defaultCurrentPage", "enabledTabIds"],
+    ["activationMode", "enabledTabIds", SIDE_PANEL_ALL_TABS_KEY],
     (value) => {
       const defaults: Record<string, unknown> = {};
       if (
         value.activationMode !== "all_pages" &&
-        value.activationMode !== "current_page"
+        value.activationMode !== "manual"
       ) {
-        defaults.activationMode = "current_page";
-        // 旧版 manual 模式允许多个标签页同时开启，迁移时清除。
+        defaults.activationMode = "manual";
         defaults.enabledTabIds = [];
       }
-      if (typeof value.defaultCurrentPage !== "boolean") {
-        defaults.defaultCurrentPage = true;
-      }
       if (!Array.isArray(value.enabledTabIds)) defaults.enabledTabIds = [];
-      if (Object.keys(defaults).length) chrome.storage.local.set(defaults);
+      if (typeof value[SIDE_PANEL_ALL_TABS_KEY] !== "boolean") {
+        defaults[SIDE_PANEL_ALL_TABS_KEY] = false;
+      }
+      if (Object.keys(defaults).length) {
+        chrome.storage.local.set(defaults, () => void loadSidePanelMode());
+      } else {
+        void loadSidePanelMode();
+      }
     },
   );
 });
-function tabIsEnabled(
-  tabId: number,
-  active: boolean,
-  value: {
-    activationMode?: unknown;
-    defaultCurrentPage?: unknown;
-    enabledTabIds?: unknown;
-  },
-) {
-  if (value.activationMode === "all_pages") return true;
-  if (value.defaultCurrentPage !== false && active) return true;
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes[SIDE_PANEL_ALL_TABS_KEY]) {
+    void applySidePanelMode(changes[SIDE_PANEL_ALL_TABS_KEY].newValue === true);
+  }
+});
+
+chrome.action.onClicked.addListener((tab) => {
+  if (tab.id == null || tab.windowId == null) return;
+  openSidePanelForTab(tab.id, tab.windowId);
+});
+
+chrome.tabs.onCreated.addListener((tab) => {
+  if (!sidePanelAllTabs && tab.id != null) void configureTabSidePanel(tab.id);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (
+    !sidePanelAllTabs &&
+    (changeInfo.status === "complete" || changeInfo.url)
+  ) {
+    void configureTabSidePanel(tabId);
+  }
+});
+
+function tabIsEnabled(tabId: number, mode: unknown, enabled: unknown) {
   return (
-    Array.isArray(value.enabledTabIds) && value.enabledTabIds.includes(tabId)
+    mode === "all_pages" || (Array.isArray(enabled) && enabled.includes(tabId))
   );
 }
 
 chrome.runtime.onMessage.addListener(
   (msg: any, sender: any, sendResponse: any) => {
-    if (msg?.type === "OPEN_SIDE_PANEL" && sender.tab?.windowId !== undefined) {
-      chrome.sidePanel.open({ windowId: sender.tab.windowId }).catch(() => {});
+    if (
+      msg?.type === "OPEN_SIDE_PANEL" &&
+      sender.tab?.id != null &&
+      sender.tab?.windowId != null
+    ) {
+      openSidePanelForTab(sender.tab.id, sender.tab.windowId);
     }
     if (msg?.type === "CONTENT_READY" && sender.tab?.id != null) {
-      chrome.storage.local.get(
-        ["activationMode", "defaultCurrentPage", "enabledTabIds"],
-        (value) => {
-          sendResponse({
-            enabled: tabIsEnabled(
-              sender.tab.id,
-              Boolean(sender.tab.active),
-              value,
-            ),
-          });
-        },
-      );
+      chrome.storage.local.get(["activationMode", "enabledTabIds"], (value) => {
+        sendResponse({
+          enabled: tabIsEnabled(
+            sender.tab.id,
+            value.activationMode ?? "manual",
+            value.enabledTabIds,
+          ),
+        });
+      });
       return true;
     }
     if (
@@ -73,7 +146,7 @@ chrome.runtime.onMessage.addListener(
           : [];
         const next =
           msg.type === "ENABLE_CURRENT_TAB"
-            ? [tabId]
+            ? Array.from(new Set([...ids, tabId]))
             : ids.filter((id: number) => id !== tabId);
         chrome.storage.local.set({ enabledTabIds: next }, () =>
           sendResponse({
@@ -86,21 +159,15 @@ chrome.runtime.onMessage.addListener(
     }
     if (msg?.type === "GET_TAB_ENABLED") {
       const tabId = Number(msg.tabId);
-      chrome.tabs
-        .get(tabId)
-        .then((tab) =>
-          chrome.storage.local.get(
-            ["activationMode", "defaultCurrentPage", "enabledTabIds"],
-            (value) => {
-              sendResponse({
-                enabled: tabIsEnabled(tabId, Boolean(tab.active), value),
-              });
-            },
+      chrome.storage.local.get(["activationMode", "enabledTabIds"], (value) => {
+        sendResponse({
+          enabled: tabIsEnabled(
+            tabId,
+            value.activationMode ?? "manual",
+            value.enabledTabIds,
           ),
-        )
-        .catch(() => {
-          sendResponse({ enabled: false });
         });
+      });
       return true;
     }
     if (msg?.type === "CAPTURE_SCREENSHOT") {
@@ -143,17 +210,6 @@ chrome.runtime.onMessage.addListener(
     }
   },
 );
-
-chrome.tabs.onActivated.addListener(({ windowId }) => {
-  chrome.tabs.query({ windowId }, (tabs) => {
-    for (const tab of tabs) {
-      if (tab.id == null) continue;
-      chrome.tabs
-        .sendMessage(tab.id, { type: "REFRESH_ACTIVATION" })
-        .catch(() => {});
-    }
-  });
-});
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.local.get(["enabledTabIds"], (value) => {

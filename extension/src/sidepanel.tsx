@@ -16,7 +16,7 @@ const API = `${API_BASE}/api/v1`;
 const CHAT_STREAM_TIMEOUT_MS = 610_000;
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
-type ActivationMode = "all_pages" | "current_page";
+type ActivationMode = "all_pages" | "manual";
 type Feedback = "up" | "down" | null;
 type FeedbackToast = { index: number; kind: "cleared" | "thanks" };
 type AttachmentView = {
@@ -137,9 +137,11 @@ const translations = {
     followSystem: "跟随系统",
     light: "浅色",
     dark: "深色",
-    activationScope: "插件启用范围",
-    defaultCurrentPage: "默认在当前页面打开",
+    sidePanelScope: "侧边栏",
+    sidePanelAllTabs: "在所有标签页启用",
+    activationScope: "悬浮球显示范围",
     allPages: "所有页面开启",
+    manualPages: "仅在手动开启的页面使用",
     currentPage: "当前页面",
     enableCurrentPage: "在当前页面开启",
     disableCurrentPage: "关闭当前页面插件",
@@ -271,9 +273,11 @@ const translations = {
     followSystem: "Follow system",
     light: "Light",
     dark: "Dark",
-    activationScope: "Extension activation",
-    defaultCurrentPage: "Open on the current page by default",
+    sidePanelScope: "Side panel",
+    sidePanelAllTabs: "Enable on all tabs",
+    activationScope: "Floating button scope",
     allPages: "Enable on all pages",
+    manualPages: "Only use on pages enabled manually",
     currentPage: "Current page",
     enableCurrentPage: "Enable on current page",
     disableCurrentPage: "Disable on current page",
@@ -621,9 +625,10 @@ function App() {
   });
   const [pageInfoOpen, setPageInfoOpen] = useState(false);
   const [activationMode, setActivationMode] =
-    useState<ActivationMode>("current_page");
-  const [defaultCurrentPage, setDefaultCurrentPage] = useState(true);
+    useState<ActivationMode>("manual");
+  const [sidePanelAllTabs, setSidePanelAllTabs] = useState(false);
   const [currentTabId, setCurrentTabId] = useState<number>();
+  const [currentWindowId, setCurrentWindowId] = useState<number>();
   const [currentTabEnabled, setCurrentTabEnabled] = useState(false);
   const [availableTabs, setAvailableTabs] = useState<chrome.tabs.Tab[]>([]);
   const [selectedTabIds, setSelectedTabIds] = useState<number[]>([]);
@@ -747,7 +752,7 @@ function App() {
         "language",
         "readPageEnabled",
         "activationMode",
-        "defaultCurrentPage",
+        "sidePanelAllTabs",
         "pageInfoSelection",
       ],
       (value: {
@@ -755,7 +760,7 @@ function App() {
         language?: Language;
         readPageEnabled?: boolean;
         activationMode?: ActivationMode;
-        defaultCurrentPage?: boolean;
+        sidePanelAllTabs?: boolean;
         pageInfoSelection?: Partial<Record<PageInfoKey, boolean>>;
       }) => {
         if (value.theme === "light" || value.theme === "dark") {
@@ -769,12 +774,12 @@ function App() {
         }
         if (
           value.activationMode === "all_pages" ||
-          value.activationMode === "current_page"
+          value.activationMode === "manual"
         ) {
           setActivationMode(value.activationMode);
         }
-        if (typeof value.defaultCurrentPage === "boolean") {
-          setDefaultCurrentPage(value.defaultCurrentPage);
+        if (typeof value.sidePanelAllTabs === "boolean") {
+          setSidePanelAllTabs(value.sidePanelAllTabs);
         }
         if (value.pageInfoSelection) {
           setPageInfoSelection((current) => ({
@@ -801,9 +806,9 @@ function App() {
 
   useEffect(() => {
     if (!preferencesLoaded) return;
-    chrome.storage.local.set({ activationMode, defaultCurrentPage });
+    chrome.storage.local.set({ activationMode, sidePanelAllTabs });
     refreshCurrentTabState();
-  }, [activationMode, defaultCurrentPage, preferencesLoaded]);
+  }, [activationMode, sidePanelAllTabs, preferencesLoaded]);
 
   useEffect(() => {
     if (!preferencesLoaded) return;
@@ -818,6 +823,7 @@ function App() {
       });
       const id = tabs[0]?.id;
       setCurrentTabId(id);
+      setCurrentWindowId(tabs[0]?.windowId);
       if (id == null) return;
       const result = await chrome.runtime.sendMessage({
         type: "GET_TAB_ENABLED",
@@ -826,6 +832,7 @@ function App() {
       setCurrentTabEnabled(Boolean(result?.enabled));
     } catch {
       setCurrentTabId(undefined);
+      setCurrentWindowId(undefined);
     }
   }
 
@@ -839,6 +846,36 @@ function App() {
       tabId: currentTabId,
     });
     if (result?.ok) setCurrentTabEnabled(Boolean(result.enabled));
+  }
+
+  function updateSidePanelAllTabs(enabled: boolean) {
+    setSidePanelAllTabs(enabled);
+    void chrome.storage.local.set({ sidePanelAllTabs: enabled });
+    if (enabled) {
+      void chrome.sidePanel.setOptions({
+        path: "sidepanel.html",
+        enabled: true,
+      });
+      if (currentWindowId != null) {
+        void chrome.sidePanel
+          .open({ windowId: currentWindowId })
+          .catch(() => {});
+      }
+      return;
+    }
+
+    void chrome.sidePanel.setOptions({
+      path: "sidepanel.html",
+      enabled: false,
+    });
+    if (currentTabId != null) {
+      void chrome.sidePanel.setOptions({
+        tabId: currentTabId,
+        path: "sidepanel.html",
+        enabled: true,
+      });
+      void chrome.sidePanel.open({ tabId: currentTabId }).catch(() => {});
+    }
   }
 
   const t = translations[language];
@@ -2044,32 +2081,41 @@ function App() {
                 {t.english}
               </label>
               <div className="settings-title language-title">
-                {t.activationScope}
+                {t.sidePanelScope}
               </div>
               <label>
                 <input
                   type="checkbox"
-                  checked={defaultCurrentPage}
-                  disabled={activationMode === "all_pages"}
+                  checked={sidePanelAllTabs}
+                  disabled={currentTabId == null || currentWindowId == null}
                   onChange={(event) =>
-                    setDefaultCurrentPage(event.target.checked)
+                    void updateSidePanelAllTabs(event.target.checked)
                   }
                 />
-                {t.defaultCurrentPage}
+                {t.sidePanelAllTabs}
               </label>
+              <div className="settings-title language-title">
+                {t.activationScope}
+              </div>
               <label>
                 <input
-                  type="checkbox"
+                  type="radio"
+                  name="activationMode"
                   checked={activationMode === "all_pages"}
-                  onChange={(event) =>
-                    setActivationMode(
-                      event.target.checked ? "all_pages" : "current_page",
-                    )
-                  }
+                  onChange={() => setActivationMode("all_pages")}
                 />
                 {t.allPages}
               </label>
-              {activationMode === "current_page" && !defaultCurrentPage && (
+              <label>
+                <input
+                  type="radio"
+                  name="activationMode"
+                  checked={activationMode === "manual"}
+                  onChange={() => setActivationMode("manual")}
+                />
+                {t.manualPages}
+              </label>
+              {activationMode === "manual" && (
                 <button
                   className="current-page-toggle"
                   onClick={toggleCurrentTab}
