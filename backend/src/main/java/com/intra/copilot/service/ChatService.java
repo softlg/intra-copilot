@@ -706,6 +706,11 @@ public class ChatService {
                                                                                         "filename", source.filename(),
                                                                                         "pageNumber", source.pageNumber(),
                                                                                         "distance", source.distance(),
+                                                                                        "similarity", source.similarity(),
+                                                                                        "lexicalScore", source.lexicalScore(),
+                                                                                        "score", source.score(),
+                                                                                        "mode", source.retrievalMode(),
+                                                                                        "belowThreshold", source.belowThreshold(),
                                                                                         "contentPreview", preview(source.content())))
                                                                         .toList())
                                                         .save();

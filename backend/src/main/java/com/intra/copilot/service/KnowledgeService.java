@@ -20,9 +20,13 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -57,7 +61,11 @@ public class KnowledgeService implements KnowledgeRetriever {
     private final IndexingJobService jobService;
     private final KnowledgeAuditService audit;
     private final long maxDocumentBytes;
-    private final double similarityThreshold;
+    private final double defaultSimilarityThreshold;
+    private final int defaultTopK;
+    private final String defaultRetrievalMode;
+    private final double defaultLexicalWeight;
+    private final boolean defaultFallbackEnabled;
 
     public KnowledgeService(KnowledgeBaseRepository bases, KnowledgeDocumentRepository documents,
             DocumentChunkRepository chunks, KnowledgeDocumentStorageRepository storageRecords,
@@ -65,7 +73,11 @@ public class KnowledgeService implements KnowledgeRetriever {
             EmbeddingProfileService embeddingProfiles, EmbeddingSchema schema, DocumentParserRegistry parsers,
             IndexingJobService jobService, KnowledgeAuditService audit,
             @Value("${rag.max-document-bytes:104857600}") long maxDocumentBytes,
-            @Value("${rag.similarity-threshold:0.65}") double similarityThreshold) {
+            @Value("${rag.similarity-threshold:0.50}") double similarityThreshold,
+            @Value("${rag.top-k:5}") int topK,
+            @Value("${rag.retrieval-mode:HYBRID}") String retrievalMode,
+            @Value("${rag.lexical-weight:0.30}") double lexicalWeight,
+            @Value("${rag.fallback-enabled:true}") boolean fallbackEnabled) {
         this.bases = bases;
         this.documents = documents;
         this.chunks = chunks;
@@ -79,7 +91,11 @@ public class KnowledgeService implements KnowledgeRetriever {
         this.jobService = jobService;
         this.audit = audit;
         this.maxDocumentBytes = Math.max(1, maxDocumentBytes);
-        this.similarityThreshold = Math.max(0, Math.min(2, similarityThreshold));
+        this.defaultSimilarityThreshold = clamp(similarityThreshold, 0, 1);
+        this.defaultTopK = clamp(topK, 1, 20);
+        this.defaultRetrievalMode = normalizeRetrievalMode(retrievalMode);
+        this.defaultLexicalWeight = clamp(lexicalWeight, 0, 1);
+        this.defaultFallbackEnabled = fallbackEnabled;
     }
 
     public List<KnowledgeBase> listBases() {
@@ -163,9 +179,48 @@ public class KnowledgeService implements KnowledgeRetriever {
         return chunks.findAllByDocumentIdOrderByChunkIndex(documentId);
     }
 
-    public List<Result> searchBase(String baseId, String query, int topK) {
+    public List<Result> searchBase(String baseId, String query, Integer topK, RetrievalOverrides overrides) {
         if (bases.findById(baseId).isEmpty()) throw new IllegalArgumentException("知识库不存在");
-        return search(query, List.of(baseId), topK);
+        return searchInternal(query, List.of(baseId), topK, overrides);
+    }
+
+    public List<Result> searchBase(String baseId, String query, int topK) {
+        return searchBase(baseId, query, topK, null);
+    }
+
+    @Transactional
+    public KnowledgeBase updateRetrievalConfig(String id, RetrievalConfigRequest request) {
+        KnowledgeBase base = bases.findById(id).orElseThrow(() -> new IllegalArgumentException("知识库不存在"));
+        if (request == null) throw new IllegalArgumentException("检索配置不能为空");
+        if (request.topK() == null || request.topK() < 1 || request.topK() > 20) {
+            throw new IllegalArgumentException("检索条数必须在 1 到 20 之间");
+        }
+        if (request.similarityThreshold() == null
+                || request.similarityThreshold() < 0
+                || request.similarityThreshold() > 1) {
+            throw new IllegalArgumentException("相似度阈值必须在 0 到 1 之间");
+        }
+        if (request.lexicalWeight() == null || request.lexicalWeight() < 0 || request.lexicalWeight() > 1) {
+            throw new IllegalArgumentException("关键词权重必须在 0 到 1 之间");
+        }
+        String mode = request.retrievalMode() == null
+                ? "HYBRID"
+                : request.retrievalMode().trim().toUpperCase(Locale.ROOT);
+        if (!"DENSE".equals(mode) && !"HYBRID".equals(mode)) {
+            throw new IllegalArgumentException("检索模式只能是 DENSE 或 HYBRID");
+        }
+        base.setRetrievalTopK(request.topK());
+        base.setRetrievalSimilarityThreshold(request.similarityThreshold());
+        base.setRetrievalMode(mode);
+        base.setRetrievalLexicalWeight(request.lexicalWeight());
+        base.setRetrievalFallbackEnabled(request.fallbackEnabled() == null || request.fallbackEnabled());
+        base.touch();
+        KnowledgeBase saved = bases.save(base);
+        audit.record(id, null, com.intra.copilot.model.KnowledgeAuditLog.ACTION_UPDATE_RETRIEVAL,
+                "topK=" + saved.getRetrievalTopK() + ", threshold=" + saved.getRetrievalSimilarityThreshold()
+                        + ", mode=" + saved.getRetrievalMode() + ", lexicalWeight="
+                        + saved.getRetrievalLexicalWeight() + ", fallback=" + saved.getRetrievalFallbackEnabled());
+        return saved;
     }
 
     public Diagnostics diagnostics(String baseId) {
@@ -205,8 +260,10 @@ public class KnowledgeService implements KnowledgeRetriever {
             long staleVectors = countValue("SELECT COUNT(*) FROM " + table + " e"
                     + " JOIN document_chunk c ON c.id = e.chunk_id"
                     + " JOIN knowledge_document d ON d.id = c.document_id"
-                    + " WHERE d.knowledge_base_id = ? AND (c.embedding_model IS NULL OR c.embedding_model <> ?)",
-                    baseId, profile.getModel());
+                    + " WHERE d.knowledge_base_id = ? AND (e.embedding_profile_id <> ?"
+                    + " OR c.embedding_model IS NULL OR c.embedding_model <> ?"
+                    + " OR c.embedding_dimension IS NULL OR c.embedding_dimension <> ?)",
+                    baseId, profile.getId(), profile.getModel(), profile.getDimension());
             if (staleVectors > 0) {
                 issues.add(new DiagnosticIssue("STALE_CHUNKS", "warning",
                         staleVectors + " 个分块由其它 Embedding 模型生成，检索结果可能不一致",
@@ -323,30 +380,97 @@ public class KnowledgeService implements KnowledgeRetriever {
 
     @Override
     public List<Result> search(String query, List<String> ids, int topK) {
+        return searchInternal(query, ids, topK, null);
+    }
+
+    private List<Result> searchInternal(
+            String query, List<String> ids, Integer requestedTopK, RetrievalOverrides overrides) {
         if (query == null || query.isBlank() || ids == null || ids.isEmpty()) return List.of();
-        List<RankedResult> ranked = new ArrayList<>();
-        int limit = Math.max(1, Math.min(topK, 20));
+        int requestedLimit = clamp(requestedTopK == null ? defaultTopK : requestedTopK, 1, 20);
+        List<ScoredList> scoredLists = new ArrayList<>();
+        Map<String, List<Double>> queryVectors = new HashMap<>();
         for (String id : ids) {
             KnowledgeBase base = bases.findById(id).orElse(null);
             if (base == null || !base.isEnabled()) continue;
+            RetrievalConfig config = resolveRetrievalConfig(base, overrides);
             EmbeddingProfile profile = embeddingProfiles.resolve(base);
             if (!schema.supports(profile.getDimension())) continue;
             String table = schema.tableFor(profile.getDimension());
             String cast = schema.castFor(profile.getDimension());
-            String vector = EmbeddingClient.literal(embeddings.embed(query, profile));
-            String sql = "SELECT c.document_id,d.filename,c.page_number,c.content,(e.embedding <=> " + cast + ") AS distance"
+            String vectorKey = profile.getId() + "|" + profile.getModel() + "|" + profile.getDimension();
+            String vector = EmbeddingClient.literal(queryVectors.computeIfAbsent(
+                    vectorKey, key -> embeddings.embed(query, profile)));
+            int candidateLimit = Math.min(200, Math.max(30, config.topK() * 6));
+            String sql = "SELECT c.id AS chunk_id,c.document_id,d.filename,c.page_number,c.content,"
+                    + "(1 - (e.embedding <=> " + cast + ")) AS similarity"
                     + " FROM document_chunk c JOIN knowledge_document d ON d.id=c.document_id"
                     + " JOIN " + table + " e ON e.chunk_id=c.id"
-                    + " WHERE e.knowledge_base_id = ? AND d.status = 'READY' AND (1 - (e.embedding <=> " + cast + ")) >= ?"
+                    + " WHERE e.knowledge_base_id = ? AND d.status = 'READY'"
+                    + " AND (c.embedding_model IS NULL OR c.embedding_model = ?)"
+                    + " AND (c.embedding_dimension IS NULL OR c.embedding_dimension = ?)"
                     + " ORDER BY e.embedding <=> " + cast + " LIMIT ?";
-            List<Result> local = jdbc.query(sql, new Object[]{vector, id, vector, similarityThreshold, vector, limit},
-                    (rs, n) -> new Result(rs.getString("document_id"), rs.getString("filename"),
-                            (Integer) rs.getObject("page_number"), rs.getString("content"), rs.getDouble("distance")));
-            for (int rank = 0; rank < local.size(); rank++) ranked.add(new RankedResult(local.get(rank), 1.0 / (60 + rank + 1)));
+            List<Candidate> candidates = jdbc.query(sql,
+                    new Object[]{vector, id, profile.getModel(), profile.getDimension(),
+                            vector, candidateLimit},
+                    (rs, row) -> {
+                        String content = rs.getString("content");
+                        double similarity = clamp(rs.getDouble("similarity"), 0, 1);
+                        double lexical = RetrievalTextScorer.score(query, content);
+                        double score = "DENSE".equals(config.mode())
+                                ? similarity
+                                : (1 - config.lexicalWeight()) * similarity + config.lexicalWeight() * lexical;
+                        return new Candidate(rs.getString("chunk_id"), rs.getString("document_id"),
+                                rs.getString("filename"), (Integer) rs.getObject("page_number"), content,
+                                similarity, lexical, score);
+                    });
+            candidates.sort(Comparator.comparingDouble(Candidate::score).reversed()
+                    .thenComparing(Comparator.comparingDouble(Candidate::similarity).reversed()));
+            List<Candidate> selected = new ArrayList<>();
+            for (Candidate candidate : candidates) {
+                if (candidate.score() >= config.similarityThreshold()) {
+                    selected.add(candidate);
+                    if (selected.size() >= config.topK()) break;
+                }
+            }
+            if (selected.isEmpty() && config.fallbackEnabled() && !candidates.isEmpty()) {
+                selected.add(candidates.get(0).withBelowThreshold());
+            }
+            scoredLists.add(new ScoredList(config, selected));
         }
-        ranked.sort(Comparator.comparingDouble(RankedResult::score).reversed());
-        return ranked.stream().limit(limit).map(item -> new Result(item.result().documentId(), item.result().filename(),
-                item.result().pageNumber(), item.result().content(), 1 - item.score())).toList();
+        if (scoredLists.isEmpty()) return List.of();
+        if (scoredLists.size() == 1) {
+            ScoredList only = scoredLists.get(0);
+            List<Result> out = new ArrayList<>();
+            int limit = requestedTopK == null ? only.config().topK() : requestedLimit;
+            for (int i = 0; i < only.candidates().size() && i < limit; i++) {
+                out.add(only.candidates().get(i).toResult(only.config(), i + 1));
+            }
+            return out;
+        }
+
+        List<FusedCandidate> fused = new ArrayList<>();
+        for (ScoredList list : scoredLists) {
+            double min = list.candidates().stream().mapToDouble(Candidate::score).min().orElse(0);
+            double max = list.candidates().stream().mapToDouble(Candidate::score).max().orElse(0);
+            for (int index = 0; index < list.candidates().size(); index++) {
+                Candidate candidate = list.candidates().get(index);
+                double normalized = max > min ? (candidate.score() - min) / (max - min) : 1;
+                double rankScore = 1.0 / (index + 1);
+                fused.add(new FusedCandidate(candidate, list.config(), 0.8 * normalized + 0.2 * rankScore));
+            }
+        }
+        fused.sort(Comparator.comparingDouble(FusedCandidate::fusionScore).reversed());
+        List<Result> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (FusedCandidate item : fused) {
+            String key = item.candidate().chunkId() == null
+                    ? item.candidate().documentId() + "|" + item.candidate().pageNumber() + "|" + item.candidate().content()
+                    : item.candidate().chunkId();
+            if (!seen.add(key)) continue;
+            out.add(item.candidate().toResult(item.config(), out.size() + 1));
+            if (out.size() >= requestedLimit) break;
+        }
+        return out;
     }
 
     private void deleteStoredBytes(String documentId) {
@@ -389,6 +513,58 @@ public class KnowledgeService implements KnowledgeRetriever {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private RetrievalConfig resolveRetrievalConfig(KnowledgeBase base, RetrievalOverrides overrides) {
+        return resolveRetrievalConfig(
+                base,
+                overrides,
+                defaultTopK,
+                defaultSimilarityThreshold,
+                defaultRetrievalMode,
+                defaultLexicalWeight,
+                defaultFallbackEnabled);
+    }
+
+    static RetrievalConfig resolveRetrievalConfig(
+            KnowledgeBase base,
+            RetrievalOverrides overrides,
+            int defaultTopK,
+            double defaultSimilarityThreshold,
+            String defaultRetrievalMode,
+            double defaultLexicalWeight,
+            boolean defaultFallbackEnabled) {
+        int topK = base.getRetrievalTopK() == null ? defaultTopK : base.getRetrievalTopK();
+        double threshold = base.getRetrievalSimilarityThreshold() == null
+                ? defaultSimilarityThreshold : base.getRetrievalSimilarityThreshold();
+        String mode = base.getRetrievalMode() == null ? defaultRetrievalMode : base.getRetrievalMode();
+        double lexicalWeight = base.getRetrievalLexicalWeight() == null
+                ? defaultLexicalWeight : base.getRetrievalLexicalWeight();
+        boolean fallback = base.getRetrievalFallbackEnabled() == null
+                ? defaultFallbackEnabled : base.getRetrievalFallbackEnabled();
+        if (overrides != null) {
+            if (overrides.topK() != null) topK = overrides.topK();
+            if (overrides.similarityThreshold() != null) threshold = overrides.similarityThreshold();
+            if (overrides.retrievalMode() != null) mode = overrides.retrievalMode();
+            if (overrides.lexicalWeight() != null) lexicalWeight = overrides.lexicalWeight();
+            if (overrides.fallbackEnabled() != null) fallback = overrides.fallbackEnabled();
+        }
+        return new RetrievalConfig(clamp(topK, 1, 20), clamp(threshold, 0, 1),
+                normalizeRetrievalMode(mode), clamp(lexicalWeight, 0, 1), fallback);
+    }
+
+    private static String normalizeRetrievalMode(String mode) {
+        if (mode == null || mode.isBlank()) return "HYBRID";
+        String normalized = mode.trim().toUpperCase(Locale.ROOT);
+        return "DENSE".equals(normalized) ? "DENSE" : "HYBRID";
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private static boolean isFailed(String status) {
@@ -445,7 +621,60 @@ public class KnowledgeService implements KnowledgeRetriever {
         if (duplicate) throw new IllegalArgumentException("知识库名称已存在");
     }
 
-    private record RankedResult(Result result, double score) {}
+    private record Candidate(
+            String chunkId,
+            String documentId,
+            String filename,
+            Integer pageNumber,
+            String content,
+            double similarity,
+            double lexicalScore,
+            double score,
+            boolean belowThreshold) {
+
+        private Candidate(
+                String chunkId,
+                String documentId,
+                String filename,
+                Integer pageNumber,
+                String content,
+                double similarity,
+                double lexicalScore,
+                double score) {
+            this(chunkId, documentId, filename, pageNumber, content, similarity, lexicalScore, score, false);
+        }
+
+        private Candidate withBelowThreshold() {
+            return new Candidate(chunkId, documentId, filename, pageNumber, content, similarity,
+                    lexicalScore, score, true);
+        }
+
+        private Result toResult(RetrievalConfig config, int rank) {
+            return new Result(chunkId, documentId, filename, pageNumber, content, 1 - similarity,
+                    similarity, lexicalScore, score, config.mode(), belowThreshold, rank);
+        }
+    }
+
+    private record ScoredList(RetrievalConfig config, List<Candidate> candidates) {}
+
+    private record FusedCandidate(Candidate candidate, RetrievalConfig config, double fusionScore) {}
+
+    public record RetrievalConfig(
+            int topK, double similarityThreshold, String mode, double lexicalWeight, boolean fallbackEnabled) {}
+
+    public record RetrievalOverrides(
+            Integer topK,
+            Double similarityThreshold,
+            String retrievalMode,
+            Double lexicalWeight,
+            Boolean fallbackEnabled) {}
+
+    public record RetrievalConfigRequest(
+            Integer topK,
+            Double similarityThreshold,
+            String retrievalMode,
+            Double lexicalWeight,
+            Boolean fallbackEnabled) {}
 
     public record Diagnostics(String knowledgeBaseId, String provider, String model, int dimension,
                               boolean embeddingTableExists, long documentCount, long errorCount, long staleCount,

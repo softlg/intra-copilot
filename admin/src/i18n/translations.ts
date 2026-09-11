@@ -215,7 +215,6 @@ export const translations = {
     promptRequired: "系统提示词不能为空",
     agentDescriptionRequired:
       "请填写 Agent 描述，便于其他 Agent 路由时理解其职责",
-    parentAgentRequired: "子 Agent 必须选择一个启用的领域 Agent 作为父级",
     createAgentFailed: "创建 Agent 失败，请稍后重试",
     createBaseFailed: "创建知识库失败，请稍后重试",
     uploadFailed: "上传文档失败，请稍后重试",
@@ -288,6 +287,23 @@ export const translations = {
     qaPromptPlaceholder: "描述回答范围、语气和引用要求",
     topK: "检索条数",
     topKHint: "每次问答最多注入的相关片段数量",
+    retrievalConfig: "检索策略",
+    retrievalConfigHint:
+      "配置该知识库在问答和 Agent 调用时统一使用的召回策略。",
+    retrievalMode: "检索模式",
+    retrievalModeDense: "向量检索",
+    retrievalModeHybrid: "混合检索",
+    retrievalModeHint: "混合检索会融合向量相似度与关键词匹配。",
+    similarityThreshold: "最低相关度",
+    similarityThresholdHint: "低于该值的结果默认不返回；可结合兜底开关调试。",
+    lexicalWeight: "关键词权重",
+    lexicalWeightHint: "仅在混合检索中生效，0 表示完全依赖向量。",
+    retrievalFallback: "无结果时兜底返回最佳项",
+    retrievalFallbackHint: "没有结果达到阈值时，仍返回最接近的一个片段供核对。",
+    retrievalScore: "综合",
+    retrievalVectorScore: "向量",
+    retrievalKeywordScore: "关键词",
+    retrievalBelowThreshold: "低于阈值（兜底）",
     saveSettings: "保存设置",
     savingSettings: "保存中…",
     saved: "已保存",
@@ -315,7 +331,10 @@ export const translations = {
     roleGeneral: "通用 Agent",
     roleDomain: "领域 Agent",
     roleSub: "子 Agent",
-    parentAgent: "父领域 Agent",
+    parentAgent: "所属领域 Agent",
+    parentAgentUnbound: "暂不绑定（可稍后在领域 Agent 中配置）",
+    parentAgentHint:
+      "可选。选择后会立即建立归属并出现在该领域的子 Agent 列表中，无需重复绑定。",
     handlingMode: "处理策略",
     directMode: "直接处理",
     delegateMode: "指派子 Agent",
@@ -327,7 +346,7 @@ export const translations = {
     noChildAgents: "暂无可用子 Agent",
     childRoutingRule: "意图关键词",
     childRoutingRuleHint:
-      "命中这些关键词时优先指派给它，多个关键词用逗号分隔；留空则交给自动决策判断",
+      "勾选即归属当前领域，取消勾选会解除归属；可按关键词优先指派，留空则自动决策。",
     childRoutingRulePlaceholder: "例如：舱单, 提单, 核对",
     versions: "版本发布",
     draft: "草稿",
@@ -701,14 +720,11 @@ export const translations = {
     baseEditNameHint: "Click to edit name",
     baseEditDescriptionHint: "Click to edit description",
     baseNameEmptyHint: "Untitled knowledge base",
-    agentIdInvalid:
-      "Agent ID must be 2-128 letters, numbers, or hyphens",
+    agentIdInvalid: "Agent ID must be 2-128 letters, numbers, or hyphens",
     agentNameRequired: "Agent name is required",
     promptRequired: "System prompt is required",
     agentDescriptionRequired:
       "Agent description is required so other agents can understand its role",
-    parentAgentRequired:
-      "A sub-agent must select an enabled domain Agent as its parent",
     createAgentFailed: "Failed to create Agent. Please try again.",
     createBaseFailed: "Failed to create knowledge base. Please try again.",
     uploadFailed: "Failed to upload document. Please try again.",
@@ -792,6 +808,27 @@ export const translations = {
       "Describe answer scope, tone, and citation requirements",
     topK: "Retrieval count",
     topKHint: "Maximum number of relevant chunks injected per question",
+    retrievalConfig: "Retrieval strategy",
+    retrievalConfigHint:
+      "Configure the shared retrieval strategy used by Q&A and Agent calls.",
+    retrievalMode: "Retrieval mode",
+    retrievalModeDense: "Vector",
+    retrievalModeHybrid: "Hybrid",
+    retrievalModeHint:
+      "Hybrid combines vector similarity with keyword matching.",
+    similarityThreshold: "Minimum relevance",
+    similarityThresholdHint:
+      "Results below this value are hidden unless fallback is enabled.",
+    lexicalWeight: "Keyword weight",
+    lexicalWeightHint:
+      "Only used in hybrid mode; 0 means vector similarity only.",
+    retrievalFallback: "Return best fallback when empty",
+    retrievalFallbackHint:
+      "When no result reaches the threshold, return the closest chunk for inspection.",
+    retrievalScore: "Score",
+    retrievalVectorScore: "Vector",
+    retrievalKeywordScore: "Keyword",
+    retrievalBelowThreshold: "Below threshold (fallback)",
     saveSettings: "Save settings",
     savingSettings: "Saving…",
     saved: "Saved",
@@ -822,7 +859,10 @@ export const translations = {
     roleGeneral: "General Agent",
     roleDomain: "Domain Agent",
     roleSub: "Sub-agent",
-    parentAgent: "Parent domain Agent",
+    parentAgent: "Owning domain Agent",
+    parentAgentUnbound: "Leave unassigned (configure later)",
+    parentAgentHint:
+      "Optional. Selecting a domain assigns this sub-agent immediately and adds it to that domain's list.",
     handlingMode: "Handling strategy",
     directMode: "Handle directly",
     delegateMode: "Delegate to sub-agent",
@@ -834,7 +874,7 @@ export const translations = {
     noChildAgents: "No available sub-agents",
     childRoutingRule: "Intent keywords",
     childRoutingRuleHint:
-      "Route here first when the request contains these keywords, separated by commas; leave empty to rely on automatic decision",
+      "Checking assigns ownership to this domain; clearing removes it. Add keywords to prioritize routing, or leave empty for automatic decision.",
     childRoutingRulePlaceholder:
       "e.g. manifest, bill of lading, reconciliation",
     versions: "Version publishing",

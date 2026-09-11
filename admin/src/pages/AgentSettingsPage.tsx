@@ -162,6 +162,13 @@ export function AgentSettingsPage({
   publishAgent,
   rollbackAgent,
 }: AgentSettingsPageProps) {
+  const availableChildAgents = agents.filter(
+    (item) =>
+      item.role === "SUB" &&
+      item.enabled &&
+      (!item.parentAgentId || item.parentAgentId === agentId),
+  );
+
   return (
     <section className="agent-settings-page">
       <div className="detail-header agent-settings-header">
@@ -199,8 +206,7 @@ export function AgentSettingsPage({
               className="agent-delete"
               onClick={() => deleteAgent(configuredAgent)}
               disabled={
-                configuredAgent.enabled ||
-                agentActionId === configuredAgent.id
+                configuredAgent.enabled || agentActionId === configuredAgent.id
               }
               title={
                 configuredAgent.enabled
@@ -294,21 +300,18 @@ export function AgentSettingsPage({
                   <span>{t.parentAgent}</span>
                   <select
                     value={agentParentId}
-                    onChange={(event) =>
-                      setAgentParentId(event.target.value)
-                    }
+                    onChange={(event) => setAgentParentId(event.target.value)}
                   >
-                    <option value="">—</option>
+                    <option value="">{t.parentAgentUnbound}</option>
                     {agents
-                      .filter(
-                        (item) => item.role === "DOMAIN" && item.enabled,
-                      )
+                      .filter((item) => item.role === "DOMAIN" && item.enabled)
                       .map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.displayName}
                         </option>
                       ))}
                   </select>
+                  <small className="field-hint">{t.parentAgentHint}</small>
                 </label>
               )}
             </div>
@@ -316,9 +319,7 @@ export function AgentSettingsPage({
               <span>{t.displayName}</span>
               <input
                 value={agentDisplayName}
-                onChange={(event) =>
-                  setAgentDisplayName(event.target.value)
-                }
+                onChange={(event) => setAgentDisplayName(event.target.value)}
                 maxLength={100}
               />
             </label>
@@ -326,9 +327,7 @@ export function AgentSettingsPage({
               <span>{t.descriptionOptional}</span>
               <textarea
                 value={agentDescription}
-                onChange={(event) =>
-                  setAgentDescription(event.target.value)
-                }
+                onChange={(event) => setAgentDescription(event.target.value)}
                 rows={3}
                 maxLength={500}
               />
@@ -337,9 +336,7 @@ export function AgentSettingsPage({
               <span>{t.systemPrompt}</span>
               <textarea
                 value={agentSystemPrompt}
-                onChange={(event) =>
-                  setAgentSystemPrompt(event.target.value)
-                }
+                onChange={(event) => setAgentSystemPrompt(event.target.value)}
                 rows={7}
                 maxLength={8000}
               />
@@ -358,9 +355,7 @@ export function AgentSettingsPage({
               <input
                 type="checkbox"
                 checked={agentEnabled}
-                onChange={(event) =>
-                  setAgentEnabled(event.target.checked)
-                }
+                onChange={(event) => setAgentEnabled(event.target.checked)}
               />
               <span>{t.enabled}</span>
             </label>
@@ -385,9 +380,7 @@ export function AgentSettingsPage({
                   max={2}
                   step={0.1}
                   value={agentTemperature}
-                  onChange={(event) =>
-                    setAgentTemperature(event.target.value)
-                  }
+                  onChange={(event) => setAgentTemperature(event.target.value)}
                 />
               </label>
             </div>
@@ -414,9 +407,7 @@ export function AgentSettingsPage({
               <span>{t.routingRules}</span>
               <textarea
                 value={agentRoutingRules}
-                onChange={(event) =>
-                  setAgentRoutingRules(event.target.value)
-                }
+                onChange={(event) => setAgentRoutingRules(event.target.value)}
                 placeholder={t.routingRulesPlaceholder}
                 rows={12}
                 maxLength={8000}
@@ -451,9 +442,7 @@ export function AgentSettingsPage({
               <span>{t.handlingMode}</span>
               <select
                 value={agentHandlingMode}
-                onChange={(event) =>
-                  setAgentHandlingMode(event.target.value)
-                }
+                onChange={(event) => setAgentHandlingMode(event.target.value)}
               >
                 <option value="DIRECT">{t.directMode}</option>
                 <option value="DELEGATE">{t.delegateMode}</option>
@@ -464,14 +453,10 @@ export function AgentSettingsPage({
               <span>{t.returnMode}</span>
               <select
                 value={agentReturnMode}
-                onChange={(event) =>
-                  setAgentReturnMode(event.target.value)
-                }
+                onChange={(event) => setAgentReturnMode(event.target.value)}
               >
                 <option value="CHILD_DIRECT">{t.childDirectMode}</option>
-                <option value="DOMAIN_SUMMARY">
-                  {t.domainSummaryMode}
-                </option>
+                <option value="DOMAIN_SUMMARY">{t.domainSummaryMode}</option>
               </select>
             </label>
           </div>
@@ -483,33 +468,26 @@ export function AgentSettingsPage({
                 <h4>{t.childBinding}</h4>
                 <p>{t.childRoutingRuleHint}</p>
               </div>
-              <span className="binding-count">
-                {agentChildIds.length}
-              </span>
+              <span className="binding-count">{agentChildIds.length}</span>
             </div>
             <label className="binding-search">
               <span className="sr-only">{t.search}</span>
               <input
                 type="search"
                 value={agentChildSearch}
-                onChange={(event) =>
-                  setAgentChildSearch(event.target.value)
-                }
+                onChange={(event) => setAgentChildSearch(event.target.value)}
                 placeholder={t.searchPlaceholder}
               />
             </label>
             <div className="binding-list binding-list-tall">
-              {agents
-                .filter((item) => item.role === "SUB" && item.enabled)
+              {availableChildAgents
                 .filter((item) => {
                   const query = agentChildSearch.trim().toLowerCase();
                   return (
                     !query ||
-                    [
-                      item.id,
-                      item.displayName,
-                      item.description ?? "",
-                    ].some((value) => value.toLowerCase().includes(query))
+                    [item.id, item.displayName, item.description ?? ""].some(
+                      (value) => value.toLowerCase().includes(query),
+                    )
                   );
                 })
                 .map((item) => {
@@ -565,8 +543,7 @@ export function AgentSettingsPage({
                   );
                 })}
             </div>
-            {agents.filter((item) => item.role === "SUB" && item.enabled)
-              .length === 0 && (
+            {availableChildAgents.length === 0 && (
               <p className="binding-empty">{t.noChildAgents}</p>
             )}
           </div>
@@ -600,28 +577,22 @@ export function AgentSettingsPage({
                 {bases.filter((base) => {
                   const query = agentKnowledgeSearch.trim().toLowerCase();
                   if (!query) return true;
-                  return [
-                    base.id,
-                    base.name,
-                    base.description ?? "",
-                  ].some((value) => value.toLowerCase().includes(query));
+                  return [base.id, base.name, base.description ?? ""].some(
+                    (value) => value.toLowerCase().includes(query),
+                  );
                 }).length === 0 ? (
                   <p className="binding-empty">{t.noSearchResults}</p>
                 ) : (
                   <div className="binding-list">
                     {bases
                       .filter((base) => {
-                        const query = agentKnowledgeSearch
-                          .trim()
-                          .toLowerCase();
+                        const query = agentKnowledgeSearch.trim().toLowerCase();
                         if (!query) return true;
                         return [
                           base.id,
                           base.name,
                           base.description ?? "",
-                        ].some((value) =>
-                          value.toLowerCase().includes(query),
-                        );
+                        ].some((value) => value.toLowerCase().includes(query));
                       })
                       .map((base) => {
                         const selected = parseIds(
@@ -633,21 +604,15 @@ export function AgentSettingsPage({
                               type="checkbox"
                               checked={selected}
                               onChange={() => {
-                                const current = parseIds(
-                                  agentKnowledgeBaseIds,
-                                );
+                                const current = parseIds(agentKnowledgeBaseIds);
                                 const next = selected
                                   ? current.filter((id) => id !== base.id)
                                   : [...current, base.id];
-                                setAgentKnowledgeBaseIds(
-                                  JSON.stringify(next),
-                                );
+                                setAgentKnowledgeBaseIds(JSON.stringify(next));
                               }}
                             />
                             <span className="binding-copy">
-                              <span className="binding-name">
-                                {base.name}
-                              </span>
+                              <span className="binding-name">{base.name}</span>
                               <span className="binding-meta">
                                 {base.enabled ? t.enabled : t.disabled}
                               </span>
@@ -676,9 +641,7 @@ export function AgentSettingsPage({
                     <h4>{t.tools}</h4>
                     <p>{t.browserActions}</p>
                   </div>
-                  <span className="binding-count">
-                    {agentToolIds.length}
-                  </span>
+                  <span className="binding-count">{agentToolIds.length}</span>
                 </div>
                 {tools.filter((tool) => tool.enabled).length === 0 ? (
                   <p className="binding-empty">{t.noTools}</p>
@@ -705,9 +668,7 @@ export function AgentSettingsPage({
                         tool.description ?? "",
                         tool.type ?? "",
                         tool.endpoint ?? "",
-                      ].some((value) =>
-                        value.toLowerCase().includes(query),
-                      );
+                      ].some((value) => value.toLowerCase().includes(query));
                     }).length === 0 ? (
                       <p className="binding-empty">{t.noSearchResults}</p>
                     ) : (
@@ -715,9 +676,7 @@ export function AgentSettingsPage({
                         {tools
                           .filter((tool) => {
                             if (!tool.enabled) return false;
-                            const query = agentToolSearch
-                              .trim()
-                              .toLowerCase();
+                            const query = agentToolSearch.trim().toLowerCase();
                             if (!query) return true;
                             return [
                               tool.id,
@@ -730,23 +689,16 @@ export function AgentSettingsPage({
                             );
                           })
                           .map((tool) => {
-                            const checked = agentToolIds.includes(
-                              tool.id,
-                            );
+                            const checked = agentToolIds.includes(tool.id);
                             return (
-                              <label
-                                className="binding-option"
-                                key={tool.id}
-                              >
+                              <label className="binding-option" key={tool.id}>
                                 <input
                                   type="checkbox"
                                   checked={checked}
                                   onChange={() =>
                                     setAgentToolIds((current) =>
                                       checked
-                                        ? current.filter(
-                                            (id) => id !== tool.id,
-                                          )
+                                        ? current.filter((id) => id !== tool.id)
                                         : [...current, tool.id],
                                     )
                                   }
@@ -796,9 +748,7 @@ export function AgentSettingsPage({
                     <h4>{t.skills}</h4>
                     <p>{t.idsHint}</p>
                   </div>
-                  <span className="binding-count">
-                    {agentSkillIds.length}
-                  </span>
+                  <span className="binding-count">{agentSkillIds.length}</span>
                 </div>
                 {skills.filter((skill) => skill.enabled).length === 0 ? (
                   <p className="binding-empty">{t.noSkills}</p>
@@ -825,9 +775,7 @@ export function AgentSettingsPage({
                         skill.description ?? "",
                         skill.prompt,
                         skill.version ?? "",
-                      ].some((value) =>
-                        value.toLowerCase().includes(query),
-                      );
+                      ].some((value) => value.toLowerCase().includes(query));
                     }).length === 0 ? (
                       <p className="binding-empty">{t.noSearchResults}</p>
                     ) : (
@@ -835,9 +783,7 @@ export function AgentSettingsPage({
                         {skills
                           .filter((skill) => {
                             if (!skill.enabled) return false;
-                            const query = agentSkillSearch
-                              .trim()
-                              .toLowerCase();
+                            const query = agentSkillSearch.trim().toLowerCase();
                             if (!query) return true;
                             return [
                               skill.id,
@@ -850,14 +796,9 @@ export function AgentSettingsPage({
                             );
                           })
                           .map((skill) => {
-                            const checked = agentSkillIds.includes(
-                              skill.id,
-                            );
+                            const checked = agentSkillIds.includes(skill.id);
                             return (
-                              <label
-                                className="binding-option"
-                                key={skill.id}
-                              >
+                              <label className="binding-option" key={skill.id}>
                                 <input
                                   type="checkbox"
                                   checked={checked}
@@ -917,8 +858,7 @@ export function AgentSettingsPage({
               <div>
                 <h4>{t.versions}</h4>
                 <p>
-                  {t.publishedVersion}:{" "}
-                  {configuredAgent?.publishedVersion ?? 0}
+                  {t.publishedVersion}: {configuredAgent?.publishedVersion ?? 0}
                 </p>
               </div>
               <button
@@ -938,13 +878,9 @@ export function AgentSettingsPage({
                     <div>
                       <strong>v{version.version}</strong>
                       <span className="binding-meta">
-                        {version.status === "PUBLISHED"
-                          ? t.published
-                          : t.draft}
+                        {version.status === "PUBLISHED" ? t.published : t.draft}
                       </span>
-                      {version.releaseNote && (
-                        <p>{version.releaseNote}</p>
-                      )}
+                      {version.releaseNote && <p>{version.releaseNote}</p>}
                     </div>
                     {version.status !== "PUBLISHED" && (
                       <button

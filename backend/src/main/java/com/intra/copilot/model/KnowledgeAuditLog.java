@@ -16,6 +16,7 @@ public class KnowledgeAuditLog {
     public static final String ACTION_PROFILE_CHANGE = "PROFILE_CHANGE";
     public static final String ACTION_CREATE_BASE = "CREATE_BASE";
     public static final String ACTION_UPDATE_BASE = "UPDATE_BASE";
+    public static final String ACTION_UPDATE_RETRIEVAL = "UPDATE_RETRIEVAL";
 
     @TableId private String id = EntityIdGenerator.next("AL");
     private String knowledgeBaseId;

@@ -3,29 +3,37 @@ package com.intra.copilot.service;
 import com.intra.copilot.agent.Agent;
 import com.intra.copilot.agent.ConfigurableAgent;
 import com.intra.copilot.model.AgentDefinition;
+import com.intra.copilot.repo.AgentChildBindingRepository;
 import com.intra.copilot.repo.AgentDefinitionRepository;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AgentRegistry {
     private final AgentDefinitionRepository definitions;
+    private final AgentChildBindingRepository childBindings;
     // 路由每次请求都会读全量定义（含兜底规则、可用 Agent 列表），加一个短 TTL 缓存避免每轮 LLM 都打 DB。
     private static final long TTL_MS = 5000;
     private final AtomicReference<Cache> allCache = new AtomicReference<>(new Cache(null, 0L));
 
-    public AgentRegistry(AgentDefinitionRepository definitions) {
+    public AgentRegistry(
+            AgentDefinitionRepository definitions, AgentChildBindingRepository childBindings) {
         this.definitions = definitions;
+        this.childBindings = childBindings;
     }
 
     public List<AgentDefinition> enabledDefinitions() {
-        return allDefinitions().stream()
+        return allDefinitions()
+                .stream()
                 .filter(AgentDefinition::isEnabled)
-                .sorted(java.util.Comparator.comparingInt(AgentDefinition::getPriority)
-                        .thenComparing(AgentDefinition::getDisplayName))
+                .sorted(
+                        java.util.Comparator.comparingInt(AgentDefinition::getPriority)
+                                .thenComparing(AgentDefinition::getDisplayName))
                 .toList();
     }
 
@@ -36,18 +44,35 @@ public class AgentRegistry {
             return entry.value;
         }
         List<AgentDefinition> value = definitions.findAll();
+        Map<String, String> parentByChild =
+                childBindings
+                        .findAll()
+                        .stream()
+                        .collect(
+                                Collectors.toMap(
+                                        binding -> binding.getChildAgentId(),
+                                        binding -> binding.getParentAgentId(),
+                                        (first, ignored) -> first));
+        value.forEach(
+                definition ->
+                        definition.setParentAgentId(
+                                "SUB".equals(definition.getRole())
+                                        ? parentByChild.get(definition.getId())
+                                        : null));
         allCache.set(new Cache(value, now));
         return value;
     }
 
     public Optional<Agent> findEnabled(String id) {
-        return definitions.findById(id)
+        return definitions
+                .findById(id)
                 .filter(definition -> definition.isEnabled() && definition.isPublished())
                 .map(ConfigurableAgent::new);
     }
 
     public Optional<AgentDefinition> findPublished(String id) {
-        return definitions.findById(id)
+        return definitions
+                .findById(id)
                 .filter(definition -> definition.isEnabled() && definition.isPublished());
     }
 

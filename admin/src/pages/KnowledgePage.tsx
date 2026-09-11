@@ -549,6 +549,122 @@ export function KnowledgePage({
                   )}
                 </section>
               )}
+              {section === "basic" && (
+                <section
+                  className="knowledge-config-panel retrieval-config-panel"
+                  aria-labelledby="retrieval-config-title"
+                >
+                  <div className="knowledge-config-heading">
+                    <div>
+                      <h4 id="retrieval-config-title">{t.retrievalConfig}</h4>
+                      <p>{t.retrievalConfigHint}</p>
+                    </div>
+                    <span className="ok">{activeQaSettings.retrievalMode}</span>
+                  </div>
+                  <div className="retrieval-settings-grid">
+                    <div className="field">
+                      <span>{t.retrievalMode}</span>
+                      <div
+                        className="segmented-control"
+                        role="radiogroup"
+                        aria-label={t.retrievalMode}
+                      >
+                        {(["DENSE", "HYBRID"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            role="radio"
+                            aria-checked={
+                              activeQaSettings.retrievalMode === mode
+                            }
+                            className={
+                              activeQaSettings.retrievalMode === mode
+                                ? "segmented-option active"
+                                : "segmented-option"
+                            }
+                            onClick={() =>
+                              updateQaSettings({ retrievalMode: mode })
+                            }
+                          >
+                            {mode === "DENSE"
+                              ? t.retrievalModeDense
+                              : t.retrievalModeHybrid}
+                          </button>
+                        ))}
+                      </div>
+                      <small className="field-hint">
+                        {t.retrievalModeHint}
+                      </small>
+                    </div>
+                    <label className="field retrieval-range">
+                      <span>
+                        {t.similarityThreshold}
+                        <code>
+                          {activeQaSettings.similarityThreshold.toFixed(2)}
+                        </code>
+                      </span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={activeQaSettings.similarityThreshold}
+                        onChange={(event) =>
+                          updateQaSettings({
+                            similarityThreshold: Number(event.target.value),
+                          })
+                        }
+                      />
+                      <small className="field-hint">
+                        {t.similarityThresholdHint}
+                      </small>
+                    </label>
+                    <label className="field retrieval-range">
+                      <span>
+                        {t.lexicalWeight}
+                        <code>{activeQaSettings.lexicalWeight.toFixed(2)}</code>
+                      </span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        disabled={activeQaSettings.retrievalMode === "DENSE"}
+                        value={activeQaSettings.lexicalWeight}
+                        onChange={(event) =>
+                          updateQaSettings({
+                            lexicalWeight: Number(event.target.value),
+                          })
+                        }
+                      />
+                      <small className="field-hint">
+                        {t.lexicalWeightHint}
+                      </small>
+                    </label>
+                  </div>
+                  <label className="embedding-toggle-row retrieval-toggle-row">
+                    <div>
+                      <span className="embedding-toggle-label">
+                        {t.retrievalFallback}
+                      </span>
+                      <p className="field-hint">{t.retrievalFallbackHint}</p>
+                    </div>
+                    <span className="switch">
+                      <input
+                        type="checkbox"
+                        role="switch"
+                        checked={activeQaSettings.fallbackEnabled}
+                        onChange={(event) =>
+                          updateQaSettings({
+                            fallbackEnabled: event.target.checked,
+                          })
+                        }
+                      />
+                      <span className="switch-track" aria-hidden="true" />
+                    </span>
+                  </label>
+                </section>
+              )}
               {section === "maintenance" && (
                 <>
                   <div className="upload-panel">
@@ -710,8 +826,21 @@ export function KnowledgePage({
                           {result.pageNumber
                             ? `第 ${result.pageNumber} 页 · `
                             : ""}
-                          {(1 - result.distance).toFixed(3)}
+                          {t.retrievalScore} {result.score.toFixed(3)} ·{" "}
+                          {t.retrievalVectorScore}{" "}
+                          {result.similarity.toFixed(3)} ·{" "}
+                          {t.retrievalKeywordScore}{" "}
+                          {result.lexicalScore.toFixed(3)}
                         </span>
+                      </div>
+                      <div className="retrieval-result-tags">
+                        <span>{result.retrievalMode}</span>
+                        <span>#{result.rank}</span>
+                        {result.belowThreshold && (
+                          <span className="warning">
+                            {t.retrievalBelowThreshold}
+                          </span>
+                        )}
                       </div>
                       <p>{result.content}</p>
                     </article>

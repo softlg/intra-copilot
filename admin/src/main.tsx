@@ -1276,11 +1276,36 @@ function AdminApp({
 
   const activeBase = bases.find((base) => base.id === activeBaseId);
   const activeQaSettings: QASceneSettings = activeBaseId
-    ? (qaSettings[activeBaseId] ?? { prompt: "", topK: 5 })
-    : { prompt: "", topK: 5 };
+    ? (qaSettings[activeBaseId] ?? {
+        prompt: "",
+        topK: activeBase?.retrievalTopK ?? 5,
+        similarityThreshold: activeBase?.retrievalSimilarityThreshold ?? 0.5,
+        retrievalMode: activeBase?.retrievalMode ?? "HYBRID",
+        lexicalWeight: activeBase?.retrievalLexicalWeight ?? 0.3,
+        fallbackEnabled: activeBase?.retrievalFallbackEnabled ?? true,
+      })
+    : {
+        prompt: "",
+        topK: 5,
+        similarityThreshold: 0.5,
+        retrievalMode: "HYBRID",
+        lexicalWeight: 0.3,
+        fallbackEnabled: true,
+      };
 
   const openKnowledgeBase = (base: Base) => {
     setActiveBaseId(base.id);
+    setQaSettings((current) => ({
+      ...current,
+      [base.id]: {
+        prompt: current[base.id]?.prompt ?? "",
+        topK: base.retrievalTopK ?? 5,
+        similarityThreshold: base.retrievalSimilarityThreshold ?? 0.5,
+        retrievalMode: base.retrievalMode ?? "HYBRID",
+        lexicalWeight: base.retrievalLexicalWeight ?? 0.3,
+        fallbackEnabled: base.retrievalFallbackEnabled ?? true,
+      },
+    }));
     setEditingBase(false);
     setBaseDraftName(base.name);
     setBaseDraftDescription(base.description ?? "");
@@ -1382,15 +1407,50 @@ function AdminApp({
     setQaSaved(false);
   };
 
-  const saveQaSettings = () => {
-    localStorage.setItem("admin-qa-settings", JSON.stringify(qaSettings));
+  const saveQaSettings = async () => {
+    if (!activeBaseId) return;
+    const saved = await request<Base>(
+      `/admin/knowledge-bases/${activeBaseId}/retrieval-config`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          topK: activeQaSettings.topK,
+          similarityThreshold: activeQaSettings.similarityThreshold,
+          retrievalMode: activeQaSettings.retrievalMode,
+          lexicalWeight: activeQaSettings.lexicalWeight,
+          fallbackEnabled: activeQaSettings.fallbackEnabled,
+        }),
+      },
+    );
+    setBases((items) =>
+      items.map((item) => (item.id === saved.id ? saved : item)),
+    );
+    setQaSettings((current) => ({
+      ...current,
+      [saved.id]: {
+        prompt: current[saved.id]?.prompt ?? "",
+        topK: saved.retrievalTopK ?? activeQaSettings.topK,
+        similarityThreshold:
+          saved.retrievalSimilarityThreshold ??
+          activeQaSettings.similarityThreshold,
+        retrievalMode: saved.retrievalMode ?? activeQaSettings.retrievalMode,
+        lexicalWeight:
+          saved.retrievalLexicalWeight ?? activeQaSettings.lexicalWeight,
+        fallbackEnabled:
+          saved.retrievalFallbackEnabled ?? activeQaSettings.fallbackEnabled,
+      },
+    }));
     setQaSaved(true);
     window.setTimeout(() => setQaSaved(false), 1800);
   };
 
   const saveKnowledgeSettings = async () => {
     if (editingBase && !(await saveBaseDetails())) return;
-    saveQaSettings();
+    try {
+      await saveQaSettings();
+    } catch (error) {
+      setBaseError(error instanceof Error ? error.message : t.baseSaveFailed);
+    }
   };
 
   const saveEmbeddingConfig = async (config: EmbeddingConfigRequest) => {
@@ -1480,12 +1540,7 @@ function AdminApp({
     setAgentPriority(100);
     setAgentRoutingRules("");
     setAgentRole(role);
-    setAgentParentId(
-      role === "SUB"
-        ? (agents.find((item) => item.role === "DOMAIN" && item.enabled)?.id ??
-            "")
-        : "",
-    );
+    setAgentParentId("");
     setAgentHandlingMode("AUTO");
     setAgentReturnMode("CHILD_DIRECT");
     setAgentChildIds([]);
@@ -1680,20 +1735,6 @@ function AdminApp({
       setAgentError(t.agentDescriptionRequired);
       return;
     }
-    if (
-      agentRole === "SUB" &&
-      (!agentParentId.trim() ||
-        !agents.some(
-          (item) =>
-            item.id === agentParentId.trim() &&
-            item.role === "DOMAIN" &&
-            item.enabled,
-        ))
-    ) {
-      setAgentError(t.parentAgentRequired);
-      return;
-    }
-
     setAgentSubmitting(true);
     setAgentError("");
     try {
@@ -2078,6 +2119,10 @@ function AdminApp({
           body: JSON.stringify({
             query: retrievalQuery.trim(),
             topK: activeQaSettings.topK,
+            similarityThreshold: activeQaSettings.similarityThreshold,
+            retrievalMode: activeQaSettings.retrievalMode,
+            lexicalWeight: activeQaSettings.lexicalWeight,
+            fallbackEnabled: activeQaSettings.fallbackEnabled,
           }),
         },
       );
@@ -3197,20 +3242,12 @@ function AdminApp({
               )}
               {agentRole === "SUB" && (
                 <label className="field">
-                  <span>
-                    {t.parentAgent}
-                    <span aria-hidden="true" className="required-mark">
-                      *
-                    </span>
-                  </span>
+                  <span>{t.parentAgent}</span>
                   <select
                     value={agentParentId}
                     onChange={(event) => setAgentParentId(event.target.value)}
-                    required
                   >
-                    <option value="" disabled>
-                      —
-                    </option>
+                    <option value="">{t.parentAgentUnbound}</option>
                     {agents
                       .filter((item) => item.role === "DOMAIN" && item.enabled)
                       .map((item) => (
@@ -3219,6 +3256,7 @@ function AdminApp({
                         </option>
                       ))}
                   </select>
+                  <small className="field-hint">{t.parentAgentHint}</small>
                 </label>
               )}
               <label className="field">

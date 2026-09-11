@@ -146,6 +146,11 @@ export type Base = {
   embeddingProvider?: string;
   embeddingModel?: string;
   embeddingDimension?: number;
+  retrievalTopK?: number;
+  retrievalSimilarityThreshold?: number;
+  retrievalMode?: "DENSE" | "HYBRID";
+  retrievalLexicalWeight?: number;
+  retrievalFallbackEnabled?: boolean;
 };
 export type EmbeddingProfile = {
   id: string;
@@ -204,16 +209,27 @@ export type DocumentChunk = {
 };
 
 export type RetrievalResult = {
+  chunkId?: string;
   documentId: string;
   filename: string;
   pageNumber?: number;
   content: string;
   distance: number;
+  similarity: number;
+  lexicalScore: number;
+  score: number;
+  retrievalMode: "DENSE" | "HYBRID" | string;
+  belowThreshold: boolean;
+  rank: number;
 };
 
 export type QASceneSettings = {
   prompt: string;
   topK: number;
+  similarityThreshold: number;
+  retrievalMode: "DENSE" | "HYBRID";
+  lexicalWeight: number;
+  fallbackEnabled: boolean;
 };
 
 export type ConversationAttachment = {

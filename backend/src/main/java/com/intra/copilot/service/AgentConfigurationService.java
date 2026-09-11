@@ -8,8 +8,10 @@ import com.intra.copilot.repo.AgentChildBindingRepository;
 import com.intra.copilot.repo.AgentConfigVersionRepository;
 import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.util.EntityIdGenerator;
-import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +54,8 @@ public class AgentConfigurationService {
             definition.setVersion(1);
         }
         AgentDefinition saved = definitions.save(definition);
+        synchronizeChildBinding(saved);
+        attachParent(saved);
         registry.evict();
         return saved;
     }
@@ -60,8 +64,19 @@ public class AgentConfigurationService {
     public AgentConfigVersion publish(String id, String releaseNote) {
         AgentDefinition definition = get(id);
         validate(definition);
-        long next = versions.findByAgentId(id).stream().mapToLong(AgentConfigVersion::getVersion).max().orElse(0) + 1;
-        versions.findByAgentId(id).forEach(item -> { item.setStatus("ARCHIVED"); versions.save(item); });
+        long next =
+                versions.findByAgentId(id)
+                                .stream()
+                                .mapToLong(AgentConfigVersion::getVersion)
+                                .max()
+                                .orElse(0)
+                        + 1;
+        versions.findByAgentId(id)
+                .forEach(
+                        item -> {
+                            item.setStatus("ARCHIVED");
+                            versions.save(item);
+                        });
         definition.setPublished(true);
         definition.setPublishedVersion(next);
         definitions.save(definition);
@@ -82,12 +97,15 @@ public class AgentConfigurationService {
 
     @Transactional
     public AgentDefinition rollback(String id, long version) {
-        AgentConfigVersion target = versions.findByAgentId(id).stream()
-                .filter(item -> item.getVersion() == version)
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Agent 版本不存在"));
+        AgentConfigVersion target =
+                versions.findByAgentId(id)
+                        .stream()
+                        .filter(item -> item.getVersion() == version)
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("Agent 版本不存在"));
         try {
-            AgentDefinition restored = mapper.readValue(target.getSnapshot(), AgentDefinition.class);
+            AgentDefinition restored =
+                    mapper.readValue(target.getSnapshot(), AgentDefinition.class);
             restored.setId(id);
             AgentDefinition current = get(id);
             restored.setPublished(true);
@@ -96,8 +114,19 @@ public class AgentConfigurationService {
             // A rollback is itself a new published release.  Keeping a new
             // version entry makes the operation auditable and allows a later
             // rollback without mutating historical snapshots.
-            long next = versions.findByAgentId(id).stream().mapToLong(AgentConfigVersion::getVersion).max().orElse(version) + 1;
-            versions.findByAgentId(id).forEach(item -> { item.setStatus("ARCHIVED"); versions.save(item); });
+            long next =
+                    versions.findByAgentId(id)
+                                    .stream()
+                                    .mapToLong(AgentConfigVersion::getVersion)
+                                    .max()
+                                    .orElse(version)
+                            + 1;
+            versions.findByAgentId(id)
+                    .forEach(
+                            item -> {
+                                item.setStatus("ARCHIVED");
+                                versions.save(item);
+                            });
             AgentConfigVersion release = new AgentConfigVersion();
             release.setAgentId(id);
             release.setVersion(next);
@@ -107,6 +136,7 @@ public class AgentConfigurationService {
             restored.setPublishedVersion(next);
             definitions.save(restored);
             versions.save(release);
+            attachParent(restored);
             registry.evict();
             return restored;
         } catch (Exception error) {
@@ -120,21 +150,30 @@ public class AgentConfigurationService {
     }
 
     @Transactional
-    public List<AgentChildBinding> replaceChildren(String parentId, List<AgentChildBinding> requested) {
+    public List<AgentChildBinding> replaceChildren(
+            String parentId, List<AgentChildBinding> requested) {
         AgentDefinition parent = get(parentId);
-        if (!"DOMAIN".equals(parent.getRole())) throw new IllegalArgumentException("只有领域 Agent 可以绑定子 Agent");
+        if (!"DOMAIN".equals(parent.getRole()))
+            throw new IllegalArgumentException("只有领域 Agent 可以绑定子 Agent");
         List<AgentChildBinding> values = requested == null ? List.of() : requested;
+        Set<String> childIds = new HashSet<>();
         for (AgentChildBinding binding : values) {
-            AgentDefinition child = get(binding.getChildAgentId());
-            if (!"SUB".equals(child.getRole())) throw new IllegalArgumentException("只能绑定 SUB 类型 Agent");
+            if (binding == null) throw new IllegalArgumentException("子 Agent 绑定不能为空");
+            String childId = trimToNull(binding.getChildAgentId());
+            if (childId == null) throw new IllegalArgumentException("子 Agent 不能为空");
+            if (!childIds.add(childId)) throw new IllegalArgumentException("不能重复绑定同一个子 Agent");
+            AgentDefinition child = get(childId);
+            if (!"SUB".equals(child.getRole()))
+                throw new IllegalArgumentException("只能绑定 SUB 类型 Agent");
             if (parentId.equals(child.getId())) throw new IllegalArgumentException("Agent 不能绑定自己");
-            if (child.getParentAgentId() != null && !child.getParentAgentId().isBlank()
-                    && !parentId.equals(child.getParentAgentId())) {
+            Optional<AgentChildBinding> currentOwner = bindings.findOneByChild(childId);
+            if (currentOwner.isPresent()
+                    && !parentId.equals(currentOwner.get().getParentAgentId())) {
                 throw new IllegalArgumentException("一个子 Agent 只能绑定一个领域 Agent");
             }
             binding.setId(EntityIdGenerator.next("AB"));
             binding.setParentAgentId(parentId);
-            binding.setEnabled(true);
+            binding.setChildAgentId(childId);
             if (binding.getPriority() < 0) binding.setPriority(0);
         }
         bindings.deleteByParent(parentId);
@@ -149,43 +188,105 @@ public class AgentConfigurationService {
     }
 
     public AgentDefinition get(String id) {
-        return definitions.findById(id).orElseThrow(() -> new java.util.NoSuchElementException("Agent 不存在"));
+        return attachParent(
+                definitions
+                        .findById(id)
+                        .orElseThrow(() -> new java.util.NoSuchElementException("Agent 不存在")));
     }
 
     private void validate(AgentDefinition definition) {
-        if (definition == null || definition.getId() == null || definition.getDisplayName() == null
-                || definition.getDisplayName().isBlank() || definition.getSystemPrompt() == null
+        if (definition == null
+                || definition.getId() == null
+                || definition.getDisplayName() == null
+                || definition.getDisplayName().isBlank()
+                || definition.getSystemPrompt() == null
                 || definition.getSystemPrompt().isBlank()) {
             throw new IllegalArgumentException("Agent 基本信息不完整");
         }
         String role = definition.getRole() == null ? "DOMAIN" : definition.getRole().toUpperCase();
-        if (!List.of("MAIN", "GENERAL", "DOMAIN", "SUB").contains(role)) throw new IllegalArgumentException("Agent 类型无效");
+        if (!List.of("MAIN", "GENERAL", "DOMAIN", "SUB").contains(role))
+            throw new IllegalArgumentException("Agent 类型无效");
         definition.setRole(role);
         if (definition.getPriority() < 0) definition.setPriority(0);
-        if (List.of("MAIN", "GENERAL").contains(role) && definition.getParentAgentId() != null) {
-            throw new IllegalArgumentException("系统 Agent 和通用 Agent 不能有父 Agent");
+        String parentAgentId = trimToNull(definition.getParentAgentId());
+        definition.setParentAgentId(parentAgentId);
+        if (!"SUB".equals(role) && parentAgentId != null) {
+            throw new IllegalArgumentException("只有子 Agent 可以绑定领域 Agent");
         }
-        if ("SUB".equals(role) && (definition.getParentAgentId() == null || definition.getParentAgentId().isBlank())) {
-            throw new IllegalArgumentException("子 Agent 必须绑定领域 Agent");
-        }
-        if ("SUB".equals(role)) {
-            AgentDefinition parent = definitions.findById(definition.getParentAgentId()).orElseThrow(
-                    () -> new IllegalArgumentException("父 Agent 不存在"));
+        if ("SUB".equals(role) && parentAgentId != null) {
+            AgentDefinition parent =
+                    definitions
+                            .findById(parentAgentId)
+                            .orElseThrow(() -> new IllegalArgumentException("父 Agent 不存在"));
             if (!"DOMAIN".equals(parent.getRole())) {
                 throw new IllegalArgumentException("子 Agent 的父级必须是领域 Agent");
             }
         }
-        String handlingMode = definition.getHandlingMode() == null ? "AUTO" : definition.getHandlingMode().toUpperCase();
+        String handlingMode =
+                definition.getHandlingMode() == null
+                        ? "AUTO"
+                        : definition.getHandlingMode().toUpperCase();
         if (!List.of("DIRECT", "DELEGATE", "AUTO").contains(handlingMode)) {
             definition.setHandlingMode("AUTO");
         } else {
             definition.setHandlingMode(handlingMode);
         }
-        String returnMode = definition.getReturnMode() == null ? "CHILD_DIRECT" : definition.getReturnMode().toUpperCase();
+        String returnMode =
+                definition.getReturnMode() == null
+                        ? "CHILD_DIRECT"
+                        : definition.getReturnMode().toUpperCase();
         if (!List.of("CHILD_DIRECT", "DOMAIN_SUMMARY").contains(returnMode)) {
             definition.setReturnMode("CHILD_DIRECT");
         } else {
             definition.setReturnMode(returnMode);
         }
+    }
+
+    private void synchronizeChildBinding(AgentDefinition definition) {
+        String childId = definition.getId();
+        if (!"SUB".equals(definition.getRole())) {
+            bindings.deleteByChild(childId);
+            definition.setParentAgentId(null);
+            return;
+        }
+        String parentId = trimToNull(definition.getParentAgentId());
+        if (parentId == null) {
+            bindings.deleteByChild(childId);
+            return;
+        }
+        Optional<AgentChildBinding> existing = bindings.findOneByChild(childId);
+        if (existing.isPresent() && parentId.equals(existing.get().getParentAgentId())) return;
+        bindings.deleteByChild(childId);
+        AgentChildBinding binding = new AgentChildBinding();
+        binding.setParentAgentId(parentId);
+        binding.setChildAgentId(childId);
+        binding.setPriority(nextChildPriority(parentId));
+        binding.setEnabled(true);
+        bindings.insert(binding);
+    }
+
+    private AgentDefinition attachParent(AgentDefinition definition) {
+        if (definition == null) return null;
+        String parentId =
+                "SUB".equals(definition.getRole())
+                        ? bindings.findOneByChild(definition.getId())
+                                .map(AgentChildBinding::getParentAgentId)
+                                .orElse(null)
+                        : null;
+        definition.setParentAgentId(parentId);
+        return definition;
+    }
+
+    private int nextChildPriority(String parentId) {
+        return bindings.findByParent(parentId)
+                        .stream()
+                        .mapToInt(AgentChildBinding::getPriority)
+                        .max()
+                        .orElse(90)
+                + 10;
+    }
+
+    private String trimToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

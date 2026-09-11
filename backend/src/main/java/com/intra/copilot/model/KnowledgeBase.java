@@ -23,6 +23,11 @@ public class KnowledgeBase {
     private String updatedBy;
     private String status = "READY";
     private String chunkStrategy = "structured";
+    private Integer retrievalTopK = 5;
+    private Double retrievalSimilarityThreshold = 0.50;
+    private String retrievalMode = "HYBRID";
+    private Double retrievalLexicalWeight = 0.30;
+    private Boolean retrievalFallbackEnabled = true;
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
 
@@ -60,32 +65,117 @@ public class KnowledgeBase {
         this.enabled = enabled;
     }
 
-    public String getEmbeddingProfileId() { return embeddingProfileId; }
-    public void setEmbeddingProfileId(String value) { embeddingProfileId = value; }
+    public String getEmbeddingProfileId() {
+        return embeddingProfileId;
+    }
 
-    public Boolean getUseSystemEmbedding() { return useSystemEmbedding; }
-    public void setUseSystemEmbedding(Boolean value) { useSystemEmbedding = value; }
+    public void setEmbeddingProfileId(String value) {
+        embeddingProfileId = value;
+    }
 
-    public String getEmbeddingProvider() { return embeddingProvider; }
-    public void setEmbeddingProvider(String value) { embeddingProvider = value; }
+    public Boolean getUseSystemEmbedding() {
+        return useSystemEmbedding;
+    }
 
-    public String getEmbeddingModel() { return embeddingModel; }
-    public void setEmbeddingModel(String value) { embeddingModel = value; }
+    public void setUseSystemEmbedding(Boolean value) {
+        useSystemEmbedding = value;
+    }
 
-    public Integer getEmbeddingDimension() { return embeddingDimension; }
-    public void setEmbeddingDimension(Integer value) { embeddingDimension = value; }
+    public String getEmbeddingProvider() {
+        return embeddingProvider;
+    }
 
-    public String getCreatedBy() { return createdBy; }
-    public void setCreatedBy(String value) { createdBy = value; }
+    public void setEmbeddingProvider(String value) {
+        embeddingProvider = value;
+    }
 
-    public String getUpdatedBy() { return updatedBy; }
-    public void setUpdatedBy(String value) { updatedBy = value; }
+    public String getEmbeddingModel() {
+        return embeddingModel;
+    }
 
-    public String getStatus() { return status; }
-    public void setStatus(String value) { status = value; }
+    public void setEmbeddingModel(String value) {
+        embeddingModel = value;
+    }
 
-    public String getChunkStrategy() { return chunkStrategy; }
-    public void setChunkStrategy(String value) { chunkStrategy = value; }
+    public Integer getEmbeddingDimension() {
+        return embeddingDimension;
+    }
+
+    public void setEmbeddingDimension(Integer value) {
+        embeddingDimension = value;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String value) {
+        createdBy = value;
+    }
+
+    public String getUpdatedBy() {
+        return updatedBy;
+    }
+
+    public void setUpdatedBy(String value) {
+        updatedBy = value;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String value) {
+        status = value;
+    }
+
+    public String getChunkStrategy() {
+        return chunkStrategy;
+    }
+
+    public void setChunkStrategy(String value) {
+        chunkStrategy = value;
+    }
+
+    public Integer getRetrievalTopK() {
+        return retrievalTopK;
+    }
+
+    public void setRetrievalTopK(Integer value) {
+        retrievalTopK = value;
+    }
+
+    public Double getRetrievalSimilarityThreshold() {
+        return retrievalSimilarityThreshold;
+    }
+
+    public void setRetrievalSimilarityThreshold(Double value) {
+        retrievalSimilarityThreshold = value;
+    }
+
+    public String getRetrievalMode() {
+        return retrievalMode;
+    }
+
+    public void setRetrievalMode(String value) {
+        retrievalMode = value;
+    }
+
+    public Double getRetrievalLexicalWeight() {
+        return retrievalLexicalWeight;
+    }
+
+    public void setRetrievalLexicalWeight(Double value) {
+        retrievalLexicalWeight = value;
+    }
+
+    public Boolean getRetrievalFallbackEnabled() {
+        return retrievalFallbackEnabled;
+    }
+
+    public void setRetrievalFallbackEnabled(Boolean value) {
+        retrievalFallbackEnabled = value;
+    }
 
     public Instant getCreatedAt() {
         return createdAt;

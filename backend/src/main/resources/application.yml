@@ -58,7 +58,10 @@ rag:
   top-k: ${RAG_TOP_K:5}
   chunk-size: ${RAG_CHUNK_SIZE:1200}
   chunk-overlap: ${RAG_CHUNK_OVERLAP:200}
-  similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.65}
+  similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.50}
+  retrieval-mode: ${RAG_RETRIEVAL_MODE:HYBRID}
+  lexical-weight: ${RAG_LEXICAL_WEIGHT:0.30}
+  fallback-enabled: ${RAG_FALLBACK_ENABLED:true}
   max-document-bytes: ${RAG_MAX_DOCUMENT_BYTES:104857600}
 agent:
   # 单次模型调用与 SSE 连接的最大等待时间。图片理解等请求可能超过原来的 60 秒。

@@ -1,5 +1,6 @@
 package com.intra.copilot.model;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
@@ -11,7 +12,10 @@ public class AgentDefinition {
     private String description;
     private String systemPrompt;
     private String role = "DOMAIN";
+    /** Derived from agent_child_binding; never persisted on the agent record. */
+    @TableField(exist = false)
     private String parentAgentId;
+
     private String handlingMode = "AUTO";
     private String returnMode = "CHILD_DIRECT";
     private boolean enabled = true;

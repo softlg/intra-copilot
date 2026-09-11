@@ -34,7 +34,8 @@ public class KnowledgeAdminController {
     private final IndexingJobService jobs;
     private final KnowledgeAuditService auditLog;
 
-    public KnowledgeAdminController(KnowledgeService service, IndexingJobService jobs, KnowledgeAuditService auditLog) {
+    public KnowledgeAdminController(
+            KnowledgeService service, IndexingJobService jobs, KnowledgeAuditService auditLog) {
         this.service = service;
         this.jobs = jobs;
         this.auditLog = auditLog;
@@ -48,13 +49,20 @@ public class KnowledgeAdminController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public KnowledgeBase create(@RequestBody KnowledgeBase b) {
-        if (b.getName() == null || b.getName().isBlank()) throw new IllegalArgumentException("知识库名称不能为空");
+        if (b.getName() == null || b.getName().isBlank())
+            throw new IllegalArgumentException("知识库名称不能为空");
         return service.createBase(b);
     }
 
     @PutMapping("/{id}")
     public KnowledgeBase update(@PathVariable String id, @RequestBody KnowledgeBase b) {
         return service.updateBase(id, b);
+    }
+
+    @PutMapping("/{id}/retrieval-config")
+    public KnowledgeBase updateRetrievalConfig(
+            @PathVariable String id, @RequestBody KnowledgeService.RetrievalConfigRequest request) {
+        return service.updateRetrievalConfig(id, request);
     }
 
     @GetMapping("/{id}/delete-impact")
@@ -89,9 +97,20 @@ public class KnowledgeAdminController {
     }
 
     @PostMapping("/{id}/search")
-    public List<KnowledgeRetriever.Result> search(@PathVariable String id, @RequestBody SearchRequest request) {
-        if (request.query() == null || request.query().isBlank()) throw new IllegalArgumentException("检索问题不能为空");
-        return service.searchBase(id, request.query(), request.topK() == null ? 5 : request.topK());
+    public List<KnowledgeRetriever.Result> search(
+            @PathVariable String id, @RequestBody SearchRequest request) {
+        if (request.query() == null || request.query().isBlank())
+            throw new IllegalArgumentException("检索问题不能为空");
+        return service.searchBase(
+                id,
+                request.query(),
+                request.topK(),
+                new KnowledgeService.RetrievalOverrides(
+                        request.topK(),
+                        request.similarityThreshold(),
+                        request.retrievalMode(),
+                        request.lexicalWeight(),
+                        request.fallbackEnabled()));
     }
 
     @GetMapping("/{id}/diagnostics")
@@ -100,13 +119,13 @@ public class KnowledgeAdminController {
     }
 
     /**
-     * Uploads and immediately returns: the document is queued and the caller polls
-     * {@code GET /{id}/documents} (or {@code /{id}/jobs}) for progress.
+     * Uploads and immediately returns: the document is queued and the caller polls {@code GET
+     * /{id}/documents} (or {@code /{id}/jobs}) for progress.
      */
     @PostMapping(value = "/{id}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public KnowledgeDocument upload(@PathVariable String id, @RequestPart("file") MultipartFile file)
-            throws IOException {
+    public KnowledgeDocument upload(
+            @PathVariable String id, @RequestPart("file") MultipartFile file) throws IOException {
         return service.upload(id, file);
     }
 
@@ -124,19 +143,21 @@ public class KnowledgeAdminController {
     }
 
     /**
-     * Re-indexes every document in the base. {@code dryRun=true} only estimates the cost,
-     * which is mandatory reading before switching to a different embedding dimension.
+     * Re-indexes every document in the base. {@code dryRun=true} only estimates the cost, which is
+     * mandatory reading before switching to a different embedding dimension.
      */
     @PostMapping("/{id}/rebuild")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public IndexingJobService.RebuildResult rebuild(@PathVariable String id, @RequestBody(required = false) RebuildRequest request) {
+    public IndexingJobService.RebuildResult rebuild(
+            @PathVariable String id, @RequestBody(required = false) RebuildRequest request) {
         boolean dryRun = request != null && Boolean.TRUE.equals(request.dryRun());
         String profileId = request == null ? null : request.profileId();
         return jobs.rebuild(id, profileId, dryRun);
     }
 
     @GetMapping("/{id}/jobs")
-    public List<IndexingJob> jobs(@PathVariable String id, @RequestParam(defaultValue = "20") int limit) {
+    public List<IndexingJob> jobs(
+            @PathVariable String id, @RequestParam(defaultValue = "20") int limit) {
         return jobs.recent(id, limit);
     }
 
@@ -148,7 +169,8 @@ public class KnowledgeAdminController {
     }
 
     @GetMapping("/{id}/audit-log")
-    public List<KnowledgeAuditLog> auditLog(@PathVariable String id, @RequestParam(defaultValue = "50") int limit) {
+    public List<KnowledgeAuditLog> auditLog(
+            @PathVariable String id, @RequestParam(defaultValue = "50") int limit) {
         return auditLog.recent(id, limit);
     }
 
@@ -158,12 +180,26 @@ public class KnowledgeAdminController {
         service.deleteDocument(documentId);
     }
 
-    public record SearchRequest(String query, Integer topK) {}
+    public record SearchRequest(
+            String query,
+            Integer topK,
+            Double similarityThreshold,
+            String retrievalMode,
+            Double lexicalWeight,
+            Boolean fallbackEnabled) {}
 
     public record RebuildRequest(String profileId, Boolean dryRun) {}
 
-    public record IndexingJobServiceRebuildResult(String jobId, long documentCount, long chunkCount,
-                                                  long estimatedTokens, long estimatedSeconds, double estimatedCostUsd,
-                                                  int currentDimension, int targetDimension, boolean dimensionChanged,
-                                                  List<String> warnings, boolean dryRun) {}
+    public record IndexingJobServiceRebuildResult(
+            String jobId,
+            long documentCount,
+            long chunkCount,
+            long estimatedTokens,
+            long estimatedSeconds,
+            double estimatedCostUsd,
+            int currentDimension,
+            int targetDimension,
+            boolean dimensionChanged,
+            List<String> warnings,
+            boolean dryRun) {}
 }
