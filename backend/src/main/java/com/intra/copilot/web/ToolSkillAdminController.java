@@ -38,6 +38,12 @@ public class ToolSkillAdminController {
         }
         @PostMapping("/tools") @ResponseStatus(HttpStatus.CREATED) public ToolDefinition createTool(@RequestBody ToolDefinition t) { validateTool(t); ensureToolNameAvailable(t.getName(), null); t.setName(t.getName().trim()); return tools.save(t); }
         @PutMapping("/tools/{id}") public ToolDefinition updateTool(@PathVariable String id, @RequestBody ToolDefinition t) { t.setId(id); validateTool(t); ensureToolNameAvailable(t.getName(), id); t.setName(t.getName().trim()); t.touch(); return tools.save(t); }
+        @PatchMapping("/tools/{id}/enabled") public ToolDefinition toggleTool(@PathVariable String id, @RequestBody EnabledRequest request) {
+                ToolDefinition tool = tools.findById(id).orElseThrow(() -> new IllegalArgumentException("工具不存在"));
+                tool.setEnabled(request.enabled());
+                tool.touch();
+                return tools.save(tool);
+        }
         @DeleteMapping("/tools/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteTool(@PathVariable String id) { ensureToolNotEnabled(id); tools.deleteById(id); }
         @GetMapping("/skills") public List<SkillDefinition> skills() { return skills.findAll(); }
         @PostMapping("/skills") @ResponseStatus(HttpStatus.CREATED) public SkillDefinition createSkill(@RequestBody SkillDefinition s) { validateSkill(s); ensureSkillNameAvailable(s.getName(), null); s.setName(s.getName().trim()); return skills.save(s); }
@@ -74,6 +80,7 @@ public class ToolSkillAdminController {
                 HookDefinition item = hooks.findById(id).orElseThrow(() -> new IllegalArgumentException("钩子不存在"));
                 if (item.isEnabled()) throw new IllegalArgumentException("钩子处于启用状态，请先停用后再删除");
         }
+        public record EnabledRequest(boolean enabled) {}
         private void validateTool(ToolDefinition t) {
                 if (t.getName() == null || t.getName().isBlank()) throw new IllegalArgumentException("工具名称不能为空");
                 if ("HTTP".equalsIgnoreCase(t.getType())) {

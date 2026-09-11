@@ -964,13 +964,17 @@ function AdminApp({
     }
     setResourceActionId(resource.id);
     try {
-      await request(
-        `/admin/${kind === "tool" ? "tools" : "skills"}/${resource.id}`,
-        {
+      if (kind === "tool") {
+        await request(`/admin/tools/${resource.id}/enabled`, {
+          method: "PATCH",
+          body: JSON.stringify({ enabled: !original }),
+        });
+      } else {
+        await request(`/admin/skills/${resource.id}`, {
           method: "PUT",
           body: JSON.stringify({ ...resource, enabled: !original }),
-        },
-      );
+        });
+      }
       if (kind === "tool") loadTools();
       else loadSkills();
     } catch (error) {
