@@ -15,6 +15,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -132,6 +135,9 @@ public class ChatService {
         record LoopError(String code, String userMessage) {}
 
         record ModelReply(String content, boolean streamed) {}
+
+        /** 一轮带原生 function calling 的模型回复：聚合文本 + 模型下发的 tool_calls（若有）。 */
+        record ToolAwareReply(String content, List<AssistantMessage.ToolCall> toolCalls, boolean streamed) {}
 
         /** Classify model failures for both persistence and the user-facing SSE event. */
         static LoopError classifyLoopError(Throwable error) {
@@ -629,19 +635,41 @@ public class ChatService {
                         }
                 } catch (IOException ignored) {
                 }
+                String effectivePageContext =
+                                readPage && pageContext != null ? pageContext : "";
                 List<HookService.HookCheck> routeHookChecks =
-                                hooks.checks(new HookService.Context(text, pageContext, routeAgent.id(), permissions));
+                                hooks.checks(
+                                                new HookService.Context(
+                                                                text,
+                                                                effectivePageContext,
+                                                                routeAgent.id(),
+                                                                agentRole(routeAgent),
+                                                                HookService.PHASE_PRE_ROUTE,
+                                                                readPage,
+                                                                permissions,
+                                                                attachmentIds.size()));
                 recordHookChecks(invocationId, correlationId, routeAgent.id(), routeHookChecks);
                 HookService.HookResult hookResult = toHookResult(routeHookChecks);
-                if (hookResult.allowed() && delegation.delegated()) {
-                        List<HookService.HookCheck> childHookChecks =
-                                        hooks.checks(new HookService.Context(text, pageContext, agent.id(), permissions));
+                if (hookResult.allowed()) {
+                        String targetInvocationId =
+                                        childInvocation == null ? invocationId : childInvocation.getId();
+                        List<HookService.HookCheck> agentHookChecks =
+                                        hooks.checks(
+                                                        new HookService.Context(
+                                                                        text,
+                                                                        effectivePageContext,
+                                                                        agent.id(),
+                                                                        agentRole(agent),
+                                                                        HookService.PHASE_PRE_AGENT,
+                                                                        readPage,
+                                                                        permissions,
+                                                                        attachmentIds.size()));
                         recordHookChecks(
-                                        childInvocation == null ? invocationId : childInvocation.getId(),
+                                        targetInvocationId,
                                         correlationId,
                                         agent.id(),
-                                        childHookChecks);
-                        hookResult = toHookResult(childHookChecks);
+                                        agentHookChecks);
+                        hookResult = toHookResult(agentHookChecks);
                 }
                 if (!hookResult.allowed()) {
                         invocation.setError(hookResult.message());
@@ -793,9 +821,15 @@ public class ChatService {
                                         .put("hookId", check.hookId())
                                         .put("hookName", check.hookName())
                                         .put("ruleType", check.ruleType())
+                                        .put("phase", check.phase())
+                                        .put("ruleVersion", check.ruleVersion())
+                                        .put("ruleConfig", check.ruleConfig())
+                                        .put("failMode", check.failMode())
                                         .put("agentId", agentId)
                                         .put("passed", check.passed())
                                         .put("message", check.message())
+                                        .put("evaluationError", check.evaluationError())
+                                        .put("durationMs", check.durationMs())
                                         .save();
                 }
         }
@@ -808,6 +842,12 @@ public class ChatService {
                         }
                 }
                 return new HookService.HookResult(true, null, null, null);
+        }
+
+        private static String agentRole(Agent agent) {
+                return agent instanceof ConfigurableAgent configurable
+                                ? configurable.definition().getRole()
+                                : "MAIN";
         }
 
         private String preview(String content) {
@@ -967,6 +1007,69 @@ public class ChatService {
                         }
                 }
                 return new ModelReply(full.toString(), streamed.get());
+        }
+
+        /**
+         * 带原生 function calling 的一轮模型推理。与 {@link #streamModelReply} 的区别：
+         * 通过 {@link LlmClient#streamWithTools} 下发工具回调，从流式 {@link ChatResponse} 中聚合出
+         * 模型下发的 {@code tool_calls}（结构化、可靠），同时把正文 token 实时回传给用户。
+         * 框架侧已关闭自动执行（internalToolExecutionEnabled=false），工具由调用方循环驱动。
+         */
+        private ToolAwareReply streamModelReplyWithTools(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        boolean streamToUser,
+                        String system,
+                        List<Map<String, String>> history,
+                        String user,
+                        List<String> images,
+                        ToolCallback... callbacks) {
+                if (finished.get()) return new ToolAwareReply("", List.of(), false);
+                StringBuilder full = new StringBuilder();
+                List<AssistantMessage.ToolCall> toolCalls = new ArrayList<>();
+                AtomicBoolean streamed = new AtomicBoolean(false);
+                StreamingReplyEmitter emitter =
+                                streamToUser ? new StreamingReplyEmitter(out, finished, false) : null;
+                try {
+                        llm.streamWithTools(system, history, user, images, callbacks)
+                                .doOnNext(
+                                                response -> {
+                                                        if (response == null) return;
+                                                        String text = textOf(response);
+                                                        if (text != null && !text.isBlank()) {
+                                                                full.append(text);
+                                                                if (emitter != null && emitter.accept(text)) {
+                                                                        streamed.set(true);
+                                                                }
+                                                        }
+                                                        AssistantMessage msg =
+                                                                        response.getResult() == null
+                                                                                        ? null
+                                                                                        : response.getResult().getOutput();
+                                                        if (msg != null && msg.hasToolCalls()) {
+                                                                toolCalls.clear();
+                                                                toolCalls.addAll(msg.getToolCalls());
+                                                        }
+                                                })
+                                .collectList()
+                                .blockOptional(llmTimeout)
+                                .orElse(List.of());
+                } finally {
+                        if (emitter != null && emitter.finish()) {
+                                streamed.set(true);
+                        }
+                }
+                return new ToolAwareReply(full.toString(), List.copyOf(toolCalls), streamed.get());
+        }
+
+        private String textOf(ChatResponse response) {
+                if (response == null
+                        || response.getResult() == null
+                        || response.getResult().getOutput() == null) {
+                        return "";
+                }
+                String text = response.getResult().getOutput().getText();
+                return text == null ? "" : text;
         }
 
         private boolean emitToken(SseEmitter out, AtomicBoolean finished, String chunk) {
@@ -1162,17 +1265,20 @@ public class ChatService {
                                         if (!agentToolIds.contains(tid)) agentToolIds.add(tid);
                                 }
                         }
-                        boolean hasTools = !agentToolIds.isEmpty();
-                        if (hasTools) {
-                                String toolList = toolExecutor.describeTools(agentToolIds);
-                                if (!toolList.isBlank()) {
-                                        systemBuilder.append("\n\n[可用工具] 当你需要调用工具时，只输出一个 JSON 对象（不要 Markdown 代码块、不要多余解释），格式：")
-                                                        .append("{\"tool\":\"<工具名>\",\"arguments\":{...}}。")
-                                                        .append("工具执行结果会作为下一轮输入返回给你，你可以据此继续推理或给出最终答复。可用工具：\n")
-                                                        .append(toolList);
-                                } else {
-                                        hasTools = false;
+                        // 把 Agent 绑定的已启用工具适配成 Spring AI 原生 ToolCallback，用于原生 function calling。
+                        List<ToolCallback> toolCallbacks = new ArrayList<>();
+                        for (String tid : agentToolIds) {
+                                ToolDefinition def = toolExecutor.resolveById(tid);
+                                if (def != null) {
+                                        toolCallbacks.add(new ToolDefinitionToolCallback(def, toolExecutor));
                                 }
+                        }
+                        boolean hasTools = !toolCallbacks.isEmpty();
+                        if (hasTools) {
+                                // 工具的名称 / 描述 / 入参 Schema 已通过 ToolCallback 下发，模型用 function calling 发起调用；
+                                // 这里只补一句中性提示，避免模型仍以文本 JSON 形式输出工具调用。
+                                systemBuilder.append("\n\n[工具] 你已获得若干可通过 function calling 调用的工具，")
+                                                .append("在需要获取数据或执行动作时直接调用对应工具，工具返回结果会作为下一轮上下文提供给你。");
                         }
                         final String systemEffective = systemBuilder.toString();
 
@@ -1188,6 +1294,7 @@ public class ChatService {
                         boolean delegatedSummary = delegation.delegated()
                                         && routeAgent instanceof ConfigurableAgent parent
                                         && "DOMAIN_SUMMARY".equals(parent.definition().getReturnMode());
+                        iteration:
                         for (int iter = 0; iter < maxToolIterations; iter++) {
                                 if (finished.get()) return;
                                 emitStage(
@@ -1195,66 +1302,87 @@ public class ChatService {
                                                 finished,
                                                 iter == 0 ? "generating" : "processing",
                                                 iter == 0 ? "正在生成回答…" : "正在整理处理结果…");
-                                ModelReply modelReply = streamModelReply(
-                                                out,
-                                                finished,
-                                                hasTools,
-                                                !delegatedSummary,
-                                                systemEffective,
-                                                turns,
-                                                iter == 0 ? userInput : "",
-                                                iter == 0 ? images : List.of());
+                                // 有工具时走原生 function calling 通道；无工具时复用旧的纯文本流式通道。
+                                ToolAwareReply modelReply;
+                                if (hasTools) {
+                                        modelReply = streamModelReplyWithTools(
+                                                        out,
+                                                        finished,
+                                                        !delegatedSummary,
+                                                        systemEffective,
+                                                        turns,
+                                                        iter == 0 ? userInput : "",
+                                                        iter == 0 ? images : List.of(),
+                                                        toolCallbacks.toArray(new ToolCallback[0]));
+                                } else {
+                                        ModelReply plain = streamModelReply(
+                                                        out,
+                                                        finished,
+                                                        false,
+                                                        !delegatedSummary,
+                                                        systemEffective,
+                                                        turns,
+                                                        iter == 0 ? userInput : "",
+                                                        iter == 0 ? images : List.of());
+                                        modelReply = new ToolAwareReply(plain.content(), List.of(), plain.streamed());
+                                }
                                 if (finished.get()) return;
                                 String reply = modelReply.content();
                                 lastReply = reply;
-                                ToolCall call = hasTools ? parseToolCall(reply) : null;
-                                if (call == null) {
+                                // 原生 function calling：模型通过 tool_calls 下发结构化调用（可靠，无 Markdown 包裹）。
+                                // 无工具或模型未触发调用则为最终答复。
+                                List<AssistantMessage.ToolCall> calls = hasTools ? modelReply.toolCalls() : List.of();
+                                if (calls.isEmpty()) {
                                         currentAnswer = reply;
                                         answerStreamed = modelReply.streamed();
                                         break;
                                 }
                                 endedWithToolCall = true;
-                                // 只在当前 Agent 绑定的工具集合内解析，避免越权调用其他已启用工具。
-                                ToolDefinition toolDef = toolExecutor.resolveWithin(agentToolIds, call.name);
-                                if (toolDef == null) {
-                                        // 工具未配置：把错误作为观察值喂回，避免无限循环。
-                                        emitToolResult(out, finished, call.name, "未找到已启用的工具：" + call.name);
-                                        turns.add(Map.of("role", "user", "content",
-                                                        "工具调用失败：未找到已启用的工具 \"" + call.name + "\"。请直接给出最终答复，不要继续调用该工具。"));
-                                        continue;
-                                }
-                                emitStage(out, finished, "tool", "正在调用工具：" + toolDef.getName());
-                                emitToolInvoked(out, finished, toolDef.getName(), call.argumentsJson);
-                                String result = toolExecutor.execute(toolDef, call.argumentsJson);
-                                trace.event(targetInvocationId, correlationId, TraceRecorder.Type.TOOL_CALL)
-                                                .name("工具调用：" + toolDef.getName())
-                                                .status("OK")
-                                                .put("toolName", toolDef.getName())
-                                                .put("arguments", call.argumentsJson)
-                                                .put("resultPreview", result.length() > 500 ? result.substring(0, 500) : result)
-                                                .put("iteration", iter)
-                                                .save();
-                                if (result.startsWith("BROWSER_PROPOSAL:")) {
-                                        // 浏览器动作提案：转成 action_proposed 事件，并终止循环。
-                                        String proposalJson = result.substring("BROWSER_PROPOSAL:".length());
-                                        ActionProposal proposal = buildProposal(conversation.getId(), proposalJson);
-                                        if (proposal != null) {
-                                                emitActionProposed(out, finished, proposal);
+                                // 单次回复可能包含多个 tool_call，逐个执行。
+                                for (AssistantMessage.ToolCall call : calls) {
+                                        // 只在当前 Agent 绑定的工具集合内解析，避免越权调用其他已启用工具。
+                                        ToolDefinition toolDef = toolExecutor.resolveWithin(agentToolIds, call.name());
+                                        if (toolDef == null) {
+                                                // 工具未配置：把错误作为观察值喂回，避免无限循环。
+                                                emitToolResult(out, finished, call.name(), "未找到已启用的工具：" + call.name());
+                                                turns.add(Map.of("role", "user", "content",
+                                                                "工具调用失败：未找到已启用的工具 \"" + call.name() + "\"。请直接给出最终答复，不要继续调用该工具。"));
+                                                continue;
                                         }
-                                        currentAnswer = proposal != null
-                                                        ? "已在浏览器中为你准备好操作，请在插件侧确认执行。"
-                                                        : reply;
-                                        break;
+                                        emitStage(out, finished, "tool", "正在调用工具：" + toolDef.getName());
+                                        emitToolInvoked(out, finished, toolDef.getName(), call.arguments());
+                                        String result = toolExecutor.execute(toolDef, call.arguments());
+                                        trace.event(targetInvocationId, correlationId, TraceRecorder.Type.TOOL_CALL)
+                                                        .name("工具调用：" + toolDef.getName())
+                                                        .status("OK")
+                                                        .put("toolName", toolDef.getName())
+                                                        .put("arguments", call.arguments())
+                                                        .put("resultPreview", result.length() > 500 ? result.substring(0, 500) : result)
+                                                        .put("iteration", iter)
+                                                        .save();
+                                        if (result.startsWith("BROWSER_PROPOSAL:")) {
+                                                // 浏览器动作提案：转成 action_proposed 事件，并终止整个循环。
+                                                String proposalJson = result.substring("BROWSER_PROPOSAL:".length());
+                                                ActionProposal proposal = buildProposal(conversation.getId(), proposalJson);
+                                                if (proposal != null) {
+                                                        emitActionProposed(out, finished, proposal);
+                                                }
+                                                currentAnswer = proposal != null
+                                                                ? "已在浏览器中为你准备好操作，请在插件侧确认执行。"
+                                                                : reply;
+                                                break iteration;
+                                        }
+                                        emitToolResult(out, finished, toolDef.getName(), result);
+                                        turns.add(Map.of("role", "user", "content",
+                                                        "工具「" + toolDef.getName() + "」执行结果：\n" + result));
                                 }
-                                emitToolResult(out, finished, toolDef.getName(), result);
-                                turns.add(Map.of("role", "user", "content",
-                                                "工具「" + toolDef.getName() + "」执行结果：\n" + result));
                         }
                         if (currentAnswer == null) {
                                 currentAnswer = lastReply == null ? "" : lastReply;
                         }
-                        if (endedWithToolCall && parseToolCall(currentAnswer) != null) {
-                                // 达到最大轮次仍以工具调用收尾：避免把原始 JSON 透传给用户。
+                        if (currentAnswer.isBlank()) {
+                                // 达到最大轮次仍只在调用工具、未给出最终文本答复（或模型最终输出为空）：
+                                // 避免把空内容或原始调用透传给用户。
                                 currentAnswer = "（已达到最大工具调用次数，未能生成最终答复。请调整问题或工具配置后重试。）";
                         }
 

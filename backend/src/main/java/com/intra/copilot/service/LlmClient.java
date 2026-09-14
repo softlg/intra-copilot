@@ -8,8 +8,11 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatOptions;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.content.Media;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -47,6 +50,32 @@ public class LlmClient {
         } catch (Exception error) {
             return Flux.error(error);
         }
+    }
+
+    /**
+     * 带原生 function calling 工具的一轮流式推理。
+     *
+     * <p>通过 {@code ToolCallingChatOptions} 把 {@link ToolCallback} 下发给模型；并显式关闭
+     * {@code internalToolExecutionEnabled}，使框架只把模型的 {@code tool_calls} 透传回来、不自动执行，
+     * 由调用方（ChatService 的 ReAct 循环）自行驱动执行、回灌结果、发送 SSE 事件与追踪。
+     * 这样既能用上模型原生的结构化工具调用（可靠的参数 JSON、无 Markdown 包裹），又保留后台对
+     * 工具范围、内网防护与浏览器提案的完全控制。
+     */
+    public Flux<ChatResponse> streamWithTools(
+            String system,
+            List<Map<String, String>> history,
+            String user,
+            List<String> images,
+            ToolCallback... callbacks) {
+        if (apiKey == null || apiKey.isBlank()) {
+            return Flux.error(new IllegalStateException(
+                    "[未配置 LLM_API_KEY] 后端已启用，请配置 OpenAI 兼容模型后重试。"));
+        }
+        ChatOptions options = ToolCallingChatOptions.builder()
+                .toolCallbacks(callbacks)
+                .internalToolExecutionEnabled(false)
+                .build();
+        return chatModel.stream(new Prompt(messages(system, history, user, images), options));
     }
 
     /**
