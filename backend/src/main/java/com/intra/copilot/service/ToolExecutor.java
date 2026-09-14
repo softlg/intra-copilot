@@ -48,15 +48,6 @@ public class ToolExecutor {
         this.allowPrivateNetwork = allowPrivateNetwork;
     }
 
-    /** Resolve a tool definition by its configured name (used by the agent loop). */
-    public ToolDefinition resolve(String name) {
-        if (name == null || name.isBlank()) return null;
-        return toolRepository.findAll().stream()
-                .filter(t -> name.equals(t.getName()) && t.isEnabled())
-                .findFirst()
-                .orElse(null);
-    }
-
     /** Resolve a tool definition by its primary key id (used to render tool usage hints). */
     public ToolDefinition resolveById(String id) {
         if (id == null || id.isBlank()) return null;
@@ -88,6 +79,10 @@ public class ToolExecutor {
                 sb.append("：").append(def.getDescription());
             }
             sb.append("（类型：").append(def.getType()).append("）\n");
+            String schema = def.getParameterSchema();
+            if (schema != null && !schema.isBlank() && !"{}".equals(schema.trim())) {
+                sb.append("  参数结构（JSON Schema）：").append(schema.trim()).append("\n");
+            }
         }
         return sb.toString();
     }
