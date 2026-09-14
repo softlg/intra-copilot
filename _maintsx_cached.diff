@@ -1,0 +1,821 @@
+diff --git a/admin/src/main.tsx b/admin/src/main.tsx
+index a865a6f..c903af6 100644
+--- a/admin/src/main.tsx
++++ b/admin/src/main.tsx
+@@ -55,7 +55,11 @@ import type {
+   EmbeddingProfile,
+   EmbeddingValidation,
+   FeedbackSummary,
++  HookCheck,
+   HookDefinition,
++  HookDefinitionVersion,
++  HookStats,
++  HookTestResult,
+   KnowledgeDiagnostics,
+   KnowledgeDocument,
+   McpInterface,
+@@ -80,6 +84,12 @@ import { formatDateTime, parseIds } from "./lib/format";
+ import { mcpStatusLabel, truncateError } from "./lib/mcp";
+ import { documentStatus } from "./lib/knowledge";
+ import { buildDailyFeedbackTrend } from "./lib/feedback";
++import {
++  defaultRuleConfig,
++  normalizeBindings,
++  parseRuleConfig,
++  type HookRuleType,
++} from "./lib/hooks";
+ import { RatingsPage } from "./pages/RatingsPage";
+ import { ConversationLogsPage } from "./pages/ConversationLogsPage";
+ import { RouterPage } from "./pages/RouterPage";
+@@ -290,9 +300,30 @@ function AdminApp({
+   );
+   const [hookFailureMessage, setHookFailureMessage] = useState("");
+   const [hookPriority, setHookPriority] = useState(100);
+-  const [hookEnabled, setHookEnabled] = useState(true);
++  const [hookEnabled, setHookEnabled] = useState(false);
++  const [hookPhase, setHookPhase] = useState("PRE_ROUTE");
++  const [hookFailMode, setHookFailMode] = useState<"BLOCK" | "WARN">("BLOCK");
++  const [hookScopeType, setHookScopeType] = useState("GLOBAL");
++  const [hookScopeId, setHookScopeId] = useState("");
+   const [hookSubmitting, setHookSubmitting] = useState(false);
+   const [hookActionId, setHookActionId] = useState<string>();
++  const [hookError, setHookError] = useState("");
++  const [hookChangeNote, setHookChangeNote] = useState("");
++  const [hookSearch, setHookSearch] = useState("");
++  const [hookStatus, setHookStatus] = useState<"all" | "enabled" | "disabled">(
++    "all",
++  );
++  const [hookScopeFilter, setHookScopeFilter] = useState("all");
++  const [hookRuleTypeFilter, setHookRuleTypeFilter] = useState("all");
++  const [hookVersions, setHookVersions] = useState<HookDefinitionVersion[]>([]);
++  const [hookVersionsLoading, setHookVersionsLoading] = useState(false);
++  const [hookStats, setHookStats] = useState<HookStats>();
++  const [hookTestMessage, setHookTestMessage] = useState("delete export data");
++  const [hookTestPageContext, setHookTestPageContext] = useState("test page");
++  const [hookTestConsent, setHookTestConsent] = useState(true);
++  const [hookTestAgentId, setHookTestAgentId] = useState("");
++  const [hookTestResult, setHookTestResult] = useState<HookTestResult>();
++  const [hookTestLoading, setHookTestLoading] = useState(false);
+   const [bases, setBases] = useState<Base[]>([]);
+   const [basesLoading, setBasesLoading] = useState(true);
+   const [documents, setDocuments] = useState<
+@@ -1067,42 +1098,103 @@ function AdminApp({
+   };
+ 
+   const openHookDialog = (hook?: HookDefinition) => {
++    const binding = hook?.bindings?.[0];
+     setEditingHookId(hook?.id);
+     setHookName(hook?.name ?? "");
+     setHookDescription(hook?.description ?? "");
+-    setHookRuleType(hook?.ruleType ?? "REQUIRE_PERMISSION");
+-    setHookRuleConfig(hook?.ruleConfig ?? '{"permission":"readPage"}');
++    setHookRuleType(hook?.ruleType ?? "REQUIRE_PAGE_CONSENT");
++    setHookRuleConfig(
++      hook?.ruleConfig ?? defaultRuleConfig("REQUIRE_PAGE_CONSENT"),
++    );
+     setHookFailureMessage(hook?.failureMessage ?? "");
+     setHookPriority(hook?.priority ?? 100);
+-    setHookEnabled(hook?.enabled ?? true);
++    setHookEnabled(hook?.enabled ?? false);
++    setHookPhase(hook?.phase ?? "PRE_ROUTE");
++    setHookFailMode(hook?.failMode ?? "BLOCK");
++    setHookScopeType(binding?.targetType ?? "GLOBAL");
++    setHookScopeId(binding?.targetId === "*" ? "" : (binding?.targetId ?? ""));
++    setHookChangeNote("");
++    setHookError("");
++    setHookTestResult(undefined);
++    setHookVersions([]);
++    setHookStats(undefined);
++    if (hook) {
++      setHookVersionsLoading(true);
++      Promise.all([
++        request<HookDefinitionVersion[]>(`/admin/hooks/${hook.id}/versions`),
++        request<HookStats>(`/admin/hooks/${hook.id}/stats`),
++      ])
++        .then(([versions, stats]) => {
++          setHookVersions(versions);
++          setHookStats(stats);
++        })
++        .catch(() => {
++          setHookVersions([]);
++          setHookStats(undefined);
++        })
++        .finally(() => setHookVersionsLoading(false));
++    }
+     setHookDialogOpen(true);
+   };
+ 
++  const closeHookDialog = () => {
++    setHookDialogOpen(false);
++    setHookError("");
++  };
++
++  const hookDefinitionFromForm = (): HookDefinition => {
++    const existing = hooks.find((hook) => hook.id === editingHookId);
++    const bindings = normalizeBindings([
++      {
++        targetType: hookScopeType as "GLOBAL" | "AGENT" | "AGENT_ROLE",
++        targetId: hookScopeType === "GLOBAL" ? "*" : hookScopeId,
++      },
++    ]);
++    return {
++      id: editingHookId ?? "",
++      name: hookName.trim(),
++      description: hookDescription.trim() || undefined,
++      phase: hookPhase,
++      ruleType: hookRuleType,
++      ruleConfig: hookRuleConfig.trim() || "{}",
++      failureMessage: hookFailureMessage.trim() || undefined,
++      priority: Math.max(0, Math.min(10000, Number(hookPriority) || 0)),
++      enabled: hookEnabled,
++      version: existing?.version ?? 1,
++      failMode: hookFailMode,
++      bindings,
++    };
++  };
++
++  const updateHookRuleConfig = (patch: Record<string, unknown>) => {
++    setHookRuleConfig(
++      JSON.stringify({ ...parseRuleConfig(hookRuleConfig), ...patch }),
++    );
++  };
++
+   const saveHook = async (event: React.FormEvent<HTMLFormElement>) => {
+     event.preventDefault();
+-    if (!hookName.trim()) return setResourceError(t.hookNameRequired);
+-    if (!hookDescription.trim()) return setResourceError(t.descriptionRequired);
++    if (!hookName.trim()) return setHookError(t.hookNameRequired);
++    if (hookScopeType !== "GLOBAL" && !hookScopeId.trim()) {
++      return setHookError(t.scopeTarget);
++    }
+     try {
+       JSON.parse(hookRuleConfig || "{}");
+     } catch {
+-      return setResourceError(t.hookRuleConfig);
++      return setHookError(t.hookRuleConfig);
+     }
+     setHookSubmitting(true);
+-    setResourceError("");
++    setHookError("");
+     try {
+-      const payload = {
+-        id: editingHookId,
+-        name: hookName.trim(),
+-        description: hookDescription.trim(),
+-        phase: "PRE_AGENT",
+-        ruleType: hookRuleType,
+-        ruleConfig: hookRuleConfig.trim() || "{}",
+-        failureMessage: hookFailureMessage.trim(),
+-        priority: Math.max(0, Math.min(10000, Number(hookPriority) || 0)),
+-        enabled: hookEnabled,
+-      };
++      const payload = hookDefinitionFromForm();
++      const query = new URLSearchParams({
++        version: String(payload.version ?? 0),
++        changeNote: hookChangeNote.trim(),
++      });
+       const saved = await request<HookDefinition>(
+-        editingHookId ? `/admin/hooks/${editingHookId}` : "/admin/hooks",
++        editingHookId
++          ? `/admin/hooks/${editingHookId}?${query.toString()}`
++          : "/admin/hooks",
+         {
+           method: editingHookId ? "PUT" : "POST",
+           body: JSON.stringify(payload),
+@@ -1114,15 +1206,70 @@ function AdminApp({
+           : [saved, ...current],
+       );
+       setHookDialogOpen(false);
++      toast.success(editingHookId ? t.saved : t.hookCreated(saved.name));
+     } catch (error) {
+-      setResourceError(
+-        error instanceof Error ? error.message : t.hookSaveFailed,
+-      );
++      setHookError(error instanceof Error ? error.message : t.hookSaveFailed);
+     } finally {
+       setHookSubmitting(false);
+     }
+   };
+ 
++  const runHookTest = async () => {
++    setHookTestLoading(true);
++    setHookError("");
++    try {
++      const result = await request<HookTestResult>("/admin/hooks/test", {
++        method: "POST",
++        body: JSON.stringify({
++          definition: hookDefinitionFromForm(),
++          message: hookTestMessage,
++          pageContext: hookTestPageContext,
++          pageContextConsent: hookTestConsent,
++          agentId:
++            hookTestAgentId ||
++            (hookScopeType === "AGENT" ? hookScopeId : (agents[0]?.id ?? "")),
++          agentRole: hookScopeType === "AGENT_ROLE" ? hookScopeId : "SUB",
++          phase: hookPhase,
++          permissions: { readPage: hookTestConsent },
++        }),
++      });
++      setHookTestResult(result);
++    } catch (error) {
++      setHookError(error instanceof Error ? error.message : t.hookSaveFailed);
++    } finally {
++      setHookTestLoading(false);
++    }
++  };
++
++  const rollbackHook = (version: number) => {
++    if (!editingHookId) return;
++    askConfirm({
++      title: t.hookHistory,
++      description: `${t.rollbackVersion} v${version}?`,
++      confirmLabel: t.rollbackVersion,
++      cancelLabel: t.cancelLabel,
++      tone: "primary",
++      onConfirm: async () => {
++        try {
++          const restored = await request<HookDefinition>(
++            `/admin/hooks/${editingHookId}/rollback`,
++            {
++              method: "POST",
++              body: JSON.stringify({ version }),
++            },
++          );
++          setHooks((current) =>
++            current.map((item) => (item.id === restored.id ? restored : item)),
++          );
++          openHookDialog(restored);
++          toast.success(t.restored);
++        } catch (error) {
++          toast.error(error instanceof Error ? error.message : t.restoreFailed);
++        }
++      },
++    });
++  };
++
+   const toggleHook = async (hook: HookDefinition) => {
+     const original = hook.enabled;
+     setHooks((current) =>
+@@ -1132,10 +1279,16 @@ function AdminApp({
+     );
+     setHookActionId(hook.id);
+     try {
+-      const updated = await request<HookDefinition>(`/admin/hooks/${hook.id}`, {
+-        method: "PUT",
+-        body: JSON.stringify({ ...hook, enabled: !original }),
+-      });
++      const updated = await request<HookDefinition>(
++        `/admin/hooks/${hook.id}/enabled`,
++        {
++          method: "PATCH",
++          body: JSON.stringify({
++            enabled: !original,
++            version: hook.version,
++          }),
++        },
++      );
+       setHooks((current) =>
+         current.map((item) => (item.id === updated.id ? updated : item)),
+       );
+@@ -1167,7 +1320,10 @@ function AdminApp({
+       onConfirm: async () => {
+         setHooks((current) => current.filter((item) => item.id !== hook.id));
+         try {
+-          await request(`/admin/hooks/${hook.id}`, { method: "DELETE" });
++          await request(
++            `/admin/hooks/${hook.id}?version=${encodeURIComponent(String(hook.version))}`,
++            { method: "DELETE" },
++          );
+           toast.success(t.hookDeleted(hook.name), {
+             duration: 5000,
+             action: {
+@@ -1247,7 +1403,7 @@ function AdminApp({
+         setResourceDialog(undefined);
+       }
+       if (hookDialogOpen && !hookSubmitting) {
+-        setHookDialogOpen(false);
++        closeHookDialog();
+       }
+       if (mcpDialogOpen && !mcpSubmitting) {
+         setMcpDialogOpen(false);
+@@ -2356,7 +2512,30 @@ function AdminApp({
+       resourceStatus === "all" ||
+       (resourceStatus === "enabled" ? skill.enabled : !skill.enabled),
+   );
+-  const filteredHooks = hooks;
++  const currentHookRuleConfig = parseRuleConfig(hookRuleConfig);
++  const currentHookKeywords = Array.isArray(currentHookRuleConfig.keywords)
++    ? currentHookRuleConfig.keywords.map(String).join(", ")
++    : "";
++  const filteredHooks = hooks.filter((hook) => {
++    const query = hookSearch.trim().toLowerCase();
++    const matchesQuery =
++      !query ||
++      hook.name.toLowerCase().includes(query) ||
++      (hook.description ?? "").toLowerCase().includes(query) ||
++      hook.ruleType.toLowerCase().includes(query) ||
++      hook.bindings.some((binding) =>
++        binding.targetId.toLowerCase().includes(query),
++      );
++    const matchesStatus =
++      hookStatus === "all" ||
++      (hookStatus === "enabled" ? hook.enabled : !hook.enabled);
++    const matchesScope =
++      hookScopeFilter === "all" ||
++      hook.bindings.some((binding) => binding.targetType === hookScopeFilter);
++    const matchesRule =
++      hookRuleTypeFilter === "all" || hook.ruleType === hookRuleTypeFilter;
++    return matchesQuery && matchesStatus && matchesScope && matchesRule;
++  });
+   const filteredFeedback = feedback;
+   const agentListTab = (() => {
+     const config = {
+@@ -2915,6 +3094,14 @@ function AdminApp({
+             filteredHooks={filteredHooks}
+             loading={hooksLoading}
+             actionId={hookActionId}
++            status={hookStatus}
++            scope={hookScopeFilter}
++            ruleType={hookRuleTypeFilter}
++            search={hookSearch}
++            onStatusChange={setHookStatus}
++            onScopeChange={setHookScopeFilter}
++            onRuleTypeChange={setHookRuleTypeFilter}
++            onSearchChange={setHookSearch}
+             onNew={() => openHookDialog()}
+             onEdit={(hook) => openHookDialog(hook)}
+             onToggle={toggleHook}
+@@ -3150,20 +3337,27 @@ function AdminApp({
+           role="presentation"
+           onMouseDown={(event) => {
+             if (event.target === event.currentTarget && !hookSubmitting) {
+-              setHookDialogOpen(false);
++              closeHookDialog();
+             }
+           }}
+         >
+-          <div className="modal" role="dialog" aria-modal="true">
++          <div
++            className="modal hook-modal"
++            role="dialog"
++            aria-modal="true"
++            aria-labelledby="hook-dialog-title"
++          >
+             <div className="modal-header">
+               <div>
+-                <h3>{editingHookId ? t.editHook : t.newHook}</h3>
++                <h3 id="hook-dialog-title">
++                  {editingHookId ? t.editHook : t.newHook}
++                </h3>
+                 <p className="modal-subtitle">{t.hooksSubtitle}</p>
+               </div>
+               <button
+                 type="button"
+                 className="icon-button"
+-                onClick={() => setHookDialogOpen(false)}
++                onClick={closeHookDialog}
+                 disabled={hookSubmitting}
+                 aria-label={t.close}
+               >
+@@ -3181,12 +3375,7 @@ function AdminApp({
+                 />
+               </label>
+               <label className="field">
+-                <span>
+-                  {t.hookDescription}
+-                  <span className="required-mark" aria-hidden="true">
+-                    *
+-                  </span>
+-                </span>
++                <span>{t.hookDescription}</span>
+                 <textarea
+                   value={hookDescription}
+                   onChange={(event) => setHookDescription(event.target.value)}
+@@ -3195,25 +3384,106 @@ function AdminApp({
+                   maxLength={500}
+                 />
+               </label>
++              <div className="field-grid">
++                <label className="field">
++                  <span>{t.hookPhase}</span>
++                  <select
++                    value={hookPhase}
++                    onChange={(event) => {
++                      setHookPhase(event.target.value);
++                      if (event.target.value === "PRE_ROUTE") {
++                        setHookScopeType("GLOBAL");
++                        setHookScopeId("");
++                      }
++                    }}
++                  >
++                    <option value="PRE_ROUTE">{t.preRoute}</option>
++                    <option value="PRE_AGENT">{t.preAgent}</option>
++                  </select>
++                </label>
++                <label className="field">
++                  <span>{t.hookPriority}</span>
++                  <input
++                    type="number"
++                    min={0}
++                    max={10000}
++                    value={hookPriority}
++                    onChange={(event) =>
++                      setHookPriority(Number(event.target.value) || 0)
++                    }
++                  />
++                </label>
++              </div>
++              <div className="field-grid">
++                <label className="field">
++                  <span>{t.hookScope}</span>
++                  <select
++                    value={hookScopeType}
++                    onChange={(event) => {
++                      const scope = event.target.value;
++                      setHookScopeType(scope);
++                      setHookScopeId("");
++                      if (scope !== "GLOBAL") setHookPhase("PRE_AGENT");
++                    }}
++                  >
++                    <option value="GLOBAL">{t.globalScope}</option>
++                    <option value="AGENT">{t.agentScope}</option>
++                    <option value="AGENT_ROLE">{t.agentRoleScope}</option>
++                  </select>
++                </label>
++                {hookScopeType === "AGENT" && (
++                  <label className="field">
++                    <span>{t.scopeTarget}</span>
++                    <select
++                      value={hookScopeId}
++                      onChange={(event) => setHookScopeId(event.target.value)}
++                    >
++                      <option value="">{t.scopeTarget}</option>
++                      {agents.map((agent) => (
++                        <option key={agent.id} value={agent.id}>
++                          {agent.displayName} · {agent.id}
++                        </option>
++                      ))}
++                    </select>
++                  </label>
++                )}
++                {hookScopeType === "AGENT_ROLE" && (
++                  <label className="field">
++                    <span>{t.scopeTarget}</span>
++                    <select
++                      value={hookScopeId}
++                      onChange={(event) => setHookScopeId(event.target.value)}
++                    >
++                      <option value="">{t.scopeTarget}</option>
++                      {["MAIN", "GENERAL", "DOMAIN", "SUB"].map((role) => (
++                        <option key={role} value={role}>
++                          {role}
++                        </option>
++                      ))}
++                    </select>
++                  </label>
++                )}
++                {hookScopeType === "GLOBAL" && (
++                  <div className="field">
++                    <span>{t.scopeTarget}</span>
++                    <p className="field-static-value">{t.allAgents}</p>
++                  </div>
++                )}
++              </div>
+               <div className="field-grid">
+                 <label className="field">
+                   <span>{t.hookRuleType}</span>
+                   <select
+                     value={hookRuleType}
+                     onChange={(event) => {
+-                      const type = event.target.value;
++                      const type = event.target.value as HookRuleType;
+                       setHookRuleType(type);
+-                      if (type === "REQUIRE_PERMISSION") {
+-                        setHookRuleConfig('{"permission":"readPage"}');
+-                      } else if (type === "KEYWORD_BLOCK") {
+-                        setHookRuleConfig('{"keywords":["delete","export"]}');
+-                      } else if (type === "MAX_MESSAGE_LENGTH") {
+-                        setHookRuleConfig('{"maxLength":4000}');
+-                      } else {
+-                        setHookRuleConfig("{}");
+-                      }
++                      setHookRuleConfig(defaultRuleConfig(type));
+                     }}
+                   >
++                    <option value="REQUIRE_PAGE_CONSENT">
++                      {t.requirePageConsent}
++                    </option>
+                     <option value="REQUIRE_PERMISSION">
+                       {t.requirePermission}
+                     </option>
+@@ -3224,23 +3494,107 @@ function AdminApp({
+                     <option value="MAX_MESSAGE_LENGTH">
+                       {t.maxMessageLength}
+                     </option>
++                    <option value="REQUEST_BUDGET">{t.requestBudget}</option>
+                   </select>
+                 </label>
+                 <label className="field">
+-                  <span>{t.hookPriority}</span>
++                  <span>{t.failMode}</span>
++                  <select
++                    value={hookFailMode}
++                    onChange={(event) =>
++                      setHookFailMode(event.target.value as "BLOCK" | "WARN")
++                    }
++                  >
++                    <option value="BLOCK">{t.failBlock}</option>
++                    <option value="WARN">{t.failWarn}</option>
++                  </select>
++                </label>
++              </div>
++              {hookRuleType === "REQUIRE_PERMISSION" && (
++                <label className="field">
++                  <span>{t.hookRuleConfig}</span>
++                  <select
++                    value={String(
++                      currentHookRuleConfig.permission ?? "readPage",
++                    )}
++                    onChange={(event) =>
++                      updateHookRuleConfig({
++                        permission: event.target.value,
++                      })
++                    }
++                  >
++                    <option value="readPage">readPage</option>
++                  </select>
++                </label>
++              )}
++              {hookRuleType === "KEYWORD_BLOCK" && (
++                <label className="field">
++                  <span>{t.keywordBlock}</span>
++                  <input
++                    value={currentHookKeywords}
++                    onChange={(event) =>
++                      updateHookRuleConfig({
++                        keywords: event.target.value
++                          .split(/[,，\n]/)
++                          .map((value) => value.trim())
++                          .filter(Boolean),
++                      })
++                    }
++                    placeholder="delete, export"
++                  />
++                </label>
++              )}
++              {hookRuleType === "MAX_MESSAGE_LENGTH" && (
++                <label className="field">
++                  <span>{t.maxMessageLength}</span>
+                   <input
+                     type="number"
+-                    min={0}
+-                    max={10000}
+-                    value={hookPriority}
++                    min={1}
++                    value={Number(currentHookRuleConfig.maxLength ?? 4000)}
+                     onChange={(event) =>
+-                      setHookPriority(Number(event.target.value) || 0)
++                      updateHookRuleConfig({
++                        maxLength: Number(event.target.value) || 0,
++                      })
+                     }
+                   />
+                 </label>
+-              </div>
+-              <label className="field">
+-                <span>{t.hookRuleConfig}</span>
++              )}
++              {hookRuleType === "REQUEST_BUDGET" && (
++                <div className="field-grid">
++                  <label className="field">
++                    <span>{t.testMessage}</span>
++                    <input
++                      type="number"
++                      min={1}
++                      value={Number(
++                        currentHookRuleConfig.messageMaxLength ?? 4000,
++                      )}
++                      onChange={(event) =>
++                        updateHookRuleConfig({
++                          messageMaxLength: Number(event.target.value) || 0,
++                        })
++                      }
++                    />
++                  </label>
++                  <label className="field">
++                    <span>{t.testPageContext}</span>
++                    <input
++                      type="number"
++                      min={1}
++                      value={Number(
++                        currentHookRuleConfig.pageContextMaxLength ?? 12000,
++                      )}
++                      onChange={(event) =>
++                        updateHookRuleConfig({
++                          pageContextMaxLength: Number(event.target.value) || 0,
++                        })
++                      }
++                    />
++                  </label>
++                </div>
++              )}
++              <details className="hook-advanced-config">
++                <summary>{t.hookRuleConfig}</summary>
+                 <textarea
+                   value={hookRuleConfig}
+                   onChange={(event) => setHookRuleConfig(event.target.value)}
+@@ -3248,7 +3602,7 @@ function AdminApp({
+                   rows={3}
+                   spellCheck={false}
+                 />
+-              </label>
++              </details>
+               <label className="field">
+                 <span>{t.hookFailureMessage}</span>
+                 <input
+@@ -3260,6 +3614,17 @@ function AdminApp({
+                   maxLength={300}
+                 />
+               </label>
++              {editingHookId && (
++                <label className="field">
++                  <span>{t.hookChangeNote}</span>
++                  <input
++                    value={hookChangeNote}
++                    onChange={(event) => setHookChangeNote(event.target.value)}
++                    placeholder={t.hookChangeNotePlaceholder}
++                    maxLength={300}
++                  />
++                </label>
++              )}
+               <label className="checkbox-field">
+                 <input
+                   type="checkbox"
+@@ -3268,11 +3633,157 @@ function AdminApp({
+                 />
+                 <span>{t.enabled}</span>
+               </label>
++              <details className="hook-test-panel">
++                <summary>{t.hookTestTitle}</summary>
++                <p className="field-hint">{t.hookTestHint}</p>
++                <label className="field">
++                  <span>{t.testMessage}</span>
++                  <textarea
++                    value={hookTestMessage}
++                    onChange={(event) => setHookTestMessage(event.target.value)}
++                    rows={2}
++                  />
++                </label>
++                <label className="field">
++                  <span>{t.testPageContext}</span>
++                  <textarea
++                    value={hookTestPageContext}
++                    onChange={(event) =>
++                      setHookTestPageContext(event.target.value)
++                    }
++                    rows={2}
++                  />
++                </label>
++                <label className="checkbox-field">
++                  <input
++                    type="checkbox"
++                    checked={hookTestConsent}
++                    onChange={(event) =>
++                      setHookTestConsent(event.target.checked)
++                    }
++                  />
++                  <span>{t.testPageConsent}</span>
++                </label>
++                <label className="field">
++                  <span>{t.hookTestAgent}</span>
++                  <select
++                    value={hookTestAgentId}
++                    onChange={(event) => setHookTestAgentId(event.target.value)}
++                  >
++                    <option value="">{t.localMode}</option>
++                    {agents.map((agent) => (
++                      <option key={agent.id} value={agent.id}>
++                        {agent.displayName} · {agent.id}
++                      </option>
++                    ))}
++                  </select>
++                </label>
++                <button
++                  type="button"
++                  className="secondary"
++                  onClick={() => void runHookTest()}
++                  disabled={hookTestLoading}
++                >
++                  {hookTestLoading ? t.hookTesting : t.runHookTest}
++                </button>
++                {hookTestResult && (
++                  <div className="hook-test-result" role="status">
++                    <strong className={hookTestResult.allowed ? "ok" : "off"}>
++                      {hookTestResult.allowed
++                        ? t.hookTestAllowed
++                        : t.hookTestRejected}
++                    </strong>
++                    <span>{hookTestResult.durationMs} ms</span>
++                    {hookTestResult.checks.map((check: HookCheck) => (
++                      <p key={`${check.hookId}-${check.phase}`}>
++                        {check.passed ? t.hookPassed : t.hookRejected} ·{" "}
++                        {check.message}
++                      </p>
++                    ))}
++                  </div>
++                )}
++              </details>
++              {editingHookId && (
++                <details className="hook-stats-panel">
++                  <summary>{t.hookRuntimeStats}</summary>
++                  {hookVersionsLoading ? (
++                    <p className="muted">{t.loading}</p>
++                  ) : hookStats ? (
++                    <>
++                      <div className="hook-stats-grid">
++                        <div>
++                          <span>{t.hookExecutions}</span>
++                          <strong>{hookStats.executions}</strong>
++                        </div>
++                        <div>
++                          <span>{t.hookPassedCount}</span>
++                          <strong>{hookStats.passed}</strong>
++                        </div>
++                        <div>
++                          <span>{t.hookBlockedCount}</span>
++                          <strong>{hookStats.blocked}</strong>
++                        </div>
++                      </div>
++                      <p className="field-hint">
++                        {t.hookLastEvaluated}:{" "}
++                        {hookStats.lastEvaluatedAt
++                          ? formatDateTime(hookStats.lastEvaluatedAt)
++                          : t.hookNeverEvaluated}
++                      </p>
++                      {hookStats.lastMessage && (
++                        <p className="field-hint">
++                          {t.hookLastMessage}: {hookStats.lastMessage}
++                        </p>
++                      )}
++                    </>
++                  ) : (
++                    <p className="field-hint">{t.hookNeverEvaluated}</p>
++                  )}
++                </details>
++              )}
++              {editingHookId && (
++                <details className="hook-history-panel">
++                  <summary>{t.hookHistory}</summary>
++                  <p className="field-hint">{t.hookHistoryHint}</p>
++                  {hookVersionsLoading ? (
++                    <p className="muted">{t.loading}</p>
++                  ) : (
++                    hookVersions.map((version) => (
++                      <div className="hook-version-row" key={version.id}>
++                        <div>
++                          <strong>v{version.version}</strong>
++                          <small>
++                            {version.createdBy ?? "-"} ·{" "}
++                            {formatDateTime(version.createdAt)}
++                          </small>
++                          {version.changeNote && <p>{version.changeNote}</p>}
++                        </div>
++                        {version.version !==
++                          hooks.find((item) => item.id === editingHookId)
++                            ?.version && (
++                          <button
++                            type="button"
++                            className="secondary"
++                            onClick={() => rollbackHook(version.version)}
++                          >
++                            {t.rollbackVersion}
++                          </button>
++                        )}
++                      </div>
++                    ))
++                  )}
++                </details>
++              )}
++              {hookError && (
++                <p className="error" role="alert">
++                  {hookError}
++                </p>
++              )}
+               <div className="modal-actions">
+                 <button
+                   type="button"
+                   className="secondary"
+-                  onClick={() => setHookDialogOpen(false)}
++                  onClick={closeHookDialog}
+                   disabled={hookSubmitting}
+                 >
+                   {t.cancel}
+@@ -3678,7 +4189,7 @@ function AdminApp({
+                 <h3>
+                   {mcpDetails.name} · {t.mcpDetails}
+                 </h3>
+-                <p className="modal-subtitle">{mcpDetails.serverUrl}</p>
++                <p className="modal-subtitle">{`${t.mcpTransportLabel}: ${mcpDetails.transport}`}</p>
+               </div>
+               <button
+                 className="icon-button"
