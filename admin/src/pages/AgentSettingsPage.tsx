@@ -164,8 +164,10 @@ export function AgentSettingsPage({
   );
   const hasUnpublishedChanges = Boolean(
     configuredAgent &&
-    (!configuredAgent.published ||
-      (configuredAgent.version ?? 0) > (configuredAgent.publishedVersion ?? 0)),
+    (configuredAgent.published === false ||
+      (configuredAgent.published === undefined &&
+        (configuredAgent.version ?? 0) >
+          (configuredAgent.publishedVersion ?? 0))),
   );
   const publicationState = agentConfigDirty
     ? "unsaved"
