@@ -126,7 +126,7 @@ public class McpServerService {
         }
         toolRepository.findAll().stream()
                 .filter(t -> "MCP".equalsIgnoreCase(t.getType())
-                        && server.getServerUrl().equals(t.getMcpServerUrl()))
+                        && server.getId().equals(t.getMcpServerId()))
                 .forEach(t -> toolRepository.deleteById(t.getId()));
         repository.deleteById(id);
     }
@@ -208,7 +208,7 @@ public class McpServerService {
     private void syncTools(McpServer server, List<Map<String, Object>> interfaces) {
         List<ToolDefinition> existing = toolRepository.findAll().stream()
                 .filter(t -> "MCP".equalsIgnoreCase(t.getType())
-                        && server.getServerUrl().equals(t.getMcpServerUrl()))
+                        && server.getId().equals(t.getMcpServerId()))
                 .collect(Collectors.toList());
         Set<String> incomingNames = interfaces.stream()
                 .map(t -> String.valueOf(t.get("name")))
@@ -241,9 +241,7 @@ public class McpServerService {
             def.setName(name);
             def.setType("MCP");
             def.setDescription(description);
-            def.setMcpServerUrl(server.getServerUrl());
-            def.setMcpTransport(server.getTransport());
-            def.setMcpAuthEnv(server.getAuthEnv());
+            def.setMcpServerId(server.getId());
             def.setParameterSchema(schemaJson);
             def.setEnabled(server.isEnabled());
             def.touch();

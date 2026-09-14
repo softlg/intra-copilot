@@ -14,13 +14,11 @@ public class ToolDefinition {
     private String method;
     private String endpoint;
     /**
-     * MCP server endpoint used when type is MCP. Credentials are referenced by environment variable
-     * name.
+     * Foreign key to the owning {@link McpServer} row when type is MCP. Replaces the previous
+     * mcp_server_url string copy so tool rows stay linked to their server even if the server URL
+     * changes, and the credentials/env reference lives on the server row only.
      */
-    private String mcpServerUrl;
-
-    private String mcpTransport = "STREAMABLE_HTTP";
-    private String mcpAuthEnv;
+    private String mcpServerId;
     private String parameterSchema = "{}";
     private Integer timeoutMs = 10000;
     private boolean enabled = true;
@@ -75,28 +73,12 @@ public class ToolDefinition {
         endpoint = value;
     }
 
-    public String getMcpServerUrl() {
-        return mcpServerUrl;
+    public String getMcpServerId() {
+        return mcpServerId;
     }
 
-    public void setMcpServerUrl(String value) {
-        mcpServerUrl = value;
-    }
-
-    public String getMcpTransport() {
-        return mcpTransport;
-    }
-
-    public void setMcpTransport(String value) {
-        mcpTransport = value;
-    }
-
-    public String getMcpAuthEnv() {
-        return mcpAuthEnv;
-    }
-
-    public void setMcpAuthEnv(String value) {
-        mcpAuthEnv = value;
+    public void setMcpServerId(String value) {
+        mcpServerId = value;
     }
 
     public String getParameterSchema() {

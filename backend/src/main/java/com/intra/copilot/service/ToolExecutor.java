@@ -104,13 +104,11 @@ public class ToolExecutor {
     }
 
     private String executeMcp(ToolDefinition def, String argumentsJson) {
-        String serverUrl = def.getMcpServerUrl();
-        if (serverUrl == null || serverUrl.isBlank()) return "MCP 工具未配置 mcpServerUrl";
-        McpServer server = mcpRepository.findAll().stream()
-                .filter(s -> serverUrl.equals(s.getServerUrl()) && s.isEnabled())
-                .findFirst()
-                .orElse(null);
-        if (server == null) return "未找到启用且地址匹配的 MCP 服务：" + serverUrl;
+        String serverId = def.getMcpServerId();
+        if (serverId == null || serverId.isBlank()) return "MCP 工具未绑定 mcpServerId";
+        McpServer server = mcpRepository.findById(serverId).orElse(null);
+        if (server == null) return "未找到 MCP 服务：" + serverId;
+        if (!server.isEnabled()) return "MCP 服务未启用：" + serverId;
         return mcpService.callTool(server, def.getName(), argumentsJson);
     }
 
