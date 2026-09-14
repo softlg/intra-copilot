@@ -67,26 +67,6 @@ public class ToolExecutor {
         return null;
     }
 
-    /** Render a human-readable tool list for the system prompt so the model knows what it can call. */
-    public String describeTools(List<String> ids) {
-        if (ids == null || ids.isEmpty()) return "";
-        StringBuilder sb = new StringBuilder();
-        for (String id : ids) {
-            ToolDefinition def = resolveById(id);
-            if (def == null) continue;
-            sb.append("- ").append(def.getName());
-            if (def.getDescription() != null && !def.getDescription().isBlank()) {
-                sb.append("：").append(def.getDescription());
-            }
-            sb.append("（类型：").append(def.getType()).append("）\n");
-            String schema = def.getParameterSchema();
-            if (schema != null && !schema.isBlank() && !"{}".equals(schema.trim())) {
-                sb.append("  参数结构（JSON Schema）：").append(schema.trim()).append("\n");
-            }
-        }
-        return sb.toString();
-    }
-
     /** Execute the given tool with the supplied JSON arguments; never throws—errors become a result string. */
     public String execute(ToolDefinition def, String argumentsJson) {
         try {

@@ -977,7 +977,6 @@ public class ChatService {
         private ModelReply streamModelReply(
                         SseEmitter out,
                         AtomicBoolean finished,
-                        boolean detectToolCall,
                         boolean streamToUser,
                         String system,
                         List<Map<String, String>> history,
@@ -987,7 +986,7 @@ public class ChatService {
                 StringBuilder full = new StringBuilder();
                 AtomicBoolean streamed = new AtomicBoolean(false);
                 StreamingReplyEmitter emitter =
-                                streamToUser ? new StreamingReplyEmitter(out, finished, detectToolCall) : null;
+                                streamToUser ? new StreamingReplyEmitter(out, finished) : null;
                 try {
                         llm.stream(system, history, user, images)
                                         .doOnNext(
@@ -1029,7 +1028,7 @@ public class ChatService {
                 List<AssistantMessage.ToolCall> toolCalls = new ArrayList<>();
                 AtomicBoolean streamed = new AtomicBoolean(false);
                 StreamingReplyEmitter emitter =
-                                streamToUser ? new StreamingReplyEmitter(out, finished, false) : null;
+                                streamToUser ? new StreamingReplyEmitter(out, finished) : null;
                 try {
                         llm.streamWithTools(system, history, user, images, callbacks)
                                 .doOnNext(
@@ -1122,103 +1121,25 @@ public class ChatService {
         }
 
         /**
-         * 只有确认不是工具调用 JSON 后才把模型片段发往插件，避免把内部协议内容展示给用户。
+         * 把模型流式片段实时回传给用户的轻量封装。工具调用改由原生 function calling
+         * （AssistantMessage.ToolCall）承载，这里不再做文本 JSON 探测与抑制。
          */
         private final class StreamingReplyEmitter {
                 private final SseEmitter out;
                 private final AtomicBoolean finished;
-                private final boolean detectToolCall;
-                private final StringBuilder pending = new StringBuilder();
-                private boolean emitting;
-                private boolean suppressed;
 
-                private StreamingReplyEmitter(
-                                SseEmitter out, AtomicBoolean finished, boolean detectToolCall) {
+                private StreamingReplyEmitter(SseEmitter out, AtomicBoolean finished) {
                         this.out = out;
                         this.finished = finished;
-                        this.detectToolCall = detectToolCall;
                 }
 
                 private boolean accept(String chunk) {
                         if (finished.get() || chunk == null || chunk.isEmpty()) return false;
-                        if (!detectToolCall || emitting) {
-                                return emitToken(out, finished, chunk);
-                        }
-                        if (suppressed) return false;
-                        pending.append(chunk);
-                        String text = pending.toString().stripLeading();
-                        boolean possibleJson = text.startsWith("{") || text.startsWith("```");
-                        if (!possibleJson) {
-                                if (text.length() < 24) return false;
-                                emitting = true;
-                                return flush();
-                        }
-                        String candidate = completeJsonObject(text);
-                        if (candidate != null) {
-                                if (parseToolCall(candidate) != null) {
-                                        suppressed = true;
-                                        pending.setLength(0);
-                                        return false;
-                                }
-                                emitting = true;
-                                return flush();
-                        }
-                        if (text.length() > 8192) {
-                                emitting = true;
-                                return flush();
-                        }
-                        return false;
+                        return emitToken(out, finished, chunk);
                 }
 
                 private boolean finish() {
-                        if (!detectToolCall || emitting || suppressed) return false;
-                        String text = pending.toString().stripLeading();
-                        if (!text.isBlank() && parseToolCall(text) != null) {
-                                suppressed = true;
-                                pending.setLength(0);
-                                return false;
-                        }
-                        emitting = true;
-                        return flush();
-                }
-
-                private boolean flush() {
-                        if (pending.length() == 0) return false;
-                        String text = pending.toString();
-                        pending.setLength(0);
-                        return emitToken(out, finished, text);
-                }
-
-                private String completeJsonObject(String text) {
-                        int start = text.indexOf('{');
-                        if (start < 0) return null;
-                        int depth = 0;
-                        boolean inString = false;
-                        boolean escaped = false;
-                        for (int i = start; i < text.length(); i++) {
-                                char ch = text.charAt(i);
-                                if (inString) {
-                                        if (escaped) {
-                                                escaped = false;
-                                        } else if (ch == '\\') {
-                                                escaped = true;
-                                        } else if (ch == '"') {
-                                                inString = false;
-                                        }
-                                        continue;
-                                }
-                                if (ch == '"') {
-                                        inString = true;
-                                } else if (ch == '{') {
-                                        depth++;
-                                } else if (ch == '}') {
-                                        depth--;
-                                        if (depth == 0) {
-                                                return text.substring(start, i + 1);
-                                        }
-                                }
-                        }
-                        return null;
+                        return false;
                 }
         }
 
@@ -1318,7 +1239,6 @@ public class ChatService {
                                         ModelReply plain = streamModelReply(
                                                         out,
                                                         finished,
-                                                        false,
                                                         !delegatedSummary,
                                                         systemEffective,
                                                         turns,
@@ -1547,42 +1467,6 @@ public class ChatService {
                         out.complete();
                 }
         }
-
-        /** 从模型输出中解析工具调用 JSON。支持 {"tool":"name","arguments":{...}} 或 {"name":"name","arguments":{...}}。 */
-        private ToolCall parseToolCall(String text) {
-                if (text == null) return null;
-                int marker = text.indexOf("\"tool\"");
-                if (marker < 0) marker = text.indexOf("\"name\"");
-                if (marker < 0) return null;
-                int brace = text.lastIndexOf('{', marker);
-                if (brace < 0) return null;
-                int depth = 0, end = -1;
-                for (int i = brace; i < text.length(); i++) {
-                        char ch = text.charAt(i);
-                        if (ch == '{') depth++;
-                        else if (ch == '}') { depth--; if (depth == 0) { end = i; break; } }
-                }
-                if (end < 0) return null;
-                try {
-                        JsonNode node = json.readTree(text.substring(brace, end + 1));
-                        String name = node.path("tool").asText(null);
-                        boolean hasToolKey = name != null && !name.isBlank();
-                        if (!hasToolKey) {
-                                name = node.path("name").asText(null);
-                                if (name == null || name.isBlank()) return null;
-                                // 仅含 "name" 而无 arguments 时不视为工具调用，避免误判普通 JSON 配置。
-                                if (!node.has("arguments")) return null;
-                        }
-                        if (name == null || name.isBlank()) return null;
-                        JsonNode args = node.path("arguments");
-                        String argsJson = (args.isMissingNode() || args.isNull()) ? "{}" : json.writeValueAsString(args);
-                        return new ToolCall(name.trim(), argsJson);
-                } catch (Exception e) {
-                        return null;
-                }
-        }
-
-        private record ToolCall(String name, String argumentsJson) {}
 
         private void emitToolInvoked(SseEmitter out, AtomicBoolean finished, String name, String argumentsJson) {
                 if (finished.get()) return;
