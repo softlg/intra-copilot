@@ -177,7 +177,7 @@ export const translations = {
     editAgentTitle: "Agent 设置",
     editAgentSubtitle:
       "调整 Agent 的能力、提示词和关联资源，保存为草稿，发布后生效。",
-    saveAgent: "保存草稿",
+    saveAgent: "保存",
     saving: "保存中…",
     model: "模型（可选）",
     modelPlaceholder: "留空使用系统默认模型",
@@ -703,7 +703,7 @@ export const translations = {
     editAgentTitle: "Agent settings",
     editAgentSubtitle:
       "Tune capabilities, prompts, and resource links. Changes are saved as a draft and take effect after publishing.",
-    saveAgent: "Save draft",
+    saveAgent: "Save",
     saving: "Saving…",
     model: "Model (optional)",
     modelPlaceholder: "Leave empty to use the default model",
