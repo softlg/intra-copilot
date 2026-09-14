@@ -1,7 +1,11 @@
 package com.intra.copilot.web;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.model.SkillDefinition;
 import com.intra.copilot.model.ToolDefinition;
+import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
 import com.intra.copilot.util.EntityIdGenerator;
@@ -15,16 +19,19 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/admin")
 public class ToolSkillAdminController {
-        private final ToolDefinitionRepository tools; private final SkillDefinitionRepository skills;
+        private final ToolDefinitionRepository tools; private final SkillDefinitionRepository skills; private final AgentDefinitionRepository agents;
         private final boolean allowHttp;
         private final boolean allowPrivateNetwork;
+        private static final ObjectMapper JSON = new ObjectMapper();
         public ToolSkillAdminController(
                         ToolDefinitionRepository tools,
                         SkillDefinitionRepository skills,
+                        AgentDefinitionRepository agents,
                         @Value("${tools.allow-http:true}") boolean allowHttp,
                         @Value("${tools.allow-private-network:false}") boolean allowPrivateNetwork) {
                 this.tools = tools;
                 this.skills = skills;
+                this.agents = agents;
                 this.allowHttp = allowHttp;
                 this.allowPrivateNetwork = allowPrivateNetwork;
         }
@@ -40,7 +47,7 @@ public class ToolSkillAdminController {
                 tool.touch();
                 return tools.save(tool);
         }
-        @DeleteMapping("/tools/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteTool(@PathVariable String id) { ensureToolNotEnabled(id); tools.deleteById(id); }
+        @DeleteMapping("/tools/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteTool(@PathVariable String id) { ensureToolNotEnabled(id); ensureToolNotReferenced(id); tools.deleteById(id); }
         @GetMapping("/skills") public List<SkillDefinition> skills() { return skills.findAll(); }
         @PostMapping("/skills") @ResponseStatus(HttpStatus.CREATED) public SkillDefinition createSkill(@RequestBody SkillDefinition s) { validateSkill(s); ensureSkillNameAvailable(s.getName(), null); s.setName(s.getName().trim()); return skills.save(s); }
         @PutMapping("/skills/{id}") public SkillDefinition updateSkill(@PathVariable String id, @RequestBody SkillDefinition s) { s.setId(id); validateSkill(s); ensureSkillNameAvailable(s.getName(), id); s.setName(s.getName().trim()); s.touch(); return skills.save(s); }
@@ -48,6 +55,31 @@ public class ToolSkillAdminController {
         private void ensureToolNotEnabled(String id) {
                 ToolDefinition item = tools.findById(id).orElseThrow(() -> new IllegalArgumentException("工具不存在"));
                 if (item.isEnabled()) throw new IllegalArgumentException("工具处于启用状态，请先停用后再删除");
+        }
+        private void ensureToolNotReferenced(String id) {
+                List<String> agentNames = agents.findAll().stream()
+                                .filter(a -> containsToolId(a.getToolIds(), id))
+                                .map(a -> a.getDisplayName() == null ? a.getId() : a.getDisplayName())
+                                .toList();
+                List<String> skillNames = skills.findAll().stream()
+                                .filter(s -> containsToolId(s.getToolIds(), id))
+                                .map(s -> s.getName() == null ? s.getId() : s.getName())
+                                .toList();
+                if (!agentNames.isEmpty() || !skillNames.isEmpty()) {
+                        StringBuilder msg = new StringBuilder("工具仍被引用，无法删除（请先在对应 Agent / Skill 中解除绑定）：");
+                        if (!agentNames.isEmpty()) msg.append(" Agent[").append(String.join("、", agentNames)).append("]");
+                        if (!skillNames.isEmpty()) msg.append(" Skill[").append(String.join("、", skillNames)).append("]");
+                        throw new IllegalArgumentException(msg.toString());
+                }
+        }
+        private boolean containsToolId(String toolIdsJson, String id) {
+                if (toolIdsJson == null || toolIdsJson.isBlank()) return false;
+                try {
+                        List<String> ids = JSON.readValue(toolIdsJson, new TypeReference<List<String>>() {});
+                        return ids != null && ids.contains(id);
+                } catch (Exception ignored) {
+                        return false;
+                }
         }
         private void ensureSkillNotEnabled(String id) {
                 SkillDefinition item = skills.findById(id).orElseThrow(() -> new IllegalArgumentException("Skill 不存在"));
