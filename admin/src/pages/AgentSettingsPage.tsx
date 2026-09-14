@@ -54,16 +54,13 @@ export interface AgentSettingsPageProps {
   agentSkillSearch: string;
   configuredAgent: Agent | undefined;
   configuredAgentIsSystem: boolean;
-  agentActionId: string | undefined;
   agentSubmitting: boolean;
   agentConfigSection: AgentConfigSection;
   agentConfigDirty: boolean;
   agentVersions: AgentConfigVersion[];
   agents: Agent[];
   closeAgentConfig: () => void;
-  toggle: (agent: Agent) => void;
   openAgentTest: (agent: Agent) => void;
-  deleteAgent: (agent: Agent) => void;
   requestAgentConfigSection: (key: AgentConfigSection) => void;
   setAgentRole: Dispatch<SetStateAction<string>>;
   setAgentParentId: Dispatch<SetStateAction<string>>;
@@ -124,16 +121,13 @@ export function AgentSettingsPage({
   agentSkillSearch,
   configuredAgent,
   configuredAgentIsSystem,
-  agentActionId,
   agentSubmitting,
   agentConfigSection,
   agentConfigDirty,
   agentVersions,
   agents,
   closeAgentConfig,
-  toggle,
   openAgentTest,
-  deleteAgent,
   requestAgentConfigSection,
   setAgentRole,
   setAgentParentId,
@@ -168,6 +162,21 @@ export function AgentSettingsPage({
       item.enabled &&
       (!item.parentAgentId || item.parentAgentId === agentId),
   );
+  const hasUnpublishedChanges = Boolean(
+    configuredAgent &&
+    (!configuredAgent.published ||
+      (configuredAgent.version ?? 0) > (configuredAgent.publishedVersion ?? 0)),
+  );
+  const publicationState = agentConfigDirty
+    ? "unsaved"
+    : hasUnpublishedChanges
+      ? "unpublished"
+      : "published";
+  const publicationLabel = agentConfigDirty
+    ? t.unsavedPublicationChanges
+    : hasUnpublishedChanges
+      ? t.unpublishedChanges
+      : t.publishedAndCurrent;
 
   return (
     <section className="agent-settings-page">
@@ -177,19 +186,25 @@ export function AgentSettingsPage({
         </button>
         <div>
           <h3>{agentDisplayName || agentId}</h3>
+          <div
+            className={`agent-publish-state is-${publicationState}`}
+            role="status"
+            aria-live="polite"
+          >
+            <Icon
+              name={publicationState === "published" ? "check" : "alert"}
+              size={14}
+            />
+            <span>{publicationLabel}</span>
+            {configuredAgent && (
+              <small>
+                {t.publishedVersionValue(configuredAgent.publishedVersion ?? 0)}
+              </small>
+            )}
+          </div>
           <p>{t.editAgentSubtitle}</p>
         </div>
         <div className="agent-settings-header-actions">
-          {configuredAgent && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => toggle(configuredAgent)}
-              disabled={agentActionId === configuredAgent.id}
-            >
-              {agentEnabled ? t.stop : t.enable}
-            </button>
-          )}
           <button
             type="button"
             className="agent-test"
@@ -199,30 +214,6 @@ export function AgentSettingsPage({
             disabled={!agentEnabled || !configuredAgent}
           >
             {t.testAgent}
-          </button>
-          {!configuredAgentIsSystem && configuredAgent && (
-            <button
-              type="button"
-              className="agent-delete"
-              onClick={() => deleteAgent(configuredAgent)}
-              disabled={
-                configuredAgent.enabled || agentActionId === configuredAgent.id
-              }
-              title={
-                configuredAgent.enabled
-                  ? t.deleteAgentDisabledHint
-                  : t.deleteAgent
-              }
-            >
-              {t.deleteAgent}
-            </button>
-          )}
-          <button
-            type="button"
-            className="secondary"
-            onClick={closeAgentConfig}
-          >
-            {t.cancel}
           </button>
           <button
             type="submit"
@@ -351,13 +342,22 @@ export function AgentSettingsPage({
               />
               <span>{t.browserActions}</span>
             </label>
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={agentEnabled}
-                onChange={(event) => setAgentEnabled(event.target.checked)}
-              />
-              <span>{t.enabled}</span>
+            <label className="embedding-toggle-row agent-enabled-toggle">
+              <div>
+                <span className="embedding-toggle-label">{t.enable}</span>
+                <p className="field-hint">
+                  {agentEnabled ? t.enabled : t.disabled}
+                </p>
+              </div>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={agentEnabled}
+                  onChange={(event) => setAgentEnabled(event.target.checked)}
+                />
+                <span className="switch-track" aria-hidden="true" />
+              </span>
             </label>
             <div className="field-grid">
               <label className="field">
@@ -864,11 +864,45 @@ export function AgentSettingsPage({
               <button
                 type="button"
                 onClick={publishAgent}
-                disabled={agentSubmitting}
+                disabled={
+                  agentSubmitting || agentConfigDirty || !hasUnpublishedChanges
+                }
+                title={
+                  agentConfigDirty
+                    ? t.saveBeforePublish
+                    : !hasUnpublishedChanges
+                      ? t.publishedAndCurrent
+                      : undefined
+                }
               >
-                {agentSubmitting ? t.saving : t.publish}
+                {agentSubmitting
+                  ? t.publishing
+                  : hasUnpublishedChanges
+                    ? t.publish
+                    : t.published}
               </button>
             </div>
+            <p
+              className={`publish-guidance ${
+                agentConfigDirty || hasUnpublishedChanges
+                  ? "is-warning"
+                  : "is-success"
+              }`}
+            >
+              <Icon
+                name={
+                  agentConfigDirty || hasUnpublishedChanges ? "alert" : "check"
+                }
+                size={14}
+              />
+              <span>
+                {agentConfigDirty
+                  ? t.saveBeforePublish
+                  : hasUnpublishedChanges
+                    ? t.unpublishedChanges
+                    : t.publishedAndCurrent}
+              </span>
+            </p>
             {agentVersions.length === 0 ? (
               <p className="binding-empty">{t.draft}</p>
             ) : (
@@ -887,7 +921,10 @@ export function AgentSettingsPage({
                         type="button"
                         className="secondary"
                         onClick={() => rollbackAgent(version.version)}
-                        disabled={agentSubmitting}
+                        disabled={agentSubmitting || agentConfigDirty}
+                        title={
+                          agentConfigDirty ? t.saveBeforePublish : undefined
+                        }
                       >
                         {t.rollback}
                       </button>

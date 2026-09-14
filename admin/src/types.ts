@@ -15,6 +15,7 @@ export type Agent = {
   returnMode?: "CHILD_DIRECT" | "DOMAIN_SUMMARY" | string;
   enabled: boolean;
   published?: boolean;
+  version?: number;
   publishedVersion?: number;
   systemPrompt: string;
   systemAgent?: boolean;

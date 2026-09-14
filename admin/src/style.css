@@ -696,12 +696,91 @@ article p {
   flex-direction: column;
 }
 
-.agent-group article > p {
+.agent-card {
+  min-height: 218px;
+}
+
+.agent-card.is-disabled {
+  border-color: var(--border-faint);
+  background: var(--surface-sunken);
+}
+
+.agent-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-card-title {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-card-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-card-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-card-switch {
+  margin-right: 2px;
+}
+
+.agent-card-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-subtle);
+}
+
+.agent-card-delete:hover:not(:disabled) {
+  border-color: var(--danger-tint-border);
+  background: var(--danger-tint);
+  color: var(--danger-text);
+}
+
+.agent-card-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.agent-card > p {
   flex: 1;
 }
 
-.agent-group .agent-actions {
+.agent-card-footer {
+  display: flex;
   justify-content: flex-end;
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.agent-enabled-toggle {
+  margin: 2px 0 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-faint);
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .knowledge-card {
@@ -1653,6 +1732,114 @@ article p {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.agent-publish-state {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  margin: 1px 0 7px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.agent-publish-state.is-published {
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+
+.agent-publish-state.is-unpublished {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
+}
+
+.agent-publish-state.is-unsaved {
+  border-color: var(--brand-border);
+  background: var(--accent-tint);
+  color: var(--brand-surface-text);
+}
+
+.agent-publish-state small {
+  padding-left: 8px;
+  border-left: 1px solid currentColor;
+  opacity: 0.78;
+  font-size: 11px;
+}
+
+.publish-guidance {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.publish-guidance.is-warning {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
+}
+
+.publish-guidance.is-success {
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+
+.version-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.version-row > div {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 9px;
+}
+
+.version-row strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.version-row p {
+  width: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.version-row button {
+  flex: 0 0 auto;
 }
 
 .config-tabs {
@@ -3188,6 +3375,7 @@ pre {
   position: relative;
   flex: 0 0 auto;
   display: inline-flex;
+  align-items: center;
   width: 44px;
   height: 24px;
   cursor: pointer;
@@ -3749,6 +3937,12 @@ pre {
     width: 100%;
     margin-left: 0;
     justify-content: flex-start;
+  }
+
+  .agent-card-switch,
+  .agent-card-delete {
+    width: 44px;
+    height: 44px;
   }
 
   .conversation-detail-overlay {

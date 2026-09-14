@@ -1785,6 +1785,7 @@ function AdminApp({
       const requestId = ++agentSettingsRequestId.current;
       setAgentReturnTab(agentTabForRole(refreshedAgent.role ?? agentRole));
       populateAgentConfig(refreshedAgent, requestId, false);
+      toast.success(t.agentSaved);
     } catch (error) {
       setAgentError(
         error instanceof Error ? error.message : t.createAgentFailed,
@@ -1795,43 +1796,70 @@ function AdminApp({
   };
 
   const publishAgent = async () => {
-    if (!configuredAgent) return;
+    if (!configuredAgent || agentConfigDirty) return;
+    const targetAgent = configuredAgent;
     setAgentSubmitting(true);
     setAgentError("");
     try {
-      await request(`/admin/agents/${configuredAgent.id}/publish`, {
-        method: "POST",
-        body: JSON.stringify({ releaseNote: "后台配置发布" }),
-      });
-      loadAgents();
-      setAgentVersions(
-        await request<AgentConfigVersion[]>(
-          `/admin/agents/${configuredAgent.id}/versions`,
+      const published = await request<AgentConfigVersion>(
+        `/admin/agents/${targetAgent.id}/publish`,
+        {
+          method: "POST",
+          body: JSON.stringify({ releaseNote: "后台配置发布" }),
+        },
+      );
+      const publishedAgent: Agent = {
+        ...targetAgent,
+        published: true,
+        publishedVersion: published.version,
+      };
+      setAgents((current) =>
+        current.map((item) =>
+          item.id === targetAgent.id ? publishedAgent : item,
         ),
       );
+      const requestId = ++agentSettingsRequestId.current;
+      populateAgentConfig(publishedAgent, requestId, false);
+      toast.success(t.publishSuccess(published.version));
     } catch (error) {
-      setAgentError(error instanceof Error ? error.message : t.saveAgent);
+      const errorMessage =
+        error instanceof Error ? error.message : t.publishFailed;
+      setAgentError(errorMessage);
+      toast.error(`${t.publishFailed}: ${errorMessage}`);
     } finally {
       setAgentSubmitting(false);
     }
   };
 
   const rollbackAgent = async (version: number) => {
-    if (!configuredAgent) return;
+    if (!configuredAgent || agentConfigDirty) return;
+    const targetAgent = configuredAgent;
     setAgentSubmitting(true);
+    setAgentError("");
     try {
-      await request(`/admin/agents/${configuredAgent.id}/rollback`, {
-        method: "POST",
-        body: JSON.stringify({ version }),
-      });
-      loadAgents();
-      setAgentVersions(
-        await request<AgentConfigVersion[]>(
-          `/admin/agents/${configuredAgent.id}/versions`,
+      const restored = await request<Agent>(
+        `/admin/agents/${targetAgent.id}/rollback`,
+        {
+          method: "POST",
+          body: JSON.stringify({ version }),
+        },
+      );
+      const restoredAgent = { ...targetAgent, ...restored };
+      setAgents((current) =>
+        current.map((item) =>
+          item.id === targetAgent.id ? restoredAgent : item,
         ),
       );
+      const requestId = ++agentSettingsRequestId.current;
+      populateAgentConfig(restoredAgent, requestId, false);
+      toast.success(
+        t.rollbackSuccess(restoredAgent.publishedVersion ?? version),
+      );
     } catch (error) {
-      setAgentError(error instanceof Error ? error.message : t.saveAgent);
+      const errorMessage =
+        error instanceof Error ? error.message : t.rollbackFailed;
+      setAgentError(errorMessage);
+      toast.error(`${t.rollbackFailed}: ${errorMessage}`);
     } finally {
       setAgentSubmitting(false);
     }
@@ -1839,17 +1867,35 @@ function AdminApp({
 
   const toggle = async (agent: Agent) => {
     const enabled = !agent.enabled;
-    await request(`/admin/agents/${agent.id}/enabled`, {
-      method: "PATCH",
-      body: JSON.stringify({ enabled }),
-    });
-    if (agentConfigId === agent.id) {
-      setAgentEnabled(enabled);
-      setAgentConfigBaseline((current) =>
-        current ? { ...current, enabled } : current,
+    setAgentActionId(agent.id);
+    setAgents((current) =>
+      current.map((item) =>
+        item.id === agent.id ? { ...item, enabled } : item,
+      ),
+    );
+    if (agentConfigId === agent.id) setAgentEnabled(enabled);
+    try {
+      await request(`/admin/agents/${agent.id}/enabled`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      });
+      if (agentConfigId === agent.id) {
+        setAgentConfigBaseline((current) =>
+          current ? { ...current, enabled } : current,
+        );
+      }
+      await loadAgents();
+    } catch (error) {
+      setAgents((current) =>
+        current.map((item) =>
+          item.id === agent.id ? { ...item, enabled: agent.enabled } : item,
+        ),
       );
+      if (agentConfigId === agent.id) setAgentEnabled(agent.enabled);
+      toast.error(error instanceof Error ? error.message : t.saveAgent);
+    } finally {
+      setAgentActionId(undefined);
     }
-    loadAgents();
   };
 
   const deleteAgent = async (agent: Agent) => {
@@ -2593,16 +2639,13 @@ function AdminApp({
             agentSkillSearch={agentSkillSearch}
             configuredAgent={configuredAgent}
             configuredAgentIsSystem={configuredAgentIsSystem}
-            agentActionId={agentActionId}
             agentSubmitting={agentSubmitting}
             agentConfigSection={agentConfigSection}
             agentConfigDirty={agentConfigDirty}
             agentVersions={agentVersions}
             agents={agents}
             closeAgentConfig={closeAgentConfig}
-            toggle={toggle}
             openAgentTest={openAgentTest}
-            deleteAgent={deleteAgent}
             requestAgentConfigSection={requestAgentConfigSection}
             setAgentRole={setAgentRole}
             setAgentParentId={setAgentParentId}
@@ -2662,12 +2705,55 @@ function AdminApp({
                       ? agents.find((item) => item.id === agent.parentAgentId)
                       : undefined;
                     return (
-                      <article key={agent.id}>
-                        <div className="row">
-                          <strong>{agent.displayName}</strong>
-                          <span className={agent.enabled ? "ok" : "off"}>
-                            {agent.enabled ? t.enabled : t.disabled}
-                          </span>
+                      <article
+                        key={agent.id}
+                        className={`agent-card ${agent.enabled ? "is-enabled" : "is-disabled"}`}
+                        aria-busy={agentActionId === agent.id}
+                      >
+                        <div className="agent-card-header">
+                          <div className="agent-card-title">
+                            <strong>{agent.displayName}</strong>
+                            <span className={agent.enabled ? "ok" : "off"}>
+                              {agent.enabled ? t.enabled : t.disabled}
+                            </span>
+                          </div>
+                          <div className="agent-card-controls">
+                            <label
+                              className="switch agent-card-switch"
+                              title={agent.enabled ? t.stop : t.enable}
+                            >
+                              <input
+                                type="checkbox"
+                                role="switch"
+                                checked={agent.enabled}
+                                aria-label={agent.enabled ? t.stop : t.enable}
+                                disabled={agentActionId === agent.id}
+                                onChange={() => void toggle(agent)}
+                              />
+                              <span
+                                className="switch-track"
+                                aria-hidden="true"
+                              />
+                            </label>
+                            {!isSystemAgent(agent) && (
+                              <button
+                                type="button"
+                                className="agent-card-delete"
+                                aria-label={t.deleteAgent}
+                                title={
+                                  agent.enabled
+                                    ? t.deleteAgentDisabledHint
+                                    : t.deleteAgent
+                                }
+                                disabled={
+                                  agent.enabled || agentActionId === agent.id
+                                }
+                                onClick={() => deleteAgent(agent)}
+                              >
+                                <Icon name="trash" size={16} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <TruncatedId value={agent.id} label="Agent ID" />
                         {parent && (
@@ -2676,7 +2762,7 @@ function AdminApp({
                           </p>
                         )}
                         <p>{agent.description || t.noDescription}</p>
-                        <div className="agent-actions">
+                        <div className="agent-card-footer">
                           <button
                             onClick={() => openAgentSettings(agent)}
                             className="secondary agent-settings-button"
