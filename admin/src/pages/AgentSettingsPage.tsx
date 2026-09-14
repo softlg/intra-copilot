@@ -2,8 +2,14 @@ import { Icon } from "../components/Icon";
 import { Skeleton } from "../components/Skeleton";
 import { EmptyState } from "../components/EmptyState";
 import { TruncatedId } from "../components/TruncatedId";
-import { parseIds } from "../lib/format";
-import type { Dispatch, FormEventHandler, SetStateAction } from "react";
+import { formatDateTime, parseIds } from "../lib/format";
+import {
+  useEffect,
+  useState,
+  type Dispatch,
+  type FormEventHandler,
+  type SetStateAction,
+} from "react";
 import type { Translations } from "../i18n/translations";
 import type {
   Agent,
@@ -23,6 +29,28 @@ export type AgentConfigSection =
   | "tools"
   | "skills"
   | "versions";
+
+function parseVersionSnapshot(value?: string): Partial<Agent> | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object") return undefined;
+    const candidate =
+      "definition" in parsed &&
+      parsed.definition &&
+      typeof parsed.definition === "object"
+        ? parsed.definition
+        : parsed;
+    return candidate as Partial<Agent>;
+  } catch {
+    return undefined;
+  }
+}
+
+function formatSnapshotIds(value?: string) {
+  const ids = parseIds(value);
+  return ids.length > 0 ? ids.join(", ") : "-";
+}
 
 export interface AgentSettingsPageProps {
   t: Translations;
@@ -156,6 +184,17 @@ export function AgentSettingsPage({
   publishAgent,
   rollbackAgent,
 }: AgentSettingsPageProps) {
+  const [selectedVersion, setSelectedVersion] = useState<AgentConfigVersion>();
+
+  useEffect(() => {
+    if (!selectedVersion) return undefined;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedVersion(undefined);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selectedVersion]);
+
   const availableChildAgents = agents.filter(
     (item) =>
       item.role === "SUB" &&
@@ -911,33 +950,184 @@ export function AgentSettingsPage({
               <div className="version-list">
                 {agentVersions.map((version) => (
                   <div className="version-row" key={version.id}>
-                    <div>
+                    <div className="version-row-content">
                       <strong>v{version.version}</strong>
                       <span className="binding-meta">
                         {version.status === "PUBLISHED" ? t.published : t.draft}
                       </span>
                       {version.releaseNote && <p>{version.releaseNote}</p>}
                     </div>
-                    {version.status !== "PUBLISHED" && (
+                    <div className="version-row-actions">
                       <button
                         type="button"
                         className="secondary"
-                        onClick={() => rollbackAgent(version.version)}
-                        disabled={agentSubmitting || agentConfigDirty}
-                        title={
-                          agentConfigDirty ? t.saveBeforePublish : undefined
-                        }
+                        onClick={() => setSelectedVersion(version)}
+                        aria-label={`${t.detail} v${version.version}`}
                       >
-                        {t.rollback}
+                        {t.detail}
                       </button>
-                    )}
+                      {version.status !== "PUBLISHED" && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => rollbackAgent(version.version)}
+                          disabled={agentSubmitting || agentConfigDirty}
+                          title={
+                            agentConfigDirty ? t.saveBeforePublish : undefined
+                          }
+                        >
+                          {t.rollback}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
         )}
+        {selectedVersion && (
+          <div
+            className="modal-backdrop"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget)
+                setSelectedVersion(undefined);
+            }}
+          >
+            <VersionDetailsDialog
+              t={t}
+              version={selectedVersion}
+              onClose={() => setSelectedVersion(undefined)}
+            />
+          </div>
+        )}
       </form>
     </section>
+  );
+}
+
+function VersionDetailsDialog({
+  t,
+  version,
+  onClose,
+}: {
+  t: Translations;
+  version: AgentConfigVersion;
+  onClose: () => void;
+}) {
+  const snapshot = parseVersionSnapshot(version.snapshot);
+
+  return (
+    <div
+      className="modal version-details-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="version-details-title"
+    >
+      <div className="modal-header">
+        <div>
+          <h3 id="version-details-title">
+            v{version.version} · {snapshot?.displayName || t.versionDetails}
+          </h3>
+          <p className="modal-subtitle">{t.versionDetailsSubtitle}</p>
+        </div>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={onClose}
+          aria-label={t.close}
+          autoFocus
+        >
+          <Icon name="close" size={18} />
+        </button>
+      </div>
+      {snapshot ? (
+        <div className="resource-detail-grid version-detail-grid">
+          <div>
+            <span className="detail-label">{t.versionStatus}</span>
+            <span>
+              {version.status === "PUBLISHED" ? t.published : t.draft}
+            </span>
+          </div>
+          <div>
+            <span className="detail-label">{t.versionPublishedAt}</span>
+            <span>{formatDateTime(version.createdAt)}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.agentRole}</span>
+            <span>{snapshot.role || "-"}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.model}</span>
+            <span>{snapshot.model || "-"}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.temperature}</span>
+            <span>{snapshot.temperature ?? "-"}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.priority}</span>
+            <span>{snapshot.priority ?? "-"}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.handlingMode}</span>
+            <span>{snapshot.handlingMode || "-"}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.returnMode}</span>
+            <span>{snapshot.returnMode || "-"}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.enabled}</span>
+            <span>{snapshot.enabled === false ? t.disabled : t.enabled}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.browserActions}</span>
+            <span>
+              {snapshot.supportsBrowserActions ? t.enabled : t.disabled}
+            </span>
+          </div>
+          <div className="detail-full">
+            <span className="detail-label">{t.descriptionLabel}</span>
+            <p>{snapshot.description || t.noDescription}</p>
+          </div>
+          <div className="detail-full">
+            <span className="detail-label">{t.systemPrompt}</span>
+            <pre>{snapshot.systemPrompt || "-"}</pre>
+          </div>
+          {snapshot.routingRules && (
+            <div className="detail-full">
+              <span className="detail-label">{t.routingRules}</span>
+              <pre>{snapshot.routingRules}</pre>
+            </div>
+          )}
+          <div>
+            <span className="detail-label">{t.knowledgeBases}</span>
+            <span>{formatSnapshotIds(snapshot.knowledgeBaseIds)}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.tools}</span>
+            <span>{formatSnapshotIds(snapshot.toolIds)}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.skills}</span>
+            <span>{formatSnapshotIds(snapshot.skillIds)}</span>
+          </div>
+          {version.releaseNote && (
+            <div className="detail-full">
+              <span className="detail-label">{t.versionReleaseNote}</span>
+              <p>{version.releaseNote}</p>
+            </div>
+          )}
+          <details className="version-raw-snapshot detail-full">
+            <summary>{t.rawSnapshot}</summary>
+            <pre>{version.snapshot}</pre>
+          </details>
+        </div>
+      ) : (
+        <p className="error">{t.versionSnapshotUnavailable}</p>
+      )}
+    </div>
   );
 }

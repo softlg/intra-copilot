@@ -366,6 +366,13 @@ export const translations = {
     publishFailed: "发布失败，请检查配置后重试",
     rollbackSuccess: (version: number) => `已回滚并重新发布为 v${version}`,
     rollbackFailed: "回滚失败，请稍后重试",
+    versionDetails: "版本详情",
+    versionDetailsSubtitle: "查看该版本保存时的配置、提示词和资源绑定。",
+    versionStatus: "版本状态",
+    versionPublishedAt: "版本创建时间",
+    versionReleaseNote: "发布说明",
+    versionSnapshotUnavailable: "该历史版本没有可解析的配置快照。",
+    rawSnapshot: "原始快照",
     intentRoutingHint:
       "配置系统 Agent 如何识别意图、选择子 Agent，以及处理低置信度请求。",
     routingRules: "指派规则",
@@ -908,6 +915,15 @@ export const translations = {
     rollbackSuccess: (version: number) =>
       `Rolled back and published as v${version}`,
     rollbackFailed: "Rollback failed. Please try again.",
+    versionDetails: "Version details",
+    versionDetailsSubtitle:
+      "Inspect the configuration, prompt, and resource bindings saved in this version.",
+    versionStatus: "Version status",
+    versionPublishedAt: "Version created at",
+    versionReleaseNote: "Release note",
+    versionSnapshotUnavailable:
+      "This historical version has no readable configuration snapshot.",
+    rawSnapshot: "Raw snapshot",
     intentRoutingHint:
       "Configure how the System Agent identifies intent, selects sub-agents, and handles low-confidence requests.",
     routingRules: "Assignment rules",

@@ -1808,6 +1808,7 @@ article p {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 11px 12px;
   border: 1px solid var(--border-faint);
@@ -1815,7 +1816,7 @@ article p {
   background: var(--surface);
 }
 
-.version-row > div {
+.version-row > .version-row-content {
   display: flex;
   min-width: 0;
   flex: 1;
@@ -1838,8 +1839,45 @@ article p {
   overflow-wrap: anywhere;
 }
 
-.version-row button {
+.version-row-actions {
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.version-details-modal {
+  width: min(100%, 720px);
+}
+
+.version-detail-grid {
+  gap: 16px 18px;
+}
+
+.version-raw-snapshot {
+  padding-top: 4px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.version-raw-snapshot summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.version-raw-snapshot summary:hover {
+  color: var(--text);
+}
+
+.version-raw-snapshot[open] summary {
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.version-raw-snapshot pre {
+  max-height: 320px;
+  font-size: 12px;
 }
 
 .config-tabs {
@@ -3937,6 +3975,15 @@ pre {
     width: 100%;
     margin-left: 0;
     justify-content: flex-start;
+  }
+
+  .version-row {
+    align-items: flex-start;
+  }
+
+  .version-row-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .agent-card-switch,
