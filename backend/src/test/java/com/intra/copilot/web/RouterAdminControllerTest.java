@@ -60,8 +60,13 @@ class RouterAdminControllerTest {
         assertEquals(1, response.get("imageCount"));
         ArgumentCaptor<HookService.Context> contextCaptor =
                 ArgumentCaptor.forClass(HookService.Context.class);
-        verify(hooks).checks(contextCaptor.capture());
-        assertTrue(Boolean.TRUE.equals(contextCaptor.getValue().permissions().get("readPage")));
+        verify(hooks, times(2)).checks(contextCaptor.capture());
+        HookService.Context agentContext = contextCaptor.getValue();
+        assertTrue(agentContext.pageContextConsent());
+        assertTrue(Boolean.TRUE.equals(agentContext.permissions().get("readPage")));
+        assertEquals(
+                List.of(HookService.PHASE_PRE_ROUTE, HookService.PHASE_PRE_AGENT),
+                contextCaptor.getAllValues().stream().map(HookService.Context::phase).toList());
         verify(orchestrator).route("", "", List.of(), List.of(image));
     }
 

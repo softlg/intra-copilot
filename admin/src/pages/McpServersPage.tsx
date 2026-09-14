@@ -59,9 +59,7 @@ export function McpServersPage({
           <div className="mcp-list-header" aria-hidden="true">
             <span>{t.mcpServerName}</span>
             <span>{t.status}</span>
-            <span>
-              {t.mcpTransportLabel} / {t.mcpServerUrlLabel}
-            </span>
+            <span>{t.mcpTransportLabel}</span>
             <span>{t.mcpInterfaceCount}</span>
             <span>
               {t.mcpLatency} / {t.mcpLastChecked}
@@ -91,9 +89,6 @@ export function McpServersPage({
               </div>
               <div className="mcp-endpoint-cell">
                 <span className="mcp-transport-tag">{server.transport}</span>
-                <span className="mcp-endpoint" title={server.serverUrl}>
-                  {server.serverUrl}
-                </span>
               </div>
               <div className="mcp-count-cell">
                 <strong>{server.interfaceCount ?? 0}</strong>
@@ -132,9 +127,6 @@ export function McpServersPage({
                         size={14}
                         className="mcp-row-error-icon"
                       />
-                      <span className="mcp-row-error-summary">
-                        {truncateError(server.lastError)}
-                      </span>
                     </button>
                   </Tooltip>
                 )}

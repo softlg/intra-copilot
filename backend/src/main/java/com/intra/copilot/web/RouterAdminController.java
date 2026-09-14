@@ -80,13 +80,31 @@ public class RouterAdminController {
         List<HookService.HookCheck> checks =
                 hooks.checks(
                         new HookService.Context(
-                                message, effectivePageContext, result.selectedAgentId(), permissions));
+                                message,
+                                effectivePageContext,
+                                result.selectedAgentId(),
+                                agentRole(result.agent()),
+                                HookService.PHASE_PRE_ROUTE,
+                                readPage,
+                                permissions,
+                                attachmentIds.size()));
         boolean routeHooksPassed = checks.stream().allMatch(HookService.HookCheck::passed);
-        if (routeHooksPassed && delegation.delegated()) {
-            checks =
+        if (routeHooksPassed) {
+            List<HookService.HookCheck> agentChecks =
                     hooks.checks(
                             new HookService.Context(
-                                    message, effectivePageContext, finalAgent.id(), permissions));
+                                    message,
+                                    effectivePageContext,
+                                    finalAgent.id(),
+                                    agentRole(finalAgent),
+                                    HookService.PHASE_PRE_AGENT,
+                                    readPage,
+                                    permissions,
+                                    attachmentIds.size()));
+            if (!agentChecks.isEmpty()) {
+                checks = new ArrayList<>(checks);
+                checks.addAll(agentChecks);
+            }
         }
 
         var steps = new ArrayList<Map<String, Object>>();
@@ -276,5 +294,11 @@ public class RouterAdminController {
                 .filter(value -> value.length() <= 8_000_000)
                 .limit(8)
                 .toList();
+    }
+
+    private static String agentRole(Agent agent) {
+        return agent instanceof ConfigurableAgent configurable
+                ? configurable.definition().getRole()
+                : "MAIN";
     }
 }

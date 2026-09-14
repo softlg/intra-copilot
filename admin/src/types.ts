@@ -109,6 +109,63 @@ export type HookDefinition = {
   failureMessage?: string;
   priority: number;
   enabled: boolean;
+  version: number;
+  failMode: "BLOCK" | "WARN";
+  updatedBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  bindings: HookBinding[];
+};
+
+export type HookBinding = {
+  id?: string;
+  hookId?: string;
+  targetType: "GLOBAL" | "AGENT" | "AGENT_ROLE";
+  targetId: string;
+};
+
+export type HookDefinitionVersion = {
+  id: string;
+  hookId: string;
+  version: number;
+  snapshot: string;
+  changeNote?: string;
+  createdBy?: string;
+  createdAt: string;
+};
+
+export type HookCheck = {
+  hookId: string;
+  hookName: string;
+  ruleType: string;
+  phase: string;
+  ruleVersion: number;
+  ruleConfig: string;
+  failMode: "BLOCK" | "WARN";
+  passed: boolean;
+  message: string;
+  evaluationError?: string;
+  durationMs: number;
+};
+
+export type HookTestResult = {
+  allowed: boolean;
+  checks: HookCheck[];
+  durationMs: number;
+};
+
+export type HookValidationResult = {
+  valid: boolean;
+  errors: string[];
+  normalized?: HookDefinition;
+};
+
+export type HookStats = {
+  executions: number;
+  passed: number;
+  blocked: number;
+  lastEvaluatedAt?: string;
+  lastMessage?: string;
 };
 
 export type ResourceDetails =

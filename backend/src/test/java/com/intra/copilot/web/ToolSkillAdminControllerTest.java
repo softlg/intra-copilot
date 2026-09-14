@@ -10,7 +10,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.intra.copilot.model.ToolDefinition;
-import com.intra.copilot.repo.HookDefinitionRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
 import java.util.List;
@@ -56,7 +55,6 @@ class ToolSkillAdminControllerTest {
         return new ToolSkillAdminController(
                 tools,
                 mock(SkillDefinitionRepository.class),
-                mock(HookDefinitionRepository.class),
                 true,
                 true);
     }

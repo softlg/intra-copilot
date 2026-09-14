@@ -1,9 +1,12 @@
 package com.intra.copilot.model;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
+import java.util.List;
 
 /** A validation hook evaluated immediately before an Agent starts working. */
 @TableName("hook_definition")
@@ -17,8 +20,17 @@ public class HookDefinition {
     private String failureMessage;
     private int priority = 100;
     private boolean enabled = true;
+    private long version = 1;
+    private String failMode = "BLOCK";
+    private String updatedBy;
+
+    @TableField(updateStrategy = FieldStrategy.NEVER)
     private Instant createdAt = Instant.now();
+
     private Instant updatedAt = Instant.now();
+
+    @TableField(exist = false)
+    private List<HookBinding> bindings = List.of();
 
     public String getId() {
         return id;
@@ -92,12 +104,52 @@ public class HookDefinition {
         enabled = value;
     }
 
+    public long getVersion() {
+        return version;
+    }
+
+    public void setVersion(long value) {
+        version = value;
+    }
+
+    public String getFailMode() {
+        return failMode;
+    }
+
+    public void setFailMode(String value) {
+        failMode = value;
+    }
+
+    public String getUpdatedBy() {
+        return updatedBy;
+    }
+
+    public void setUpdatedBy(String value) {
+        updatedBy = value;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
 
+    public void setCreatedAt(Instant value) {
+        createdAt = value;
+    }
+
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant value) {
+        updatedAt = value;
+    }
+
+    public List<HookBinding> getBindings() {
+        return bindings;
+    }
+
+    public void setBindings(List<HookBinding> value) {
+        bindings = value == null ? List.of() : List.copyOf(value);
     }
 
     public void touch() {

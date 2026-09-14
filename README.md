@@ -44,10 +44,21 @@ $env:VITE_API_BASE="http://127.0.0.1:8080/api/v1"
 npm run dev
 ```
 
-生产构建使用 `npm run build`，默认访问 `http://127.0.0.1:4174`。管理 API 在无登录 MVP 中仅建议绑定本机或内网地址，并通过 `CORS_ALLOWED_ORIGINS` 限制来源。若管理端使用 Vite 默认端口 4174，请将 `http://localhost:4174,http://127.0.0.1:4174` 加入该变量。
+生产构建使用 `npm run build`，默认访问 `http://127.0.0.1:4174`。启动后端时需配置管理员账号：
+
+```powershell
+$env:ADMIN_USERNAME="admin"
+$env:ADMIN_PASSWORD="your-password"
+# 可选；配置后重启服务不会使已登录会话失效
+$env:ADMIN_SESSION_SECRET="long-random-value"
+```
+
+管理端登录不区分角色和权限。除 `POST /api/v1/auth/admin/login` 外，所有 `/api/v1/admin/**` 接口都要求登录后返回的 Bearer Token。
 
 ### 管理 API
 
+- `POST /api/v1/auth/admin/login`：管理员登录并获取会话令牌。
+- `GET /api/v1/auth/admin/session`：校验当前登录状态。
 - `GET/POST/PUT/DELETE /api/v1/admin/agents`：Agent 配置及启用状态。
 - `/api/v1/admin/knowledge-bases`：知识库、Markdown/TXT/PDF 文档上传、重建索引和删除。
 - `/api/v1/admin/tools`、`/api/v1/admin/skills`：注册 HTTP 工具和 Skill；HTTP 工具仅允许 HTTPS 公网域名。

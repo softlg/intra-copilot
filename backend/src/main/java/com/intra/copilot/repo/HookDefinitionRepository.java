@@ -1,6 +1,7 @@
 package com.intra.copilot.repo;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.intra.copilot.model.HookDefinition;
 import java.util.List;
 import java.util.Optional;
@@ -20,5 +21,14 @@ public interface HookDefinitionRepository extends BaseMapper<HookDefinition> {
 
     default List<HookDefinition> findAll() {
         return selectList(null);
+    }
+
+    default boolean updateIfVersionMatches(HookDefinition value, long expectedVersion) {
+        return update(
+                        value,
+                        Wrappers.<HookDefinition>update()
+                                .eq("id", value.getId())
+                                .eq("version", expectedVersion))
+                > 0;
     }
 }
