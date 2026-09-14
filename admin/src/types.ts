@@ -96,7 +96,65 @@ export type SkillDefinition = {
   description?: string;
   prompt: string;
   version?: string;
+  status: "DRAFT" | "PUBLISHED" | string;
+  activationMode: "ALWAYS" | "KEYWORD" | string;
+  activationConfig?: string;
+  priority: number;
+  maxPromptChars: number;
+  publishedVersion: number;
+  invocationCount: number;
+  lastUsedAt?: string;
+  lockVersion: number;
+  updatedBy?: string;
+  updatedAt?: string;
+  toolIds: string[];
+  toolCount: number;
+  agentIds: string[];
+  agentCount: number;
+  agentNames: string[];
+  promptChars: number;
+  promptTokenEstimate: number;
   enabled: boolean;
+};
+
+export type SkillDefinitionVersion = {
+  id: string;
+  skillId: string;
+  version: number;
+  versionLabel: string;
+  status: string;
+  prompt: string;
+  toolIds: string;
+  snapshot?: string;
+  changeNote?: string;
+  createdBy?: string;
+  createdAt?: string;
+};
+
+export type SkillAuditLog = {
+  id: string;
+  skillId: string;
+  action: string;
+  actor?: string;
+  beforeConfig?: string;
+  afterConfig?: string;
+  createdAt?: string;
+};
+
+export type SkillTestResult = {
+  systemPrompt: string;
+  toolIds: string[];
+  appliedSkills: {
+    id: string;
+    name: string;
+    version: number;
+    versionLabel: string;
+    promptChars: number;
+    promptTokenEstimate: number;
+  }[];
+  warnings: string[];
+  promptChars: number;
+  promptTokenEstimate: number;
 };
 
 export type HookDefinition = {

@@ -37,6 +37,7 @@ public class AgentInvocation {
     private String knowledgeBaseIds;
     private String toolIds;
     private String skillIds;
+    private String skillContext;
     private String userMessage;
     private String attachments;
 
@@ -186,6 +187,8 @@ public class AgentInvocation {
     public void setToolIds(String value) { toolIds = value; }
     public String getSkillIds() { return skillIds; }
     public void setSkillIds(String value) { skillIds = value; }
+    public String getSkillContext() { return skillContext; }
+    public void setSkillContext(String value) { skillContext = value; }
     public String getUserMessage() { return userMessage; }
     public void setUserMessage(String value) { userMessage = value; }
     public String getAttachments() { return attachments; }

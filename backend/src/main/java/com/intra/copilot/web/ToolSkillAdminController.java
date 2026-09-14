@@ -4,9 +4,11 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.model.SkillDefinition;
+import com.intra.copilot.model.SkillToolBinding;
 import com.intra.copilot.model.ToolDefinition;
 import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
+import com.intra.copilot.repo.SkillToolBindingRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.net.URI;
@@ -20,18 +22,20 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/admin")
 public class ToolSkillAdminController {
-        private final ToolDefinitionRepository tools; private final SkillDefinitionRepository skills; private final AgentDefinitionRepository agents;
+        private final ToolDefinitionRepository tools; private final SkillDefinitionRepository skills; private final SkillToolBindingRepository skillToolBindings; private final AgentDefinitionRepository agents;
         private final boolean allowHttp;
         private final boolean allowPrivateNetwork;
         private static final ObjectMapper JSON = new ObjectMapper();
         public ToolSkillAdminController(
                         ToolDefinitionRepository tools,
                         SkillDefinitionRepository skills,
+                        SkillToolBindingRepository skillToolBindings,
                         AgentDefinitionRepository agents,
                         @Value("${tools.allow-http:true}") boolean allowHttp,
                         @Value("${tools.allow-private-network:false}") boolean allowPrivateNetwork) {
                 this.tools = tools;
                 this.skills = skills;
+                this.skillToolBindings = skillToolBindings;
                 this.agents = agents;
                 this.allowHttp = allowHttp;
                 this.allowPrivateNetwork = allowPrivateNetwork;
@@ -49,10 +53,6 @@ public class ToolSkillAdminController {
                 return tools.save(tool);
         }
         @DeleteMapping("/tools/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteTool(@PathVariable String id) { ensureToolNotEnabled(id); ensureToolNotReferenced(id); tools.deleteById(id); }
-        @GetMapping("/skills") public List<SkillDefinition> skills() { return skills.findAll(); }
-        @PostMapping("/skills") @ResponseStatus(HttpStatus.CREATED) public SkillDefinition createSkill(@RequestBody SkillDefinition s) { validateSkill(s); ensureSkillNameAvailable(s.getName(), null); s.setName(s.getName().trim()); return skills.save(s); }
-        @PutMapping("/skills/{id}") public SkillDefinition updateSkill(@PathVariable String id, @RequestBody SkillDefinition s) { skills.findById(id).orElseThrow(() -> new NoSuchElementException("Skill 不存在：" + id)); s.setId(id); validateSkill(s); ensureSkillNameAvailable(s.getName(), id); s.setName(s.getName().trim()); s.touch(); return skills.save(s); }
-        @DeleteMapping("/skills/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteSkill(@PathVariable String id) { ensureSkillNotEnabled(id); skills.deleteById(id); }
         private void ensureToolNotEnabled(String id) {
                 ToolDefinition item = tools.findById(id).orElseThrow(() -> new IllegalArgumentException("工具不存在"));
                 if (item.isEnabled()) throw new IllegalArgumentException("工具处于启用状态，请先停用后再删除");
@@ -62,9 +62,18 @@ public class ToolSkillAdminController {
                                 .filter(a -> containsToolId(a.getToolIds(), id))
                                 .map(a -> a.getDisplayName() == null ? a.getId() : a.getDisplayName())
                                 .toList();
-                List<String> skillNames = skills.findAll().stream()
-                                .filter(s -> containsToolId(s.getToolIds(), id))
-                                .map(s -> s.getName() == null ? s.getId() : s.getName())
+                List<String> skillIds = skillToolBindings.findByToolId(id).stream()
+                                .map(SkillToolBinding::getSkillId)
+                                .distinct()
+                                .toList();
+                List<SkillDefinition> allSkills = skills.findAll();
+                List<String> skillNames = skillIds.stream()
+                                .map(skillId -> allSkills.stream()
+                                                .filter(skill -> skillId.equals(skill.getId()))
+                                                .map(SkillDefinition::getName)
+                                                .filter(name -> name != null && !name.isBlank())
+                                                .findFirst()
+                                                .orElse(skillId))
                                 .toList();
                 if (!agentNames.isEmpty() || !skillNames.isEmpty()) {
                         StringBuilder msg = new StringBuilder("工具仍被引用，无法删除（请先在对应 Agent / Skill 中解除绑定）：");
@@ -82,10 +91,6 @@ public class ToolSkillAdminController {
                         return false;
                 }
         }
-        private void ensureSkillNotEnabled(String id) {
-                SkillDefinition item = skills.findById(id).orElseThrow(() -> new IllegalArgumentException("Skill 不存在"));
-                if (item.isEnabled()) throw new IllegalArgumentException("Skill 处于启用状态，请先停用后再删除");
-        }
         public record EnabledRequest(boolean enabled) {}
         private void validateTool(ToolDefinition t) {
                 if (t.getName() == null || t.getName().isBlank()) throw new IllegalArgumentException("工具名称不能为空");
@@ -96,18 +101,10 @@ public class ToolSkillAdminController {
                         throw new IllegalArgumentException("MCP 已独立为 MCP 服务，请在 MCP 服务菜单中配置");
                 }
         }
-        private void validateSkill(SkillDefinition s) {
-                if (s.getName() == null || s.getName().isBlank() || s.getPrompt() == null || s.getPrompt().isBlank()) throw new IllegalArgumentException("Skill 名称和提示词不能为空");
-        }
         private void ensureToolNameAvailable(String name, String excludingId) {
                 if (name == null || name.isBlank()) return;
                 boolean duplicate = tools.findAll().stream().anyMatch(item -> !item.getId().equals(excludingId) && item.getName() != null && item.getName().trim().equalsIgnoreCase(name.trim()));
                 if (duplicate) throw new IllegalArgumentException("工具名称已存在");
-        }
-        private void ensureSkillNameAvailable(String name, String excludingId) {
-                if (name == null || name.isBlank()) return;
-                boolean duplicate = skills.findAll().stream().anyMatch(item -> !item.getId().equals(excludingId) && item.getName() != null && item.getName().trim().equalsIgnoreCase(name.trim()));
-                if (duplicate) throw new IllegalArgumentException("Skill 名称已存在");
         }
         private void validateEndpoint(String endpoint, String missingMessage) {
                 if (endpoint == null || endpoint.isBlank()) throw new IllegalArgumentException(missingMessage);

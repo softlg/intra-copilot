@@ -14,6 +14,7 @@ import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.repo.AgentChildBindingRepository;
 import com.intra.copilot.repo.AgentConfigVersionRepository;
 import com.intra.copilot.repo.AgentDefinitionRepository;
+import com.intra.copilot.repo.AgentSkillBindingRepository;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,12 @@ class AgentConfigurationServiceTest {
         AgentRegistry registry = mock(AgentRegistry.class);
         AgentConfigurationService service =
                 new AgentConfigurationService(
-                        definitions, versions, bindings, registry, new ObjectMapper());
+                        definitions,
+                        versions,
+                        bindings,
+                        mock(AgentSkillBindingRepository.class),
+                        registry,
+                        new ObjectMapper());
 
         AgentDefinition domain = domain("finance");
         AgentDefinition child = subAgent("expense", "finance");
@@ -59,7 +65,12 @@ class AgentConfigurationServiceTest {
         AgentRegistry registry = mock(AgentRegistry.class);
         AgentConfigurationService service =
                 new AgentConfigurationService(
-                        definitions, versions, bindings, registry, new ObjectMapper());
+                        definitions,
+                        versions,
+                        bindings,
+                        mock(AgentSkillBindingRepository.class),
+                        registry,
+                        new ObjectMapper());
 
         AgentDefinition newDomain = domain("operations");
         AgentDefinition child = subAgent("expense", "operations");
@@ -88,7 +99,12 @@ class AgentConfigurationServiceTest {
         AgentRegistry registry = mock(AgentRegistry.class);
         AgentConfigurationService service =
                 new AgentConfigurationService(
-                        definitions, versions, bindings, registry, new ObjectMapper());
+                        definitions,
+                        versions,
+                        bindings,
+                        mock(AgentSkillBindingRepository.class),
+                        registry,
+                        new ObjectMapper());
 
         AgentDefinition targetDomain = domain("operations");
         AgentDefinition child = subAgent("expense", "finance");

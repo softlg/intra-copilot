@@ -7,6 +7,7 @@ import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.repo.AgentChildBindingRepository;
 import com.intra.copilot.repo.AgentConfigVersionRepository;
 import com.intra.copilot.repo.AgentDefinitionRepository;
+import com.intra.copilot.repo.AgentSkillBindingRepository;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.util.HashSet;
 import java.util.List;
@@ -20,6 +21,7 @@ public class AgentConfigurationService {
     private final AgentDefinitionRepository definitions;
     private final AgentConfigVersionRepository versions;
     private final AgentChildBindingRepository bindings;
+    private final AgentSkillBindingRepository skillBindings;
     private final AgentRegistry registry;
     private final ObjectMapper mapper;
 
@@ -27,11 +29,13 @@ public class AgentConfigurationService {
             AgentDefinitionRepository definitions,
             AgentConfigVersionRepository versions,
             AgentChildBindingRepository bindings,
+            AgentSkillBindingRepository skillBindings,
             AgentRegistry registry,
             ObjectMapper mapper) {
         this.definitions = definitions;
         this.versions = versions;
         this.bindings = bindings;
+        this.skillBindings = skillBindings;
         this.registry = registry;
         this.mapper = mapper;
     }
@@ -54,6 +58,7 @@ public class AgentConfigurationService {
             definition.setVersion(1);
         }
         AgentDefinition saved = definitions.save(definition);
+        skillBindings.replace(saved.getId(), parseIds(saved.getSkillIds()));
         synchronizeChildBinding(saved);
         attachParent(saved);
         registry.evict();
@@ -135,6 +140,7 @@ public class AgentConfigurationService {
             release.setSnapshot(mapper.writeValueAsString(restored));
             restored.setPublishedVersion(next);
             definitions.save(restored);
+            skillBindings.replace(restored.getId(), parseIds(restored.getSkillIds()));
             versions.save(release);
             attachParent(restored);
             registry.evict();
@@ -288,5 +294,25 @@ public class AgentConfigurationService {
 
     private String trimToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private List<String> parseIds(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        try {
+            List<String> values =
+                    mapper.readValue(
+                            raw,
+                            mapper.getTypeFactory()
+                                    .constructCollectionType(List.class, String.class));
+            return values == null
+                    ? List.of()
+                    : values.stream()
+                            .filter(value -> value != null && !value.isBlank())
+                            .map(String::trim)
+                            .distinct()
+                            .toList();
+        } catch (Exception ignored) {
+            return List.of();
+        }
     }
 }

@@ -2398,11 +2398,6 @@ function AdminApp({
       (resourceStatus === "enabled" ? tool.enabled : !tool.enabled),
   );
   const filteredMcpServers = mcpServers;
-  const filteredSkills = skills.filter(
-    (skill) =>
-      resourceStatus === "all" ||
-      (resourceStatus === "enabled" ? skill.enabled : !skill.enabled),
-  );
   const filteredHooks = hooks.filter((hook) => {
     const query = hookSearch.trim().toLowerCase();
     const matchesQuery =
@@ -2963,15 +2958,9 @@ function AdminApp({
           <SkillsPage
             t={t}
             skills={skills}
-            filteredSkills={filteredSkills}
+            tools={tools}
             loading={skillsLoading}
-            actionId={resourceActionId}
-            status={resourceStatus}
-            onStatusChange={setResourceStatus}
-            onNew={() => openResourceDialog("skill")}
-            onEdit={(item) => openResourceDialog("skill", item)}
-            onToggle={(item) => toggleResource("skill", item)}
-            onDelete={(item) => deleteResource("skill", item)}
+            onReload={loadSkills}
           />
         )}
 

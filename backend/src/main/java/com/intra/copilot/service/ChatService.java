@@ -42,7 +42,7 @@ public class ChatService {
         private final AttachmentService attachments;
         private final TraceRecorder trace;
         private final ToolExecutor toolExecutor;
-        private final SkillDefinitionRepository skillRepository;
+        private final SkillPromptAssembler skillAssembler;
         private final int ragTopK;
         private final int maxToolIterations;
         private final int maxHistoryTokens;
@@ -63,7 +63,7 @@ public class ChatService {
                         AttachmentService attachments,
                         TraceRecorder trace,
                         ToolExecutor toolExecutor,
-                        SkillDefinitionRepository skillRepository,
+                        SkillPromptAssembler skillAssembler,
                         @Value("${rag.top-k:5}") int ragTopK,
                         @Value("${agent.max-tool-iterations:5}") int maxToolIterations,
                         @Value("${agent.max-history-tokens:6000}") int maxHistoryTokens,
@@ -81,7 +81,7 @@ public class ChatService {
                 this.attachments = attachments;
                 this.trace = trace;
                 this.toolExecutor = toolExecutor;
-                this.skillRepository = skillRepository;
+                this.skillAssembler = skillAssembler;
                 this.ragTopK = Math.max(1, Math.min(20, ragTopK));
                 this.maxToolIterations = Math.max(1, Math.min(10, maxToolIterations));
                 this.maxHistoryTokens = Math.max(1000, maxHistoryTokens);
@@ -863,6 +863,14 @@ public class ChatService {
                 }
         }
 
+        private String safeJsonObject(Object value) {
+                try {
+                        return json.writeValueAsString(value);
+                } catch (Exception ignored) {
+                        return "{}";
+                }
+        }
+
         /** 把 Agent 绑定的模型参数与资源写入 invocation 快照，便于后台回溯当时的配置。 */
         private void applyResourceSnapshot(AgentInvocation invocation, AgentDefinition definition) {
                 if (definition == null) return;
@@ -1166,24 +1174,61 @@ public class ChatService {
                         String replacedAssistantId,
                         long routeStarted) {
                 try {
-                        // 1) 构建有效 system prompt：追加启用的 Skill 提示词，以及工具使用说明（让模型真正能发起工具调用）。
-                        StringBuilder systemBuilder = new StringBuilder(agent.systemPrompt() == null ? "" : agent.systemPrompt());
+                        // 1) 从已发布版本构建有效 system prompt；编辑中的草稿不会影响线上会话。
+                        String baseSystemPrompt =
+                                agent.systemPrompt() == null ? "" : agent.systemPrompt();
+                        StringBuilder systemBuilder = new StringBuilder(baseSystemPrompt);
                         List<String> agentToolIds = new ArrayList<>();
                         if (agent instanceof ConfigurableAgent configurable) {
                                 AgentDefinition def = configurable.definition();
-                                for (String sid : parseIdList(def.getSkillIds())) {
-                                        SkillDefinition sk = skillRepository.findById(sid).orElse(null);
-                                        if (sk != null && sk.isEnabled() && sk.getPrompt() != null && !sk.getPrompt().isBlank()) {
-                                                systemBuilder.append("\n\n[技能：")
-                                                                .append(sk.getName() == null ? sid : sk.getName())
-                                                                .append("]\n").append(sk.getPrompt());
-                                                for (String tid : parseIdList(sk.getToolIds())) {
-                                                        if (!agentToolIds.contains(tid)) agentToolIds.add(tid);
-                                                }
-                                        }
-                                }
+                                SkillPromptAssembler.Assembly skillAssembly =
+                                        skillAssembler.assembleForAgent(
+                                                agent.id(),
+                                                parseIdList(def.getSkillIds()),
+                                                baseSystemPrompt,
+                                                userInput,
+                                                true);
+                                systemBuilder =
+                                        new StringBuilder(skillAssembly.systemPrompt());
+                                agentToolIds.addAll(skillAssembly.toolIds());
                                 for (String tid : parseIdList(def.getToolIds())) {
                                         if (!agentToolIds.contains(tid)) agentToolIds.add(tid);
+                                }
+                                AgentInvocation targetInvocation =
+                                        invocationId.equals(targetInvocationId)
+                                                ? invocation
+                                                : childInvocation;
+                                if (targetInvocation != null) {
+                                        targetInvocation.setSkillContext(
+                                                safeJsonObject(
+                                                        Map.of(
+                                                                "applied",
+                                                                skillAssembly.appliedSkills(),
+                                                                "warnings",
+                                                                skillAssembly.warnings(),
+                                                                "toolIds",
+                                                                skillAssembly.toolIds())));
+                                        invocations.save(targetInvocation);
+                                }
+                                if (!skillAssembly.appliedSkills().isEmpty()
+                                        || !skillAssembly.warnings().isEmpty()) {
+                                        trace.event(
+                                                                        invocationId,
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.SKILL_CALL)
+                                                                .name("加载 Skill")
+                                                                .status(
+                                                                        skillAssembly.warnings().isEmpty()
+                                                                                ? "OK"
+                                                                                : "WARN")
+                                                                .put(
+                                                                        "skills",
+                                                                        skillAssembly.appliedSkills())
+                                                                .put(
+                                                                        "warnings",
+                                                                        skillAssembly.warnings())
+                                                                .put("toolIds", skillAssembly.toolIds())
+                                                                .save();
                                 }
                         }
                         // 把 Agent 绑定的已启用工具适配成 Spring AI 原生 ToolCallback，用于原生 function calling。
