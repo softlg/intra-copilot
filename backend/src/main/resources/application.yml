@@ -82,6 +82,7 @@ mcp:
   allow-private-network: ${MCP_ALLOW_PRIVATE_NETWORK:true}
   allow-stdio: ${MCP_ALLOW_STDIO:false}
   health-check-interval-ms: ${MCP_HEALTH_CHECK_INTERVAL_MS:300000}
+  session-idle-ms: ${MCP_SESSION_IDLE_MS:300000}
 app:
   # 多实例部署时为每个实例设置唯一的 0-31 节点号；未配置时按主机与进程信息自动分配。
   node-id: ${APP_NODE_ID:}

@@ -29,15 +29,20 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -63,6 +68,12 @@ import org.slf4j.LoggerFactory;
  *       stdin/stdout (gated behind {@code mcp.allow-stdio}, default false, because it executes
  *       a local command).</li>
  * </ul>
+ *
+ * <p>To avoid re-establishing transport state on every agent turn, a per-server session is
+ * cached: STDIO keeps the subprocess alive across calls (initialize runs once), and Streamable
+ * HTTP reuses the negotiated {@code Mcp-Session-Id} to skip the initialize round-trip. Sessions
+ * are evicted after {@code mcp.session-idle-ms} of inactivity (SSE stays per-call, as its long-lived
+ * GET stream is fragile to reuse).
  */
 @Service
 public class McpServerService {
@@ -76,6 +87,9 @@ public class McpServerService {
     private final int timeoutMs;
     private final boolean allowPrivateNetwork;
     private final boolean allowStdio;
+    private final long sessionIdleMs;
+    /** Per-server cached transport session (live STDIO process or HTTP session id). */
+    private final ConcurrentHashMap<String, McpSession> sessions = new ConcurrentHashMap<>();
 
     public McpServerService(
             McpServerRepository repository,
@@ -84,7 +98,8 @@ public class McpServerService {
             RestClient.Builder restClientBuilder,
             @Value("${mcp.timeout-ms:8000}") int timeoutMs,
             @Value("${mcp.allow-private-network:true}") boolean allowPrivateNetwork,
-            @Value("${mcp.allow-stdio:false}") boolean allowStdio) {
+            @Value("${mcp.allow-stdio:false}") boolean allowStdio,
+            @Value("${mcp.session-idle-ms:300000}") long sessionIdleMs) {
         this.repository = repository;
         this.toolRepository = toolRepository;
         this.mapper = mapper;
@@ -92,6 +107,7 @@ public class McpServerService {
         this.timeoutMs = Math.max(1000, Math.min(30000, timeoutMs));
         this.allowPrivateNetwork = allowPrivateNetwork;
         this.allowStdio = allowStdio;
+        this.sessionIdleMs = Math.max(5000, sessionIdleMs);
     }
 
     public List<McpServer> list() { return repository.findAll(); }
@@ -129,8 +145,15 @@ public class McpServerService {
         current.setTransport(value.getTransport().toUpperCase());
         current.setAuthEnv(value.getAuthEnv());
         current.setEnabled(value.isEnabled());
+        boolean configChanged = !Objects.equals(current.getTransport(), value.getTransport().toUpperCase())
+                || !Objects.equals(current.getServerUrl(), value.getServerUrl().trim());
         current.touch();
-        return repository.save(current);
+        McpServer saved = repository.save(current);
+        if (configChanged) {
+            // 传输方式或地址变了，缓存的连接/进程已失效，立即逐出。
+            evictSession(current.getId());
+        }
+        return saved;
     }
 
     public void delete(String id) {
@@ -138,6 +161,7 @@ public class McpServerService {
         if (server.isEnabled()) {
             throw new IllegalArgumentException("MCP 服务处于启用状态，请先停用后再删除");
         }
+        evictSession(id);
         toolRepository.findAll().stream()
                 .filter(t -> "MCP".equalsIgnoreCase(t.getType())
                         && server.getId().equals(t.getMcpServerId()))
@@ -274,32 +298,138 @@ public class McpServerService {
         }
     }
 
+    // ---- Session cache (connection / process reuse) ----------------------
+
+    private McpSession sessionFor(McpServer server) {
+        return sessions.computeIfAbsent(server.getId(), id -> new McpSession(server.getTransport()));
+    }
+
+    /** Drop a cached session, but only if it is not currently in use (a later sweep retries). */
+    private void evictSession(String serverId) {
+        McpSession session = sessions.get(serverId);
+        if (session == null) return;
+        if (!session.lock.tryLock()) return;
+        try {
+            sessions.remove(serverId);
+            session.close();
+        } finally {
+            session.lock.unlock();
+        }
+    }
+
+    /** Invalidate cached transport state after a failed call so the next attempt re-establishes. */
+    private void invalidate(McpSession session) {
+        if (session.stdio != null) {
+            try { session.stdio.close(); } catch (Exception ignored) {}
+        }
+        session.stdio = null;
+        session.sessionId = null;
+        session.initialized = false;
+    }
+
+    /** Close sessions idle longer than mcp.session-idle-ms; skips sessions in use by a call. */
+    @Scheduled(fixedDelay = 60000)
+    public void evictIdleSessions() {
+        long now = System.currentTimeMillis();
+        for (Entry<String, McpSession> entry : sessions.entrySet()) {
+            McpSession session = entry.getValue();
+            if (now - session.lastUsedAt < sessionIdleMs) continue;
+            if (!session.lock.tryLock()) continue;
+            try {
+                sessions.remove(entry.getKey());
+                session.close();
+            } finally {
+                session.lock.unlock();
+            }
+        }
+    }
+
+    private String ensureSessionStreamableHttp(McpServer server, McpSession session, RestClient client) throws Exception {
+        if (session.sessionId != null && !session.sessionId.isBlank()) {
+            return session.sessionId;
+        }
+        ResponseEntity<String> initResp = rpc(client, server, null, session.nextId(), initParams(), "initialize");
+        String sessionId = initResp.getHeaders().getFirst("Mcp-Session-Id");
+        notifyInitialized(client, server, sessionId);
+        session.sessionId = sessionId;
+        session.initialized = true;
+        session.lastUsedAt = System.currentTimeMillis();
+        return sessionId;
+    }
+
+    private StdioChannel acquireStdio(McpServer server, McpSession session) throws Exception {
+        if (session.stdio != null && session.stdio.process.isAlive() && session.initialized) {
+            return session.stdio;
+        }
+        if (session.stdio != null) {
+            try { session.stdio.close(); } catch (Exception ignored) {}
+            session.stdio = null;
+            session.initialized = false;
+        }
+        StdioChannel ch = openStdio(server);
+        try {
+            int initId = session.nextId();
+            writeStdio(ch, rpcMsg(initId, "initialize", initParams()));
+            String initBody = waitFor(ch.queue, ch.buffer, e -> matchId(e, initId), timeoutMs);
+            writeStdio(ch, rpcMsg(null, "notifications/initialized", Map.of()));
+            session.capabilitiesJson =
+                    mapper.writeValueAsString(parseRpc(initBody).path("result").path("capabilities"));
+            session.stdio = ch;
+            session.initialized = true;
+            return ch;
+        } catch (Exception error) {
+            try { ch.close(); } catch (Exception ignored) {}
+            throw error;
+        }
+    }
+
     // ---- Streamable HTTP -------------------------------------------------
 
     private Discovery discoverStreamableHttp(McpServer server) throws Exception {
-        RestClient client = buildClient();
-        ResponseEntity<String> initResp = rpc(client, server, null, 1, initParams(), "initialize");
-        String sessionId = initResp.getHeaders().getFirst("Mcp-Session-Id");
-        notifyInitialized(client, server, sessionId);
-        ResponseEntity<String> listResp = rpc(client, server, sessionId, 2, Map.of(), "tools/list");
-
-        JsonNode initJson = parseRpc(initResp.getBody());
-        JsonNode listJson = parseRpc(listResp.getBody());
-        return buildDiscovery(initJson, listJson);
+        McpSession session = sessionFor(server);
+        session.lock.lock();
+        try {
+            // Discovery re-initializes every run (infrequent: health check / create / update) so it
+            // always captures current capabilities, and refreshes the cached session id for calls.
+            RestClient client = buildClient();
+            ResponseEntity<String> initResp = rpc(client, server, null, session.nextId(), initParams(), "initialize");
+            String sessionId = initResp.getHeaders().getFirst("Mcp-Session-Id");
+            notifyInitialized(client, server, sessionId);
+            ResponseEntity<String> listResp = rpc(client, server, sessionId, session.nextId(), Map.of(), "tools/list");
+            JsonNode initJson = parseRpc(initResp.getBody());
+            JsonNode listJson = parseRpc(listResp.getBody());
+            session.sessionId = sessionId;
+            session.initialized = true;
+            session.lastUsedAt = System.currentTimeMillis();
+            return buildDiscovery(initJson, listJson);
+        } catch (Exception error) {
+            invalidate(session);
+            throw error;
+        } finally {
+            session.lock.unlock();
+        }
     }
 
     private String callToolStreamableHttp(McpServer server, String toolName, String argumentsJson) throws Exception {
-        RestClient client = buildClient();
-        ResponseEntity<String> initResp = rpc(client, server, null, 1, initParams(), "initialize");
-        String sessionId = initResp.getHeaders().getFirst("Mcp-Session-Id");
-        notifyInitialized(client, server, sessionId);
-
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("name", toolName);
-        params.put("arguments", parseArguments(argumentsJson));
-        ResponseEntity<String> callResp = rpc(client, server, sessionId, 3, params, "tools/call");
-        JsonNode callJson = parseRpc(callResp.getBody());
-        return formatToolResult(callJson);
+        McpSession session = sessionFor(server);
+        session.lock.lock();
+        try {
+            // Reuse the cached session id to skip the initialize round-trip on every tool call.
+            RestClient client = buildClient();
+            String sessionId = ensureSessionStreamableHttp(server, session, client);
+            int id = session.nextId();
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("name", toolName);
+            params.put("arguments", parseArguments(argumentsJson));
+            ResponseEntity<String> callResp = rpc(client, server, sessionId, id, params, "tools/call");
+            session.lastUsedAt = System.currentTimeMillis();
+            return formatToolResult(parseRpc(callResp.getBody()));
+        } catch (Exception error) {
+            invalidate(session);
+            throw error;
+        } finally {
+            session.lock.unlock();
+        }
     }
 
     private RestClient buildClient() {
@@ -366,30 +496,45 @@ public class McpServerService {
     // ---- STDIO (local subprocess, newline-delimited JSON-RPC) ------------
 
     private Discovery discoverStdio(McpServer server) throws Exception {
-        try (StdioChannel ch = openStdio(server)) {
-            writeStdio(ch, rpcMsg(1, "initialize", initParams()));
-            String initBody = waitFor(ch.queue, ch.buffer, e -> matchId(e, 1), timeoutMs);
-            writeStdio(ch, rpcMsg(null, "notifications/initialized", Map.of()));
-            writeStdio(ch, rpcMsg(2, "tools/list", Map.of()));
-            String listBody = waitFor(ch.queue, ch.buffer, e -> matchId(e, 2), timeoutMs);
-            JsonNode initJson = parseRpc(initBody);
+        McpSession session = sessionFor(server);
+        session.lock.lock();
+        try {
+            // Reuses the cached live subprocess; re-initializes only when the channel is cold.
+            StdioChannel ch = acquireStdio(server, session);
+            int id = session.nextId();
+            writeStdio(ch, rpcMsg(id, "tools/list", Map.of()));
+            String listBody = waitFor(ch.queue, ch.buffer, e -> matchId(e, id), timeoutMs);
             JsonNode listJson = parseRpc(listBody);
-            return buildDiscovery(initJson, listJson);
+            session.lastUsedAt = System.currentTimeMillis();
+            return new Discovery(buildInterfaces(listJson), session.capabilitiesJson);
+        } catch (Exception error) {
+            invalidate(session);
+            throw error;
+        } finally {
+            session.lock.unlock();
         }
     }
 
     private String callToolStdio(McpServer server, String toolName, String argumentsJson) throws Exception {
-        try (StdioChannel ch = openStdio(server)) {
-            writeStdio(ch, rpcMsg(1, "initialize", initParams()));
-            waitFor(ch.queue, ch.buffer, e -> matchId(e, 1), timeoutMs);
-            writeStdio(ch, rpcMsg(null, "notifications/initialized", Map.of()));
+        McpSession session = sessionFor(server);
+        session.lock.lock();
+        try {
+            // Reuses the cached live subprocess across calls; never re-spawns per invocation.
+            StdioChannel ch = acquireStdio(server, session);
+            int id = session.nextId();
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("name", toolName);
             params.put("arguments", parseArguments(argumentsJson));
-            writeStdio(ch, rpcMsg(3, "tools/call", params));
-            String callBody = waitFor(ch.queue, ch.buffer, e -> matchId(e, 3), timeoutMs);
+            writeStdio(ch, rpcMsg(id, "tools/call", params));
+            String callBody = waitFor(ch.queue, ch.buffer, e -> matchId(e, id), timeoutMs);
             JsonNode callJson = parseRpc(callBody);
+            session.lastUsedAt = System.currentTimeMillis();
             return formatToolResult(callJson);
+        } catch (Exception error) {
+            invalidate(session);
+            throw error;
+        } finally {
+            session.lock.unlock();
         }
     }
 
@@ -712,6 +857,11 @@ public class McpServerService {
     }
 
     private Discovery buildDiscovery(JsonNode initJson, JsonNode listJson) throws Exception {
+        return new Discovery(buildInterfaces(listJson),
+                mapper.writeValueAsString(initJson.path("result").path("capabilities")));
+    }
+
+    private List<Map<String, Object>> buildInterfaces(JsonNode listJson) {
         JsonNode tools = listJson.path("result").path("tools");
         List<Map<String, Object>> interfaces = new ArrayList<>();
         if (tools.isArray()) {
@@ -719,8 +869,7 @@ public class McpServerService {
                 interfaces.add(mapper.convertValue(tool, Map.class));
             }
         }
-        String capabilities = mapper.writeValueAsString(initJson.path("result").path("capabilities"));
-        return new Discovery(interfaces, capabilities);
+        return interfaces;
     }
 
     private Map<String, Object> initParams() {
@@ -851,6 +1000,39 @@ public class McpServerService {
     }
 
     private record Discovery(List<Map<String, Object>> interfaces, String capabilitiesJson) {}
+
+    /**
+     * Cached transport session for one MCP server, keyed by server id in {@link #sessions}.
+     * Holds either a live STDIO subprocess (for the STDIO transport) or a cached HTTP
+     * session id (for Streamable HTTP). A per-session lock serializes all calls on the
+     * stateful channel; the idle sweeper closes sessions that have not been used recently.
+     */
+    private static final class McpSession implements AutoCloseable {
+        final String transport;
+        final ReentrantLock lock = new ReentrantLock();
+        final AtomicInteger requestId = new AtomicInteger(1);
+        volatile long lastUsedAt = System.currentTimeMillis();
+        volatile boolean initialized = false;
+        volatile String sessionId;
+        volatile String capabilitiesJson = "{}";
+        volatile StdioChannel stdio;
+
+        McpSession(String transport) {
+            this.transport = transport == null ? "" : transport.toUpperCase();
+        }
+
+        int nextId() {
+            return requestId.getAndIncrement();
+        }
+
+        @Override
+        public void close() {
+            if (stdio != null) stdio.close();
+            stdio = null;
+            sessionId = null;
+            initialized = false;
+        }
+    }
 
     private static final class StdioChannel implements AutoCloseable {
         final Process process;
