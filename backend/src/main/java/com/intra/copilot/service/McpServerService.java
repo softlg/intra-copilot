@@ -568,8 +568,6 @@ public class McpServerService {
                 while (!closed.get() && (line = br.readLine()) != null) {
                     if (!line.isBlank()) queue.add(line);
                 }
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
             } catch (Exception ignored) {
                 // 子进程退出或流关闭，discover/call 会在超时后抛出。
             } finally {
