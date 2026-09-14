@@ -12,6 +12,7 @@ import com.intra.copilot.util.EntityIdGenerator;
 import java.net.URI;
 import java.net.InetAddress;
 import java.util.List;
+import java.util.NoSuchElementException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -40,7 +41,7 @@ public class ToolSkillAdminController {
                 return tools.findAll().stream().filter(item -> !"MCP".equalsIgnoreCase(item.getType())).toList();
         }
         @PostMapping("/tools") @ResponseStatus(HttpStatus.CREATED) public ToolDefinition createTool(@RequestBody ToolDefinition t) { validateTool(t); ensureToolNameAvailable(t.getName(), null); t.setName(t.getName().trim()); t.setId(EntityIdGenerator.next("TL")); return tools.save(t); }
-        @PutMapping("/tools/{id}") public ToolDefinition updateTool(@PathVariable String id, @RequestBody ToolDefinition t) { t.setId(id); validateTool(t); ensureToolNameAvailable(t.getName(), id); t.setName(t.getName().trim()); t.touch(); return tools.save(t); }
+        @PutMapping("/tools/{id}") public ToolDefinition updateTool(@PathVariable String id, @RequestBody ToolDefinition t) { tools.findById(id).orElseThrow(() -> new NoSuchElementException("工具不存在：" + id)); t.setId(id); validateTool(t); ensureToolNameAvailable(t.getName(), id); t.setName(t.getName().trim()); t.touch(); return tools.save(t); }
         @PatchMapping("/tools/{id}/enabled") public ToolDefinition toggleTool(@PathVariable String id, @RequestBody EnabledRequest request) {
                 ToolDefinition tool = tools.findById(id).orElseThrow(() -> new IllegalArgumentException("工具不存在"));
                 tool.setEnabled(request.enabled());
@@ -50,7 +51,7 @@ public class ToolSkillAdminController {
         @DeleteMapping("/tools/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteTool(@PathVariable String id) { ensureToolNotEnabled(id); ensureToolNotReferenced(id); tools.deleteById(id); }
         @GetMapping("/skills") public List<SkillDefinition> skills() { return skills.findAll(); }
         @PostMapping("/skills") @ResponseStatus(HttpStatus.CREATED) public SkillDefinition createSkill(@RequestBody SkillDefinition s) { validateSkill(s); ensureSkillNameAvailable(s.getName(), null); s.setName(s.getName().trim()); return skills.save(s); }
-        @PutMapping("/skills/{id}") public SkillDefinition updateSkill(@PathVariable String id, @RequestBody SkillDefinition s) { s.setId(id); validateSkill(s); ensureSkillNameAvailable(s.getName(), id); s.setName(s.getName().trim()); s.touch(); return skills.save(s); }
+        @PutMapping("/skills/{id}") public SkillDefinition updateSkill(@PathVariable String id, @RequestBody SkillDefinition s) { skills.findById(id).orElseThrow(() -> new NoSuchElementException("Skill 不存在：" + id)); s.setId(id); validateSkill(s); ensureSkillNameAvailable(s.getName(), id); s.setName(s.getName().trim()); s.touch(); return skills.save(s); }
         @DeleteMapping("/skills/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteSkill(@PathVariable String id) { ensureSkillNotEnabled(id); skills.deleteById(id); }
         private void ensureToolNotEnabled(String id) {
                 ToolDefinition item = tools.findById(id).orElseThrow(() -> new IllegalArgumentException("工具不存在"));
