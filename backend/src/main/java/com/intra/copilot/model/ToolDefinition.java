@@ -22,7 +22,6 @@ public class ToolDefinition {
     private String mcpTransport = "STREAMABLE_HTTP";
     private String mcpAuthEnv;
     private String parameterSchema = "{}";
-    private String allowedDomains = "[]";
     private Integer timeoutMs = 10000;
     private boolean enabled = true;
     private Instant createdAt = Instant.now();
@@ -106,14 +105,6 @@ public class ToolDefinition {
 
     public void setParameterSchema(String value) {
         parameterSchema = value;
-    }
-
-    public String getAllowedDomains() {
-        return allowedDomains;
-    }
-
-    public void setAllowedDomains(String value) {
-        allowedDomains = value;
     }
 
     public Integer getTimeoutMs() {
