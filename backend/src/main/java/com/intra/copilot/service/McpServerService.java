@@ -10,7 +10,9 @@ import com.intra.copilot.util.EntityIdGenerator;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.BufferedWriter;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URI;
@@ -19,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
@@ -45,18 +48,26 @@ import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Registers MCP servers, performs a safe initialize / tools-list discovery, and
  * invokes tools via {@link #callTool}.
  *
- * <p>Supports both the Streamable HTTP transport (single endpoint, JSON-RPC over
- * HTTP with optional SSE responses) and the legacy HTTP+SSE transport (a GET
- * stream that advertises a message endpoint, then JSON-RPC over POST).
+ * <p>Supports three transports:
+ * <ul>
+ *   <li>Streamable HTTP — single endpoint, JSON-RPC over HTTP with optional SSE responses;</li>
+ *   <li>legacy HTTP+SSE — a GET stream that advertises a message endpoint, then JSON-RPC over POST;</li>
+ *   <li>STDIO — spawns a local subprocess and exchanges newline-delimited JSON-RPC over its
+ *       stdin/stdout (gated behind {@code mcp.allow-stdio}, default false, because it executes
+ *       a local command).</li>
+ * </ul>
  */
 @Service
 public class McpServerService {
     private static final String PROTOCOL_VERSION = "2024-11-05";
+    private static final Logger log = LoggerFactory.getLogger(McpServerService.class);
 
     private final McpServerRepository repository;
     private final ToolDefinitionRepository toolRepository;
@@ -64,6 +75,7 @@ public class McpServerService {
     private final RestClient.Builder restClientBuilder;
     private final int timeoutMs;
     private final boolean allowPrivateNetwork;
+    private final boolean allowStdio;
 
     public McpServerService(
             McpServerRepository repository,
@@ -71,13 +83,15 @@ public class McpServerService {
             ObjectMapper mapper,
             RestClient.Builder restClientBuilder,
             @Value("${mcp.timeout-ms:8000}") int timeoutMs,
-            @Value("${mcp.allow-private-network:true}") boolean allowPrivateNetwork) {
+            @Value("${mcp.allow-private-network:true}") boolean allowPrivateNetwork,
+            @Value("${mcp.allow-stdio:false}") boolean allowStdio) {
         this.repository = repository;
         this.toolRepository = toolRepository;
         this.mapper = mapper;
         this.restClientBuilder = restClientBuilder;
         this.timeoutMs = Math.max(1000, Math.min(30000, timeoutMs));
         this.allowPrivateNetwork = allowPrivateNetwork;
+        this.allowStdio = allowStdio;
     }
 
     public List<McpServer> list() { return repository.findAll(); }
@@ -134,7 +148,10 @@ public class McpServerService {
     public McpServer checkHealth(String id) {
         McpServer server = get(id);
         // Re-validate the resolved address at request time to mitigate DNS rebinding.
-        enforceSsrf(server.getServerUrl());
+        // STDIO 传输以命令启动本地进程，不涉及网络地址，跳过校验。
+        if (!"STDIO".equals(server.getTransport())) {
+            enforceSsrf(server.getServerUrl());
+        }
         Instant started = Instant.now();
         server.setLastCheckedAt(started);
         List<Map<String, Object>> discoveredInterfaces = List.of();
@@ -180,11 +197,16 @@ public class McpServerService {
      * throws on transport / JSON-RPC errors so the caller can surface a message.
      */
     public String callTool(McpServer server, String toolName, String argumentsJson) {
-        enforceSsrf(server.getServerUrl());
         String transport = server.getTransport() == null ? "" : server.getTransport().toUpperCase();
+        if (!"STDIO".equals(transport)) {
+            enforceSsrf(server.getServerUrl());
+        }
         try {
             if ("SSE".equals(transport)) {
                 return callToolSse(server, toolName, argumentsJson);
+            }
+            if ("STDIO".equals(transport)) {
+                return callToolStdio(server, toolName, argumentsJson);
             }
             return callToolStreamableHttp(server, toolName, argumentsJson);
         } catch (Exception error) {
@@ -196,6 +218,9 @@ public class McpServerService {
         String transport = server.getTransport() == null ? "" : server.getTransport().toUpperCase();
         if ("SSE".equals(transport)) {
             return discoverSse(server);
+        }
+        if ("STDIO".equals(transport)) {
+            return discoverStdio(server);
         }
         return discoverStreamableHttp(server);
     }
@@ -336,6 +361,112 @@ public class McpServerService {
         } catch (Exception ignored) {
             // Notifications are best-effort; some servers ignore them.
         }
+    }
+
+    // ---- STDIO (local subprocess, newline-delimited JSON-RPC) ------------
+
+    private Discovery discoverStdio(McpServer server) throws Exception {
+        try (StdioChannel ch = openStdio(server)) {
+            writeStdio(ch, rpcMsg(1, "initialize", initParams()));
+            String initBody = waitFor(ch.queue, ch.buffer, e -> matchId(e, 1), timeoutMs);
+            writeStdio(ch, rpcMsg(null, "notifications/initialized", Map.of()));
+            writeStdio(ch, rpcMsg(2, "tools/list", Map.of()));
+            String listBody = waitFor(ch.queue, ch.buffer, e -> matchId(e, 2), timeoutMs);
+            JsonNode initJson = parseRpc(initBody);
+            JsonNode listJson = parseRpc(listBody);
+            return buildDiscovery(initJson, listJson);
+        }
+    }
+
+    private String callToolStdio(McpServer server, String toolName, String argumentsJson) throws Exception {
+        try (StdioChannel ch = openStdio(server)) {
+            writeStdio(ch, rpcMsg(1, "initialize", initParams()));
+            waitFor(ch.queue, ch.buffer, e -> matchId(e, 1), timeoutMs);
+            writeStdio(ch, rpcMsg(null, "notifications/initialized", Map.of()));
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("name", toolName);
+            params.put("arguments", parseArguments(argumentsJson));
+            writeStdio(ch, rpcMsg(3, "tools/call", params));
+            String callBody = waitFor(ch.queue, ch.buffer, e -> matchId(e, 3), timeoutMs);
+            JsonNode callJson = parseRpc(callBody);
+            return formatToolResult(callJson);
+        }
+    }
+
+    private StdioChannel openStdio(McpServer server) throws Exception {
+        String commandLine = server.getServerUrl().trim();
+        List<String> args = Arrays.stream(commandLine.split("\\s+"))
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.toList());
+        if (args.isEmpty()) {
+            throw new McpProtocolException("STDIO 启动命令为空");
+        }
+        ProcessBuilder pb = new ProcessBuilder(args);
+        pb.redirectErrorStream(false);
+        Map<String, String> env = pb.environment();
+        String token = authToken(server.getAuthEnv());
+        if (token != null && server.getAuthEnv() != null && !server.getAuthEnv().isBlank()) {
+            // 将解析到的令牌以环境变量形式注入子进程，MCP 服务可自行读取。
+            env.put(server.getAuthEnv().trim(), token);
+        }
+        Process process = pb.start();
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+        Deque<String> buffer = new ArrayDeque<>();
+        AtomicBoolean closed = new AtomicBoolean(false);
+        BufferedWriter writer = new BufferedWriter(
+                new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+        ExecutorService reader = Executors.newSingleThreadExecutor();
+        reader.submit(() -> {
+            try (BufferedReader br = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while (!closed.get() && (line = br.readLine()) != null) {
+                    if (!line.isBlank()) queue.add(line);
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            } catch (Exception ignored) {
+                // 子进程退出或流关闭，discover/call 会在超时后抛出。
+            } finally {
+                closed.set(true);
+            }
+        });
+        ExecutorService errReader = Executors.newSingleThreadExecutor();
+        errReader.submit(() -> {
+            try (BufferedReader br = new BufferedReader(
+                    new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    log.debug("[mcp-stderr] {}: {}", server.getName(), line);
+                }
+            } catch (Exception ignored) {
+            }
+        });
+        return new StdioChannel(process, writer, queue, buffer, closed, reader, errReader);
+    }
+
+    private void writeStdio(StdioChannel ch, Map<String, Object> message) throws IOException {
+        ch.writer.write(mapper.writeValueAsString(message));
+        ch.writer.write("\n");
+        ch.writer.flush();
+    }
+
+    private boolean matchId(String line, int id) {
+        try {
+            JsonNode node = mapper.readTree(line);
+            return node.path("id").asInt(-1) == id && (node.has("result") || node.has("error"));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private Map<String, Object> rpcMsg(Integer id, String method, Object params) {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("jsonrpc", "2.0");
+        if (id != null) message.put("id", id);
+        message.put("method", method);
+        message.put("params", params);
+        return message;
     }
 
     // ---- Legacy HTTP+SSE (double channel) --------------------------------
@@ -633,6 +764,14 @@ public class McpServerService {
         if (server.getServerUrl() == null || server.getServerUrl().isBlank()) {
             throw new IllegalArgumentException("MCP 服务地址不能为空");
         }
+        String transport = server.getTransport() == null ? "" : server.getTransport().toUpperCase();
+        if ("STDIO".equals(transport)) {
+            if (!allowStdio) {
+                throw new IllegalArgumentException("当前配置禁止 STDIO 传输（需开启 mcp.allow-stdio）");
+            }
+            // serverUrl 作为本地启动命令，不校验 URL / SSRF；命令经 ProcessBuilder 以参数数组执行，无 shell 注入风险。
+            return;
+        }
         URI uri;
         try {
             uri = URI.create(server.getServerUrl().trim());
@@ -649,9 +788,8 @@ public class McpServerService {
         if (!allowPrivateNetwork && resolvesToPrivateAddress(uri.getHost())) {
             throw new IllegalArgumentException("当前配置禁止访问内网或本机 MCP 服务");
         }
-        if (server.getTransport() == null
-                || !List.of("SSE", "STREAMABLE_HTTP").contains(server.getTransport().toUpperCase())) {
-            throw new IllegalArgumentException("MCP 传输方式仅支持 SSE 或 Streamable HTTP");
+        if (!List.of("SSE", "STREAMABLE_HTTP").contains(transport)) {
+            throw new IllegalArgumentException("MCP 传输方式仅支持 SSE、Streamable HTTP 或 STDIO");
         }
     }
 
@@ -713,6 +851,39 @@ public class McpServerService {
     }
 
     private record Discovery(List<Map<String, Object>> interfaces, String capabilitiesJson) {}
+
+    private static final class StdioChannel implements AutoCloseable {
+        final Process process;
+        final BufferedWriter writer;
+        final BlockingQueue<String> queue;
+        final Deque<String> buffer;
+        final AtomicBoolean closed;
+        final ExecutorService reader;
+        final ExecutorService errReader;
+
+        StdioChannel(Process process, BufferedWriter writer, BlockingQueue<String> queue,
+                Deque<String> buffer, AtomicBoolean closed, ExecutorService reader, ExecutorService errReader) {
+            this.process = process;
+            this.writer = writer;
+            this.queue = queue;
+            this.buffer = buffer;
+            this.closed = closed;
+            this.reader = reader;
+            this.errReader = errReader;
+        }
+
+        @Override
+        public void close() {
+            closed.set(true);
+            try {
+                writer.close();
+            } catch (IOException ignored) {
+            }
+            if (process.isAlive()) process.destroyForcibly();
+            reader.shutdownNow();
+            errReader.shutdownNow();
+        }
+    }
 
     private static final class SseChannel implements AutoCloseable {
         final HttpURLConnection connection;

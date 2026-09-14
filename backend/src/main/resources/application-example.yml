@@ -53,6 +53,7 @@ tools:
 mcp:
   timeout-ms: 8000
   allow-private-network: false
+  allow-stdio: false
   health-check-interval-ms: 300000
 app:
   # 管理端开发服务器默认使用 4174；插件来源请替换为实际扩展 ID。
