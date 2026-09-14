@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.intra.copilot.model.HookAuditLog;
 import com.intra.copilot.model.HookBinding;
 import com.intra.copilot.model.HookDefinition;
@@ -50,7 +51,7 @@ public class HookService {
   private final HookDefinitionVersionRepository versions;
   private final HookAuditLogRepository audits;
   private final AgentInvocationEventRepository invocationEvents;
-  private final ObjectMapper json = new ObjectMapper();
+  private final ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule());
 
   public HookService(
       HookDefinitionRepository repository,

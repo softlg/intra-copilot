@@ -3,6 +3,7 @@ import { Skeleton } from "../components/Skeleton";
 import { EmptyState } from "../components/EmptyState";
 import { TruncatedId } from "../components/TruncatedId";
 import { formatDateTime, parseIds } from "../lib/format";
+import { hookPhaseLabel, hookRuleLabel } from "../lib/hooks";
 import {
   useEffect,
   useState,
@@ -15,6 +16,7 @@ import type {
   Agent,
   AgentConfigVersion,
   Base,
+  HookDefinition,
   ToolDefinition,
   SkillDefinition,
   ResourceDetails,
@@ -52,6 +54,27 @@ function formatSnapshotIds(value?: string) {
   return ids.length > 0 ? ids.join(", ") : "-";
 }
 
+function hookBindingTargets(
+  hook: HookDefinition,
+  agentId: string,
+  agentRole: string,
+  t: Translations,
+) {
+  return hook.bindings
+    .filter(
+      (binding) =>
+        (binding.targetType === "AGENT" && binding.targetId === agentId) ||
+        (binding.targetType === "AGENT_ROLE" &&
+          binding.targetId.toUpperCase() === agentRole.toUpperCase()),
+    )
+    .map((binding) =>
+      binding.targetType === "AGENT"
+        ? `${t.agentScope}: ${binding.targetId}`
+        : `${t.agentRoleScope}: ${binding.targetId}`,
+    )
+    .join(" · ");
+}
+
 export interface AgentSettingsPageProps {
   t: Translations;
   agentId: string;
@@ -76,6 +99,7 @@ export interface AgentSettingsPageProps {
   bases: Base[];
   tools: ToolDefinition[];
   skills: SkillDefinition[];
+  hooks: HookDefinition[];
   agentToolIds: string[];
   agentToolSearch: string;
   agentSkillIds: string[];
@@ -143,6 +167,7 @@ export function AgentSettingsPage({
   bases,
   tools,
   skills,
+  hooks,
   agentToolIds,
   agentToolSearch,
   agentSkillIds,
@@ -185,6 +210,15 @@ export function AgentSettingsPage({
   rollbackAgent,
 }: AgentSettingsPageProps) {
   const [selectedVersion, setSelectedVersion] = useState<AgentConfigVersion>();
+
+  const boundHooks = hooks.filter((hook) =>
+    hook.bindings.some(
+      (binding) =>
+        (binding.targetType === "AGENT" && binding.targetId === agentId) ||
+        (binding.targetType === "AGENT_ROLE" &&
+          binding.targetId.toUpperCase() === agentRole.toUpperCase()),
+    ),
+  );
 
   useEffect(() => {
     if (!selectedVersion) return undefined;
@@ -888,6 +922,54 @@ export function AgentSettingsPage({
                       </div>
                     )}
                   </>
+                )}
+              </section>
+            )}
+            {agentConfigSection === "skills" && (
+              <section className="binding-section">
+                <div className="binding-heading">
+                  <div>
+                    <h4>{t.hookBindings}</h4>
+                    <p>{t.hookBindingsHint}</p>
+                  </div>
+                  <span className="binding-count">{boundHooks.length}</span>
+                </div>
+                {boundHooks.length === 0 ? (
+                  <p className="binding-empty">{t.noBoundHooks}</p>
+                ) : (
+                  <div className="binding-list">
+                    {boundHooks.map((hook) => (
+                      <div
+                        className="binding-option hook-binding-option"
+                        key={hook.id}
+                      >
+                        <span className="binding-copy">
+                          <span className="binding-name">
+                            {hook.name}
+                            <span
+                              className={
+                                hook.enabled
+                                  ? "binding-meta ok"
+                                  : "binding-meta off"
+                              }
+                            >
+                              {hook.enabled ? t.enabled : t.disabled}
+                            </span>
+                          </span>
+                          <span className="binding-meta">
+                            {hookBindingTargets(hook, agentId, agentRole, t)} ·{" "}
+                            {hookPhaseLabel(hook.phase, t)} ·{" "}
+                            {hookRuleLabel(hook.ruleType, t)}
+                          </span>
+                          {hook.description && (
+                            <span className="binding-description">
+                              {hook.description}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </section>
             )}

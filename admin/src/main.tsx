@@ -63,6 +63,7 @@ import type {
   QASceneSettings,
   ResourceDetails,
   ResourceListUpdater,
+  ResourceStatus,
   RetrievalResult,
   SkillDefinition,
   Theme,
@@ -80,6 +81,12 @@ import { formatDateTime, parseIds } from "./lib/format";
 import { mcpStatusLabel, truncateError } from "./lib/mcp";
 import { documentStatus } from "./lib/knowledge";
 import { buildDailyFeedbackTrend } from "./lib/feedback";
+import {
+  defaultRuleConfig,
+  normalizeBindings,
+  parseRuleConfig,
+  type HookRuleType,
+} from "./lib/hooks";
 import { RatingsPage } from "./pages/RatingsPage";
 import { ConversationLogsPage } from "./pages/ConversationLogsPage";
 import { RouterPage } from "./pages/RouterPage";
@@ -290,7 +297,18 @@ function AdminApp({
   );
   const [hookFailureMessage, setHookFailureMessage] = useState("");
   const [hookPriority, setHookPriority] = useState(100);
-  const [hookEnabled, setHookEnabled] = useState(true);
+  const [hookEnabled, setHookEnabled] = useState(false);
+  const [hookPhase, setHookPhase] = useState("PRE_ROUTE");
+  const [hookFailMode, setHookFailMode] = useState<"BLOCK" | "WARN">("BLOCK");
+  const [hookScopeType, setHookScopeType] = useState<
+    "GLOBAL" | "AGENT" | "AGENT_ROLE"
+  >("GLOBAL");
+  const [hookScopeId, setHookScopeId] = useState("");
+  const [hookError, setHookError] = useState("");
+  const [hookSearch, setHookSearch] = useState("");
+  const [hookStatus, setHookStatus] = useState<ResourceStatus>("all");
+  const [hookScopeFilter, setHookScopeFilter] = useState("all");
+  const [hookRuleTypeFilter, setHookRuleTypeFilter] = useState("all");
   const [hookSubmitting, setHookSubmitting] = useState(false);
   const [hookActionId, setHookActionId] = useState<string>();
   const [bases, setBases] = useState<Base[]>([]);
@@ -621,6 +639,7 @@ function AdminApp({
       ensureResourceLoaded("bases", loadBases);
       ensureResourceLoaded("tools", loadTools);
       ensureResourceLoaded("skills", loadSkills);
+      ensureResourceLoaded("hooks", loadHooks);
     } else if (tab === "knowledge") {
       ensureResourceLoaded("bases", loadBases);
     } else if (tab === "mcp-servers") {
@@ -630,6 +649,7 @@ function AdminApp({
     } else if (tab === "skills") {
       ensureResourceLoaded("skills", loadSkills);
     } else if (tab === "hooks") {
+      ensureResourceLoaded("agents", loadAgents);
       ensureResourceLoaded("hooks", loadHooks);
     } else if (tab === "ratings") {
       ensureResourceLoaded("feedback", loadFeedback);
@@ -1067,40 +1087,69 @@ function AdminApp({
   };
 
   const openHookDialog = (hook?: HookDefinition) => {
+    const binding = hook?.bindings?.[0];
     setEditingHookId(hook?.id);
     setHookName(hook?.name ?? "");
     setHookDescription(hook?.description ?? "");
-    setHookRuleType(hook?.ruleType ?? "REQUIRE_PERMISSION");
-    setHookRuleConfig(hook?.ruleConfig ?? '{"permission":"readPage"}');
+    setHookRuleType(hook?.ruleType ?? "REQUIRE_PAGE_CONSENT");
+    setHookRuleConfig(
+      hook?.ruleConfig ?? defaultRuleConfig("REQUIRE_PAGE_CONSENT"),
+    );
     setHookFailureMessage(hook?.failureMessage ?? "");
     setHookPriority(hook?.priority ?? 100);
-    setHookEnabled(hook?.enabled ?? true);
+    setHookEnabled(hook?.enabled ?? false);
+    setHookPhase(hook?.phase ?? "PRE_ROUTE");
+    setHookFailMode(hook?.failMode ?? "BLOCK");
+    setHookScopeType(binding?.targetType ?? "GLOBAL");
+    setHookScopeId(binding?.targetId === "*" ? "" : (binding?.targetId ?? ""));
+    setHookError("");
     setHookDialogOpen(true);
+  };
+
+  const hookDefinitionFromForm = (): HookDefinition => {
+    const existing = hooks.find((hook) => hook.id === editingHookId);
+    return {
+      id: editingHookId ?? "",
+      name: hookName.trim(),
+      description: hookDescription.trim() || undefined,
+      phase: hookPhase,
+      ruleType: hookRuleType,
+      ruleConfig: hookRuleConfig.trim() || "{}",
+      failureMessage: hookFailureMessage.trim() || undefined,
+      priority: Math.max(0, Math.min(10000, Number(hookPriority) || 0)),
+      enabled: hookEnabled,
+      version: existing?.version ?? 1,
+      failMode: hookFailMode,
+      bindings: normalizeBindings([
+        {
+          targetType: hookScopeType,
+          targetId: hookScopeType === "GLOBAL" ? "*" : hookScopeId,
+        },
+      ]),
+    };
+  };
+
+  const updateHookRuleConfig = (patch: Record<string, unknown>) => {
+    setHookRuleConfig(
+      JSON.stringify({ ...parseRuleConfig(hookRuleConfig), ...patch }),
+    );
   };
 
   const saveHook = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!hookName.trim()) return setResourceError(t.hookNameRequired);
-    if (!hookDescription.trim()) return setResourceError(t.descriptionRequired);
+    if (!hookName.trim()) return setHookError(t.hookNameRequired);
+    if (hookScopeType !== "GLOBAL" && !hookScopeId.trim()) {
+      return setHookError(t.scopeTargetRequired);
+    }
     try {
       JSON.parse(hookRuleConfig || "{}");
     } catch {
-      return setResourceError(t.hookRuleConfig);
+      return setHookError(t.hookRuleConfig);
     }
     setHookSubmitting(true);
-    setResourceError("");
+    setHookError("");
     try {
-      const payload = {
-        id: editingHookId,
-        name: hookName.trim(),
-        description: hookDescription.trim(),
-        phase: "PRE_AGENT",
-        ruleType: hookRuleType,
-        ruleConfig: hookRuleConfig.trim() || "{}",
-        failureMessage: hookFailureMessage.trim(),
-        priority: Math.max(0, Math.min(10000, Number(hookPriority) || 0)),
-        enabled: hookEnabled,
-      };
+      const payload = hookDefinitionFromForm();
       const saved = await request<HookDefinition>(
         editingHookId ? `/admin/hooks/${editingHookId}` : "/admin/hooks",
         {
@@ -1115,9 +1164,7 @@ function AdminApp({
       );
       setHookDialogOpen(false);
     } catch (error) {
-      setResourceError(
-        error instanceof Error ? error.message : t.hookSaveFailed,
-      );
+      setHookError(error instanceof Error ? error.message : t.hookSaveFailed);
     } finally {
       setHookSubmitting(false);
     }
@@ -2356,7 +2403,26 @@ function AdminApp({
       resourceStatus === "all" ||
       (resourceStatus === "enabled" ? skill.enabled : !skill.enabled),
   );
-  const filteredHooks = hooks;
+  const filteredHooks = hooks.filter((hook) => {
+    const query = hookSearch.trim().toLowerCase();
+    const matchesQuery =
+      !query ||
+      hook.name.toLowerCase().includes(query) ||
+      (hook.description ?? "").toLowerCase().includes(query) ||
+      hook.ruleType.toLowerCase().includes(query) ||
+      hook.bindings.some((binding) =>
+        binding.targetId.toLowerCase().includes(query),
+      );
+    const matchesStatus =
+      hookStatus === "all" ||
+      (hookStatus === "enabled" ? hook.enabled : !hook.enabled);
+    const matchesScope =
+      hookScopeFilter === "all" ||
+      hook.bindings.some((binding) => binding.targetType === hookScopeFilter);
+    const matchesRule =
+      hookRuleTypeFilter === "all" || hook.ruleType === hookRuleTypeFilter;
+    return matchesQuery && matchesStatus && matchesScope && matchesRule;
+  });
   const filteredFeedback = feedback;
   const agentListTab = (() => {
     const config = {
@@ -2633,6 +2699,7 @@ function AdminApp({
             bases={bases}
             tools={tools}
             skills={skills}
+            hooks={hooks}
             agentToolIds={agentToolIds}
             agentToolSearch={agentToolSearch}
             agentSkillIds={agentSkillIds}
@@ -2915,6 +2982,14 @@ function AdminApp({
             filteredHooks={filteredHooks}
             loading={hooksLoading}
             actionId={hookActionId}
+            status={hookStatus}
+            scope={hookScopeFilter}
+            ruleType={hookRuleTypeFilter}
+            search={hookSearch}
+            onStatusChange={setHookStatus}
+            onScopeChange={setHookScopeFilter}
+            onRuleTypeChange={setHookRuleTypeFilter}
+            onSearchChange={setHookSearch}
             onNew={() => openHookDialog()}
             onEdit={(hook) => openHookDialog(hook)}
             onToggle={toggleHook}
@@ -3181,12 +3256,7 @@ function AdminApp({
                 />
               </label>
               <label className="field">
-                <span>
-                  {t.hookDescription}
-                  <span className="required-mark" aria-hidden="true">
-                    *
-                  </span>
-                </span>
+                <span>{t.hookDescription}</span>
                 <textarea
                   value={hookDescription}
                   onChange={(event) => setHookDescription(event.target.value)}
@@ -3197,33 +3267,19 @@ function AdminApp({
               </label>
               <div className="field-grid">
                 <label className="field">
-                  <span>{t.hookRuleType}</span>
+                  <span>{t.hookPhase}</span>
                   <select
-                    value={hookRuleType}
+                    value={hookPhase}
                     onChange={(event) => {
-                      const type = event.target.value;
-                      setHookRuleType(type);
-                      if (type === "REQUIRE_PERMISSION") {
-                        setHookRuleConfig('{"permission":"readPage"}');
-                      } else if (type === "KEYWORD_BLOCK") {
-                        setHookRuleConfig('{"keywords":["delete","export"]}');
-                      } else if (type === "MAX_MESSAGE_LENGTH") {
-                        setHookRuleConfig('{"maxLength":4000}');
-                      } else {
-                        setHookRuleConfig("{}");
+                      setHookPhase(event.target.value);
+                      if (event.target.value === "PRE_ROUTE") {
+                        setHookScopeType("GLOBAL");
+                        setHookScopeId("");
                       }
                     }}
                   >
-                    <option value="REQUIRE_PERMISSION">
-                      {t.requirePermission}
-                    </option>
-                    <option value="REQUIRE_PAGE_CONTEXT">
-                      {t.requirePageContext}
-                    </option>
-                    <option value="KEYWORD_BLOCK">{t.keywordBlock}</option>
-                    <option value="MAX_MESSAGE_LENGTH">
-                      {t.maxMessageLength}
-                    </option>
+                    <option value="PRE_ROUTE">{t.preRoute}</option>
+                    <option value="PRE_AGENT">{t.preAgent}</option>
                   </select>
                 </label>
                 <label className="field">
@@ -3237,6 +3293,101 @@ function AdminApp({
                       setHookPriority(Number(event.target.value) || 0)
                     }
                   />
+                </label>
+              </div>
+              <div className="field-grid">
+                <label className="field">
+                  <span>{t.hookScope}</span>
+                  <select
+                    value={hookScopeType}
+                    onChange={(event) => {
+                      const scope = event.target.value as
+                        "GLOBAL" | "AGENT" | "AGENT_ROLE";
+                      setHookScopeType(scope);
+                      setHookScopeId("");
+                      if (scope !== "GLOBAL") setHookPhase("PRE_AGENT");
+                    }}
+                  >
+                    <option value="GLOBAL">{t.globalScope}</option>
+                    <option value="AGENT">{t.agentScope}</option>
+                    <option value="AGENT_ROLE">{t.agentRoleScope}</option>
+                  </select>
+                </label>
+                {hookScopeType === "AGENT" ? (
+                  <label className="field">
+                    <span>{t.scopeTarget}</span>
+                    <select
+                      value={hookScopeId}
+                      onChange={(event) => setHookScopeId(event.target.value)}
+                    >
+                      <option value="">{t.scopeTarget}</option>
+                      {agents.map((agent) => (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.displayName} · {agent.id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : hookScopeType === "AGENT_ROLE" ? (
+                  <label className="field">
+                    <span>{t.scopeTarget}</span>
+                    <select
+                      value={hookScopeId}
+                      onChange={(event) => setHookScopeId(event.target.value)}
+                    >
+                      <option value="">{t.scopeTarget}</option>
+                      {["MAIN", "GENERAL", "DOMAIN", "SUB"].map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <div className="field">
+                    <span>{t.scopeTarget}</span>
+                    <p className="field-static-value">{t.allAgents}</p>
+                  </div>
+                )}
+              </div>
+              <div className="field-grid">
+                <label className="field">
+                  <span>{t.hookRuleType}</span>
+                  <select
+                    value={hookRuleType}
+                    onChange={(event) => {
+                      const type = event.target.value as HookRuleType;
+                      setHookRuleType(type);
+                      setHookRuleConfig(defaultRuleConfig(type));
+                    }}
+                  >
+                    <option value="REQUIRE_PAGE_CONSENT">
+                      {t.requirePageConsent}
+                    </option>
+                    <option value="REQUIRE_PERMISSION">
+                      {t.requirePermission}
+                    </option>
+                    <option value="REQUIRE_PAGE_CONTEXT">
+                      {t.requirePageContext}
+                    </option>
+                    <option value="KEYWORD_BLOCK">{t.keywordBlock}</option>
+                    <option value="MAX_MESSAGE_LENGTH">
+                      {t.maxMessageLength}
+                    </option>
+                    <option value="REQUEST_BUDGET">{t.requestBudget}</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>{t.failMode}</span>
+                  <select
+                    value={hookFailMode}
+                    onChange={(event) =>
+                      setHookFailMode(event.target.value as "BLOCK" | "WARN")
+                    }
+                  >
+                    <option value="BLOCK">{t.failBlock}</option>
+                    <option value="WARN">{t.failWarn}</option>
+                  </select>
                 </label>
               </div>
               <label className="field">
@@ -3268,6 +3419,11 @@ function AdminApp({
                 />
                 <span>{t.enabled}</span>
               </label>
+              {hookError && (
+                <p className="error" role="alert">
+                  {hookError}
+                </p>
+              )}
               <div className="modal-actions">
                 <button
                   type="button"

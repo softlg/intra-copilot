@@ -1,5 +1,6 @@
 package com.intra.copilot.model;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.intra.copilot.util.EntityIdGenerator;
@@ -9,9 +10,17 @@ import java.time.Instant;
 @TableName("hook_binding")
 public class HookBinding {
     @TableId private String id = EntityIdGenerator.next("HB");
+
+    @TableField("hook_id")
     private String hookId;
+
+    @TableField("target_type")
     private String targetType = "GLOBAL";
+
+    @TableField("target_id")
     private String targetId = "*";
+
+    @TableField("created_at")
     private Instant createdAt = Instant.now();
 
     public String getId() {

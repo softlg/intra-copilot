@@ -4,7 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.intra.copilot.model.HookBinding;
@@ -14,8 +17,11 @@ import com.intra.copilot.repo.HookAuditLogRepository;
 import com.intra.copilot.repo.HookBindingRepository;
 import com.intra.copilot.repo.HookDefinitionRepository;
 import com.intra.copilot.repo.HookDefinitionVersionRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class HookServiceTest {
@@ -135,6 +141,59 @@ class HookServiceTest {
 
         assertFalse(result.valid());
         assertTrue(result.errors().get(0).contains("有效关键词"));
+    }
+
+    @Test
+    void createPersistsNormalizedAgentBinding() {
+        HookDefinition scoped = hook("scoped", "REQUIRE_PAGE_CONTEXT", "PRE_AGENT");
+        HookBinding binding = global("scoped");
+        binding.setTargetType("agent");
+        binding.setTargetId(" finance-agent ");
+        scoped.setBindings(List.of(binding));
+
+        HookDefinitionRepository repository = mock(HookDefinitionRepository.class);
+        HookBindingRepository bindingRepository = mock(HookBindingRepository.class);
+        HookDefinitionVersionRepository versions = mock(HookDefinitionVersionRepository.class);
+        HookAuditLogRepository audits = mock(HookAuditLogRepository.class);
+        AgentInvocationEventRepository events = mock(AgentInvocationEventRepository.class);
+        AtomicReference<HookDefinition> stored = new AtomicReference<>();
+        AtomicReference<List<HookBinding>> storedBindings = new AtomicReference<>(List.of());
+        when(repository.findAll()).thenReturn(List.of());
+        when(repository.save(any()))
+                .thenAnswer(
+                        invocation -> {
+                            HookDefinition value = invocation.getArgument(0);
+                            stored.set(value);
+                            return value;
+                        });
+        when(repository.findById(any()))
+                .thenAnswer(invocation -> Optional.ofNullable(stored.get()));
+        doAnswer(
+                        invocation -> {
+                            List<HookBinding> values = new ArrayList<>(invocation.getArgument(1));
+                            storedBindings.set(values);
+                            return null;
+                        })
+                .when(bindingRepository)
+                .replace(any(), any());
+        when(bindingRepository.findByHookId(any())).thenAnswer(invocation -> storedBindings.get());
+
+        HookService service =
+                new HookService(repository, bindingRepository, versions, audits, events);
+
+        HookDefinition result = service.create(scoped, "admin");
+
+        assertEquals("AGENT", result.getBindings().get(0).getTargetType());
+        assertEquals("finance-agent", result.getBindings().get(0).getTargetId());
+        verify(bindingRepository)
+                .replace(
+                        any(),
+                        argThat(
+                                values ->
+                                        values.size() == 1
+                                                && "AGENT".equals(values.get(0).getTargetType())
+                                                && "finance-agent"
+                                                        .equals(values.get(0).getTargetId())));
     }
 
     private HookService service(List<HookDefinition> definitions, List<HookBinding> bindings) {

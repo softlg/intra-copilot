@@ -3795,6 +3795,21 @@ pre {
   background: var(--surface);
 }
 
+.hook-binding-option {
+  cursor: default;
+}
+
+.hook-binding-option:hover {
+  border-color: var(--border);
+  background: var(--control-bg);
+}
+
+.hook-binding-option .binding-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .binding-option input {
   width: 16px;
   height: 16px;
