@@ -76,7 +76,7 @@ kb:
 tools:
   # 内网部署场景可使用 HTTP 和本机服务；仍会拒绝云元数据地址。
   allow-http: ${TOOLS_ALLOW_HTTP:true}
-  allow-private-network: ${TOOLS_ALLOW_PRIVATE_NETWORK:true}
+  allow-private-network: ${TOOLS_ALLOW_PRIVATE_NETWORK:false}
 mcp:
   timeout-ms: ${MCP_TIMEOUT_MS:8000}
   allow-private-network: ${MCP_ALLOW_PRIVATE_NETWORK:true}

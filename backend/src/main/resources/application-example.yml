@@ -49,10 +49,10 @@ agent:
 tools:
   # Set to false in public deployments to enforce HTTPS-only, public endpoints.
   allow-http: true
-  allow-private-network: true
+  allow-private-network: false
 mcp:
   timeout-ms: 8000
-  allow-private-network: true
+  allow-private-network: false
 app:
   # 管理端开发服务器默认使用 4174；插件来源请替换为实际扩展 ID。
   cors-origins: chrome-extension://YOUR_EXTENSION_ID,http://localhost:4174,http://127.0.0.1:4174

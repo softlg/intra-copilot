@@ -2,10 +2,9 @@ package com.intra.copilot.web;
 
 import com.intra.copilot.model.SkillDefinition;
 import com.intra.copilot.model.ToolDefinition;
-import com.intra.copilot.model.HookDefinition;
-import com.intra.copilot.repo.HookDefinitionRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.net.URI;
 import java.net.InetAddress;
 import java.util.List;
@@ -17,18 +16,15 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/admin")
 public class ToolSkillAdminController {
         private final ToolDefinitionRepository tools; private final SkillDefinitionRepository skills;
-        private final HookDefinitionRepository hooks;
         private final boolean allowHttp;
         private final boolean allowPrivateNetwork;
         public ToolSkillAdminController(
                         ToolDefinitionRepository tools,
                         SkillDefinitionRepository skills,
-                        HookDefinitionRepository hooks,
                         @Value("${tools.allow-http:true}") boolean allowHttp,
-                        @Value("${tools.allow-private-network:true}") boolean allowPrivateNetwork) {
+                        @Value("${tools.allow-private-network:false}") boolean allowPrivateNetwork) {
                 this.tools = tools;
                 this.skills = skills;
-                this.hooks = hooks;
                 this.allowHttp = allowHttp;
                 this.allowPrivateNetwork = allowPrivateNetwork;
         }
@@ -36,7 +32,7 @@ public class ToolSkillAdminController {
                 // MCP servers are managed in the dedicated MCP service module.
                 return tools.findAll().stream().filter(item -> !"MCP".equalsIgnoreCase(item.getType())).toList();
         }
-        @PostMapping("/tools") @ResponseStatus(HttpStatus.CREATED) public ToolDefinition createTool(@RequestBody ToolDefinition t) { validateTool(t); ensureToolNameAvailable(t.getName(), null); t.setName(t.getName().trim()); return tools.save(t); }
+        @PostMapping("/tools") @ResponseStatus(HttpStatus.CREATED) public ToolDefinition createTool(@RequestBody ToolDefinition t) { validateTool(t); ensureToolNameAvailable(t.getName(), null); t.setName(t.getName().trim()); t.setId(EntityIdGenerator.next("TL")); return tools.save(t); }
         @PutMapping("/tools/{id}") public ToolDefinition updateTool(@PathVariable String id, @RequestBody ToolDefinition t) { t.setId(id); validateTool(t); ensureToolNameAvailable(t.getName(), id); t.setName(t.getName().trim()); t.touch(); return tools.save(t); }
         @PatchMapping("/tools/{id}/enabled") public ToolDefinition toggleTool(@PathVariable String id, @RequestBody EnabledRequest request) {
                 ToolDefinition tool = tools.findById(id).orElseThrow(() -> new IllegalArgumentException("工具不存在"));
@@ -49,25 +45,6 @@ public class ToolSkillAdminController {
         @PostMapping("/skills") @ResponseStatus(HttpStatus.CREATED) public SkillDefinition createSkill(@RequestBody SkillDefinition s) { validateSkill(s); ensureSkillNameAvailable(s.getName(), null); s.setName(s.getName().trim()); return skills.save(s); }
         @PutMapping("/skills/{id}") public SkillDefinition updateSkill(@PathVariable String id, @RequestBody SkillDefinition s) { s.setId(id); validateSkill(s); ensureSkillNameAvailable(s.getName(), id); s.setName(s.getName().trim()); s.touch(); return skills.save(s); }
         @DeleteMapping("/skills/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void deleteSkill(@PathVariable String id) { ensureSkillNotEnabled(id); skills.deleteById(id); }
-        @GetMapping("/hooks") public List<HookDefinition> hooks() { return hooks.findAll(); }
-        @PostMapping("/hooks") @ResponseStatus(HttpStatus.CREATED)
-        public HookDefinition createHook(@RequestBody HookDefinition hook) {
-                validateHook(hook);
-                ensureHookNameAvailable(hook.getName(), null);
-                hook.setName(hook.getName().trim());
-                return hooks.save(hook);
-        }
-        @PutMapping("/hooks/{id}")
-        public HookDefinition updateHook(@PathVariable String id, @RequestBody HookDefinition hook) {
-                hook.setId(id);
-                validateHook(hook);
-                ensureHookNameAvailable(hook.getName(), id);
-                hook.setName(hook.getName().trim());
-                hook.touch();
-                return hooks.save(hook);
-        }
-        @DeleteMapping("/hooks/{id}") @ResponseStatus(HttpStatus.NO_CONTENT)
-        public void deleteHook(@PathVariable String id) { ensureHookNotEnabled(id); hooks.deleteById(id); }
         private void ensureToolNotEnabled(String id) {
                 ToolDefinition item = tools.findById(id).orElseThrow(() -> new IllegalArgumentException("工具不存在"));
                 if (item.isEnabled()) throw new IllegalArgumentException("工具处于启用状态，请先停用后再删除");
@@ -75,10 +52,6 @@ public class ToolSkillAdminController {
         private void ensureSkillNotEnabled(String id) {
                 SkillDefinition item = skills.findById(id).orElseThrow(() -> new IllegalArgumentException("Skill 不存在"));
                 if (item.isEnabled()) throw new IllegalArgumentException("Skill 处于启用状态，请先停用后再删除");
-        }
-        private void ensureHookNotEnabled(String id) {
-                HookDefinition item = hooks.findById(id).orElseThrow(() -> new IllegalArgumentException("钩子不存在"));
-                if (item.isEnabled()) throw new IllegalArgumentException("钩子处于启用状态，请先停用后再删除");
         }
         public record EnabledRequest(boolean enabled) {}
         private void validateTool(ToolDefinition t) {
@@ -92,49 +65,6 @@ public class ToolSkillAdminController {
         }
         private void validateSkill(SkillDefinition s) {
                 if (s.getName() == null || s.getName().isBlank() || s.getPrompt() == null || s.getPrompt().isBlank()) throw new IllegalArgumentException("Skill 名称和提示词不能为空");
-        }
-        private void validateHook(HookDefinition hook) {
-                if (hook == null || hook.getName() == null || hook.getName().isBlank()) {
-                        throw new IllegalArgumentException("钩子名称不能为空");
-                }
-                if (hook.getRuleType() == null || hook.getRuleType().isBlank()) {
-                        throw new IllegalArgumentException("钩子规则类型不能为空");
-                }
-                if (!List.of("REQUIRE_PERMISSION", "REQUIRE_PAGE_CONTEXT", "KEYWORD_BLOCK", "MAX_MESSAGE_LENGTH")
-                                .contains(hook.getRuleType().toUpperCase())) {
-                        throw new IllegalArgumentException("不支持的钩子规则类型");
-                }
-                if (hook.getPhase() == null || !"PRE_AGENT".equalsIgnoreCase(hook.getPhase())) {
-                        throw new IllegalArgumentException("钩子执行阶段仅支持 Agent 执行前");
-                }
-                if (hook.getRuleConfig() == null || hook.getRuleConfig().isBlank()) hook.setRuleConfig("{}");
-                try {
-                        var config = new com.fasterxml.jackson.databind.ObjectMapper().readTree(hook.getRuleConfig());
-                        switch (hook.getRuleType().toUpperCase()) {
-                                case "REQUIRE_PERMISSION" -> {
-                                        if (config.path("permission").asText("").isBlank())
-                                                throw new IllegalArgumentException("权限钩子必须配置 permission");
-                                }
-                                case "KEYWORD_BLOCK" -> {
-                                        if (!config.path("keywords").isArray())
-                                                throw new IllegalArgumentException("关键词钩子必须配置 keywords 数组");
-                                }
-                                case "MAX_MESSAGE_LENGTH" -> {
-                                        if (config.path("maxLength").asInt(0) <= 0)
-                                                throw new IllegalArgumentException("长度钩子必须配置正整数 maxLength");
-                                }
-                                default -> { }
-                        }
-                } catch (Exception error) {
-                        if (error instanceof IllegalArgumentException argument) throw argument;
-                        throw new IllegalArgumentException("钩子规则配置必须是有效 JSON");
-                }
-        }
-        private void ensureHookNameAvailable(String name, String excludingId) {
-                if (name == null || name.isBlank()) return;
-                boolean duplicate = hooks.findAll().stream().anyMatch(item -> !item.getId().equals(excludingId)
-                                && item.getName() != null && item.getName().trim().equalsIgnoreCase(name.trim()));
-                if (duplicate) throw new IllegalArgumentException("钩子名称已存在");
         }
         private void ensureToolNameAvailable(String name, String excludingId) {
                 if (name == null || name.isBlank()) return;

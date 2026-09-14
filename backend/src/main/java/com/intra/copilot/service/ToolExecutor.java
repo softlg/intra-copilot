@@ -39,7 +39,7 @@ public class ToolExecutor {
             McpServerService mcpService,
             RestClient.Builder restClientBuilder,
             ObjectMapper json,
-            @Value("${tool.allow-private-network:false}") boolean allowPrivateNetwork) {
+            @Value("${tools.allow-private-network:false}") boolean allowPrivateNetwork) {
         this.toolRepository = toolRepository;
         this.mcpRepository = mcpRepository;
         this.mcpService = mcpService;
