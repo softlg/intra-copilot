@@ -4310,16 +4310,6 @@ pre {
   display: block;
 }
 
-.mcp-row-error-tooltip {
-  display: block;
-  max-width: 340px;
-  overflow-wrap: anywhere;
-  white-space: normal;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--danger-text);
-}
-
 .mcp-error-modal {
   width: min(640px, 92vw);
 }

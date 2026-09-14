@@ -2,7 +2,6 @@ import { Icon } from "../components/Icon";
 import { Dropdown } from "../components/Dropdown";
 import { EmptyState } from "../components/EmptyState";
 import { Skeleton } from "../components/Skeleton";
-import { Tooltip } from "../components/Tooltip";
 import { mcpStatusLabel, truncateError } from "../lib/mcp";
 import type { Translations } from "../i18n/translations";
 import type { McpServer } from "../types";
@@ -108,27 +107,18 @@ export function McpServersPage({
               </div>
               <div className="mcp-row-actions">
                 {server.lastError && (
-                  <Tooltip
-                    placement="top"
-                    content={
-                      <span className="mcp-row-error-tooltip">
-                        {server.lastError}
-                      </span>
-                    }
+                  <button
+                    type="button"
+                    className="mcp-row-error-trigger"
+                    onClick={() => onShowError(server)}
+                    aria-label={t.mcpErrorDetail}
                   >
-                    <button
-                      type="button"
-                      className="mcp-row-error-trigger"
-                      onClick={() => onShowError(server)}
-                      aria-label={t.mcpErrorDetail}
-                    >
-                      <Icon
-                        name="warn"
-                        size={14}
-                        className="mcp-row-error-icon"
-                      />
-                    </button>
-                  </Tooltip>
+                    <Icon
+                      name="warn"
+                      size={14}
+                      className="mcp-row-error-icon"
+                    />
+                  </button>
                 )}
                 <button
                   className="secondary"
