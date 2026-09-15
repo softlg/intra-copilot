@@ -5,10 +5,10 @@ import org.springframework.ai.tool.ToolCallback;
 
 /**
  * 把后台配置的 {@link ToolDefinition} 适配成 Spring AI 的原生 {@link ToolCallback}，
- * 使模型可以通过 OpenAI 兼容的 function calling 直接发起结构化工具调用（而非在文本里吐 JSON）。
+ * 使模型可以通过 OpenAI 兼容的 function calling 直接发起结构化 Tool 调用（而非在文本里吐 JSON）。
  *
- * <p>工具的实际执行仍委托 {@link ToolExecutor}，以复用其 HTTP / MCP / 浏览器提案三类分支以及
- * 内网访问防护、超时控制等逻辑；这里只负责把工具的「名称 / 描述 / 入参 JSON Schema」暴露给模型，
+ * <p>Tool 的实际执行仍委托 {@link ToolExecutor}，以复用其 HTTP / MCP / 浏览器提案三类分支以及
+ * 内网访问防护、超时控制等逻辑；这里只负责把 Tool 的「名称 / 描述 / 入参 JSON Schema」暴露给模型，
  * 并把模型下发的参数 JSON 转交执行器。
  */
 public class ToolDefinitionToolCallback implements ToolCallback {

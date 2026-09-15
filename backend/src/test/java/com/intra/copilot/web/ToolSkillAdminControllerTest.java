@@ -53,7 +53,7 @@ class ToolSkillAdminControllerTest {
                         IllegalArgumentException.class,
                         () -> controller.createTool(tool("tool-2", "2", true)));
 
-        assertEquals("工具名称已存在", error.getMessage());
+        assertEquals("Tool 名称已存在", error.getMessage());
     }
 
     @Test

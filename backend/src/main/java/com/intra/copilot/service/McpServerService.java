@@ -226,7 +226,7 @@ public class McpServerService {
     }
 
     /**
-     * 周期性重新发现每个已启用的 MCP 服务，使镜像到 tool_definition 的工具目录与服务端保持一致 （新增/移除工具、能力漂移）。单个服务的失败由 checkHealth
+     * 周期性重新发现每个已启用的 MCP 服务，使镜像到 tool_definition 的 Tool 目录与服务端保持一致 （新增/移除 Tool、能力漂移）。单个服务的失败由 checkHealth
      * 记录在其自身的行上，循环不会整体中断。
      */
     @Scheduled(fixedDelayString = "${mcp.health-check-interval-ms:300000}")
@@ -259,7 +259,7 @@ public class McpServerService {
             }
             return callToolStreamableHttp(server, toolName, argumentsJson);
         } catch (Exception error) {
-            throw new McpProtocolException("工具调用失败：" + safeMessage(error));
+            throw new McpProtocolException("Tool 调用失败：" + safeMessage(error));
         }
     }
 
@@ -436,7 +436,7 @@ public class McpServerService {
                         .distinct()
                         .toList();
         if (agentNames.isEmpty() && skillIds.isEmpty()) return;
-        StringBuilder message = new StringBuilder("MCP 工具仍被引用，无法删除（请先解除绑定）：");
+        StringBuilder message = new StringBuilder("MCP Tool 仍被引用，无法删除（请先解除绑定）：");
         if (!agentNames.isEmpty())
             message.append(" Agent[").append(String.join("、", agentNames)).append("]");
         if (!skillIds.isEmpty())
@@ -1068,7 +1068,7 @@ public class McpServerService {
                     sb.append(c.path("text").asText());
                 }
             }
-            throw new McpProtocolException("工具返回错误：" + sb);
+            throw new McpProtocolException("Tool 返回错误：" + sb);
         }
         StringBuilder sb = new StringBuilder();
         for (JsonNode c : result.path("content")) {

@@ -332,7 +332,7 @@ public class PlanningService {
 
                 当前执行 Agent：%s（ID：%s）
                 最多允许 %d 个步骤。
-                可用工具（toolNames 只能选择以下名称）：
+                可用 Tool（toolNames 只能选择以下名称）：
                 %s
 
                 输出要求：

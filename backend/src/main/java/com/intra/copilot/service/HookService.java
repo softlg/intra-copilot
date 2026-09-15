@@ -112,7 +112,7 @@ public class HookService {
 
   public HookDefinition get(String id) {
     HookDefinition hook =
-        repository.findById(id).orElseThrow(() -> new IllegalArgumentException("钩子不存在"));
+        repository.findById(id).orElseThrow(() -> new IllegalArgumentException("Hook 不存在"));
     return enrichBinding(hook);
   }
 
@@ -137,9 +137,9 @@ public class HookService {
   public HookDefinition update(
       String id, HookDefinition input, long expectedVersion, String actor, String changeNote) {
     HookDefinition existing =
-        repository.findById(id).orElseThrow(() -> new IllegalArgumentException("钩子不存在"));
+        repository.findById(id).orElseThrow(() -> new IllegalArgumentException("Hook 不存在"));
     if (expectedVersion > 0 && existing.getVersion() != expectedVersion) {
-      throw new IllegalArgumentException("钩子已被其他管理员修改，请刷新后重试");
+      throw new IllegalArgumentException("Hook 已被其他管理员修改，请刷新后重试");
     }
 
     HookDefinition hook = normalizeDefinition(input);
@@ -152,7 +152,7 @@ public class HookService {
     ensureNameAvailable(hook.getName(), id);
 
     if (!repository.updateIfVersionMatches(hook, existing.getVersion())) {
-      throw new IllegalArgumentException("钩子已被其他管理员修改，请刷新后重试");
+      throw new IllegalArgumentException("Hook 已被其他管理员修改，请刷新后重试");
     }
     bindings.replace(id, normalizeBindings(hook.getBindings(), id));
     recordVersion(hook, "UPDATE", actor, changeNote);
@@ -164,9 +164,9 @@ public class HookService {
   public HookDefinition setEnabled(
       String id, boolean enabled, long expectedVersion, String actor) {
     HookDefinition existing =
-        repository.findById(id).orElseThrow(() -> new IllegalArgumentException("钩子不存在"));
+        repository.findById(id).orElseThrow(() -> new IllegalArgumentException("Hook 不存在"));
     if (expectedVersion > 0 && existing.getVersion() != expectedVersion) {
-      throw new IllegalArgumentException("钩子已被其他管理员修改，请刷新后重试");
+      throw new IllegalArgumentException("Hook 已被其他管理员修改，请刷新后重试");
     }
     HookDefinition hook = normalizeDefinition(existing);
     hook.setBindings(bindings.findByHookId(id));
@@ -177,7 +177,7 @@ public class HookService {
     hook.setUpdatedBy(actor);
 
     if (!repository.updateIfVersionMatches(hook, existing.getVersion())) {
-      throw new IllegalArgumentException("钩子已被其他管理员修改，请刷新后重试");
+      throw new IllegalArgumentException("Hook 已被其他管理员修改，请刷新后重试");
     }
     recordVersion(hook, enabled ? "ENABLE" : "DISABLE", actor, null);
     appendAudit(id, enabled ? "ENABLE" : "DISABLE", actor, existing, hook);
@@ -187,12 +187,12 @@ public class HookService {
   @Transactional
   public void delete(String id, long expectedVersion, String actor) {
     HookDefinition existing =
-        repository.findById(id).orElseThrow(() -> new IllegalArgumentException("钩子不存在"));
+        repository.findById(id).orElseThrow(() -> new IllegalArgumentException("Hook 不存在"));
     if (existing.isEnabled()) {
-      throw new IllegalArgumentException("钩子处于启用状态，请先停用后再删除");
+      throw new IllegalArgumentException("Hook 处于启用状态，请先停用后再删除");
     }
     if (expectedVersion > 0 && existing.getVersion() != expectedVersion) {
-      throw new IllegalArgumentException("钩子已被其他管理员修改，请刷新后重试");
+      throw new IllegalArgumentException("Hook 已被其他管理员修改，请刷新后重试");
     }
     appendAudit(id, "DELETE", actor, existing, null);
     repository.deleteById(id);
@@ -241,16 +241,16 @@ public class HookService {
   @Transactional
   public HookDefinition rollback(String id, long version, String actor) {
     HookDefinition existing =
-        repository.findById(id).orElseThrow(() -> new IllegalArgumentException("钩子不存在"));
+        repository.findById(id).orElseThrow(() -> new IllegalArgumentException("Hook 不存在"));
     HookDefinitionVersion snapshot =
         versions
             .findByHookIdAndVersion(id, version)
-            .orElseThrow(() -> new IllegalArgumentException("钩子版本不存在"));
+            .orElseThrow(() -> new IllegalArgumentException("Hook 版本不存在"));
     try {
       HookDefinition restored = json.readValue(snapshot.getSnapshot(), HookDefinition.class);
       return update(id, restored, existing.getVersion(), actor, "回滚到版本 " + version);
     } catch (JsonProcessingException error) {
-      throw new IllegalArgumentException("钩子版本快照无法恢复");
+      throw new IllegalArgumentException("Hook 版本快照无法恢复");
     }
   }
 
@@ -291,8 +291,8 @@ public class HookService {
       passed = "WARN".equalsIgnoreCase(hook.getFailMode());
       message =
           passed
-              ? "钩子配置异常，当前仅告警：" + hook.getName()
-              : "钩子配置异常，请求已按失败关闭策略拦截：" + hook.getName();
+              ? "Hook 配置异常，当前仅告警：" + hook.getName()
+              : "Hook 配置异常，请求已按失败关闭策略拦截：" + hook.getName();
     }
     return new HookCheck(
         hook.getId(),
@@ -357,7 +357,7 @@ public class HookService {
   }
 
   private HookDefinition normalizeDefinition(HookDefinition input) {
-    if (input == null) throw new IllegalArgumentException("钩子配置不能为空");
+    if (input == null) throw new IllegalArgumentException("Hook 配置不能为空");
     HookDefinition hook = new HookDefinition();
     hook.setId(input.getId() == null || input.getId().isBlank() ? hook.getId() : input.getId());
     hook.setName(input.getName() == null ? "" : input.getName().trim());
@@ -382,16 +382,16 @@ public class HookService {
 
   private void validate(HookDefinition hook) {
     if (hook.getName() == null || hook.getName().isBlank()) {
-      throw new IllegalArgumentException("钩子名称不能为空");
+      throw new IllegalArgumentException("Hook 名称不能为空");
     }
     if (hook.getName().length() > 160) {
-      throw new IllegalArgumentException("钩子名称不能超过 160 个字符");
+      throw new IllegalArgumentException("Hook 名称不能超过 160 个字符");
     }
     if (!PHASE_PRE_ROUTE.equals(hook.getPhase()) && !PHASE_PRE_AGENT.equals(hook.getPhase())) {
-      throw new IllegalArgumentException("不支持的钩子执行阶段");
+      throw new IllegalArgumentException("不支持的 Hook 执行阶段");
     }
     if (!RULE_TYPES.contains(hook.getRuleType())) {
-      throw new IllegalArgumentException("不支持的钩子规则类型");
+      throw new IllegalArgumentException("不支持的 Hook 规则类型");
     }
     if (PHASE_PRE_ROUTE.equals(hook.getPhase())
         && hook.getBindings().stream()
@@ -407,17 +407,17 @@ public class HookService {
         case "REQUIRE_PERMISSION" -> {
           String permission = config.path("permission").asText("");
           if (permission.isBlank() || !KNOWN_PERMISSIONS.contains(permission)) {
-            throw new IllegalArgumentException("权限钩子必须配置受支持的 permission");
+            throw new IllegalArgumentException("权限 Hook 必须配置受支持的 permission");
           }
         }
         case "KEYWORD_BLOCK" -> {
           if (!config.path("keywords").isArray() || config.path("keywords").isEmpty()) {
-            throw new IllegalArgumentException("关键词钩子至少需要一个有效关键词");
+            throw new IllegalArgumentException("关键词 Hook 至少需要一个有效关键词");
           }
         }
         case "MAX_MESSAGE_LENGTH" -> {
           if (config.path("maxLength").asInt(0) <= 0) {
-            throw new IllegalArgumentException("长度钩子必须配置正整数 maxLength");
+            throw new IllegalArgumentException("长度 Hook 必须配置正整数 maxLength");
           }
         }
         case "REQUEST_BUDGET" -> {
@@ -432,7 +432,7 @@ public class HookService {
         }
       }
     } catch (JsonProcessingException error) {
-      throw new IllegalArgumentException("钩子规则配置必须是有效 JSON 对象");
+      throw new IllegalArgumentException("Hook 规则配置必须是有效 JSON 对象");
     }
   }
 
@@ -445,10 +445,10 @@ public class HookService {
     ObjectNode config;
     try {
       JsonNode parsed = json.readTree(rawConfig == null || rawConfig.isBlank() ? "{}" : rawConfig);
-      if (!parsed.isObject()) throw new IllegalArgumentException("钩子规则配置必须是 JSON 对象");
+      if (!parsed.isObject()) throw new IllegalArgumentException("Hook 规则配置必须是 JSON 对象");
       config = (ObjectNode) parsed;
     } catch (JsonProcessingException error) {
-      throw new IllegalArgumentException("钩子规则配置必须是有效 JSON 对象");
+      throw new IllegalArgumentException("Hook 规则配置必须是有效 JSON 对象");
     }
     if ("KEYWORD_BLOCK".equals(ruleType) && config.path("keywords").isArray()) {
       LinkedHashSet<String> normalized = new LinkedHashSet<>();
@@ -466,7 +466,7 @@ public class HookService {
     try {
       return json.writeValueAsString(config);
     } catch (JsonProcessingException error) {
-      throw new IllegalArgumentException("钩子规则配置序列化失败");
+      throw new IllegalArgumentException("Hook 规则配置序列化失败");
     }
   }
 
@@ -478,7 +478,7 @@ public class HookService {
               ? ""
               : binding.getTargetType().trim().toUpperCase(Locale.ROOT);
       if (!BINDING_TYPES.contains(targetType)) {
-        throw new IllegalArgumentException("不支持的钩子作用域");
+        throw new IllegalArgumentException("不支持的 Hook 作用域");
       }
       boolean global = "GLOBAL".equals(targetType);
       String targetId =
@@ -556,7 +556,7 @@ public class HookService {
                     !item.getId().equals(excludingId)
                         && item.getName() != null
                         && item.getName().trim().equalsIgnoreCase(name.trim()));
-    if (duplicate) throw new IllegalArgumentException("钩子名称已存在");
+    if (duplicate) throw new IllegalArgumentException("Hook 名称已存在");
   }
 
   private void recordVersion(
@@ -585,7 +585,7 @@ public class HookService {
     try {
       return json.writeValueAsString(hook);
     } catch (JsonProcessingException error) {
-      throw new IllegalArgumentException("钩子配置序列化失败");
+      throw new IllegalArgumentException("Hook 配置序列化失败");
     }
   }
 

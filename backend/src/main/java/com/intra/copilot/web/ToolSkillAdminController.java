@@ -77,7 +77,7 @@ public class ToolSkillAdminController {
     @PutMapping("/tools/{id}")
     public ToolDefinition updateTool(@PathVariable String id, @RequestBody ToolDefinition t) {
         ToolDefinition current =
-                tools.findById(id).orElseThrow(() -> new NoSuchElementException("工具不存在：" + id));
+                tools.findById(id).orElseThrow(() -> new NoSuchElementException("Tool 不存在：" + id));
         validateTool(t);
         ensureToolNameAvailable(t.getName(), id);
         applyEditableFields(current, t);
@@ -88,7 +88,7 @@ public class ToolSkillAdminController {
     @PatchMapping("/tools/{id}/enabled")
     public ToolDefinition toggleTool(@PathVariable String id, @RequestBody EnabledRequest request) {
         ToolDefinition tool =
-                tools.findById(id).orElseThrow(() -> new IllegalArgumentException("工具不存在"));
+                tools.findById(id).orElseThrow(() -> new IllegalArgumentException("Tool 不存在"));
                 tool.setEnabled(request.enabled());
                 tool.touch();
                 return tools.save(tool);
@@ -98,7 +98,7 @@ public class ToolSkillAdminController {
     public Map<String, Object> testTool(
             @PathVariable String id, @RequestBody(required = false) ToolTestRequest request) {
         ToolDefinition tool =
-                tools.findById(id).orElseThrow(() -> new NoSuchElementException("工具不存在：" + id));
+                tools.findById(id).orElseThrow(() -> new NoSuchElementException("Tool 不存在：" + id));
         ToolExecutor.ToolExecutionResult result =
                 toolExecutor.executeDetailed(tool, request == null ? "{}" : request.arguments());
         return Map.of("success", result.success(), "output", result.output());
@@ -114,8 +114,8 @@ public class ToolSkillAdminController {
 
         private void ensureToolNotEnabled(String id) {
         ToolDefinition item =
-                tools.findById(id).orElseThrow(() -> new IllegalArgumentException("工具不存在"));
-                if (item.isEnabled()) throw new IllegalArgumentException("工具处于启用状态，请先停用后再删除");
+                tools.findById(id).orElseThrow(() -> new IllegalArgumentException("Tool 不存在"));
+                if (item.isEnabled()) throw new IllegalArgumentException("Tool 处于启用状态，请先停用后再删除");
         }
 
         private void ensureToolNotReferenced(String id) {
@@ -146,7 +146,7 @@ public class ToolSkillAdminController {
                                                 .orElse(skillId))
                                 .toList();
                 if (!agentNames.isEmpty() || !skillNames.isEmpty()) {
-                        StringBuilder msg = new StringBuilder("工具仍被引用，无法删除（请先在对应 Agent / Skill 中解除绑定）：");
+                        StringBuilder msg = new StringBuilder("Tool 仍被引用，无法删除（请先在对应 Agent / Skill 中解除绑定）：");
             if (!agentNames.isEmpty())
                 msg.append(" Agent[").append(String.join("、", agentNames)).append("]");
             if (!skillNames.isEmpty())
@@ -171,26 +171,26 @@ public class ToolSkillAdminController {
 
         private void validateTool(ToolDefinition t) {
         if (t.getName() == null || t.getName().isBlank())
-            throw new IllegalArgumentException("工具名称不能为空");
+            throw new IllegalArgumentException("Tool 名称不能为空");
         if (!t.getName().trim().matches(TOOL_NAME_PATTERN)) {
-            throw new IllegalArgumentException("工具名称只能使用 1-64 位字母、数字、下划线或连字符");
+            throw new IllegalArgumentException("Tool 名称只能使用 1-64 位字母、数字、下划线或连字符");
         }
         if (t.getDescription() != null && t.getDescription().length() > 500) {
-            throw new IllegalArgumentException("工具描述不能超过 500 个字符");
+            throw new IllegalArgumentException("Tool 描述不能超过 500 个字符");
         }
         String type = t.getType() == null ? "" : t.getType().trim().toUpperCase();
         if (!List.of("HTTP", "BROWSER_PROPOSAL").contains(type)) {
-            throw new IllegalArgumentException("工具类型无效");
+            throw new IllegalArgumentException("Tool 类型无效");
         }
         if (t.getParameterSchema() != null && !t.getParameterSchema().isBlank()) {
             validateSchema(t.getParameterSchema());
         }
         int timeout = t.getTimeoutMs() == null ? 10000 : t.getTimeoutMs();
         if (timeout < 500 || timeout > 60000) {
-            throw new IllegalArgumentException("工具超时必须在 500-60000 毫秒之间");
+            throw new IllegalArgumentException("Tool 超时必须在 500-60000 毫秒之间");
         }
         if ("HTTP".equals(type)) {
-                        validateEndpoint(t.getEndpoint(), "HTTP 工具必须配置 endpoint");
+                        validateEndpoint(t.getEndpoint(), "HTTP Tool 必须配置 endpoint");
             String method = t.getMethod() == null ? "POST" : t.getMethod().trim().toUpperCase();
             if (!HTTP_METHODS.contains(method)) {
                 throw new IllegalArgumentException("HTTP 方法无效");
@@ -288,29 +288,29 @@ public class ToolSkillAdminController {
                                                 && item.getName()
                                                         .trim()
                                                         .equalsIgnoreCase(name.trim()));
-                if (duplicate) throw new IllegalArgumentException("工具名称已存在");
+                if (duplicate) throw new IllegalArgumentException("Tool 名称已存在");
         }
 
         private void validateEndpoint(String endpoint, String missingMessage) {
         if (endpoint == null || endpoint.isBlank())
             throw new IllegalArgumentException(missingMessage);
         if (hasAuthorityPlaceholder(endpoint.trim())) {
-            throw new IllegalArgumentException("工具地址占位符只能用于路径或查询参数");
+            throw new IllegalArgumentException("Tool 地址占位符只能用于路径或查询参数");
         }
                 final URI uri;
                 try {
             uri = URI.create(PATH_PARAMETER.matcher(endpoint.trim()).replaceAll("placeholder"));
                 } catch (IllegalArgumentException error) {
-                        throw new IllegalArgumentException("工具地址格式无效");
+                        throw new IllegalArgumentException("Tool 地址格式无效");
                 }
                 String scheme = uri.getScheme();
                 if (!("https".equalsIgnoreCase(scheme) || (allowHttp && "http".equalsIgnoreCase(scheme)))) {
-                        throw new IllegalArgumentException("工具服务仅允许 HTTP 或 HTTPS");
+                        throw new IllegalArgumentException("Tool 服务仅允许 HTTP 或 HTTPS");
                 }
         if (uri.getUserInfo() != null
                 || uri.getHost() == null
                 || uri.getRawQuery() != null && uri.getRawQuery().contains("@")) {
-                        throw new IllegalArgumentException("工具地址不能包含用户凭据或无效主机");
+                        throw new IllegalArgumentException("Tool 地址不能包含用户凭据或无效主机");
                 }
         if (!allowPrivateNetwork
                 && (isPrivate(uri.getHost()) || resolvesToPrivateAddress(uri.getHost()))) {

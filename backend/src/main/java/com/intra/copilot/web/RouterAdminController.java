@@ -169,7 +169,7 @@ public class RouterAdminController {
         steps.add(
                 step(
                         "hooks",
-                        "Agent 执行前钩子校验",
+                        "Agent 执行前 Hook 校验",
                         Map.of(
                                 "passed",
                                 checks.stream().allMatch(HookService.HookCheck::passed),
@@ -252,7 +252,7 @@ public class RouterAdminController {
             throw new IllegalArgumentException("路由结果不能为空");
         }
         String input =
-                "请分析以下路由测试结果，指出意图识别、分发 Agent、置信度和钩子校验是否合理，并给出改进建议。\n用户消息："
+                "请分析以下路由测试结果，指出意图识别、分发 Agent、置信度和 Hook 校验是否合理，并给出改进建议。\n用户消息："
                         + (message.isBlank() ? "（仅图片附件）" : message)
                         + "\n路由结果："
                         + String.valueOf(request.route());
@@ -261,12 +261,12 @@ public class RouterAdminController {
             analysis =
                     llm.complete("你是 Agent 路由巡检助手，只输出简洁、可执行的中文分析。", List.of(), input)
                             .blockOptional(Duration.ofSeconds(20))
-                            .orElse("模型暂不可用。请根据调用链路检查意图、置信度、分发 Agent 及钩子校验结果。");
+                            .orElse("模型暂不可用。请根据调用链路检查意图、置信度、分发 Agent 及 Hook 校验结果。");
         } catch (Exception error) {
             String reason = error.getMessage() == null || error.getMessage().isBlank()
                     ? error.getClass().getSimpleName()
                     : error.getMessage();
-            analysis = "模型调用失败：" + reason + "。请根据调用链路检查意图、置信度、分发 Agent 及钩子校验结果。";
+            analysis = "模型调用失败：" + reason + "。请根据调用链路检查意图、置信度、分发 Agent 及 Hook 校验结果。";
         }
         return Map.of("analysis", analysis);
     }

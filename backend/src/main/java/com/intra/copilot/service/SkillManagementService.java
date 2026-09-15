@@ -394,9 +394,9 @@ public class SkillManagementService {
             if (!unique.add(toolId.trim())) continue;
             ToolDefinition tool =
                     tools.findById(toolId.trim())
-                            .orElseThrow(() -> new IllegalArgumentException("绑定工具不存在：" + toolId));
+                            .orElseThrow(() -> new IllegalArgumentException("绑定 Tool 不存在：" + toolId));
             if ("MCP".equalsIgnoreCase(tool.getType())) {
-                throw new IllegalArgumentException("MCP 工具请在 MCP 服务中绑定，Skill 仅支持普通工具");
+                throw new IllegalArgumentException("MCP Tool 请在 MCP 服务中绑定，Skill 仅支持普通 Tool");
             }
         }
         skill.setToolIds(new ArrayList<>(unique));

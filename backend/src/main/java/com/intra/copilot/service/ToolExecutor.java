@@ -88,17 +88,17 @@ public class ToolExecutor {
     }
 
     public ToolExecutionResult executeDetailed(ToolDefinition def, String argumentsJson) {
-        if (def == null) return failure("工具定义不存在");
+        if (def == null) return failure("Tool 定义不存在");
         try {
             return switch (def.getType() == null ? "" : def.getType().toUpperCase(Locale.ROOT)) {
                 case "MCP" -> executeMcp(def, argumentsJson);
                 case "BROWSER_PROPOSAL" -> success(
                         "BROWSER_PROPOSAL:" + truncate(argumentsJson == null ? "{}" : argumentsJson));
                 case "HTTP" -> executeHttp(def, argumentsJson);
-                default -> failure("不支持的工具类型：" + def.getType());
+                default -> failure("不支持的 Tool 类型：" + def.getType());
             };
         } catch (Exception error) {
-            return failure("工具执行失败：" + safeMessage(error));
+            return failure("Tool 执行失败：" + safeMessage(error));
         }
     }
 
@@ -138,9 +138,9 @@ public class ToolExecutor {
 
     private ToolExecutionResult executeHttp(ToolDefinition def, String argumentsJson) throws Exception {
         String endpoint = def.getEndpoint();
-        if (endpoint == null || endpoint.isBlank()) return failure("工具未配置 endpoint");
+        if (endpoint == null || endpoint.isBlank()) return failure("Tool 未配置 endpoint");
         if (hasAuthorityPlaceholder(endpoint.trim())) {
-            return failure("工具地址占位符只能用于路径或查询参数");
+            return failure("Tool 地址占位符只能用于路径或查询参数");
         }
 
         String checkUrl = PATH_PARAMETER.matcher(endpoint.trim()).replaceAll("placeholder");
@@ -148,7 +148,7 @@ public class ToolExecutor {
         try {
             checkedUri = URI.create(checkUrl);
         } catch (IllegalArgumentException error) {
-            return failure("工具 endpoint 格式无效");
+            return failure("Tool endpoint 格式无效");
         }
         String validationError = validateRemoteUri(checkedUri);
         if (validationError != null) return failure(validationError);
@@ -156,7 +156,7 @@ public class ToolExecutor {
         JsonNode schema = readSchema(def.getParameterSchema());
         ObjectNode arguments = parseArguments(argumentsJson);
         String schemaError = validateAgainstSchema(arguments, schema, "arguments");
-        if (schemaError != null) return failure("工具参数无效：" + schemaError);
+        if (schemaError != null) return failure("Tool 参数无效：" + schemaError);
 
         RequestParts request = buildRequest(endpoint.trim(), def, arguments);
         if (request.error() != null) return failure(request.error());
@@ -207,7 +207,7 @@ public class ToolExecutor {
                     if (!response.getStatusCode().is2xxSuccessful()) {
                         String detail = body.isBlank() ? response.getStatusText() : body;
                         return failure(
-                                "工具 HTTP "
+                                "Tool HTTP "
                                         + response.getStatusCode().value()
                                         + "："
                                         + truncate(detail));
@@ -225,7 +225,7 @@ public class ToolExecutor {
             String name = matcher.group(1);
             JsonNode value = remaining.get(name);
             if (value == null || value.isNull()) {
-                return new RequestParts(null, null, "工具参数缺少路径变量：" + name);
+                return new RequestParts(null, null, "Tool 参数缺少路径变量：" + name);
             }
             String encoded = UriUtils.encodePathSegment(asQueryValue(value), StandardCharsets.UTF_8);
             matcher.appendReplacement(resolved, Matcher.quoteReplacement(encoded));
@@ -286,7 +286,7 @@ public class ToolExecutor {
                 json.readTree(
                         argumentsJson == null || argumentsJson.isBlank() ? "{}" : argumentsJson);
         if (!root.isObject()) {
-            throw new IllegalArgumentException("工具参数必须是 JSON 对象");
+            throw new IllegalArgumentException("Tool 参数必须是 JSON 对象");
         }
         return (ObjectNode) root;
     }
@@ -371,7 +371,7 @@ public class ToolExecutor {
 
     private ToolExecutionResult executeMcp(ToolDefinition def, String argumentsJson) {
         String serverId = def.getMcpServerId();
-        if (serverId == null || serverId.isBlank()) return failure("MCP 工具未绑定 mcpServerId");
+        if (serverId == null || serverId.isBlank()) return failure("MCP Tool 未绑定 mcpServerId");
         McpServer server = mcpRepository.findById(serverId).orElse(null);
         if (server == null) return failure("未找到 MCP 服务：" + serverId);
         if (!server.isEnabled()) return failure("MCP 服务未启用：" + serverId);
@@ -385,10 +385,10 @@ public class ToolExecutor {
     private String validateRemoteUri(URI uri) {
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         if (!List.of("http", "https").contains(scheme)) return "仅支持 http/https endpoint";
-        if (uri.getHost() == null || uri.getUserInfo() != null) return "工具地址不能包含用户凭据或无效主机";
+        if (uri.getHost() == null || uri.getUserInfo() != null) return "Tool 地址不能包含用户凭据或无效主机";
         if (isCloudMetadata(uri.getHost())) return "禁止访问云实例元数据地址";
         if (!allowPrivateNetwork && isPrivateHost(uri.getHost())) {
-            return "当前配置禁止访问内网/本机工具地址";
+            return "当前配置禁止访问内网/本机 Tool 地址";
         }
         return null;
     }
@@ -445,7 +445,7 @@ public class ToolExecutor {
     }
 
     private ToolExecutionResult failure(String output) {
-        return new ToolExecutionResult(false, truncate(output == null ? "工具执行失败" : output));
+        return new ToolExecutionResult(false, truncate(output == null ? "Tool 执行失败" : output));
     }
 
     private String truncate(String text) {

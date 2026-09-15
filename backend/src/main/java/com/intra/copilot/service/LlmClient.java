@@ -53,13 +53,13 @@ public class LlmClient {
     }
 
     /**
-     * 带原生 function calling 工具的一轮流式推理。
+     * 带原生 function calling Tool 的一轮流式推理。
      *
      * <p>通过 {@code ToolCallingChatOptions} 把 {@link ToolCallback} 下发给模型；并显式关闭
      * {@code internalToolExecutionEnabled}，使框架只把模型的 {@code tool_calls} 透传回来、不自动执行，
      * 由调用方（ChatService 的 ReAct 循环）自行驱动执行、回灌结果、发送 SSE 事件与追踪。
-     * 这样既能用上模型原生的结构化工具调用（可靠的参数 JSON、无 Markdown 包裹），又保留后台对
-     * 工具范围、内网防护与浏览器提案的完全控制。
+     * 这样既能用上模型原生的结构化 Tool 调用（可靠的参数 JSON、无 Markdown 包裹），又保留后台对
+     * Tool 范围、内网防护与浏览器提案的完全控制。
      */
     public Flux<ChatResponse> streamWithTools(
             String system,

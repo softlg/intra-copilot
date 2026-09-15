@@ -135,8 +135,8 @@ public class TraceRecorder {
     public static final String HOOK_CHECK = "HOOK_CHECK";
     public static final String RAG_RETRIEVE = "RAG_RETRIEVE";
     // 预留类型：当前 tool_ids / skill_ids 仅作为 Agent 配置项存在，ChatService 的执行链路
-    // 尚未真正调用工具或 Skill（ToolDefinition / SkillDefinition 只有后台 CRUD）。
-    // 待工具执行链路打通后，用这两种类型记录调用入参、耗时与返回。
+    // 尚未真正调用 Tool 或 Skill（ToolDefinition / SkillDefinition 只有后台 CRUD）。
+    // 待 Tool 执行链路打通后，用这两种类型记录调用入参、耗时与返回。
     public static final String TOOL_CALL = "TOOL_CALL";
     public static final String TOOL_RESULT = "TOOL_RESULT";
     public static final String SKILL_CALL = "SKILL_CALL";

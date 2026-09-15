@@ -551,8 +551,8 @@ public class ChatService {
                                                 ? orchestrator.decideDomain(configurable.definition(), text, pageContext, h, delegationListener)
                                                 : new AgentOrchestrator.DelegationResult(false, routeAgent, "DIRECT", "系统 Agent 直接处理", 1.0, List.of(), null);
                 Agent agent = delegation.agent();
-                // 记录运行时资源快照：该 Agent 绑定的知识库 / 工具 / Skill 与模型参数。
-                // management 后台借此回答"这次用了哪些知识库、工具、Skill"，无需 JOIN 历史配置。
+                // 记录运行时资源快照：该 Agent 绑定的知识库 / Tool / Skill 与模型参数。
+                // management 后台借此回答"这次用了哪些知识库、Tool、Skill"，无需 JOIN 历史配置。
                 AgentDefinition routeDefinition =
                                 routeAgent instanceof ConfigurableAgent configurableAgent
                                                 ? configurableAgent.definition()
@@ -691,7 +691,7 @@ public class ChatService {
                         invocation.setDurationMs((System.nanoTime() - routeStarted) / 1_000_000L);
                         invocations.save(invocation);
                         trace.event(invocationId, correlationId, TraceRecorder.Type.REJECTED)
-                                        .name("钩子拦截，请求被拒绝")
+                                        .name("Hook 拦截，请求被拒绝")
                                         .status("REJECTED")
                                         .put("hookId", hookResult.hookId())
                                         .put("hookName", hookResult.hookName())
@@ -822,7 +822,7 @@ public class ChatService {
                 Throwable dispatchError;
         }
 
-        /** 记录每条钩子的校验结果，后台可据此看到"执行了哪些钩子、各自是否通过"。 */
+        /** 记录每条 Hook 的校验结果，后台可据此看到"执行了哪些 Hook、各自是否通过"。 */
         private void recordHookChecks(
                         String invocationId,
                         String correlationId,
@@ -830,7 +830,7 @@ public class ChatService {
                         List<HookService.HookCheck> checks) {
                 for (HookService.HookCheck check : checks) {
                         trace.event(invocationId, correlationId, TraceRecorder.Type.HOOK_CHECK)
-                                        .name("钩子校验：" + (check.hookName() == null ? check.hookId() : check.hookName()))
+                                        .name("Hook 校验：" + (check.hookName() == null ? check.hookId() : check.hookName()))
                                         .status(check.passed() ? "PASSED" : "FAILED")
                                         .put("hookId", check.hookId())
                                         .put("hookName", check.hookName())
@@ -848,7 +848,7 @@ public class ChatService {
                 }
         }
 
-        /** 由逐条钩子结果推导整体放行结论，与 HookService.validate 行为保持一致。 */
+        /** 由逐条 Hook 结果推导整体放行结论，与 HookService.validate 行为保持一致。 */
         private HookService.HookResult toHookResult(List<HookService.HookCheck> checks) {
                 for (HookService.HookCheck check : checks) {
                         if (!check.passed()) {
@@ -1036,9 +1036,9 @@ public class ChatService {
 
         /**
          * 带原生 function calling 的一轮模型推理。与 {@link #streamModelReply} 的区别：
-         * 通过 {@link LlmClient#streamWithTools} 下发工具回调，从流式 {@link ChatResponse} 中聚合出
+         * 通过 {@link LlmClient#streamWithTools} 下发 Tool 回调，从流式 {@link ChatResponse} 中聚合出
          * 模型下发的 {@code tool_calls}（结构化、可靠），同时把正文 token 实时回传给用户。
-         * 框架侧已关闭自动执行（internalToolExecutionEnabled=false），工具由调用方循环驱动。
+         * 框架侧已关闭自动执行（internalToolExecutionEnabled=false），Tool 由调用方循环驱动。
          */
         private ToolAwareReply streamModelReplyWithTools(
                         SseEmitter out,
@@ -1147,7 +1147,7 @@ public class ChatService {
         }
 
         /**
-         * 把模型流式片段实时回传给用户的轻量封装。工具调用改由原生 function calling
+         * 把模型流式片段实时回传给用户的轻量封装。Tool 调用改由原生 function calling
          * （AssistantMessage.ToolCall）承载，这里不再做文本 JSON 探测与抑制。
          */
         private final class StreamingReplyEmitter {
@@ -1170,9 +1170,9 @@ public class ChatService {
         }
 
         /**
-         * 代理执行主循环（ReAct）：让模型在「推理 → 调用工具 → 观察结果 → 再推理」之间迭代，
-         * 直到模型给出最终答复或达到最大轮次。工具调用通过 {@link ToolExecutor} 真正执行（HTTP/MCP/浏览器提案），
-         * 结果作为下一轮上下文回灌给模型。技能（Skill）以提示词 + 工具集合的形式注入 system prompt。
+         * 代理执行主循环（ReAct）：让模型在「推理 → 调用 Tool → 观察结果 → 再推理」之间迭代，
+         * 直到模型给出最终答复或达到最大轮次。Tool 调用通过 {@link ToolExecutor} 真正执行（HTTP/MCP/浏览器提案），
+         * 结果作为下一轮上下文回灌给模型。技能（Skill）以提示词 + Tool 集合的形式注入 system prompt。
          */
         private void runReActLoop(
                         SseEmitter out,
@@ -1250,7 +1250,7 @@ public class ChatService {
                                                                 .save();
                                 }
                         }
-                        // 把 Agent 绑定的已启用工具适配成 Spring AI 原生 ToolCallback，用于原生 function calling。
+                        // 把 Agent 绑定的已启用 Tool 适配成 Spring AI 原生 ToolCallback，用于原生 function calling。
                         List<ToolCallback> toolCallbacks = new ArrayList<>();
                         for (String tid : agentToolIds) {
                                 ToolDefinition def = toolExecutor.resolveById(tid);
@@ -1260,10 +1260,10 @@ public class ChatService {
                         }
                         boolean hasTools = !toolCallbacks.isEmpty();
                         if (hasTools) {
-                                // 工具的名称 / 描述 / 入参 Schema 已通过 ToolCallback 下发，模型用 function calling 发起调用；
-                                // 这里只补一句中性提示，避免模型仍以文本 JSON 形式输出工具调用。
-                                systemBuilder.append("\n\n[工具] 你已获得若干可通过 function calling 调用的工具，")
-                                                .append("在需要获取数据或执行动作时直接调用对应工具，工具返回结果会作为下一轮上下文提供给你。");
+                                // Tool 的名称 / 描述 / 入参 Schema 已通过 ToolCallback 下发，模型用 function calling 发起调用；
+                                // 这里只补一句中性提示，避免模型仍以文本 JSON 形式输出 Tool 调用。
+                                systemBuilder.append("\n\n[Tool] 你已获得若干可通过 function calling 调用的 Tool，")
+                                                .append("在需要获取数据或执行动作时直接调用对应 Tool，Tool 返回结果会作为下一轮上下文提供给你。");
                         }
                         final String systemEffective = systemBuilder.toString();
 
@@ -1374,7 +1374,7 @@ public class ChatService {
                                                         routeAgent.systemPrompt(),
                                                         List.of(),
                                                         "子 Agent 返回结果（仅供参考，不可直接暴露内部调用链）：\n" + currentAnswer
-                                                                        + "\n请根据领域边界整理最终答复，使用中文，不要透露内部调用链或工具细节。")
+                                                                        + "\n请根据领域边界整理最终答复，使用中文，不要透露内部调用链或 Tool 细节。")
                                                         .blockOptional(Duration.ofSeconds(30))
                                                         .orElse(null);
                                 } catch (Exception summaryFailure) {
@@ -1562,19 +1562,19 @@ public class ChatService {
                                                         out,
                                                         finished,
                                                         call.name(),
-                                                        "未找到已启用的工具：" + call.name(),
+                                                        "未找到已启用的 Tool：" + call.name(),
                                                         false);
                                         turns.add(
                                                 Map.of(
                                                         "role",
                                                         "user",
                                                         "content",
-                                                        "工具调用失败：未找到已启用的工具 \""
+                                                        "Tool 调用失败：未找到已启用的 Tool \""
                                                                 + call.name()
-                                                                + "\"。请直接给出最终答复，不要继续调用该工具。"));
+                                                                + "\"。请直接给出最终答复，不要继续调用该 Tool。"));
                                         continue;
                                 }
-                                emitStage(out, finished, "tool", "正在调用工具：" + toolDef.getName());
+                                emitStage(out, finished, "tool", "正在调用 Tool：" + toolDef.getName());
                                 String redactedArguments =
                                                 toolExecutor.redactArguments(toolDef, call.arguments());
                                 emitToolInvoked(
@@ -1589,7 +1589,7 @@ public class ChatService {
                                                 targetInvocationId,
                                                 correlationId,
                                                 TraceRecorder.Type.TOOL_CALL)
-                                        .name("工具调用：" + toolDef.getName())
+                                        .name("Tool 调用：" + toolDef.getName())
                                         .status(execution.success() ? "OK" : "FAILED")
                                         .plan(planId, planStepId)
                                         .put("toolName", toolDef.getName())
@@ -1619,7 +1619,7 @@ public class ChatService {
                                                 targetInvocationId,
                                                 correlationId,
                                                 TraceRecorder.Type.TOOL_RESULT)
-                                        .name("工具返回：" + toolDef.getName())
+                                        .name("Tool 返回：" + toolDef.getName())
                                         .status(execution.success() ? "OK" : "FAILED")
                                         .plan(planId, planStepId)
                                         .put("toolName", toolDef.getName())
@@ -1642,7 +1642,7 @@ public class ChatService {
                                                         "role",
                                                         "user",
                                                         "content",
-                                                        "工具「"
+                                                        "Tool 「"
                                                                 + toolDef.getName()
                                                                 + "」执行结果：\n"
                                                                 + result));
@@ -1650,7 +1650,7 @@ public class ChatService {
                 }
                 if (currentAnswer == null) currentAnswer = lastReply == null ? "" : lastReply;
                 if (currentAnswer.isBlank()) {
-                        currentAnswer = "（已达到最大工具调用次数，未能生成最终答复。请调整问题或工具配置后重试。）";
+                        currentAnswer = "（已达到最大 Tool 调用次数，未能生成最终答复。请调整问题或 Tool 配置后重试。）";
                 }
                 return new ReActResult(
                                 currentAnswer,
@@ -2199,7 +2199,7 @@ public class ChatService {
                 emitActionProposed(out, finished, proposal);
         }
 
-        /** 将工具/模型返回的 JSON 提案解析为 ActionProposal 实体（复用原 parseProposal 逻辑）。 */
+        /** 将 Tool/模型返回的 JSON 提案解析为 ActionProposal 实体（复用原 parseProposal 逻辑）。 */
         private ActionProposal buildProposal(String conversationId, String text) {
                 try {
                         int s = text.indexOf("{\"type\"");
