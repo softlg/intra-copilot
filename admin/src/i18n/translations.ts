@@ -136,7 +136,7 @@ export const translations = {
     hookDeleteFailed: "删除 Hook 失败，请稍后重试",
     noHooks: "暂无 Hook，请先创建校验规则。",
     router: "路由测试",
-    agentRatings: "评分与反馈",
+    agentRatings: "Feedback",
     ratingsSubtitle:
       "按时间、Agent 和原因查看有效评分，定位回答质量与路由问题。",
     conversationLogs: "对话日志",
@@ -650,6 +650,9 @@ export const translations = {
     feedbackTrendTotal: (up: number, down: number) => `赞 ${up} · 踩 ${down}`,
     feedbackPagePosition: (page: number, totalPages: number) =>
       `第 ${page}/${totalPages} 页`,
+    feedbackViewMode: "反馈展示方式",
+    feedbackViewCards: "卡片",
+    feedbackViewCompact: "紧凑",
     feedbackQuestion: "用户问题",
     feedbackAnswer: "Agent 回复",
     feedbackSource: "反馈来源",
@@ -905,7 +908,7 @@ export const translations = {
     hookDeleteFailed: "Failed to delete the hook. Please try again.",
     noHooks: "No hooks yet. Create a validation rule first.",
     router: "Router test",
-    agentRatings: "Ratings & feedback",
+    agentRatings: "Feedback",
     ratingsSubtitle:
       "Review effective ratings by time, Agent, and reason to identify answer-quality and routing issues.",
     conversationLogs: "Conversation logs",
@@ -1461,6 +1464,9 @@ export const translations = {
     feedbackTrendTotal: (up: number, down: number) => `Up ${up} · Down ${down}`,
     feedbackPagePosition: (page: number, totalPages: number) =>
       `Page ${page} of ${totalPages}`,
+    feedbackViewMode: "Feedback view",
+    feedbackViewCards: "Cards",
+    feedbackViewCompact: "Compact",
     feedbackQuestion: "User question",
     feedbackAnswer: "Agent answer",
     feedbackSource: "Feedback source",
