@@ -117,19 +117,24 @@ export function ToolsPage({
         ) : (
           <div className="grid">
             {filteredTools.map((tool) => (
-              <article key={tool.id}>
-                <div className="row">
-                  <strong>{tool.name}</strong>
+              <article key={tool.id} className="tool-card">
+                <div className="tool-card-header">
+                  <div className="tool-card-title">
+                    <Icon name="tool" size={18} />
+                    <strong title={tool.name}>{tool.name}</strong>
+                  </div>
                   <span className={tool.enabled ? "ok" : "off"}>
                     {tool.enabled ? t.enabled : t.disabled}
                   </span>
                 </div>
-                <p>{tool.description || t.noDescription}</p>
-                <div className="resource-meta">
-                  <span>{tool.type || t.toolTypeLabel}</span>
-                  {tool.method && <span>{tool.method}</span>}
-                  {tool.endpoint && <span>{tool.endpoint}</span>}
-                  {tool.remoteName && <span>{tool.remoteName}</span>}
+                <p className="tool-card-description">
+                  {tool.description || t.noDescription}
+                </p>
+                <div className="tool-card-meta">
+                  <span className="badge tool-card-kind">
+                    {tool.type || t.toolTypeLabel}
+                    {tool.method ? ` · ${tool.method}` : ""}
+                  </span>
                 </div>
                 <div className="agent-actions">
                   <button

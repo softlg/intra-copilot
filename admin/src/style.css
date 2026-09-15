@@ -2349,6 +2349,65 @@ article p {
   white-space: nowrap;
 }
 
+.tool-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.resource-section .tool-card {
+  min-height: 0;
+}
+
+.tool-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tool-card-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-subtle);
+}
+
+.tool-card-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-card-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-height: 0;
+  margin: 10px 0 0;
+  color: var(--muted-subtle);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.tool-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.tool-card-kind {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
 .hook-card {
   min-height: 238px;
 }
