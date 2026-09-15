@@ -2192,11 +2192,13 @@ function App() {
               if (typeof completed.content === "string") {
                 flushTokens();
                 if (completed.content) sawContent = true;
+                // 若用户中途点了停止，保留 stopped 状态，不被完成的权威内容覆盖
+                // （后端正常完成才会下发 message_completed，此处仅兜底极端竞态）。
                 patchAssistantMsg((last) => ({
                   content: completed.content,
                   stage: undefined,
-                  stopped: false,
-                  status: "ok",
+                  stopped: last.stopped,
+                  status: last.stopped ? "stopped" : "ok",
                 }));
               }
             } catch {
