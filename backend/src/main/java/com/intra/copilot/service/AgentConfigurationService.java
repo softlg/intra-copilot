@@ -246,6 +246,16 @@ public class AgentConfigurationService {
         } else {
             definition.setReturnMode(returnMode);
         }
+        String planningMode =
+                definition.getPlanningMode() == null
+                        ? "AUTO"
+                        : definition.getPlanningMode().toUpperCase();
+        if (!List.of("OFF", "AUTO", "ALWAYS").contains(planningMode)) {
+            definition.setPlanningMode("AUTO");
+        } else {
+            definition.setPlanningMode(planningMode);
+        }
+        definition.setMaxPlanSteps(Math.max(1, Math.min(12, definition.getMaxPlanSteps())));
     }
 
     private void synchronizeChildBinding(AgentDefinition definition) {

@@ -3031,6 +3031,162 @@ article p {
   background: var(--brand-surface);
 }
 
+.conversation-timeline-entry.plan .conversation-timeline-marker {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.conversation-plan-card {
+  display: grid;
+  gap: 12px;
+}
+
+.conversation-timeline-entry.plan.selected .conversation-timeline-card {
+  border-color: var(--accent);
+  background: var(--brand-surface);
+}
+
+.conversation-plan-head {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-plan-head:focus-visible,
+.conversation-plan-step:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.conversation-plan-goal {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.conversation-plan-steps {
+  display: grid;
+  gap: 6px;
+}
+
+.conversation-plan-step {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-plan-step:hover,
+.conversation-plan-step.selected {
+  border-color: var(--accent);
+}
+
+.conversation-plan-step.status-failed {
+  border-color: var(--danger-soft);
+}
+
+.conversation-plan-step-index {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.conversation-plan-step.status-completed .conversation-plan-step-index {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.conversation-plan-step.status-running .conversation-plan-step-index {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.conversation-plan-step-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.conversation-plan-step-copy strong,
+.conversation-plan-step-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-plan-step-copy strong {
+  font-size: 13px;
+}
+
+.conversation-plan-step-copy small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.conversation-plan-detail-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.conversation-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.conversation-status.status-completed {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.conversation-status.status-running {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.conversation-status.status-failed {
+  border-color: var(--danger-soft);
+  color: var(--danger-soft);
+}
+
+.conversation-plan-event-list {
+  display: grid;
+  gap: 7px;
+}
+
 .conversation-timeline-meta {
   display: flex;
   min-width: 0;

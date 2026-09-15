@@ -31,6 +31,8 @@ public class AgentDefinition {
     private String knowledgeBaseIds = "[]";
     private String toolIds = "[]";
     private String skillIds = "[]";
+    private String planningMode = "AUTO";
+    private int maxPlanSteps = 6;
     private long version = 1;
     private long publishedVersion = 0;
     private Instant createdAt = Instant.now();
@@ -203,6 +205,22 @@ public class AgentDefinition {
 
     public void setSkillIds(String skillIds) {
         this.skillIds = skillIds;
+    }
+
+    public String getPlanningMode() {
+        return planningMode;
+    }
+
+    public void setPlanningMode(String planningMode) {
+        this.planningMode = planningMode;
+    }
+
+    public int getMaxPlanSteps() {
+        return maxPlanSteps;
+    }
+
+    public void setMaxPlanSteps(int maxPlanSteps) {
+        this.maxPlanSteps = maxPlanSteps;
     }
 
     public long getVersion() {

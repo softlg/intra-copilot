@@ -110,6 +110,8 @@ type AgentConfigSnapshot = {
   parentAgentId: string;
   handlingMode: string;
   returnMode: string;
+  planningMode: string;
+  maxPlanSteps: number;
   model: string;
   temperature: string;
   knowledgeBaseIds: string;
@@ -156,6 +158,8 @@ function agentConfigSnapshot(
     parentAgentId: agent.parentAgentId ?? "",
     handlingMode: agent.handlingMode ?? "AUTO",
     returnMode: agent.returnMode ?? "CHILD_DIRECT",
+    planningMode: agent.planningMode ?? "AUTO",
+    maxPlanSteps: agent.maxPlanSteps ?? 6,
     model: agent.model ?? "",
     temperature:
       agent.temperature === undefined || agent.temperature === null
@@ -391,6 +395,8 @@ function AdminApp({
   const [agentParentId, setAgentParentId] = useState("");
   const [agentHandlingMode, setAgentHandlingMode] = useState("AUTO");
   const [agentReturnMode, setAgentReturnMode] = useState("CHILD_DIRECT");
+  const [agentPlanningMode, setAgentPlanningMode] = useState("AUTO");
+  const [agentMaxPlanSteps, setAgentMaxPlanSteps] = useState(6);
   const [agentChildIds, setAgentChildIds] = useState<string[]>([]);
   const [agentChildRules, setAgentChildRules] = useState<
     Record<string, string>
@@ -1590,6 +1596,8 @@ function AdminApp({
     setAgentParentId("");
     setAgentHandlingMode("AUTO");
     setAgentReturnMode("CHILD_DIRECT");
+    setAgentPlanningMode("AUTO");
+    setAgentMaxPlanSteps(6);
     setAgentChildIds([]);
     setAgentChildRules({});
     setAgentChildSearch("");
@@ -1625,6 +1633,8 @@ function AdminApp({
     setAgentParentId(agent.parentAgentId ?? "");
     setAgentHandlingMode(agent.handlingMode ?? "AUTO");
     setAgentReturnMode(agent.returnMode ?? "CHILD_DIRECT");
+    setAgentPlanningMode(agent.planningMode ?? "AUTO");
+    setAgentMaxPlanSteps(agent.maxPlanSteps ?? 6);
     setAgentChildIds([]);
     setAgentChildRules({});
     setAgentVersions([]);
@@ -1798,6 +1808,8 @@ function AdminApp({
             parentAgentId: agentParentId.trim() || null,
             handlingMode: agentHandlingMode,
             returnMode: agentReturnMode,
+            planningMode: agentPlanningMode,
+            maxPlanSteps: agentMaxPlanSteps,
             enabled: agentEnabled,
             priority: Math.max(0, Math.min(10000, Number(agentPriority) || 0)),
             routingRules: agentRoutingRules.trim() || null,
@@ -2321,6 +2333,8 @@ function AdminApp({
     parentAgentId: agentParentId,
     handlingMode: agentHandlingMode,
     returnMode: agentReturnMode,
+    planningMode: agentPlanningMode,
+    maxPlanSteps: agentMaxPlanSteps,
     model: agentModel,
     temperature: agentTemperature,
     knowledgeBaseIds: agentKnowledgeBaseIds,
@@ -2686,6 +2700,8 @@ function AdminApp({
             agentRoutingRules={agentRoutingRules}
             agentHandlingMode={agentHandlingMode}
             agentReturnMode={agentReturnMode}
+            agentPlanningMode={agentPlanningMode}
+            agentMaxPlanSteps={agentMaxPlanSteps}
             agentChildIds={agentChildIds}
             agentChildSearch={agentChildSearch}
             agentChildRules={agentChildRules}
@@ -2722,6 +2738,8 @@ function AdminApp({
             setAgentRoutingRules={setAgentRoutingRules}
             setAgentHandlingMode={setAgentHandlingMode}
             setAgentReturnMode={setAgentReturnMode}
+            setAgentPlanningMode={setAgentPlanningMode}
+            setAgentMaxPlanSteps={setAgentMaxPlanSteps}
             setAgentChildIds={setAgentChildIds}
             setAgentChildRules={setAgentChildRules}
             setAgentChildSearch={setAgentChildSearch}

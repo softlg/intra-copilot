@@ -91,6 +91,8 @@ export interface AgentSettingsPageProps {
   agentRoutingRules: string;
   agentHandlingMode: string;
   agentReturnMode: string;
+  agentPlanningMode: string;
+  agentMaxPlanSteps: number;
   agentChildIds: string[];
   agentChildSearch: string;
   agentChildRules: Record<string, string>;
@@ -127,6 +129,8 @@ export interface AgentSettingsPageProps {
   setAgentRoutingRules: Dispatch<SetStateAction<string>>;
   setAgentHandlingMode: Dispatch<SetStateAction<string>>;
   setAgentReturnMode: Dispatch<SetStateAction<string>>;
+  setAgentPlanningMode: Dispatch<SetStateAction<string>>;
+  setAgentMaxPlanSteps: Dispatch<SetStateAction<number>>;
   setAgentChildIds: Dispatch<SetStateAction<string[]>>;
   setAgentChildRules: Dispatch<SetStateAction<Record<string, string>>>;
   setAgentChildSearch: Dispatch<SetStateAction<string>>;
@@ -159,6 +163,8 @@ export function AgentSettingsPage({
   agentRoutingRules,
   agentHandlingMode,
   agentReturnMode,
+  agentPlanningMode,
+  agentMaxPlanSteps,
   agentChildIds,
   agentChildSearch,
   agentChildRules,
@@ -195,6 +201,8 @@ export function AgentSettingsPage({
   setAgentRoutingRules,
   setAgentHandlingMode,
   setAgentReturnMode,
+  setAgentPlanningMode,
+  setAgentMaxPlanSteps,
   setAgentChildIds,
   setAgentChildRules,
   setAgentChildSearch,
@@ -467,6 +475,39 @@ export function AgentSettingsPage({
                 placeholder={t.modelPlaceholder}
               />
             </label>
+            <div className="field-grid">
+              <label className="field">
+                <span>{t.agentPlanningMode}</span>
+                <select
+                  value={agentPlanningMode}
+                  onChange={(event) => setAgentPlanningMode(event.target.value)}
+                >
+                  <option value="OFF">{t.planningModeOff}</option>
+                  <option value="AUTO">{t.planningModeAuto}</option>
+                  <option value="ALWAYS">{t.planningModeAlways}</option>
+                </select>
+                <small className="field-hint">{t.agentPlanningModeHint}</small>
+              </label>
+              <label className="field">
+                <span>{t.agentMaxPlanSteps}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={agentMaxPlanSteps}
+                  disabled={agentPlanningMode === "OFF"}
+                  onChange={(event) =>
+                    setAgentMaxPlanSteps(
+                      Math.max(
+                        1,
+                        Math.min(12, Number(event.target.value) || 6),
+                      ),
+                    )
+                  }
+                />
+                <small className="field-hint">{t.agentMaxPlanStepsHint}</small>
+              </label>
+            </div>
           </div>
         )}
         {agentConfigSection === "routing" && agentRole === "MAIN" && (
@@ -1159,6 +1200,14 @@ function VersionDetailsDialog({
           <div>
             <span className="detail-label">{t.returnMode}</span>
             <span>{snapshot.returnMode || "-"}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.agentPlanningMode}</span>
+            <span>{snapshot.planningMode || "AUTO"}</span>
+          </div>
+          <div>
+            <span className="detail-label">{t.agentMaxPlanSteps}</span>
+            <span>{snapshot.maxPlanSteps ?? 6}</span>
           </div>
           <div>
             <span className="detail-label">{t.enabled}</span>

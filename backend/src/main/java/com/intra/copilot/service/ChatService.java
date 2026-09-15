@@ -43,6 +43,9 @@ public class ChatService {
         private final TraceRecorder trace;
         private final ToolExecutor toolExecutor;
         private final SkillPromptAssembler skillAssembler;
+        private final PlanningService planningService;
+        private final AgentPlanRepository agentPlans;
+        private final AgentPlanStepRepository planStepsRepository;
         private final int ragTopK;
         private final int maxToolIterations;
         private final int maxHistoryTokens;
@@ -64,6 +67,9 @@ public class ChatService {
                         TraceRecorder trace,
                         ToolExecutor toolExecutor,
                         SkillPromptAssembler skillAssembler,
+                        PlanningService planningService,
+                        AgentPlanRepository agentPlans,
+                        AgentPlanStepRepository planStepsRepository,
                         @Value("${rag.top-k:5}") int ragTopK,
                         @Value("${agent.max-tool-iterations:5}") int maxToolIterations,
                         @Value("${agent.max-history-tokens:6000}") int maxHistoryTokens,
@@ -82,6 +88,9 @@ public class ChatService {
                 this.trace = trace;
                 this.toolExecutor = toolExecutor;
                 this.skillAssembler = skillAssembler;
+                this.planningService = planningService;
+                this.agentPlans = agentPlans;
+                this.planStepsRepository = planStepsRepository;
                 this.ragTopK = Math.max(1, Math.min(20, ragTopK));
                 this.maxToolIterations = Math.max(1, Math.min(10, maxToolIterations));
                 this.maxHistoryTokens = Math.max(1000, maxHistoryTokens);
@@ -138,6 +147,10 @@ public class ChatService {
 
         /** 一轮带原生 function calling 的模型回复：聚合文本 + 模型下发的 tool_calls（若有）。 */
         record ToolAwareReply(String content, List<AssistantMessage.ToolCall> toolCalls, boolean streamed) {}
+
+        record ReActResult(String content, String lastReply, boolean streamed) {}
+
+        record PlanRunResult(String content, String lastReply, boolean streamed) {}
 
         /** Classify model failures for both persistence and the user-facing SSE event. */
         static LoopError classifyLoopError(Throwable error) {
@@ -775,7 +788,7 @@ public class ChatService {
 
         runReActLoop(out, finished, c, invocation, childInvocation,
                         correlationId, invocationId, agent, routeAgent,
-                        delegation, baseHistory, enriched, images,
+                        delegation, baseHistory, text, enriched, images,
                         targetInvocationId, retryContext.replacedAssistantId(), routeStarted);
         }
 
@@ -1168,6 +1181,7 @@ public class ChatService {
                         Agent routeAgent,
                         AgentOrchestrator.DelegationResult delegation,
                         List<Map<String, String>> baseHistory,
+                        String planningUserInput,
                         String userInput,
                         List<String> images,
                         String targetInvocationId,
@@ -1248,108 +1262,101 @@ public class ChatService {
                         }
                         final String systemEffective = systemBuilder.toString();
 
-                        // 2) ReAct 工具循环
-                        List<Map<String, String>> turns = new ArrayList<>(baseHistory);
-                        // 把用户原始消息固化进上下文：第一轮通过 complete 的 user 参数携带（含图片），
-                        // 后续轮次直接作为 turns 的一部分参与，避免工具循环丢失原始诉求。
-                        turns.add(Map.of("role", "user", "content", userInput));
-                        String currentAnswer = null;
-                        String lastReply = null;
-                        boolean endedWithToolCall = false;
-                        boolean answerStreamed = false;
                         boolean delegatedSummary = delegation.delegated()
                                         && routeAgent instanceof ConfigurableAgent parent
                                         && "DOMAIN_SUMMARY".equals(parent.definition().getReturnMode());
-                        iteration:
-                        for (int iter = 0; iter < maxToolIterations; iter++) {
-                                if (finished.get()) return;
-                                emitStage(
-                                                out,
-                                                finished,
-                                                iter == 0 ? "generating" : "processing",
-                                                iter == 0 ? "正在生成回答…" : "正在整理处理结果…");
-                                // 有工具时走原生 function calling 通道；无工具时复用旧的纯文本流式通道。
-                                ToolAwareReply modelReply;
-                                if (hasTools) {
-                                        modelReply = streamModelReplyWithTools(
+                        // 2) 对复杂任务先制定并持久化计划；简单任务继续走原有 ReAct。
+                        AgentDefinition planningDefinition =
+                                        agent instanceof ConfigurableAgent configurable
+                                                        ? configurable.definition()
+                                                        : null;
+                        List<ToolDefinition> availableTools =
+                                        agentToolIds.stream()
+                                                        .map(toolExecutor::resolveById)
+                                                        .filter(Objects::nonNull)
+                                                        .toList();
+                        PlanningService.PlanExecution planExecution = null;
+                        boolean planningRequested =
+                                        planningDefinition != null
+                                                        && planningService.shouldPlan(
+                                                                        planningDefinition,
+                                                                        planningUserInput,
+                                                                        availableTools);
+                        if (planningRequested && !finished.get()) {
+                                emitStage(out, finished, "planning", "正在制定执行计划…");
+                                long planningStarted = System.nanoTime();
+                                planExecution =
+                                                planningService
+                                                        .createPlan(
+                                                                planningDefinition,
+                                                                conversation.getId(),
+                                                                targetInvocationId,
+                                                                correlationId,
+                                                                routeAgent.id(),
+                                                                planningUserInput,
+                                                                userInput,
+                                                                baseHistory,
+                                                                availableTools)
+                                                        .orElse(null);
+                                if (planExecution == null) {
+                                        long planningDurationMs =
+                                                        (System.nanoTime() - planningStarted) / 1_000_000L;
+                                        trace.event(
+                                                                        targetInvocationId,
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.PLAN_FAILED)
+                                                .name("执行计划生成失败，已降级为 ReAct")
+                                                .status("DEGRADED")
+                                                .duration(planningDurationMs)
+                                                .put("stage", "PLANNING")
+                                                .put("fallback", "REACT")
+                                                .put(
+                                                        "message",
+                                                        "规划模型未返回符合约束的计划，系统已继续执行普通推理")
+                                                .save();
+                                }
+                        }
+                        PlanRunResult planRun;
+                        if (planExecution != null) {
+                                planRun =
+                                                executePlan(
                                                         out,
                                                         finished,
-                                                        !delegatedSummary,
+                                                        conversation,
+                                                        agent,
                                                         systemEffective,
-                                                        turns,
-                                                        iter == 0 ? userInput : "",
-                                                        iter == 0 ? images : List.of(),
-                                                        toolCallbacks.toArray(new ToolCallback[0]));
-                                } else {
-                                        ModelReply plain = streamModelReply(
+                                                        baseHistory,
+                                                        planningUserInput,
+                                                        userInput,
+                                                        images,
+                                                        agentToolIds,
+                                                        availableTools,
+                                                        targetInvocationId,
+                                                        correlationId,
+                                                        planExecution);
+                        } else {
+                                List<Map<String, String>> turns = new ArrayList<>(baseHistory);
+                                ReActResult direct =
+                                                executeReAct(
                                                         out,
                                                         finished,
-                                                        !delegatedSummary,
+                                                        conversation,
                                                         systemEffective,
                                                         turns,
-                                                        iter == 0 ? userInput : "",
-                                                        iter == 0 ? images : List.of());
-                                        modelReply = new ToolAwareReply(plain.content(), List.of(), plain.streamed());
-                                }
-                                if (finished.get()) return;
-                                String reply = modelReply.content();
-                                lastReply = reply;
-                                // 原生 function calling：模型通过 tool_calls 下发结构化调用（可靠，无 Markdown 包裹）。
-                                // 无工具或模型未触发调用则为最终答复。
-                                List<AssistantMessage.ToolCall> calls = hasTools ? modelReply.toolCalls() : List.of();
-                                if (calls.isEmpty()) {
-                                        currentAnswer = reply;
-                                        answerStreamed = modelReply.streamed();
-                                        break;
-                                }
-                                endedWithToolCall = true;
-                                // 单次回复可能包含多个 tool_call，逐个执行。
-                                for (AssistantMessage.ToolCall call : calls) {
-                                        // 只在当前 Agent 绑定的工具集合内解析，避免越权调用其他已启用工具。
-                                        ToolDefinition toolDef = toolExecutor.resolveWithin(agentToolIds, call.name());
-                                        if (toolDef == null) {
-                                                // 工具未配置：把错误作为观察值喂回，避免无限循环。
-                                                emitToolResult(out, finished, call.name(), "未找到已启用的工具：" + call.name());
-                                                turns.add(Map.of("role", "user", "content",
-                                                                "工具调用失败：未找到已启用的工具 \"" + call.name() + "\"。请直接给出最终答复，不要继续调用该工具。"));
-                                                continue;
-                                        }
-                                        emitStage(out, finished, "tool", "正在调用工具：" + toolDef.getName());
-                                        emitToolInvoked(out, finished, toolDef.getName(), call.arguments());
-                                        String result = toolExecutor.execute(toolDef, call.arguments());
-                                        trace.event(targetInvocationId, correlationId, TraceRecorder.Type.TOOL_CALL)
-                                                        .name("工具调用：" + toolDef.getName())
-                                                        .status("OK")
-                                                        .put("toolName", toolDef.getName())
-                                                        .put("arguments", call.arguments())
-                                                        .put("resultPreview", result.length() > 500 ? result.substring(0, 500) : result)
-                                                        .put("iteration", iter)
-                                                        .save();
-                                        if (result.startsWith("BROWSER_PROPOSAL:")) {
-                                                // 浏览器动作提案：转成 action_proposed 事件，并终止整个循环。
-                                                String proposalJson = result.substring("BROWSER_PROPOSAL:".length());
-                                                ActionProposal proposal = buildProposal(conversation.getId(), proposalJson);
-                                                if (proposal != null) {
-                                                        emitActionProposed(out, finished, proposal);
-                                                }
-                                                currentAnswer = proposal != null
-                                                                ? "已在浏览器中为你准备好操作，请在插件侧确认执行。"
-                                                                : reply;
-                                                break iteration;
-                                        }
-                                        emitToolResult(out, finished, toolDef.getName(), result);
-                                        turns.add(Map.of("role", "user", "content",
-                                                        "工具「" + toolDef.getName() + "」执行结果：\n" + result));
-                                }
+                                                        userInput,
+                                                        images,
+                                                        agentToolIds,
+                                                        toolCallbacks,
+                                                        targetInvocationId,
+                                                        correlationId,
+                                                        null,
+                                                        null,
+                                                        !delegatedSummary);
+                                planRun = new PlanRunResult(direct.content(), direct.lastReply(), direct.streamed());
                         }
-                        if (currentAnswer == null) {
-                                currentAnswer = lastReply == null ? "" : lastReply;
-                        }
-                        if (currentAnswer.isBlank()) {
-                                // 达到最大轮次仍只在调用工具、未给出最终文本答复（或模型最终输出为空）：
-                                // 避免把空内容或原始调用透传给用户。
-                                currentAnswer = "（已达到最大工具调用次数，未能生成最终答复。请调整问题或工具配置后重试。）";
-                        }
+                        String currentAnswer = planRun.content();
+                        String lastReply = planRun.lastReply();
+                        boolean answerStreamed = planRun.streamed();
 
                         // 3) DOMAIN_SUMMARY：领域 Agent 对子 Agent 结果做二次总结（原本被吞掉，这里补上追踪与流式）。
                         if (delegatedSummary) {
@@ -1462,6 +1469,606 @@ public class ChatService {
                 } catch (Throwable t) {
                         handleLoopError(out, finished, invocation, childInvocation, correlationId, invocationId, t, routeStarted);
                 }
+        }
+
+        /**
+         * Executes one bounded ReAct segment. A plan step uses its own tool subset, while direct
+         * chat passes the Agent's full allowlist.
+         */
+        private ReActResult executeReAct(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        Conversation conversation,
+                        String system,
+                        List<Map<String, String>> turns,
+                        String initialUser,
+                        List<String> images,
+                        List<String> agentToolIds,
+                        List<ToolCallback> callbacks,
+                        String targetInvocationId,
+                        String correlationId,
+                        String planId,
+                        String planStepId,
+                        boolean streamToUser) {
+                boolean hasTools = callbacks != null && !callbacks.isEmpty();
+                String currentAnswer = null;
+                String lastReply = null;
+                boolean answerStreamed = false;
+                iteration:
+                for (int iter = 0; iter < maxToolIterations; iter++) {
+                        if (finished.get()) {
+                                return new ReActResult(
+                                                currentAnswer == null ? "" : currentAnswer,
+                                                lastReply == null ? "" : lastReply,
+                                                answerStreamed);
+                        }
+                        emitStage(
+                                        out,
+                                        finished,
+                                        iter == 0 ? "generating" : "processing",
+                                        iter == 0 ? "正在生成回答…" : "正在整理处理结果…");
+                        ToolAwareReply modelReply;
+                        if (hasTools) {
+                                modelReply =
+                                                streamModelReplyWithTools(
+                                                                out,
+                                                                finished,
+                                                                streamToUser,
+                                                                system,
+                                                                turns,
+                                                                iter == 0 ? initialUser : "",
+                                                                iter == 0 ? images : List.of(),
+                                                                callbacks.toArray(new ToolCallback[0]));
+                        } else {
+                                ModelReply plain =
+                                                streamModelReply(
+                                                                out,
+                                                                finished,
+                                                                streamToUser,
+                                                                system,
+                                                                turns,
+                                                                iter == 0 ? initialUser : "",
+                                                                iter == 0 ? images : List.of());
+                                modelReply =
+                                                new ToolAwareReply(plain.content(), List.of(), plain.streamed());
+                        }
+                        if (finished.get()) {
+                                return new ReActResult(
+                                                currentAnswer == null ? "" : currentAnswer,
+                                                lastReply == null ? "" : lastReply,
+                                                answerStreamed);
+                        }
+                        String reply = modelReply.content();
+                        lastReply = reply;
+                        List<AssistantMessage.ToolCall> calls =
+                                        hasTools ? modelReply.toolCalls() : List.of();
+                        if (calls.isEmpty()) {
+                                currentAnswer = reply;
+                                answerStreamed = modelReply.streamed();
+                                break;
+                        }
+                        for (AssistantMessage.ToolCall call : calls) {
+                                ToolDefinition toolDef =
+                                                toolExecutor.resolveWithin(agentToolIds, call.name());
+                                if (toolDef == null) {
+                                        emitToolResult(
+                                                        out,
+                                                        finished,
+                                                        call.name(),
+                                                        "未找到已启用的工具：" + call.name());
+                                        turns.add(
+                                                Map.of(
+                                                        "role",
+                                                        "user",
+                                                        "content",
+                                                        "工具调用失败：未找到已启用的工具 \""
+                                                                + call.name()
+                                                                + "\"。请直接给出最终答复，不要继续调用该工具。"));
+                                        continue;
+                                }
+                                emitStage(out, finished, "tool", "正在调用工具：" + toolDef.getName());
+                                emitToolInvoked(out, finished, toolDef.getName(), call.arguments());
+                                String result = toolExecutor.execute(toolDef, call.arguments());
+                                trace.event(
+                                                targetInvocationId,
+                                                correlationId,
+                                                TraceRecorder.Type.TOOL_CALL)
+                                        .name("工具调用：" + toolDef.getName())
+                                        .status("OK")
+                                        .plan(planId, planStepId)
+                                        .put("toolName", toolDef.getName())
+                                        .put("arguments", call.arguments())
+                                        .put(
+                                                "resultPreview",
+                                                result.length() > 500
+                                                        ? result.substring(0, 500)
+                                                        : result)
+                                        .put("iteration", iter)
+                                        .save();
+                                if (result.startsWith("BROWSER_PROPOSAL:")) {
+                                        String proposalJson =
+                                                result.substring("BROWSER_PROPOSAL:".length());
+                                        ActionProposal proposal =
+                                                buildProposal(conversation.getId(), proposalJson);
+                                        if (proposal != null) {
+                                                emitActionProposed(out, finished, proposal);
+                                        }
+                                        currentAnswer =
+                                                proposal != null
+                                                        ? "已在浏览器中为你准备好操作，请在插件侧确认执行。"
+                                                        : reply;
+                                        break iteration;
+                                }
+                                trace.event(
+                                                targetInvocationId,
+                                                correlationId,
+                                                TraceRecorder.Type.TOOL_RESULT)
+                                        .name("工具返回：" + toolDef.getName())
+                                        .status("OK")
+                                        .plan(planId, planStepId)
+                                        .put("toolName", toolDef.getName())
+                                        .put(
+                                                "result",
+                                                result.length() > 4000
+                                                        ? result.substring(0, 4000)
+                                                        : result)
+                                        .put("iteration", iter)
+                                        .save();
+                                emitToolResult(out, finished, toolDef.getName(), result);
+                                turns.add(
+                                                Map.of(
+                                                        "role",
+                                                        "user",
+                                                        "content",
+                                                        "工具「"
+                                                                + toolDef.getName()
+                                                                + "」执行结果：\n"
+                                                                + result));
+                        }
+                }
+                if (currentAnswer == null) currentAnswer = lastReply == null ? "" : lastReply;
+                if (currentAnswer.isBlank()) {
+                        currentAnswer = "（已达到最大工具调用次数，未能生成最终答复。请调整问题或工具配置后重试。）";
+                }
+                return new ReActResult(
+                                currentAnswer,
+                                lastReply == null ? currentAnswer : lastReply,
+                                answerStreamed);
+        }
+
+        /** Runs a persisted plan, updating every step and recording the complete execution trail. */
+        private PlanRunResult executePlan(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        Conversation conversation,
+                        Agent agent,
+                        String baseSystemPrompt,
+                        List<Map<String, String>> baseHistory,
+                        String planningUserInput,
+                        String userInput,
+                        List<String> images,
+                        List<String> agentToolIds,
+                        List<ToolDefinition> availableTools,
+                        String targetInvocationId,
+                        String correlationId,
+                        PlanningService.PlanExecution initialExecution) {
+                PlanningService.PlanExecution execution = initialExecution;
+                List<Map<String, String>> turns = new ArrayList<>(baseHistory);
+                List<String> completedResults = new ArrayList<>();
+                String lastReply = "";
+                AgentPlanStep failedStep = null;
+                String failure = "";
+                boolean userInTurns = false;
+
+                for (int revisionAttempt = 0; revisionAttempt < 2; revisionAttempt++) {
+                        AgentPlan plan = execution.plan();
+                        List<AgentPlanStep> planSteps = new ArrayList<>(execution.steps());
+                        plan.setStatus("RUNNING");
+                        plan.setStartedAt(plan.getStartedAt() == null ? Instant.now() : plan.getStartedAt());
+                        plan.touch();
+                        agentPlans.save(plan);
+                        emitPlanEvent(
+                                out,
+                                finished,
+                                plan.getRevision() > 1 ? "plan_updated" : "plan_created",
+                                plan,
+                                null);
+                        trace.event(
+                                        targetInvocationId,
+                                        correlationId,
+                                        plan.getRevision() > 1
+                                                ? TraceRecorder.Type.PLAN_REVISED
+                                                : TraceRecorder.Type.PLAN_CREATED)
+                                .name(plan.getRevision() > 1 ? "执行计划已修订" : "执行计划已创建")
+                                .status("RUNNING")
+                                .plan(plan.getId(), null)
+                                .put("goal", plan.getGoal())
+                                .put("summary", plan.getSummary())
+                                .put("revision", plan.getRevision())
+                                .put("steps", planSteps.stream().map(this::planStepTraceMap).toList())
+                                .put("plannerRequest", execution.plannerRequest())
+                                .put("plannerRawOutput", execution.plannerRawOutput())
+                                .put("plannerDurationMs", execution.plannerDurationMs())
+                                .put("plannerRepaired", execution.repaired())
+                                .save();
+
+                        boolean revisionFailed = false;
+                        for (AgentPlanStep step : planSteps) {
+                                if (finished.get()) {
+                                        cancelPlan(plan, targetInvocationId, correlationId);
+                                        return new PlanRunResult("", lastReply, false);
+                                }
+                                step.setStatus("RUNNING");
+                                step.setStartedAt(Instant.now());
+                                step.setError(null);
+                                step.touch();
+                                planStepsRepository.save(step);
+                                emitPlanEvent(out, finished, "plan_updated", plan, step);
+                                trace.event(
+                                                targetInvocationId,
+                                                correlationId,
+                                                TraceRecorder.Type.PLAN_STEP_STARTED)
+                                        .name("计划步骤开始：" + step.getTitle())
+                                        .status("RUNNING")
+                                        .plan(plan.getId(), step.getId())
+                                        .put("stepIndex", step.getStepIndex())
+                                        .put("title", step.getTitle())
+                                        .put("agentId", step.getAgentId())
+                                        .put("toolNames", parseIdList(step.getToolNames()))
+                                        .save();
+
+                                long stepStarted = System.nanoTime();
+                                try {
+                                        String stepSystem =
+                                                planStepSystemPrompt(baseSystemPrompt, plan, step, planSteps.size());
+                                        List<ToolDefinition> stepTools =
+                                                planStepTools(step, availableTools);
+                                        List<ToolCallback> callbacks =
+                                                stepTools.stream()
+                                                        .map(
+                                                                tool ->
+                                                                        (ToolCallback)
+                                                                                new ToolDefinitionToolCallback(
+                                                                                        tool, toolExecutor))
+                                                        .toList();
+                                        List<String> stepToolIds =
+                                                stepTools.stream().map(ToolDefinition::getId).toList();
+                                        boolean includeUserInput =
+                                                step.getStepIndex() == 1 && !userInTurns;
+                                        trace.event(
+                                                        targetInvocationId,
+                                                        correlationId,
+                                                        TraceRecorder.Type.LLM_REQUEST)
+                                                .name("计划步骤模型请求")
+                                                .status("OK")
+                                                .plan(plan.getId(), step.getId())
+                                                .put("stepIndex", step.getStepIndex())
+                                                .put("prompt", stepSystem)
+                                                .put("userInput", userInput)
+                                                .save();
+                                        ReActResult stepResult =
+                                                executeReAct(
+                                                        out,
+                                                        finished,
+                                                        conversation,
+                                                        stepSystem,
+                                                        turns,
+                                                        includeUserInput ? userInput : "",
+                                                        includeUserInput ? images : List.of(),
+                                                        stepToolIds,
+                                                        callbacks,
+                                                        targetInvocationId,
+                                                        correlationId,
+                                                        plan.getId(),
+                                                        step.getId(),
+                                                        false);
+                                        if (finished.get()) {
+                                                cancelPlan(plan, targetInvocationId, correlationId);
+                                                return new PlanRunResult("", lastReply, false);
+                                        }
+                                        if (stepResult.content() == null
+                                                || stepResult.content().isBlank()) {
+                                                throw new IllegalStateException("步骤未返回有效结果");
+                                        }
+                                        long stepDuration =
+                                                (System.nanoTime() - stepStarted) / 1_000_000L;
+                                        String summary = summarizeStepResult(stepResult.content());
+                                        step.setStatus("COMPLETED");
+                                        step.setResultSummary(summary);
+                                        step.setCompletedAt(Instant.now());
+                                        step.setDurationMs(stepDuration);
+                                        step.touch();
+                                        planStepsRepository.save(step);
+                                        completedResults.add(
+                                                step.getStepIndex() + ". " + step.getTitle() + "\n" + summary);
+                                        lastReply = stepResult.lastReply();
+                                        trace.event(
+                                                        targetInvocationId,
+                                                        correlationId,
+                                                        TraceRecorder.Type.PLAN_STEP_COMPLETED)
+                                                .name("计划步骤完成：" + step.getTitle())
+                                                .status("COMPLETED")
+                                                .duration(stepDuration)
+                                                .plan(plan.getId(), step.getId())
+                                                .put("stepIndex", step.getStepIndex())
+                                                .put("title", step.getTitle())
+                                                .put("resultSummary", summary)
+                                                .save();
+                                        emitPlanEvent(out, finished, "plan_updated", plan, step);
+                                        if (includeUserInput) {
+                                                turns.add(Map.of("role", "user", "content", userInput));
+                                                userInTurns = true;
+                                        }
+                                        turns.add(
+                                                Map.of(
+                                                        "role",
+                                                        "user",
+                                                        "content",
+                                                        "已完成步骤 "
+                                                                + step.getStepIndex()
+                                                                + "「"
+                                                                + step.getTitle()
+                                                                + "」：\n"
+                                                                + summary));
+                                } catch (Throwable error) {
+                                        long stepDuration =
+                                                (System.nanoTime() - stepStarted) / 1_000_000L;
+                                        failure = safeErrorMessage(error);
+                                        failedStep = step;
+                                        step.setStatus("FAILED");
+                                        step.setError(failure);
+                                        step.setCompletedAt(Instant.now());
+                                        step.setDurationMs(stepDuration);
+                                        step.touch();
+                                        planStepsRepository.save(step);
+                                        trace.event(
+                                                        targetInvocationId,
+                                                        correlationId,
+                                                        TraceRecorder.Type.PLAN_STEP_FAILED)
+                                                .name("计划步骤失败：" + step.getTitle())
+                                                .status("FAILED")
+                                                .duration(stepDuration)
+                                                .plan(plan.getId(), step.getId())
+                                                .put("stepIndex", step.getStepIndex())
+                                                .put("title", step.getTitle())
+                                                .put("message", failure)
+                                                .save();
+                                        emitPlanEvent(out, finished, "plan_updated", plan, step);
+                                        revisionFailed = true;
+                                        break;
+                                }
+                        }
+
+                        if (!revisionFailed) {
+                                String finalAnswer =
+                                                completedResults.size() <= 1
+                                                        ? completedResults.stream()
+                                                                .findFirst()
+                                                                .map(value -> value.substring(value.indexOf('\n') + 1))
+                                                                .orElse(lastReply)
+                                                        : summarizePlan(
+                                                                baseSystemPrompt,
+                                                                plan,
+                                                                completedResults,
+                                                                correlationId,
+                                                                targetInvocationId);
+                                plan.setStatus("COMPLETED");
+                                plan.setCompletedAt(Instant.now());
+                                plan.touch();
+                                agentPlans.save(plan);
+                                trace.event(
+                                                targetInvocationId,
+                                                correlationId,
+                                                TraceRecorder.Type.PLAN_COMPLETED)
+                                        .name("执行计划完成")
+                                        .status("COMPLETED")
+                                        .plan(plan.getId(), null)
+                                        .put("revision", plan.getRevision())
+                                        .put("completedSteps", completedResults.size())
+                                        .put("finalAnswer", finalAnswer)
+                                        .save();
+                                emitPlanEvent(out, finished, "plan_updated", plan, null);
+                                return new PlanRunResult(finalAnswer, finalAnswer, false);
+                        }
+
+                        AgentDefinition definition =
+                                agent instanceof ConfigurableAgent configurable
+                                        ? configurable.definition()
+                                        : null;
+                        Optional<PlanningService.PlanExecution> revised =
+                                definition == null
+                                        ? Optional.empty()
+                                        : planningService.revisePlan(
+                                                plan,
+                                                planSteps,
+                                                failedStep,
+                                                failure,
+                                                definition,
+                                                planningUserInput,
+                                                userInput,
+                                                turns,
+                                                availableTools);
+                        if (revised.isEmpty()) {
+                                plan.setStatus("FAILED");
+                                plan.setError(failure);
+                                plan.setCompletedAt(Instant.now());
+                                plan.touch();
+                                agentPlans.save(plan);
+                                trace.event(
+                                                targetInvocationId,
+                                                correlationId,
+                                                TraceRecorder.Type.PLAN_FAILED)
+                                        .name("执行计划失败")
+                                        .status("FAILED")
+                                        .plan(plan.getId(), failedStep == null ? null : failedStep.getId())
+                                        .put("revision", plan.getRevision())
+                                        .put("message", failure)
+                                        .save();
+                                emitPlanEvent(out, finished, "plan_updated", plan, failedStep);
+                                String fallback =
+                                                completedResults.isEmpty()
+                                                        ? "任务执行未完成，请稍后重试。"
+                                                        : visibleStepResult(
+                                                                completedResults.get(
+                                                                        completedResults.size() - 1));
+                                return new PlanRunResult(fallback, fallback, false);
+                        }
+                        execution = revised.get();
+                        emitPlanEvent(out, finished, "plan_updated", execution.plan(), null);
+                }
+                return new PlanRunResult(lastReply, lastReply, false);
+        }
+
+        private List<ToolDefinition> planStepTools(
+                        AgentPlanStep step, List<ToolDefinition> availableTools) {
+                Set<String> requested = new LinkedHashSet<>(parseIdList(step.getToolNames()));
+                if (requested.isEmpty()) {
+                        return List.of();
+                }
+                return availableTools.stream()
+                        .filter(tool -> requested.contains(tool.getName()))
+                        .toList();
+        }
+
+        private String planStepSystemPrompt(
+                        String baseSystemPrompt, AgentPlan plan, AgentPlanStep step, int totalSteps) {
+                return baseSystemPrompt
+                        + "\n\n[执行计划]\n目标："
+                        + plan.getGoal()
+                        + "\n当前步骤："
+                        + step.getStepIndex()
+                        + "/"
+                        + totalSteps
+                        + "\n步骤标题："
+                        + step.getTitle()
+                        + "\n步骤说明："
+                        + textOrNone(step.getDescription())
+                        + "\n成功标准："
+                        + textOrNone(step.getSuccessCriteria())
+                        + "\n请只完成当前步骤，返回清晰的执行结果；不要声称完成后续步骤。";
+        }
+
+        private String summarizePlan(
+                        String baseSystemPrompt,
+                        AgentPlan plan,
+                        List<String> completedResults,
+                        String correlationId,
+                        String targetInvocationId) {
+                long started = System.nanoTime();
+                String result = null;
+                try {
+                        result =
+                                llm.complete(
+                                                baseSystemPrompt
+                                                        + "\n\n[最终汇总] 根据已执行步骤给出面向用户的最终答复，不要透露内部调用链。",
+                                                List.of(),
+                                                "计划目标："
+                                                        + plan.getGoal()
+                                                        + "\n\n步骤结果：\n"
+                                                        + String.join("\n\n", completedResults))
+                                        .blockOptional(llmTimeout)
+                                        .orElse(null);
+                } catch (Exception error) {
+                        trace.event(
+                                        targetInvocationId,
+                                        correlationId,
+                                        TraceRecorder.Type.ERROR)
+                                .name("计划结果汇总失败")
+                                .status("DEGRADED")
+                                .plan(plan.getId(), null)
+                                .put("message", safeErrorMessage(error))
+                                .save();
+                }
+                long duration = (System.nanoTime() - started) / 1_000_000L;
+                trace.event(
+                                targetInvocationId,
+                                correlationId,
+                                TraceRecorder.Type.LLM_RESPONSE)
+                        .name("计划结果汇总")
+                        .status(result == null || result.isBlank() ? "DEGRADED" : "OK")
+                        .duration(duration)
+                        .plan(plan.getId(), null)
+                        .put("summary", result == null ? "" : result)
+                        .save();
+                return result == null || result.isBlank()
+                        ? visibleStepResult(completedResults.get(completedResults.size() - 1))
+                        : result;
+        }
+
+        private void cancelPlan(AgentPlan plan, String invocationId, String correlationId) {
+                plan.setStatus("CANCELLED");
+                plan.setCompletedAt(Instant.now());
+                plan.touch();
+                agentPlans.save(plan);
+                trace.event(invocationId, correlationId, TraceRecorder.Type.PLAN_CANCELLED)
+                        .name("执行计划已取消")
+                        .status("CANCELLED")
+                        .plan(plan.getId(), null)
+                        .save();
+        }
+
+        private Map<String, Object> planStepTraceMap(AgentPlanStep step) {
+                Map<String, Object> value = new LinkedHashMap<>();
+                value.put("id", step.getId());
+                value.put("stepIndex", step.getStepIndex());
+                value.put("title", step.getTitle());
+                value.put("description", step.getDescription());
+                value.put("agentId", step.getAgentId());
+                value.put("toolNames", parseIdList(step.getToolNames()));
+                value.put("successCriteria", step.getSuccessCriteria());
+                value.put("status", step.getStatus());
+                return value;
+        }
+
+        private void emitPlanEvent(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        String eventName,
+                        AgentPlan plan,
+                        AgentPlanStep step) {
+                if (finished.get()) return;
+                Map<String, Object> data = new LinkedHashMap<>();
+                data.put("planId", plan.getId());
+                data.put("goal", plan.getGoal());
+                data.put("status", plan.getStatus());
+                data.put("revision", plan.getRevision());
+                if (step != null) {
+                        data.put("stepId", step.getId());
+                        data.put("stepIndex", step.getStepIndex());
+                        data.put("stepTitle", step.getTitle());
+                        data.put("stepStatus", step.getStatus());
+                }
+                try {
+                        out.send(SseEmitter.event().name(eventName).data(data));
+                } catch (IOException ignored) {
+                        finished.set(true);
+                }
+        }
+
+        private String summarizeStepResult(String value) {
+                if (value == null) return "";
+                String normalized = value.strip();
+                return normalized.length() <= 1200
+                        ? normalized
+                        : normalized.substring(0, 1200) + "\n...[truncated]";
+        }
+
+        private String visibleStepResult(String value) {
+                if (value == null || value.isBlank()) return "";
+                int separator = value.indexOf('\n');
+                return separator < 0 ? value : value.substring(separator + 1);
+        }
+
+        private String safeErrorMessage(Throwable error) {
+                if (error == null) return "未知错误";
+                String message = error.getMessage();
+                return message == null || message.isBlank()
+                        ? error.getClass().getSimpleName()
+                        : message;
+        }
+
+        private String textOrNone(String value) {
+                return value == null || value.isBlank() ? "无" : value.strip();
         }
 
         /** 任何未捕获异常都转成 SSE error 事件，并标记 invocation FAILED（P0-3）。 */

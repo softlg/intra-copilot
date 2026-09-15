@@ -27,6 +27,8 @@ export type Agent = {
   knowledgeBaseIds?: string;
   toolIds?: string;
   skillIds?: string;
+  planningMode?: "OFF" | "AUTO" | "ALWAYS" | string;
+  maxPlanSteps?: number;
 };
 
 export type AgentConfigVersion = {
@@ -375,6 +377,9 @@ export type ConversationInvocation = {
 
 export type ConversationInvocationEvent = {
   id: string;
+  invocationId?: string;
+  planId?: string;
+  planStepId?: string;
   eventType: string;
   eventName?: string;
   status?: string;
@@ -387,6 +392,46 @@ export type ConversationInvocationEvent = {
 export type ConversationInvocationTrace = {
   invocation: ConversationInvocation;
   events: ConversationInvocationEvent[];
+};
+
+export type ConversationPlanStep = {
+  id: string;
+  stepIndex: number;
+  title: string;
+  description?: string;
+  agentId?: string;
+  toolNames: string[];
+  dependsOn: string[];
+  successCriteria?: string;
+  status: string;
+  resultSummary?: string;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+};
+
+export type ConversationPlan = {
+  plan: {
+    id: string;
+    conversationId: string;
+    invocationId: string;
+    correlationId?: string;
+    parentPlanId?: string;
+    routeAgentId?: string;
+    executorAgentId?: string;
+    revision: number;
+    goal: string;
+    summary?: string;
+    status: string;
+    planningMode?: string;
+    startedAt?: string;
+    completedAt?: string;
+    error?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  };
+  steps: ConversationPlanStep[];
 };
 
 export type ConversationLog = {
@@ -405,6 +450,7 @@ export type ConversationLog = {
   }[];
   invocations: ConversationInvocation[];
   invocationTraces?: ConversationInvocationTrace[];
+  plans?: ConversationPlan[];
   actions: {
     actionId: string;
     type?: string;

@@ -2,14 +2,20 @@ package com.intra.copilot.web;
 
 import com.intra.copilot.model.ActionProposal;
 import com.intra.copilot.model.AgentInvocation;
+import com.intra.copilot.model.AgentPlan;
+import com.intra.copilot.model.AgentPlanStep;
 import com.intra.copilot.model.AttachmentView;
 import com.intra.copilot.model.Conversation;
 import com.intra.copilot.repo.ActionProposalRepository;
 import com.intra.copilot.repo.AgentInvocationRepository;
+import com.intra.copilot.repo.AgentPlanRepository;
+import com.intra.copilot.repo.AgentPlanStepRepository;
 import com.intra.copilot.repo.ConversationRepository;
 import com.intra.copilot.repo.MessageRepository;
 import com.intra.copilot.service.AttachmentService;
 import com.intra.copilot.service.TraceRecorder;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -30,22 +36,31 @@ public class ConversationLogAdminController {
         private final MessageRepository messages;
         private final AgentInvocationRepository invocations;
         private final ActionProposalRepository actions;
+        private final AgentPlanRepository plans;
+        private final AgentPlanStepRepository planSteps;
         private final AttachmentService attachments;
         private final TraceRecorder trace;
+        private final ObjectMapper json;
 
         public ConversationLogAdminController(
                         ConversationRepository conversations,
                         MessageRepository messages,
                         AgentInvocationRepository invocations,
                         ActionProposalRepository actions,
+                        AgentPlanRepository plans,
+                        AgentPlanStepRepository planSteps,
                         AttachmentService attachments,
-                        TraceRecorder trace) {
+                        TraceRecorder trace,
+                        ObjectMapper json) {
                 this.conversations = conversations;
                 this.messages = messages;
                 this.invocations = invocations;
                 this.actions = actions;
+                this.plans = plans;
+                this.planSteps = planSteps;
                 this.attachments = attachments;
                 this.trace = trace;
+                this.json = json;
         }
 
         /** 分页列出会话摘要，可按会话 ID（模糊）过滤。 */
@@ -86,7 +101,7 @@ public class ConversationLogAdminController {
                                 .map(item -> new InvocationTrace(
                                                 item, trace.listByInvocation(item.getId())))
                                 .toList();
-                return new Trace(conversation.getId(), values);
+                return new Trace(conversation.getId(), values, loadPlans(conversation.getId()));
         }
 
         /** 后台日志图片取回入口，避免依赖需要 JWT 的插件附件接口。 */
@@ -162,10 +177,70 @@ public class ConversationLogAdminController {
                                 messageViews,
                                 invocationViews,
                                 invocationTraces,
+                                loadPlans(conversation.getId()),
                                 actions.findByConversationIdOrderByExpiresAtAsc(conversation.getId()));
         }
 
-        public record Trace(String conversationId, List<InvocationTrace> invocations) {}
+        private List<PlanTrace> loadPlans(String conversationId) {
+                return plans.findByConversationIdOrderByCreatedAtAsc(conversationId).stream()
+                                .map(plan -> new PlanTrace(
+                                                plan,
+                                                planSteps.findByPlanIdOrderByStepIndexAsc(plan.getId()).stream()
+                                                        .map(this::toPlanStepView)
+                                                        .toList()))
+                                .toList();
+        }
+
+        private PlanStepView toPlanStepView(AgentPlanStep step) {
+                return new PlanStepView(
+                                step.getId(),
+                                step.getStepIndex(),
+                                step.getTitle(),
+                                step.getDescription(),
+                                step.getAgentId(),
+                                readStringList(step.getToolNames()),
+                                readStringList(step.getDependsOn()),
+                                step.getSuccessCriteria(),
+                                step.getStatus(),
+                                step.getResultSummary(),
+                                step.getError(),
+                                step.getStartedAt(),
+                                step.getCompletedAt(),
+                                step.getDurationMs());
+        }
+
+        private List<String> readStringList(String raw) {
+                if (raw == null || raw.isBlank()) return List.of();
+                try {
+                        return json.readValue(raw, new TypeReference<List<String>>() {});
+                } catch (Exception ignored) {
+                        return List.of();
+                }
+        }
+
+        public record Trace(
+                        String conversationId,
+                        List<InvocationTrace> invocations,
+                        List<PlanTrace> plans) {}
+
+        /** A persisted plan plus its ordered steps. */
+        public record PlanTrace(AgentPlan plan, List<PlanStepView> steps) {}
+
+        public record PlanStepView(
+                        String id,
+                        int stepIndex,
+                        String title,
+                        String description,
+                        String agentId,
+                        List<String> toolNames,
+                        List<String> dependsOn,
+                        String successCriteria,
+                        String status,
+                        String resultSummary,
+                        String error,
+                        Instant startedAt,
+                        Instant completedAt,
+                        Long durationMs) {}
 
         /** 单次 Agent 调用 + 其事件明细，用于在后台还原完整执行流程。 */
         public record InvocationTrace(
@@ -214,12 +289,14 @@ public class ConversationLogAdminController {
                         List<ConversationMessage> messages,
                         List<AgentInvocation> invocations,
                         List<InvocationTrace> invocationTraces,
+                        List<PlanTrace> plans,
                         List<ActionProposal> actions) {
                 ConversationLog(
                                 Conversation conversation,
                                 List<ConversationMessage> messages,
                                 List<AgentInvocation> invocations,
                                 List<InvocationTrace> invocationTraces,
+                                List<PlanTrace> plans,
                                 List<ActionProposal> actions) {
                         this(
                                         conversation.getId(),
@@ -229,6 +306,7 @@ public class ConversationLogAdminController {
                                         messages,
                                         invocations,
                                         invocationTraces,
+                                        plans,
                                         actions);
                 }
         }

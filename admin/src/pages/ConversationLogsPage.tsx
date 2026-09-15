@@ -7,9 +7,12 @@ import { formatDateTime, formatFileSize } from "../lib/format";
 import type { Translations } from "../i18n/translations";
 import type {
   ConversationInvocation,
+  ConversationInvocationEvent,
   ConversationInvocationTrace,
   ConversationLog,
   ConversationLogSummary,
+  ConversationPlan,
+  ConversationPlanStep,
 } from "../types";
 
 export interface ConversationLogsPageProps {
@@ -50,12 +53,29 @@ type TimelineEntry =
       turn: number;
       invocation: ConversationInvocation;
       trace?: ConversationInvocationTrace;
+    }
+  | {
+      kind: "plan";
+      id: string;
+      createdAt?: string;
+      turn: number;
+      plan: ConversationPlan;
     };
 
 function timestamp(value?: string) {
   if (!value) return Number.POSITIVE_INFINITY;
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function compareConversationEvents(
+  left: ConversationInvocationEvent,
+  right: ConversationInvocationEvent,
+) {
+  const leftSequence = left.sequence ?? Number.MAX_SAFE_INTEGER;
+  const rightSequence = right.sequence ?? Number.MAX_SAFE_INTEGER;
+  if (leftSequence !== rightSequence) return leftSequence - rightSequence;
+  return (left.createdAt ?? "").localeCompare(right.createdAt ?? "");
 }
 
 function formatDuration(totalMs: number) {
@@ -71,6 +91,25 @@ function formatJson(value: unknown) {
     return JSON.stringify(value, null, 2);
   } catch {
     return String(value);
+  }
+}
+
+function planStatusLabel(status: string | undefined, t: Translations) {
+  switch (status) {
+    case "COMPLETED":
+      return t.conversationPlanCompleted;
+    case "RUNNING":
+      return t.conversationPlanRunning;
+    case "FAILED":
+      return t.conversationPlanFailed;
+    case "CANCELLED":
+      return t.conversationPlanCancelled;
+    case "SUPERSEDED":
+      return t.conversationPlanSuperseded;
+    case "SKIPPED":
+      return t.conversationPlanSkipped;
+    default:
+      return t.conversationPlanPending;
   }
 }
 
@@ -114,16 +153,36 @@ function buildTimeline(detail?: ConversationLog): TimelineEntry[] {
       };
     },
   );
-  return [...messageEntries, ...invocationEntries].sort((left, right) => {
-    const timeDifference =
-      timestamp(left.createdAt) - timestamp(right.createdAt);
-    if (timeDifference !== 0) return timeDifference;
-    const rank = (entry: TimelineEntry) => {
-      if (entry.kind === "invocation") return 1;
-      return entry.message.role === "user" ? 0 : 2;
+  const planEntries: TimelineEntry[] = (detail.plans ?? []).map((plan) => {
+    const planTime = timestamp(plan.plan.createdAt);
+    const turn = Number.isFinite(planTime)
+      ? Math.max(
+          1,
+          userMessageTimes.filter((messageTime) => messageTime <= planTime)
+            .length,
+        )
+      : Math.max(1, currentTurn);
+    return {
+      kind: "plan",
+      id: plan.plan.id,
+      createdAt: plan.plan.createdAt,
+      turn,
+      plan,
     };
-    return rank(left) - rank(right);
   });
+  return [...messageEntries, ...invocationEntries, ...planEntries].sort(
+    (left, right) => {
+      const timeDifference =
+        timestamp(left.createdAt) - timestamp(right.createdAt);
+      if (timeDifference !== 0) return timeDifference;
+      const rank = (entry: TimelineEntry) => {
+        if (entry.kind === "plan") return 1;
+        if (entry.kind === "invocation") return 1;
+        return entry.message.role === "user" ? 0 : 2;
+      };
+      return rank(left) - rank(right);
+    },
+  );
 }
 
 function timelineEntryMatches(
@@ -132,7 +191,14 @@ function timelineEntryMatches(
   errorsOnly: boolean,
 ) {
   if (errorsOnly) {
-    return entry.kind === "invocation" && Boolean(entry.invocation.error);
+    if (entry.kind === "invocation") return Boolean(entry.invocation.error);
+    if (entry.kind === "plan") {
+      return (
+        entry.plan.plan.status === "FAILED" ||
+        entry.plan.steps.some((step) => step.status === "FAILED")
+      );
+    }
+    return false;
   }
   if (!query) return true;
   if (entry.kind === "message") {
@@ -140,6 +206,20 @@ function timelineEntryMatches(
       entry.message.content,
       entry.message.agentId,
       entry.message.contextSummary,
+    ].some((value) => value?.toLowerCase().includes(query));
+  }
+  if (entry.kind === "plan") {
+    return [
+      entry.plan.plan.goal,
+      entry.plan.plan.summary,
+      entry.plan.plan.status,
+      ...entry.plan.steps.flatMap((step) => [
+        step.title,
+        step.description,
+        step.resultSummary,
+        step.error,
+        ...step.toolNames,
+      ]),
     ].some((value) => value?.toLowerCase().includes(query));
   }
   return [
@@ -150,6 +230,90 @@ function timelineEntryMatches(
     entry.invocation.responseContent,
     entry.invocation.error,
   ].some((value) => value?.toLowerCase().includes(query));
+}
+
+function PlanTimelineCard({
+  plan,
+  selectedPlanId,
+  selectedStepId,
+  t,
+  onSelectPlan,
+  onSelectStep,
+}: {
+  plan: ConversationPlan;
+  selectedPlanId?: string;
+  selectedStepId?: string;
+  t: Translations;
+  onSelectPlan: (planId: string) => void;
+  onSelectStep: (planId: string, stepId: string) => void;
+}) {
+  const completed = plan.steps.filter(
+    (step) => step.status === "COMPLETED",
+  ).length;
+  return (
+    <article
+      className={`conversation-timeline-entry plan ${
+        selectedPlanId === plan.plan.id ? "selected" : ""
+      }`}
+    >
+      <span className="conversation-timeline-marker">
+        <Icon name="sparkle" size={15} />
+      </span>
+      <div className="conversation-timeline-card conversation-plan-card">
+        <button
+          type="button"
+          className="conversation-plan-head"
+          aria-pressed={selectedPlanId === plan.plan.id}
+          onClick={() => onSelectPlan(plan.plan.id)}
+        >
+          <span className="conversation-timeline-meta">
+            <span className="conversation-step-label">
+              {t.conversationPlanRevision(plan.plan.revision)}
+            </span>
+            <strong>{t.conversationPlan}</strong>
+            <span className="conversation-chip">
+              {planStatusLabel(plan.plan.status, t)}
+            </span>
+            <span className="conversation-chip">
+              {t.conversationPlanProgress(completed, plan.steps.length)}
+            </span>
+            <Icon name="chevron-right" size={15} />
+          </span>
+          <span className="conversation-plan-goal">{plan.plan.goal}</span>
+        </button>
+        <div className="conversation-plan-steps">
+          {plan.steps.map((step) => (
+            <button
+              type="button"
+              className={`conversation-plan-step status-${step.status.toLowerCase()} ${
+                selectedStepId === step.id ? "selected" : ""
+              }`}
+              key={step.id}
+              onClick={() => onSelectStep(plan.plan.id, step.id)}
+            >
+              <span className="conversation-plan-step-index">
+                {step.stepIndex}
+              </span>
+              <span className="conversation-plan-step-copy">
+                <strong>{step.title}</strong>
+                <small>
+                  {planStatusLabel(step.status, t)}
+                  {step.toolNames.length > 0
+                    ? ` · ${step.toolNames.join(", ")}`
+                    : ""}
+                </small>
+              </span>
+              {step.durationMs != null && (
+                <span className="conversation-chip">
+                  {formatDuration(step.durationMs)}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </article>
+  );
 }
 
 function RouteCopilotTrace({
@@ -198,19 +362,237 @@ function RouteCopilotTrace({
   );
 }
 
+function PlanInspector({
+  plan,
+  selectedStepId,
+  traces,
+  t,
+  copiedKey,
+  onCopy,
+}: {
+  plan: ConversationPlan;
+  selectedStepId?: string;
+  traces: ConversationInvocationTrace[];
+  t: Translations;
+  copiedKey: string;
+  onCopy: (value: string, key: string) => void;
+}) {
+  const selectedStep =
+    plan.steps.find((step) => step.id === selectedStepId) ?? plan.steps[0];
+  const allEvents = traces.flatMap((trace) => trace.events);
+  const planEvents = allEvents.filter((event) => event.planId === plan.plan.id);
+  const firstPlanSequence =
+    planEvents.length === 0
+      ? Number.MAX_SAFE_INTEGER
+      : Math.min(
+          ...planEvents.map((event) =>
+            event.sequence === undefined
+              ? Number.MAX_SAFE_INTEGER
+              : event.sequence,
+          ),
+        );
+  const prePlanEvents = allEvents
+    .filter(
+      (event) =>
+        firstPlanSequence !== Number.MAX_SAFE_INTEGER &&
+        !event.planId &&
+        event.invocationId === plan.plan.invocationId &&
+        (event.sequence ?? Number.MAX_SAFE_INTEGER) < firstPlanSequence,
+    )
+    .sort(compareConversationEvents);
+  const relatedEvents = allEvents
+    .filter((event) =>
+      selectedStep
+        ? event.planId === plan.plan.id &&
+          (!event.planStepId || event.planStepId === selectedStep.id)
+        : event.planId === plan.plan.id,
+    )
+    .sort(compareConversationEvents);
+  const completed = plan.steps.filter(
+    (step) => step.status === "COMPLETED",
+  ).length;
+  const copyKey = `plan-${plan.plan.id}`;
+  return (
+    <aside className="conversation-detail-inspector">
+      <div className="conversation-inspector-head">
+        <div>
+          <span>{t.conversationPlanDetails}</span>
+          <h4>{t.conversationPlanRevision(plan.plan.revision)}</h4>
+        </div>
+        <button
+          type="button"
+          className="icon-button"
+          title={t.conversationCopyStepDetails}
+          aria-label={t.conversationCopyStepDetails}
+          onClick={() => onCopy(formatJson(plan), copyKey)}
+        >
+          <Icon name={copiedKey === copyKey ? "check" : "copy"} size={15} />
+        </button>
+      </div>
+      <div className="conversation-inspector-metrics">
+        <div>
+          <span>{t.status}</span>
+          <strong>{planStatusLabel(plan.plan.status, t)}</strong>
+        </div>
+        <div>
+          <span>{t.conversationPlanSteps}</span>
+          <strong>
+            {t.conversationPlanProgress(completed, plan.steps.length)}
+          </strong>
+        </div>
+        <div>
+          <span>{t.duration}</span>
+          <strong>
+            {plan.plan.startedAt && plan.plan.completedAt
+              ? formatDuration(
+                  timestamp(plan.plan.completedAt) -
+                    timestamp(plan.plan.startedAt),
+                )
+              : "-"}
+          </strong>
+        </div>
+        <div>
+          <span>{t.route}</span>
+          <strong>{plan.plan.executorAgentId || "-"}</strong>
+        </div>
+      </div>
+      <section className="conversation-inspector-section">
+        <h5>{t.conversationPlanGoal}</h5>
+        <p>{plan.plan.goal}</p>
+        {plan.plan.summary && <pre>{plan.plan.summary}</pre>}
+      </section>
+      {selectedStep && (
+        <section className="conversation-inspector-section">
+          <h5>
+            {t.conversationPlanStepLabel(selectedStep.stepIndex)} ·{" "}
+            {selectedStep.title}
+          </h5>
+          <div className="conversation-plan-detail-status">
+            <span
+              className={`conversation-status status-${selectedStep.status.toLowerCase()}`}
+            >
+              {planStatusLabel(selectedStep.status, t)}
+            </span>
+            {selectedStep.durationMs != null && (
+              <span>{formatDuration(selectedStep.durationMs)}</span>
+            )}
+          </div>
+          {selectedStep.description && <p>{selectedStep.description}</p>}
+          {selectedStep.successCriteria && (
+            <details className="conversation-inspector-details">
+              <summary>{t.conversationPlanSuccessCriteria}</summary>
+              <p>{selectedStep.successCriteria}</p>
+            </details>
+          )}
+          <details className="conversation-inspector-details">
+            <summary>{t.tools}</summary>
+            <pre>
+              {selectedStep.toolNames.length > 0
+                ? selectedStep.toolNames.join("\n")
+                : "-"}
+            </pre>
+          </details>
+          <details className="conversation-inspector-details" open>
+            <summary>{t.conversationPlanStepResult}</summary>
+            <pre>{formatJson(selectedStep.resultSummary)}</pre>
+          </details>
+          {selectedStep.error && (
+            <p className="conversation-inline-error">
+              <Icon name="alert" size={13} />
+              {selectedStep.error}
+            </p>
+          )}
+        </section>
+      )}
+      <section className="conversation-inspector-section">
+        <h5>{t.conversationPlanContextEvents}</h5>
+        {prePlanEvents.length === 0 ? (
+          <p className="conversation-inspector-empty">-</p>
+        ) : (
+          <div className="conversation-plan-event-list">
+            {prePlanEvents.map((event) => (
+              <details
+                className="conversation-inspector-details"
+                key={event.id}
+              >
+                <summary>
+                  {event.eventName || event.eventType}
+                  {event.status ? ` · ${event.status}` : ""}
+                  {event.durationMs != null
+                    ? ` · ${formatDuration(event.durationMs)}`
+                    : ""}
+                </summary>
+                <pre>{formatJson(event.payload)}</pre>
+              </details>
+            ))}
+          </div>
+        )}
+      </section>
+      <section className="conversation-inspector-section">
+        <h5>{t.conversationPlanStepEvents}</h5>
+        {relatedEvents.length === 0 ? (
+          <p className="conversation-inspector-empty">-</p>
+        ) : (
+          <div className="conversation-plan-event-list">
+            {relatedEvents.map((event) => (
+              <details
+                className="conversation-inspector-details"
+                key={event.id}
+              >
+                <summary>
+                  {event.eventName || event.eventType}
+                  {event.status ? ` · ${event.status}` : ""}
+                  {event.durationMs != null
+                    ? ` · ${formatDuration(event.durationMs)}`
+                    : ""}
+                </summary>
+                <pre>{formatJson(event.payload)}</pre>
+              </details>
+            ))}
+          </div>
+        )}
+      </section>
+      {plan.plan.error && (
+        <section className="conversation-inspector-section error">
+          <h5>{t.conversationErrorCount}</h5>
+          <p>{plan.plan.error}</p>
+        </section>
+      )}
+    </aside>
+  );
+}
+
 function ConversationInspector({
   invocation,
   trace,
+  plan,
+  selectedStepId,
+  traces,
   t,
   copiedKey,
   onCopy,
 }: {
   invocation?: ConversationInvocation;
   trace?: ConversationInvocationTrace;
+  plan?: ConversationPlan;
+  selectedStepId?: string;
+  traces: ConversationInvocationTrace[];
   t: Translations;
   copiedKey: string;
   onCopy: (value: string, key: string) => void;
 }) {
+  if (plan) {
+    return (
+      <PlanInspector
+        plan={plan}
+        selectedStepId={selectedStepId}
+        traces={traces}
+        t={t}
+        copiedKey={copiedKey}
+        onCopy={onCopy}
+      />
+    );
+  }
   if (!invocation) {
     return (
       <aside className="conversation-detail-inspector">
@@ -320,6 +702,8 @@ export function ConversationLogsPage({
   const [detailQuery, setDetailQuery] = useState("");
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [selectedInvocationId, setSelectedInvocationId] = useState<string>();
+  const [selectedPlanId, setSelectedPlanId] = useState<string>();
+  const [selectedPlanStepId, setSelectedPlanStepId] = useState<string>();
   const [copiedKey, setCopiedKey] = useState("");
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const closeDetailRef = useRef(onCloseDetail);
@@ -356,6 +740,8 @@ export function ConversationLogsPage({
     setDetailQuery("");
     setErrorsOnly(false);
     setSelectedInvocationId(undefined);
+    setSelectedPlanId(undefined);
+    setSelectedPlanStepId(undefined);
   }, [detail?.id]);
 
   useEffect(() => {
@@ -385,6 +771,9 @@ export function ConversationLogsPage({
   const selectedTrace = detail?.invocationTraces?.find(
     (trace) => trace.invocation.id === selectedInvocationId,
   );
+  const selectedPlan = detail?.plans?.find(
+    (plan) => plan.plan.id === selectedPlanId,
+  );
   const totalDuration =
     detail?.invocations.reduce(
       (sum, invocation) => sum + (invocation.durationMs ?? 0),
@@ -394,7 +783,12 @@ export function ConversationLogsPage({
     (detail?.invocations.filter((invocation) => Boolean(invocation.error))
       .length ?? 0) +
     (detail?.actions.filter((action) => action.status === "FAILED").length ??
-      0);
+      0) +
+    (detail?.plans?.filter(
+      (plan) =>
+        plan.plan.status === "FAILED" ||
+        plan.steps.some((step) => step.status === "FAILED"),
+    ).length ?? 0);
   const visibleActions = errorsOnly
     ? (detail?.actions.filter((action) => action.status === "FAILED") ?? [])
     : (detail?.actions ?? []);
@@ -614,6 +1008,10 @@ export function ConversationLogsPage({
                     <strong>{detail.actions.length}</strong>
                   </div>
                   <div className="conversation-summary-stat">
+                    <span>{t.conversationPlans}</span>
+                    <strong>{detail.plans?.length ?? 0}</strong>
+                  </div>
+                  <div className="conversation-summary-stat">
                     <span>{t.conversationTotalDuration}</span>
                     <strong>{formatDuration(totalDuration)}</strong>
                   </div>
@@ -664,7 +1062,25 @@ export function ConversationLogsPage({
                     ) : (
                       <div className="conversation-timeline-list">
                         {visibleTimeline.map((entry) =>
-                          entry.kind === "message" ? (
+                          entry.kind === "plan" ? (
+                            <PlanTimelineCard
+                              key={entry.id}
+                              plan={entry.plan}
+                              selectedPlanId={selectedPlanId}
+                              selectedStepId={selectedPlanStepId}
+                              t={t}
+                              onSelectPlan={(planId) => {
+                                setSelectedPlanId(planId);
+                                setSelectedPlanStepId(entry.plan.steps[0]?.id);
+                                setSelectedInvocationId(undefined);
+                              }}
+                              onSelectStep={(planId, stepId) => {
+                                setSelectedPlanId(planId);
+                                setSelectedPlanStepId(stepId);
+                                setSelectedInvocationId(undefined);
+                              }}
+                            />
+                          ) : entry.kind === "message" ? (
                             <article
                               className={`conversation-timeline-entry ${entry.message.role}`}
                               key={entry.id}
@@ -774,9 +1190,11 @@ export function ConversationLogsPage({
                                 type="button"
                                 className="conversation-timeline-card conversation-invocation-card"
                                 aria-pressed={selectedInvocationId === entry.id}
-                                onClick={() =>
-                                  setSelectedInvocationId(entry.invocation.id)
-                                }
+                                onClick={() => {
+                                  setSelectedInvocationId(entry.invocation.id);
+                                  setSelectedPlanId(undefined);
+                                  setSelectedPlanStepId(undefined);
+                                }}
                               >
                                 <span className="conversation-timeline-meta">
                                   <span className="conversation-step-label">
@@ -874,6 +1292,9 @@ export function ConversationLogsPage({
                   <ConversationInspector
                     invocation={selectedInvocation}
                     trace={selectedTrace}
+                    plan={selectedPlan}
+                    selectedStepId={selectedPlanStepId}
+                    traces={detail.invocationTraces ?? []}
                     t={t}
                     copiedKey={copiedKey}
                     onCopy={copyText}

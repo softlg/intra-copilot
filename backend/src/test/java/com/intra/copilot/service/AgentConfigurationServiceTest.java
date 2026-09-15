@@ -125,6 +125,34 @@ class AgentConfigurationServiceTest {
         verify(bindings, never()).insert(any(AgentChildBinding.class));
     }
 
+    @Test
+    void normalizesPlanningConfiguration() {
+        AgentDefinitionRepository definitions = mock(AgentDefinitionRepository.class);
+        AgentConfigVersionRepository versions = mock(AgentConfigVersionRepository.class);
+        AgentChildBindingRepository bindings = mock(AgentChildBindingRepository.class);
+        AgentRegistry registry = mock(AgentRegistry.class);
+        AgentConfigurationService service =
+                new AgentConfigurationService(
+                        definitions,
+                        versions,
+                        bindings,
+                        mock(AgentSkillBindingRepository.class),
+                        registry,
+                        new ObjectMapper());
+
+        AgentDefinition definition = domain("planning");
+        definition.setPlanningMode("invalid");
+        definition.setMaxPlanSteps(99);
+
+        when(definitions.findById("planning")).thenReturn(Optional.empty());
+        when(definitions.save(definition)).thenReturn(definition);
+
+        AgentDefinition saved = service.saveDraft(definition);
+
+        assertEquals("AUTO", saved.getPlanningMode());
+        assertEquals(12, saved.getMaxPlanSteps());
+    }
+
     private AgentDefinition domain(String id) {
         AgentDefinition definition = new AgentDefinition();
         definition.setId(id);

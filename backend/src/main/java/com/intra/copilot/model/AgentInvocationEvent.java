@@ -15,6 +15,8 @@ public class AgentInvocationEvent {
   @TableId private String id = EntityIdGenerator.next("EV");
   private String invocationId;
   private String correlationId;
+  private String planId;
+  private String planStepId;
   private String eventType;
   private String eventName;
   private String status;
@@ -44,6 +46,22 @@ public class AgentInvocationEvent {
 
   public void setCorrelationId(String correlationId) {
     this.correlationId = correlationId;
+  }
+
+  public String getPlanId() {
+    return planId;
+  }
+
+  public void setPlanId(String planId) {
+    this.planId = planId;
+  }
+
+  public String getPlanStepId() {
+    return planStepId;
+  }
+
+  public void setPlanStepId(String planStepId) {
+    this.planStepId = planStepId;
   }
 
   public String getEventType() {

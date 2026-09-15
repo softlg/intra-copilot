@@ -86,6 +86,12 @@ public class TraceRecorder {
       return this;
     }
 
+    public EventBuilder plan(String planId, String planStepId) {
+      event.setPlanId(planId);
+      event.setPlanStepId(planStepId);
+      return this;
+    }
+
     public EventBuilder put(String key, Object value) {
       payload.set(key, recorder.json.valueToTree(value));
       return this;
@@ -118,6 +124,14 @@ public class TraceRecorder {
     public static final String ROUTE_END = "ROUTE_END";
     public static final String DELEGATION_DECIDED = "DELEGATION_DECIDED";
     public static final String CONTEXT_FORWARDED = "CONTEXT_FORWARDED";
+    public static final String PLAN_CREATED = "PLAN_CREATED";
+    public static final String PLAN_REVISED = "PLAN_REVISED";
+    public static final String PLAN_STEP_STARTED = "PLAN_STEP_STARTED";
+    public static final String PLAN_STEP_COMPLETED = "PLAN_STEP_COMPLETED";
+    public static final String PLAN_STEP_FAILED = "PLAN_STEP_FAILED";
+    public static final String PLAN_COMPLETED = "PLAN_COMPLETED";
+    public static final String PLAN_FAILED = "PLAN_FAILED";
+    public static final String PLAN_CANCELLED = "PLAN_CANCELLED";
     public static final String HOOK_CHECK = "HOOK_CHECK";
     public static final String RAG_RETRIEVE = "RAG_RETRIEVE";
     // 预留类型：当前 tool_ids / skill_ids 仅作为 Agent 配置项存在，ChatService 的执行链路
