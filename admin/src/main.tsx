@@ -9,7 +9,6 @@ import "./components/FieldHint.css";
 import "./components/Dropdown.css";
 import "./components/StatusBadge.css";
 import "./components/EmptyState.css";
-import "./components/Sparkline.css";
 import "./components/Icon.css";
 import "./components/KeyboardShortcutsHelp.css";
 import "./components/Skeleton.css";
@@ -22,7 +21,6 @@ import { FieldHint } from "./components/FieldHint";
 import { Dropdown } from "./components/Dropdown";
 import { StatusBadge, type StatusKind } from "./components/StatusBadge";
 import { EmptyState } from "./components/EmptyState";
-import { Sparkline, type SparklinePoint } from "./components/Sparkline";
 import { Icon, type IconName } from "./components/Icon";
 import {
   useKeyboardShortcuts,
@@ -42,7 +40,6 @@ import type {
   Agent,
   AgentChildBinding,
   AgentConfigVersion,
-  AgentFeedback,
   AgentPreset,
   Base,
   ConversationAttachment,
@@ -54,7 +51,6 @@ import type {
   EmbeddingConfigRequest,
   EmbeddingProfile,
   EmbeddingValidation,
-  FeedbackSummary,
   HookDefinition,
   KnowledgeDiagnostics,
   KnowledgeDocument,
@@ -80,7 +76,6 @@ import {
 import { formatDateTime, parseIds } from "./lib/format";
 import { mcpStatusLabel, truncateError } from "./lib/mcp";
 import { documentStatus } from "./lib/knowledge";
-import { buildDailyFeedbackTrend } from "./lib/feedback";
 import {
   defaultRuleConfig,
   normalizeBindings,
@@ -235,8 +230,6 @@ function AdminApp({
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [hooks, setHooks] = useState<HookDefinition[]>([]);
   const [hooksLoading, setHooksLoading] = useState(true);
-  const [feedback, setFeedback] = useState<AgentFeedback[]>([]);
-  const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary>();
   const [resourceDialog, setResourceDialog] = useState<"tool" | "skill">();
   const [editingResourceId, setEditingResourceId] = useState<string>();
   const [resourceName, setResourceName] = useState("");
@@ -579,15 +572,6 @@ function AdminApp({
       .finally(() => setHooksLoading(false));
   };
 
-  const loadFeedback = () => {
-    request<AgentFeedback[]>("/admin/agent-feedback")
-      .then(setFeedback)
-      .catch(() => setFeedback([]));
-    request<FeedbackSummary>("/admin/agent-feedback/summary")
-      .then(setFeedbackSummary)
-      .catch(() => setFeedbackSummary(undefined));
-  };
-
   const loadBases = () => {
     setBasesLoading(true);
     request<Base[]>("/admin/knowledge-bases")
@@ -657,8 +641,6 @@ function AdminApp({
     } else if (tab === "hooks") {
       ensureResourceLoaded("agents", loadAgents);
       ensureResourceLoaded("hooks", loadHooks);
-    } else if (tab === "ratings") {
-      ensureResourceLoaded("feedback", loadFeedback);
     }
   }, [tab]);
 
@@ -2432,7 +2414,6 @@ function AdminApp({
       hookRuleTypeFilter === "all" || hook.ruleType === hookRuleTypeFilter;
     return matchesQuery && matchesStatus && matchesScope && matchesRule;
   });
-  const filteredFeedback = feedback;
   const agentListTab = (() => {
     const config = {
       agents: { role: "MAIN", title: t.roleMain, hint: t.systemAgentPageHint },
@@ -3004,15 +2985,7 @@ function AdminApp({
           />
         )}
 
-        {tab === "ratings" && (
-          <RatingsPage
-            t={t}
-            language={language}
-            feedback={feedback}
-            filteredFeedback={filteredFeedback}
-            feedbackSummary={feedbackSummary}
-          />
-        )}
+        {tab === "ratings" && <RatingsPage t={t} language={language} />}
 
         {tab === "conversation-logs" && (
           <ConversationLogsPage

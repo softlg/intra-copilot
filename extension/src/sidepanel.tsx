@@ -18,6 +18,8 @@ type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
 type Feedback = "up" | "down" | null;
+type FeedbackReasonCode =
+  "INACCURATE" | "IRRELEVANT" | "TOO_LONG" | "FORMAT_UI" | "OTHER";
 type FeedbackToast = { index: number; kind: "cleared" | "thanks" };
 type AttachmentView = {
   id: string;
@@ -93,6 +95,28 @@ function MessageAttachmentView({
       <span className="file-icon">📎</span>
       <span className="file-name">{att.filename}</span>
     </a>
+  );
+}
+
+function FeedbackIcon({ direction }: { direction: "up" | "down" }) {
+  const path =
+    direction === "up"
+      ? "M7 10v10H4V10h3Zm3 10V9l4-7 1.2.5c.9.4 1.4 1.4 1.2 2.3L15.5 9H20c1.1 0 2 .9 2 2 0 .3 0 .5-.1.8l-2.2 7A2.4 2.4 0 0 1 17.4 20H10Z"
+      : "M7 14V4H4v10h3Zm3-10v11l4 7 1.2-.5c.9-.4 1.4-1.4 1.2-2.3L15.5 15H20c1.1 0 2-.9 2-2 0-.3 0-.5-.1-.8l-2.2-7A2.4 2.4 0 0 0 17.4 4H10Z";
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d={path} />
+    </svg>
   );
 }
 
@@ -247,10 +271,13 @@ const translations = {
     feedbackChipInaccurate: "不准确",
     feedbackChipIrrelevant: "答非所问",
     feedbackChipTooLong: "太长",
+    feedbackChipFormat: "格式/UI",
     feedbackChipOther: "其他",
     feedbackInlinePlaceholder: "补充一点具体原因（可选）",
     feedbackInlineSubmit: "提交反馈",
-    feedbackInlineSkip: "不用了",
+    feedbackInlineSkip: "暂不补充",
+    feedbackSubmitting: "提交中…",
+    feedbackSubmitFailed: "反馈提交失败，请重试。",
     copyMessage: "复制回答",
     copyCode: "复制代码",
     copied: "已复制",
@@ -390,10 +417,13 @@ const translations = {
     feedbackChipInaccurate: "Inaccurate",
     feedbackChipIrrelevant: "Off-topic",
     feedbackChipTooLong: "Too long",
+    feedbackChipFormat: "Format / UI",
     feedbackChipOther: "Other",
     feedbackInlinePlaceholder: "Add a short reason (optional)",
     feedbackInlineSubmit: "Send feedback",
-    feedbackInlineSkip: "No thanks",
+    feedbackInlineSkip: "Skip reason",
+    feedbackSubmitting: "Sending…",
+    feedbackSubmitFailed: "Could not submit feedback. Please try again.",
     copyMessage: "Copy answer",
     copyCode: "Copy code",
     copied: "Copied",
@@ -599,7 +629,11 @@ function App() {
     Record<number, Feedback>
   >({});
   const [inlineFeedbackIndex, setInlineFeedbackIndex] = useState<number>();
+  const [inlineFeedbackReason, setInlineFeedbackReason] =
+    useState<FeedbackReasonCode>();
   const [inlineFeedbackComment, setInlineFeedbackComment] = useState("");
+  const [feedbackSubmittingIndex, setFeedbackSubmittingIndex] =
+    useState<number>();
   const [feedbackToast, setFeedbackToast] = useState<FeedbackToast>();
   const [copiedMessage, setCopiedMessage] = useState<number>();
   const [copiedCode, setCopiedCode] = useState<string>();
@@ -910,30 +944,46 @@ function App() {
     });
   }
 
-  function saveFeedback(
+  async function saveFeedback(
     index: number,
     feedback: Exclude<Feedback, null>,
-    comment = "",
-  ) {
-    const userMessage =
-      [...msgs.slice(0, index)].reverse().find((item) => item.role === "user")
-        ?.content || "";
+    reasonCode?: FeedbackReasonCode,
+    reasonText = "",
+  ): Promise<void> {
     const target = msgs[index];
-    if (!session?.id) return;
-    apiFetch("/feedback", {
-      method: "POST",
+    if (!session?.id || !target?.id) {
+      throw new Error(t.feedbackSubmitFailed);
+    }
+    const response = await apiFetch("/feedback", {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sessionId: session.id,
-        messageId: target?.id,
-        messageIndex: index,
-        agentId: target?.agentId,
+        messageId: target.id,
         rating: feedback,
-        comment,
-        messageContent: target?.content || "",
-        userMessage,
+        reasonCode,
+        reasonText: reasonText.trim() || undefined,
       }),
-    }).catch(() => undefined);
+    });
+    if (!response.ok) {
+      throw new Error(t.feedbackSubmitFailed);
+    }
+  }
+
+  async function deleteFeedback(index: number): Promise<void> {
+    const target = msgs[index];
+    if (!session?.id || !target?.id) {
+      throw new Error(t.feedbackSubmitFailed);
+    }
+    const response = await apiFetch(
+      `/feedback/${encodeURIComponent(target.id)}?sessionId=${encodeURIComponent(
+        session.id,
+      )}`,
+      { method: "DELETE" },
+    );
+    if (!response.ok) {
+      throw new Error(t.feedbackSubmitFailed);
+    }
   }
 
   function persistFeedback(index: number, feedback: Feedback) {
@@ -979,7 +1029,11 @@ function App() {
     list.scrollTo({ top: offset, behavior: "smooth" });
   }
 
-  function toggleFeedback(index: number, target: Exclude<Feedback, null>) {
+  async function toggleFeedback(
+    index: number,
+    target: Exclude<Feedback, null>,
+  ) {
+    if (feedbackSubmittingIndex != null) return;
     const prev: Feedback = messageFeedback[index] ?? null;
     const next: Feedback = prev === target ? null : target;
 
@@ -990,39 +1044,57 @@ function App() {
       return updated;
     });
 
-    persistFeedback(index, next);
-
-    // 内联反馈条：仅在 down 时出现；切换 / 撤销时关闭
-    if (target === "down") {
-      if (next === "down") setInlineFeedbackIndex(index);
-      else if (prev === "down")
-        setInlineFeedbackIndex((curr) => (curr === index ? undefined : curr));
-    } else if (prev === "down") {
-      setInlineFeedbackIndex((curr) => (curr === index ? undefined : curr));
-    }
+    setFeedbackSubmittingIndex(index);
+    setInlineFeedbackIndex(next === "down" ? index : undefined);
+    setInlineFeedbackReason(undefined);
     setInlineFeedbackComment("");
 
-    // 撤销投票给用户一个轻量反馈
-    if (prev !== null && next === null) {
-      showFeedbackToast("cleared", index);
+    try {
+      if (next === null) {
+        await deleteFeedback(index);
+      } else {
+        await saveFeedback(index, next);
+      }
+      persistFeedback(index, next);
+      if (prev !== null && next === null) {
+        showFeedbackToast("cleared", index);
+      }
+    } catch {
+      setMessageFeedback((current) => {
+        const updated = { ...current };
+        if (prev === null) delete updated[index];
+        else updated[index] = prev;
+        return updated;
+      });
+      setInlineFeedbackIndex(undefined);
+      setError(t.feedbackSubmitFailed);
+    } finally {
+      setFeedbackSubmittingIndex(undefined);
     }
-
-    if (next !== null) saveFeedback(index, next);
 
     // 让该条消息（连同刚展开的内联反馈条）滚到可视区域中心
     requestAnimationFrame(() => scrollMessageIntoView(index));
   }
 
-  function submitInlineFeedback() {
+  async function submitInlineFeedback() {
     if (inlineFeedbackIndex == null) return;
+    if (feedbackSubmittingIndex != null) return;
     const index = inlineFeedbackIndex;
     const comment = inlineFeedbackComment.trim();
-    if (comment) {
-      saveFeedback(index, "down", comment);
+    if (!inlineFeedbackReason && !comment) return;
+    setFeedbackSubmittingIndex(index);
+    try {
+      await saveFeedback(index, "down", inlineFeedbackReason, comment);
+      persistFeedback(index, "down");
       showFeedbackToast("thanks", index);
+      setInlineFeedbackIndex(undefined);
+      setInlineFeedbackReason(undefined);
+      setInlineFeedbackComment("");
+    } catch {
+      setError(t.feedbackSubmitFailed);
+    } finally {
+      setFeedbackSubmittingIndex(undefined);
     }
-    setInlineFeedbackIndex(undefined);
-    setInlineFeedbackComment("");
   }
 
   async function copyMessage(content: string, index: number) {
@@ -2332,7 +2404,8 @@ function App() {
                           "message-action feedback-action feedback-up " +
                           (messageFeedback[index] === "up" ? "selected" : "")
                         }
-                        onClick={() => toggleFeedback(index, "up")}
+                        onClick={() => void toggleFeedback(index, "up")}
+                        disabled={feedbackSubmittingIndex != null}
                         title={
                           messageFeedback[index] === "up"
                             ? t.feedbackCancelHint
@@ -2341,7 +2414,7 @@ function App() {
                         aria-label={t.like}
                         aria-pressed={messageFeedback[index] === "up"}
                       >
-                        👍
+                        <FeedbackIcon direction="up" />
                       </button>
                       <button
                         type="button"
@@ -2349,7 +2422,8 @@ function App() {
                           "message-action feedback-action feedback-down " +
                           (messageFeedback[index] === "down" ? "selected" : "")
                         }
-                        onClick={() => toggleFeedback(index, "down")}
+                        onClick={() => void toggleFeedback(index, "down")}
+                        disabled={feedbackSubmittingIndex != null}
                         title={
                           messageFeedback[index] === "down"
                             ? t.feedbackCancelHint
@@ -2358,7 +2432,7 @@ function App() {
                         aria-label={t.dislike}
                         aria-pressed={messageFeedback[index] === "down"}
                       >
-                        👎
+                        <FeedbackIcon direction="down" />
                       </button>
                       <button
                         type="button"
@@ -2403,28 +2477,33 @@ function App() {
                           {t.feedbackInlineHint}
                         </div>
                         <div className="feedback-inline-chips">
-                          {[
-                            t.feedbackChipInaccurate,
-                            t.feedbackChipIrrelevant,
-                            t.feedbackChipTooLong,
-                            t.feedbackChipOther,
-                          ].map((chip) => (
+                          {(
+                            [
+                              ["INACCURATE", t.feedbackChipInaccurate],
+                              ["IRRELEVANT", t.feedbackChipIrrelevant],
+                              ["TOO_LONG", t.feedbackChipTooLong],
+                              ["FORMAT_UI", t.feedbackChipFormat],
+                              ["OTHER", t.feedbackChipOther],
+                            ] as const
+                          ).map(([code, label]) => (
                             <button
-                              key={chip}
+                              key={code}
                               type="button"
                               className={
                                 "feedback-chip" +
-                                (inlineFeedbackComment === chip
+                                (inlineFeedbackReason === code
                                   ? " selected"
                                   : "")
                               }
+                              aria-pressed={inlineFeedbackReason === code}
+                              disabled={feedbackSubmittingIndex != null}
                               onClick={() => {
-                                setInlineFeedbackComment((current) =>
-                                  current === chip ? "" : chip,
+                                setInlineFeedbackReason((current) =>
+                                  current === code ? undefined : code,
                                 );
                               }}
                             >
-                              {chip}
+                              {label}
                             </button>
                           ))}
                         </div>
@@ -2437,6 +2516,7 @@ function App() {
                           }
                           placeholder={t.feedbackInlinePlaceholder}
                           aria-label={t.feedbackInlinePlaceholder}
+                          disabled={feedbackSubmittingIndex != null}
                         />
                         <div className="feedback-inline-actions">
                           <button
@@ -2444,18 +2524,26 @@ function App() {
                             className="feedback-inline-skip"
                             onClick={() => {
                               setInlineFeedbackIndex(undefined);
+                              setInlineFeedbackReason(undefined);
                               setInlineFeedbackComment("");
                             }}
+                            disabled={feedbackSubmittingIndex != null}
                           >
                             {t.feedbackInlineSkip}
                           </button>
                           <button
                             type="button"
                             className="feedback-inline-submit"
-                            onClick={submitInlineFeedback}
-                            disabled={!inlineFeedbackComment.trim()}
+                            onClick={() => void submitInlineFeedback()}
+                            disabled={
+                              feedbackSubmittingIndex != null ||
+                              (!inlineFeedbackReason &&
+                                !inlineFeedbackComment.trim())
+                            }
                           >
-                            {t.feedbackInlineSubmit}
+                            {feedbackSubmittingIndex != null
+                              ? t.feedbackSubmitting
+                              : t.feedbackInlineSubmit}
                           </button>
                         </div>
                       </div>

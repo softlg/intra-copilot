@@ -238,20 +238,54 @@ export type AgentFeedback = {
   messageId?: string;
   messageIndex?: number;
   agentId?: string;
+  agentName?: string;
   rating: "up" | "down";
   comment?: string;
+  reasonCode?: string;
+  reasonText?: string;
   messageContent?: string;
   userMessage?: string;
+  status?: string;
   createdAt?: string;
+  ratedAt?: string;
+  updatedAt?: string;
+};
+export type FeedbackTrendPoint = {
+  date: string;
+  label: string;
+  up: number;
+  down: number;
+};
+export type FeedbackAgentInsight = {
+  agentId: string;
+  agentName: string;
+  total: number;
+  up: number;
+  down: number;
+  positiveRate: number;
+  noReason: number;
+  topReasonCode?: string;
 };
 export type FeedbackSummary = {
   total: number;
   up: number;
   down: number;
-  satisfactionRate: number;
+  positiveRate: number;
+  reasonCoverage: number;
+  noReason: number;
   byAgent: Record<string, number>;
+  agentNames: Record<string, string>;
+  agentBreakdown: FeedbackAgentInsight[];
   downReasons: Record<string, number>;
-  suggestions: string[];
+  suggestionCodes: string[];
+  trendDays: number;
+  trend: FeedbackTrendPoint[];
+};
+export type FeedbackPage = {
+  items: AgentFeedback[];
+  total: number;
+  page: number;
+  size: number;
 };
 
 export type Base = {

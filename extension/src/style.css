@@ -670,26 +670,32 @@ small {
   font-size: 16px;
 }
 .feedback-action {
-  width: 30px;
-  height: 28px;
+  display: inline-grid;
+  width: 34px;
+  height: 32px;
+  place-items: center;
   border: 1px solid transparent;
   border-radius: 7px;
-  font-size: 16px;
-  filter: saturate(0.72);
+  color: var(--muted);
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
-    filter 0.15s ease,
+    color 0.15s ease,
     transform 0.15s ease;
 }
 .feedback-action:hover {
-  filter: saturate(1);
+  color: var(--text);
   transform: translateY(-1px);
 }
 .feedback-action.selected {
-  filter: saturate(1);
-  font-size: 17px;
   transform: translateY(-1px);
+}
+.feedback-action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.feedback-action svg {
+  display: block;
 }
 .feedback-up.selected {
   border-color: #93c5fd;
@@ -804,6 +810,10 @@ small {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+.feedback-chip:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 .feedback-inline-input {
   width: 100%;

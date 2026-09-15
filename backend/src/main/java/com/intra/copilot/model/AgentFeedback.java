@@ -1,5 +1,7 @@
 package com.intra.copilot.model;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.intra.copilot.util.EntityIdGenerator;
@@ -13,10 +15,25 @@ public class AgentFeedback {
     private Integer messageIndex;
     private String agentId;
     private String rating;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String comment;
+
     private String messageContent;
     private String userMessage;
+    private String source;
+    private String userId;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String reasonCode;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String reasonText;
+
+    private String status = "ACTIVE";
     private Instant createdAt = Instant.now();
+    private Instant ratedAt = Instant.now();
+    private Instant updatedAt = Instant.now();
 
     public String getId() {
         return id;
@@ -86,7 +103,67 @@ public class AgentFeedback {
         userMessage = v;
     }
 
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String v) {
+        source = v;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String v) {
+        userId = v;
+    }
+
+    public String getReasonCode() {
+        return reasonCode;
+    }
+
+    public void setReasonCode(String v) {
+        reasonCode = v;
+    }
+
+    public String getReasonText() {
+        return reasonText;
+    }
+
+    public void setReasonText(String v) {
+        reasonText = v;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String v) {
+        status = v;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public void setCreatedAt(Instant v) {
+        createdAt = v;
+    }
+
+    public Instant getRatedAt() {
+        return ratedAt;
+    }
+
+    public void setRatedAt(Instant v) {
+        ratedAt = v;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant v) {
+        updatedAt = v;
     }
 }
