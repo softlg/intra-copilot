@@ -16,6 +16,8 @@ export type IconName =
   | "play"
   | "pause"
   | "copy"
+  | "grid"
+  | "list"
   | "tag"
   | "filter"
   | "refresh"
@@ -57,6 +59,8 @@ const PATHS: Record<IconName, string> = {
   play: "M7 4v16l13-8L7 4Z",
   pause: "M9 4h2v16H9Zm4 0h2v16h-2Z",
   copy: "M9 9h11v11H9zM5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1",
+  grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  list: "M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01",
   tag: "M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9Zm5-6h.01",
   filter: "M4 5h16l-6 8v6l-4-2v-4L4 5Z",
   refresh: "M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5",

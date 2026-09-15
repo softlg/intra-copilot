@@ -5,6 +5,7 @@ import type { Language, Translations } from "../i18n/translations";
 import type { AgentFeedback, FeedbackPage, FeedbackSummary } from "../types";
 
 type Period = "7d" | "30d" | "all";
+type FeedbackView = "cards" | "compact";
 
 export interface RatingsPageProps {
   t: Translations;
@@ -71,6 +72,8 @@ function formatDate(value: string | undefined, language: Language) {
   return new Date(value).toLocaleString(language === "zh" ? "zh-CN" : "en-US");
 }
 
+const FEEDBACK_PAGE_SIZE = 12;
+
 /** Filterable ratings and feedback overview for every agent. */
 export function RatingsPage({ t, language }: RatingsPageProps) {
   const [items, setItems] = useState<AgentFeedback[]>([]);
@@ -85,7 +88,8 @@ export function RatingsPage({ t, language }: RatingsPageProps) {
   const [queryDraft, setQueryDraft] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const [feedbackView, setFeedbackView] = useState<FeedbackView>("compact");
+  const pageSize = FEEDBACK_PAGE_SIZE;
 
   useEffect(() => {
     let cancelled = false;
@@ -509,67 +513,113 @@ export function RatingsPage({ t, language }: RatingsPageProps) {
             : t.noFeedback}
         </p>
       ) : (
-        <div className="feedback-list">
-          {items.map((item) => (
-            <article className="feedback-card feedback-record" key={item.id}>
-              <div className="row">
-                <div className="feedback-record-agent">
-                  <strong>
-                    {item.agentName || item.agentId || t.feedbackUnknownAgent}
-                  </strong>
-                  {item.agentId && item.agentName && (
-                    <code>{item.agentId}</code>
-                  )}
-                </div>
-                <span className={`feedback-rating ${item.rating}`}>
-                  <Icon
-                    name={item.rating === "up" ? "check" : "alert"}
-                    size={13}
-                  />
-                  {item.rating === "up" ? t.ratingUp : t.ratingDown}
-                </span>
-              </div>
-              <div
+        <>
+          <div className="feedback-feed-toolbar">
+            <span>{t.paginationTotal(summary?.total ?? items.length)}</span>
+            <div
+              className="segmented-control feedback-view-control"
+              role="group"
+              aria-label={t.feedbackViewMode}
+            >
+              <button
+                type="button"
                 className={
-                  "feedback-record-reason" +
-                  (item.reasonCode === "MISSING" ? " missing" : "")
+                  "segmented-option" +
+                  (feedbackView === "cards" ? " active" : "")
                 }
+                aria-pressed={feedbackView === "cards"}
+                onClick={() => setFeedbackView("cards")}
               >
-                <span>{reasonLabel(item.reasonCode, t)}</span>
-                {item.reasonText && <p>{item.reasonText}</p>}
-              </div>
-              <p className="feedback-record-question">
-                <strong>{t.feedbackQuestion}</strong>
-                {excerpt(item.userMessage)}
-              </p>
-              <details className="feedback-context">
-                <summary>{t.feedbackContext}</summary>
-                <p>
-                  <strong>{t.feedbackAnswer}：</strong>
-                  {excerpt(item.messageContent, 1200)}
-                </p>
-                <div className="feedback-record-meta">
-                  <span>
-                    {t.feedbackSession}：{item.sessionId || "-"}
-                  </span>
-                  <span>
-                    {t.feedbackUpdatedAt}：
-                    {formatDate(
-                      item.updatedAt || item.ratedAt || item.createdAt,
-                      language,
+                <Icon name="grid" size={14} />
+                {t.feedbackViewCards}
+              </button>
+              <button
+                type="button"
+                className={
+                  "segmented-option" +
+                  (feedbackView === "compact" ? " active" : "")
+                }
+                aria-pressed={feedbackView === "compact"}
+                onClick={() => setFeedbackView("compact")}
+              >
+                <Icon name="list" size={14} />
+                {t.feedbackViewCompact}
+              </button>
+            </div>
+          </div>
+          <div
+            className={`feedback-list ${feedbackView}`}
+            key={`${feedbackView}:${page}:${period}:${agentId}:${rating}:${reasonCode}:${query}:${reloadKey}`}
+          >
+            {items.map((item, index) => (
+              <article
+                className="feedback-card feedback-record"
+                key={item.id}
+                style={{
+                  animationDelay: `${Math.min(index, 8) * 24}ms`,
+                }}
+              >
+                <div className="row">
+                  <div className="feedback-record-agent">
+                    <strong>
+                      {item.agentName || item.agentId || t.feedbackUnknownAgent}
+                    </strong>
+                    {item.agentId && item.agentName && (
+                      <code>{item.agentId}</code>
                     )}
+                  </div>
+                  <span className={`feedback-rating ${item.rating}`}>
+                    <Icon
+                      name={item.rating === "up" ? "check" : "alert"}
+                      size={13}
+                    />
+                    {item.rating === "up" ? t.ratingUp : t.ratingDown}
                   </span>
                 </div>
-              </details>
-              <small>
-                {formatDate(
-                  item.ratedAt || item.createdAt || item.updatedAt,
-                  language,
-                )}
-              </small>
-            </article>
-          ))}
-        </div>
+                <div
+                  className={
+                    "feedback-record-reason" +
+                    (item.reasonCode === "MISSING" ? " missing" : "")
+                  }
+                >
+                  <span>{reasonLabel(item.reasonCode, t)}</span>
+                  {item.reasonText && <p>{item.reasonText}</p>}
+                </div>
+                <p className="feedback-record-question">
+                  <strong>{t.feedbackQuestion}</strong>
+                  {excerpt(item.userMessage)}
+                </p>
+                <details className="feedback-context">
+                  <summary>{t.feedbackContext}</summary>
+                  <div className="feedback-context-content">
+                    <p>
+                      <strong>{t.feedbackAnswer}：</strong>
+                      {excerpt(item.messageContent, 1200)}
+                    </p>
+                    <div className="feedback-record-meta">
+                      <span>
+                        {t.feedbackSession}：{item.sessionId || "-"}
+                      </span>
+                      <span>
+                        {t.feedbackUpdatedAt}：
+                        {formatDate(
+                          item.updatedAt || item.ratedAt || item.createdAt,
+                          language,
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </details>
+                <small>
+                  {formatDate(
+                    item.ratedAt || item.createdAt || item.updatedAt,
+                    language,
+                  )}
+                </small>
+              </article>
+            ))}
+          </div>
+        </>
       )}
 
       {summary && summary.total > pageSize && (
