@@ -182,5 +182,12 @@ Jackson 会把 `\n`、空格、引号全部正确转义为合法单行 JSON，�
 - **Phase 3（性能 / 滚动 / 状态 / 防重）**：token 以 ~60ms 节流批量 flush 减少全量重渲染；滚动仅当用户贴近底部时跟随；`markGenerationFailed`/`markGenerationStopped` 改用独立 `status` 徽标，不再污染正文（根治"复制回答带错误提示"）；`busyRef` 同步守卫拦截重复 `send()`；重试重置 `status/errorMessage/toolTrace`。
 - **Phase 4（验证与提交）**：已按模块提交；因本沙箱环境 npm 被 wsl.exe 黑名单拦截、Maven 不在 PATH，**未能在本地运行 `mvn test` / `npx tsc --noEmit` / `npm run build`**，需在用户环境执行这些验证命令后再发布。
 
-> 未做项（计划中标注为可选/后续观察）：system prompt 增加输出格式规范、`normalizeAssistantMarkdown` 进一步收缩为纯兜底。根因（SSE token 保真）已由 Phase 1 解决，这两项属锦上添花，留待观察反馈再决定。
+### Phase 5（可选项，2026-09-15 补做）
+
+原计划中标注为"可选/后续观察"的两条已落地：
+
+- **system prompt 增加输出格式规范**：在 `ChatService` 新增 `OUTPUT_FORMAT_GUIDANCE` 常量，于组装有效 system prompt 时（`runAgent` 内、`final String systemEffective` 之前）无条件追加给所有 Agent（用户助手 + 领域 Agent）。要求模型输出规范 Markdown（标题空格、代码围栏独占行并标注语言、行内代码、GFM 表格、列表/段落换行），并明确"工具调用过程不写入正文、由前端独立面板展示"。从源头减少标题/代码块/表格渲染错乱，使前端后处理回归兜底角色。
+- **`normalizeAssistantMarkdown` 收缩为纯兜底**：删除列表/中文标签/项目符号/表格行的启发式重排，仅保留两类安全修正——提供方双重转义解码（`decodeAssistantEscapes`）与 Markdown 标题缺少 `#` 后空格的修正。与后端 JSON 信封 + system prompt 规范形成闭环，降低启发式误伤正文的风险。
+
+> 根因（SSE token 保真）已由 Phase 1 解决；Phase 5 是从"前端后处理纠偏"转向"模型原生规范输出 + 前端最小兜底"的收口，进一步降低渲染错乱概率。
 
