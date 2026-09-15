@@ -1996,6 +1996,9 @@ article p {
 }
 
 .resource-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   min-width: 210px;
   min-height: 38px;
   padding: 0 11px;
@@ -2005,8 +2008,37 @@ article p {
   color: var(--text);
 }
 
-.resource-search::placeholder {
+.resource-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.resource-search input::-webkit-search-cancel-button {
+  cursor: pointer;
+  filter: invert(0.7);
+}
+
+.resource-search input::placeholder {
   color: var(--muted-subtle);
+}
+
+.resource-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: var(--danger-tint);
+  color: var(--danger-text);
+  font-size: 13px;
 }
 
 .resource-filter:focus-visible {
@@ -4669,6 +4701,65 @@ pre {
 
 .agent-test-modal {
   width: min(100%, 560px);
+}
+
+.tool-test-modal {
+  width: min(100%, 640px);
+}
+
+.tool-test-warning {
+  margin: -4px 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger-tint-border);
+  border-radius: 8px;
+  background: var(--danger-tint);
+  color: var(--danger-text);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.tool-test-result {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+.tool-test-result > strong {
+  font-size: 13px;
+}
+
+.tool-test-result.success {
+  border-color: var(--success-strong);
+}
+
+.tool-test-result.success > strong {
+  color: var(--success);
+}
+
+.tool-test-result.failure {
+  border-color: var(--danger-border);
+}
+
+.tool-test-result.failure > strong {
+  color: var(--danger-text);
+}
+
+.tool-test-result pre {
+  max-height: 260px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-radius: 7px;
+  background: var(--control-bg);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .test-result {

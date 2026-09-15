@@ -58,6 +58,12 @@ export type ToolDefinition = {
   type?: string;
   method?: string;
   endpoint?: string;
+  remoteName?: string;
+  parameterSchema?: string;
+  timeoutMs?: number;
+  authHeaderName?: string;
+  authEnv?: string;
+  authScheme?: string;
   mcpServerUrl?: string;
   mcpTransport?: string;
   mcpAuthEnv?: string;

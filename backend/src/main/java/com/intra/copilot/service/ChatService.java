@@ -1562,7 +1562,8 @@ public class ChatService {
                                                         out,
                                                         finished,
                                                         call.name(),
-                                                        "未找到已启用的工具：" + call.name());
+                                                        "未找到已启用的工具：" + call.name(),
+                                                        false);
                                         turns.add(
                                                 Map.of(
                                                         "role",
@@ -1574,17 +1575,25 @@ public class ChatService {
                                         continue;
                                 }
                                 emitStage(out, finished, "tool", "正在调用工具：" + toolDef.getName());
-                                emitToolInvoked(out, finished, toolDef.getName(), call.arguments());
-                                String result = toolExecutor.execute(toolDef, call.arguments());
+                                String redactedArguments =
+                                                toolExecutor.redactArguments(toolDef, call.arguments());
+                                emitToolInvoked(
+                                                out,
+                                                finished,
+                                                toolDef.getName(),
+                                                redactedArguments);
+                                ToolExecutor.ToolExecutionResult execution =
+                                                toolExecutor.executeDetailed(toolDef, call.arguments());
+                                String result = execution.output();
                                 trace.event(
                                                 targetInvocationId,
                                                 correlationId,
                                                 TraceRecorder.Type.TOOL_CALL)
                                         .name("工具调用：" + toolDef.getName())
-                                        .status("OK")
+                                        .status(execution.success() ? "OK" : "FAILED")
                                         .plan(planId, planStepId)
                                         .put("toolName", toolDef.getName())
-                                        .put("arguments", call.arguments())
+                                        .put("arguments", redactedArguments)
                                         .put(
                                                 "resultPreview",
                                                 result.length() > 500
@@ -1611,9 +1620,10 @@ public class ChatService {
                                                 correlationId,
                                                 TraceRecorder.Type.TOOL_RESULT)
                                         .name("工具返回：" + toolDef.getName())
-                                        .status("OK")
+                                        .status(execution.success() ? "OK" : "FAILED")
                                         .plan(planId, planStepId)
                                         .put("toolName", toolDef.getName())
+                                        .put("success", execution.success())
                                         .put(
                                                 "result",
                                                 result.length() > 4000
@@ -1621,7 +1631,12 @@ public class ChatService {
                                                         : result)
                                         .put("iteration", iter)
                                         .save();
-                                emitToolResult(out, finished, toolDef.getName(), result);
+                                emitToolResult(
+                                                out,
+                                                finished,
+                                                toolDef.getName(),
+                                                result,
+                                                execution.success());
                                 turns.add(
                                                 Map.of(
                                                         "role",
@@ -2134,11 +2149,19 @@ public class ChatService {
                 } catch (IOException ignored) { }
         }
 
-        private void emitToolResult(SseEmitter out, AtomicBoolean finished, String name, String result) {
+        private void emitToolResult(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        String name,
+                        String result,
+                        boolean success) {
                 if (finished.get()) return;
                 String preview = result.length() > 2000 ? result.substring(0, 2000) + "\n...[truncated]" : result;
                 try {
-                        out.send(SseEmitter.event().name("tool_result").data(Map.of("tool", name, "result", preview)));
+                        out.send(SseEmitter.event().name("tool_result").data(Map.of(
+                                        "tool", name,
+                                        "result", preview,
+                                        "success", success)));
                 } catch (IOException ignored) { }
         }
 

@@ -212,6 +212,8 @@ function AdminApp({
     useState(false);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [toolsLoading, setToolsLoading] = useState(true);
+  const [toolsError, setToolsError] = useState("");
+  const [toolSearch, setToolSearch] = useState("");
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [mcpServersLoading, setMcpServersLoading] = useState(true);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
@@ -237,12 +239,26 @@ function AdminApp({
   const [resourceType, setResourceType] = useState("BROWSER_PROPOSAL");
   const [resourceMethod, setResourceMethod] = useState("POST");
   const [resourceEndpoint, setResourceEndpoint] = useState("");
+  const [resourceParameterSchema, setResourceParameterSchema] = useState("{}");
+  const [resourceTimeoutMs, setResourceTimeoutMs] = useState(10000);
+  const [resourceAuthHeaderName, setResourceAuthHeaderName] = useState("");
+  const [resourceAuthEnv, setResourceAuthEnv] = useState("");
+  const [resourceAuthScheme, setResourceAuthScheme] = useState("");
   const [resourcePrompt, setResourcePrompt] = useState("");
   const [resourceVersion, setResourceVersion] = useState("1.0.0");
   const [resourceEnabled, setResourceEnabled] = useState(true);
   const [resourceSubmitting, setResourceSubmitting] = useState(false);
   const [resourceError, setResourceError] = useState("");
   const [resourceActionId, setResourceActionId] = useState<string>();
+  const resourceDialogTriggerRef = useRef<HTMLElement | null>(null);
+  const [toolTestTarget, setToolTestTarget] = useState<ToolDefinition>();
+  const [toolTestArguments, setToolTestArguments] = useState("{}");
+  const [toolTestResult, setToolTestResult] = useState<{
+    success: boolean;
+    output: string;
+  }>();
+  const [toolTestRunning, setToolTestRunning] = useState(false);
+  const [toolTestError, setToolTestError] = useState("");
   const [resourceDetails, setResourceDetails] = useState<
     ResourceDetails | undefined
   >();
@@ -542,9 +558,14 @@ function AdminApp({
 
   const loadTools = () => {
     setToolsLoading(true);
+    setToolsError("");
     request<ToolDefinition[]>("/admin/tools")
       .then(setTools)
-      .catch(() => setTools([]))
+      .catch((error) => {
+        setToolsError(
+          error instanceof Error ? error.message : t.resourceLoadFailed,
+        );
+      })
       .finally(() => setToolsLoading(false));
   };
 
@@ -851,6 +872,10 @@ function AdminApp({
     kind: "tool" | "skill",
     resource?: ToolDefinition | SkillDefinition,
   ) => {
+    resourceDialogTriggerRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     setResourceDialog(kind);
     setEditingResourceId(resource?.id);
     setResourceName(resource?.name ?? "");
@@ -862,6 +887,11 @@ function AdminApp({
       setResourceType(tool?.type ?? "BROWSER_PROPOSAL");
       setResourceMethod(tool?.method ?? "POST");
       setResourceEndpoint(tool?.endpoint ?? "");
+      setResourceParameterSchema(tool?.parameterSchema ?? "{}");
+      setResourceTimeoutMs(tool?.timeoutMs ?? 10000);
+      setResourceAuthHeaderName(tool?.authHeaderName ?? "");
+      setResourceAuthEnv(tool?.authEnv ?? "");
+      setResourceAuthScheme(tool?.authScheme ?? "");
     } else {
       const skill = resource as SkillDefinition | undefined;
       setResourcePrompt(skill?.prompt ?? "");
@@ -870,7 +900,57 @@ function AdminApp({
   };
 
   const closeResourceDialog = () => {
-    if (!resourceSubmitting) setResourceDialog(undefined);
+    if (resourceSubmitting) return;
+    setResourceDialog(undefined);
+    window.setTimeout(() => resourceDialogTriggerRef.current?.focus(), 0);
+  };
+
+  const openToolTest = (tool: ToolDefinition) => {
+    setToolTestTarget(tool);
+    setToolTestArguments("{}");
+    setToolTestResult(undefined);
+    setToolTestError("");
+  };
+
+  const closeToolTest = () => {
+    if (toolTestRunning) return;
+    setToolTestTarget(undefined);
+    setToolTestArguments("{}");
+    setToolTestResult(undefined);
+    setToolTestError("");
+  };
+
+  const runToolTest = async () => {
+    if (!toolTestTarget) return;
+    try {
+      const parsed = JSON.parse(toolTestArguments || "{}") as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        setToolTestError(t.toolTestInvalidArguments);
+        return;
+      }
+    } catch {
+      setToolTestError(t.toolTestInvalidArguments);
+      return;
+    }
+    setToolTestRunning(true);
+    setToolTestError("");
+    setToolTestResult(undefined);
+    try {
+      const result = await request<{ success: boolean; output: string }>(
+        `/admin/tools/${toolTestTarget.id}/test`,
+        {
+          method: "POST",
+          body: JSON.stringify({ arguments: toolTestArguments || "{}" }),
+        },
+      );
+      setToolTestResult(result);
+    } catch (error) {
+      setToolTestError(
+        error instanceof Error ? error.message : t.toolTestFailed,
+      );
+    } finally {
+      setToolTestRunning(false);
+    }
   };
 
   const saveResource = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -879,6 +959,10 @@ function AdminApp({
     const name = resourceName.trim();
     if (!name) {
       setResourceError(t.resourceNameRequired);
+      return;
+    }
+    if (resourceDialog === "tool" && !/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
+      setResourceError(t.toolNameInvalid);
       return;
     }
     if (!resourceDescription.trim()) {
@@ -907,6 +991,34 @@ function AdminApp({
       setResourceError(t.endpointRequired);
       return;
     }
+    if (
+      resourceDialog === "tool" &&
+      resourceType === "HTTP" &&
+      (resourceAuthHeaderName.trim() === "") !== (resourceAuthEnv.trim() === "")
+    ) {
+      setResourceError(t.toolAuthPairRequired);
+      return;
+    }
+    if (
+      resourceDialog === "tool" &&
+      resourceType === "HTTP" &&
+      (resourceTimeoutMs < 500 || resourceTimeoutMs > 60000)
+    ) {
+      setResourceError(t.toolTimeoutInvalid);
+      return;
+    }
+    if (resourceDialog === "tool") {
+      try {
+        const schema = JSON.parse(resourceParameterSchema || "{}") as unknown;
+        if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+          setResourceError(t.toolSchemaInvalid);
+          return;
+        }
+      } catch {
+        setResourceError(t.toolSchemaInvalid);
+        return;
+      }
+    }
     if (resourceDialog === "skill" && !resourcePrompt.trim()) {
       setResourceError(t.skillPromptRequired);
       return;
@@ -924,8 +1036,20 @@ function AdminApp({
               name,
               description: resourceDescription.trim(),
               type: resourceType,
-              method: resourceMethod,
+              method: resourceType === "HTTP" ? resourceMethod : null,
               endpoint: resourceEndpoint.trim() || null,
+              parameterSchema: resourceParameterSchema.trim() || "{}",
+              timeoutMs: resourceTimeoutMs,
+              authHeaderName:
+                resourceType === "HTTP"
+                  ? resourceAuthHeaderName.trim() || null
+                  : null,
+              authEnv:
+                resourceType === "HTTP" ? resourceAuthEnv.trim() || null : null,
+              authScheme:
+                resourceType === "HTTP"
+                  ? resourceAuthScheme.trim() || null
+                  : null,
               enabled: resourceEnabled,
             }
           : {
@@ -941,6 +1065,7 @@ function AdminApp({
         body: JSON.stringify(body),
       });
       setResourceDialog(undefined);
+      window.setTimeout(() => resourceDialogTriggerRef.current?.focus(), 0);
       if (resourceDialog === "tool") loadTools();
       else loadSkills();
     } catch (error) {
@@ -1243,6 +1368,7 @@ function AdminApp({
       !agentDialogOpen &&
       !agentTestDialogOpen &&
       !resourceDialog &&
+      !toolTestTarget &&
       !hookDialogOpen &&
       !mcpDialogOpen &&
       !settingsOpen &&
@@ -1281,6 +1407,9 @@ function AdminApp({
       if (resourceDialog && !resourceSubmitting) {
         setResourceDialog(undefined);
       }
+      if (toolTestTarget && !toolTestRunning) {
+        setToolTestTarget(undefined);
+      }
       if (hookDialogOpen && !hookSubmitting) {
         setHookDialogOpen(false);
       }
@@ -1299,6 +1428,8 @@ function AdminApp({
     baseSubmitting,
     resourceDialog,
     resourceSubmitting,
+    toolTestTarget,
+    toolTestRunning,
     hookDialogOpen,
     hookSubmitting,
     mcpDialogOpen,
@@ -2430,11 +2561,23 @@ function AdminApp({
   }, [activeBaseId, hasProcessingDocuments]);
 
   const filteredDocuments = activeDocuments;
-  const filteredTools = tools.filter(
-    (tool) =>
+  const filteredTools = tools.filter((tool) => {
+    const query = toolSearch.trim().toLowerCase();
+    const matchesStatus =
       resourceStatus === "all" ||
-      (resourceStatus === "enabled" ? tool.enabled : !tool.enabled),
-  );
+      (resourceStatus === "enabled" ? tool.enabled : !tool.enabled);
+    const matchesQuery =
+      !query ||
+      [
+        tool.name,
+        tool.description ?? "",
+        tool.id,
+        tool.type ?? "",
+        tool.endpoint ?? "",
+        tool.remoteName ?? "",
+      ].some((value) => value.toLowerCase().includes(query));
+    return matchesStatus && matchesQuery;
+  });
   const filteredMcpServers = mcpServers;
   const filteredHooks = hooks.filter((hook) => {
     const query = hookSearch.trim().toLowerCase();
@@ -2986,11 +3129,19 @@ function AdminApp({
             tools={tools}
             filteredTools={filteredTools}
             loading={toolsLoading}
+            error={toolsError}
             actionId={resourceActionId}
             status={resourceStatus}
+            search={toolSearch}
             onStatusChange={setResourceStatus}
+            onSearchChange={setToolSearch}
             onNew={() => openResourceDialog("tool")}
+            onRetry={loadTools}
             onEdit={(item) => openResourceDialog("tool", item)}
+            onShowDetails={(item) =>
+              setResourceDetails({ kind: "tool", resource: item })
+            }
+            onTest={openToolTest}
             onToggle={(item) => toggleResource("tool", item)}
             onDelete={(item) => deleteResource("tool", item)}
           />
@@ -3179,10 +3330,13 @@ function AdminApp({
             className="modal resource-details-modal"
             role="dialog"
             aria-modal="true"
+            aria-labelledby="resource-details-title"
           >
             <div className="modal-header">
               <div>
-                <h3>{resourceDetails.resource.name}</h3>
+                <h3 id="resource-details-title">
+                  {resourceDetails.resource.name}
+                </h3>
                 <p className="modal-subtitle">{t.resourceDetails}</p>
               </div>
               <button
@@ -3212,13 +3366,53 @@ function AdminApp({
                     <span className="detail-label">{t.toolTypeLabel}</span>
                     <span>{resourceDetails.resource.type || "-"}</span>
                   </div>
+                  {resourceDetails.resource.method && (
+                    <div>
+                      <span className="detail-label">{t.method}</span>
+                      <span>{resourceDetails.resource.method}</span>
+                    </div>
+                  )}
+                  {resourceDetails.resource.remoteName && (
+                    <div>
+                      <span className="detail-label">{t.remoteName}</span>
+                      <code>{resourceDetails.resource.remoteName}</code>
+                    </div>
+                  )}
+                  {resourceDetails.resource.endpoint && (
+                    <div className="detail-full">
+                      <span className="detail-label">{t.endpoint}</span>
+                      <code>{resourceDetails.resource.endpoint}</code>
+                    </div>
+                  )}
                   <div>
-                    <span className="detail-label">{t.method}</span>
-                    <span>{resourceDetails.resource.method || "-"}</span>
+                    <span className="detail-label">{t.timeoutMs}</span>
+                    <span>
+                      {resourceDetails.resource.timeoutMs ?? 10000} ms
+                    </span>
                   </div>
+                  {resourceDetails.resource.authHeaderName && (
+                    <div>
+                      <span className="detail-label">{t.authHeaderName}</span>
+                      <code>{resourceDetails.resource.authHeaderName}</code>
+                    </div>
+                  )}
+                  {resourceDetails.resource.authEnv && (
+                    <div>
+                      <span className="detail-label">{t.authEnv}</span>
+                      <code>{resourceDetails.resource.authEnv}</code>
+                    </div>
+                  )}
+                  {resourceDetails.resource.authHeaderName && (
+                    <div>
+                      <span className="detail-label">{t.authScheme}</span>
+                      <code>{resourceDetails.resource.authScheme || "-"}</code>
+                    </div>
+                  )}
                   <div className="detail-full">
-                    <span className="detail-label">{t.endpoint}</span>
-                    <code>{resourceDetails.resource.endpoint || "-"}</code>
+                    <span className="detail-label">{t.parameterSchema}</span>
+                    <pre>
+                      {resourceDetails.resource.parameterSchema || "{}"}
+                    </pre>
                   </div>
                 </>
               ) : (
@@ -4087,10 +4281,15 @@ function AdminApp({
             if (event.target === event.currentTarget) closeResourceDialog();
           }}
         >
-          <div className="modal" role="dialog" aria-modal="true">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="resource-dialog-title"
+          >
             <div className="modal-header">
               <div>
-                <h3>
+                <h3 id="resource-dialog-title">
                   {editingResourceId ? t.edit : t.createResource} ·{" "}
                   {resourceDialog === "tool" ? t.tool : t.skill}
                 </h3>
@@ -4116,9 +4315,12 @@ function AdminApp({
                   autoFocus
                   value={resourceName}
                   onChange={(event) => setResourceName(event.target.value)}
-                  maxLength={100}
+                  maxLength={resourceDialog === "tool" ? 64 : 100}
                   required
                 />
+                {resourceDialog === "tool" && (
+                  <small className="field-hint">{t.toolNameHint}</small>
+                )}
               </label>
               <label className="field">
                 <span>
@@ -4158,37 +4360,108 @@ function AdminApp({
                         <option value="HTTP">HTTP API</option>
                       </select>
                     </label>
-                    <label className="field">
-                      <span>{t.method}</span>
-                      <select
-                        value={resourceMethod}
-                        onChange={(event) =>
-                          setResourceMethod(event.target.value)
-                        }
-                      >
-                        {["GET", "POST", "PUT", "PATCH", "DELETE"].map(
-                          (method) => (
-                            <option key={method} value={method}>
-                              {method}
-                            </option>
-                          ),
-                        )}
-                      </select>
-                    </label>
+                    {resourceType === "HTTP" && (
+                      <label className="field">
+                        <span>{t.method}</span>
+                        <select
+                          value={resourceMethod}
+                          onChange={(event) =>
+                            setResourceMethod(event.target.value)
+                          }
+                        >
+                          {["GET", "POST", "PUT", "PATCH", "DELETE"].map(
+                            (method) => (
+                              <option key={method} value={method}>
+                                {method}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </label>
+                    )}
                   </div>
                   {resourceType === "HTTP" && (
-                    <label className="field">
-                      <span>{t.endpoint}</span>
-                      <input
-                        value={resourceEndpoint}
-                        onChange={(event) =>
-                          setResourceEndpoint(event.target.value)
-                        }
-                        placeholder={t.endpointPlaceholder}
-                      />
-                      <small className="field-hint">{t.endpointHint}</small>
-                    </label>
+                    <>
+                      <label className="field">
+                        <span>{t.endpoint}</span>
+                        <input
+                          value={resourceEndpoint}
+                          onChange={(event) =>
+                            setResourceEndpoint(event.target.value)
+                          }
+                          placeholder={t.endpointPlaceholder}
+                        />
+                        <small className="field-hint">{t.endpointHint}</small>
+                      </label>
+                      <div className="field-grid">
+                        <label className="field">
+                          <span>{t.timeoutMs}</span>
+                          <input
+                            min={500}
+                            max={60000}
+                            step={100}
+                            type="number"
+                            value={resourceTimeoutMs}
+                            onChange={(event) =>
+                              setResourceTimeoutMs(Number(event.target.value))
+                            }
+                          />
+                          <small className="field-hint">{t.timeoutHint}</small>
+                        </label>
+                        <label className="field">
+                          <span>{t.authHeaderName}</span>
+                          <input
+                            maxLength={160}
+                            value={resourceAuthHeaderName}
+                            onChange={(event) =>
+                              setResourceAuthHeaderName(event.target.value)
+                            }
+                            placeholder="Authorization"
+                          />
+                        </label>
+                      </div>
+                      <div className="field-grid">
+                        <label className="field">
+                          <span>{t.authEnv}</span>
+                          <input
+                            maxLength={160}
+                            value={resourceAuthEnv}
+                            onChange={(event) =>
+                              setResourceAuthEnv(event.target.value)
+                            }
+                            placeholder="API_TOKEN"
+                          />
+                        </label>
+                        <label className="field">
+                          <span>{t.authScheme}</span>
+                          <input
+                            maxLength={64}
+                            value={resourceAuthScheme}
+                            onChange={(event) =>
+                              setResourceAuthScheme(event.target.value)
+                            }
+                            placeholder={t.authSchemePlaceholder}
+                          />
+                        </label>
+                      </div>
+                      <p className="field-hint">{t.authHint}</p>
+                    </>
                   )}
+                  <label className="field">
+                    <span>{t.parameterSchema}</span>
+                    <textarea
+                      value={resourceParameterSchema}
+                      onChange={(event) =>
+                        setResourceParameterSchema(event.target.value)
+                      }
+                      placeholder={t.parameterSchemaPlaceholder}
+                      rows={6}
+                      spellCheck={false}
+                    />
+                    <small className="field-hint">
+                      {t.parameterSchemaHint}
+                    </small>
+                  </label>
                 </>
               ) : (
                 <>
@@ -4240,6 +4513,95 @@ function AdminApp({
                     : editingResourceId
                       ? t.saveResource
                       : t.createResource}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {toolTestTarget && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !toolTestRunning) {
+              closeToolTest();
+            }
+          }}
+        >
+          <div
+            className="modal tool-test-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tool-test-dialog-title"
+          >
+            <div className="modal-header">
+              <div>
+                <h3 id="tool-test-dialog-title">
+                  {t.toolTestTitle(toolTestTarget.name)}
+                </h3>
+                <p className="modal-subtitle">{toolTestTarget.description}</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={closeToolTest}
+                disabled={toolTestRunning}
+                aria-label={t.close}
+              >
+                ×
+              </button>
+            </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void runToolTest();
+              }}
+            >
+              <label className="field">
+                <span>{t.toolTestArguments}</span>
+                <textarea
+                  autoFocus
+                  value={toolTestArguments}
+                  onChange={(event) => {
+                    setToolTestArguments(event.target.value);
+                    setToolTestError("");
+                    setToolTestResult(undefined);
+                  }}
+                  rows={8}
+                  spellCheck={false}
+                />
+              </label>
+              <p className="tool-test-warning">{t.toolTestHint}</p>
+              {toolTestError && (
+                <p className="error" role="alert">
+                  {toolTestError}
+                </p>
+              )}
+              {toolTestResult && (
+                <section
+                  className={`tool-test-result ${toolTestResult.success ? "success" : "failure"}`}
+                  aria-live="polite"
+                >
+                  <strong>
+                    {toolTestResult.success
+                      ? t.toolTestSuccess
+                      : t.toolTestFailed}
+                  </strong>
+                  <pre>{toolTestResult.output || "-"}</pre>
+                </section>
+              )}
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeToolTest}
+                  disabled={toolTestRunning}
+                >
+                  {t.cancel}
+                </button>
+                <button type="submit" disabled={toolTestRunning}>
+                  {toolTestRunning ? t.toolTestRunning : t.toolTestRun}
                 </button>
               </div>
             </form>

@@ -61,7 +61,7 @@ $env:ADMIN_SESSION_SECRET="long-random-value"
 - `GET /api/v1/auth/admin/session`：校验当前登录状态。
 - `GET/POST/PUT/DELETE /api/v1/admin/agents`：Agent 配置及启用状态。
 - `/api/v1/admin/knowledge-bases`：知识库、Markdown/TXT/PDF 文档上传、重建索引和删除。
-- `/api/v1/admin/tools`、`/api/v1/admin/skills`：注册 HTTP 工具和 Skill；HTTP 工具仅允许 HTTPS 公网域名。
+- `/api/v1/admin/tools`、`/api/v1/admin/skills`：注册 HTTP 工具和 Skill。HTTP 工具默认允许访问 HTTP/HTTPS 公网地址，可通过 `TOOLS_ALLOW_HTTP=false` 禁止 HTTP；`TOOLS_ALLOW_PRIVATE_NETWORK=true` 可显式放行内网或本机地址。工具请求不跟随重定向。
 - `/api/v1/admin/mcp-servers`：MCP 服务注册、编辑、启停、删除和健康检查；`POST /{id}/health` 会执行 MCP `initialize` 与 `tools/list`，缓存接口数量、能力和接口详情。
 - `POST /api/v1/admin/router/test`：按插件请求协议测试系统 Agent 路由，支持页面权限、图片附件和领域/子 Agent 委派链路。
 - `POST /api/v1/admin/router/attachments`：上传路由测试图片并返回管理端预览地址。

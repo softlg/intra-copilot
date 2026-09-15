@@ -4,25 +4,27 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intra.copilot.model.McpServer;
 import com.intra.copilot.model.ToolDefinition;
+import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.repo.McpServerRepository;
+import com.intra.copilot.repo.SkillToolBindingRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.BufferedWriter;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URI;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -31,9 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -44,36 +44,38 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
- * Registers MCP servers, performs a safe initialize / tools-list discovery, and
- * invokes tools via {@link #callTool}.
+ * Registers MCP servers, performs a safe initialize / tools-list discovery, and invokes tools via
+ * {@link #callTool}.
  *
  * <p>Supports three transports:
+ *
  * <ul>
- *   <li>Streamable HTTP — single endpoint, JSON-RPC over HTTP with optional SSE responses;</li>
- *   <li>legacy HTTP+SSE — a GET stream that advertises a message endpoint, then JSON-RPC over POST;</li>
+ *   <li>Streamable HTTP — single endpoint, JSON-RPC over HTTP with optional SSE responses;
+ *   <li>legacy HTTP+SSE — a GET stream that advertises a message endpoint, then JSON-RPC over POST;
  *   <li>STDIO — spawns a local subprocess and exchanges newline-delimited JSON-RPC over its
- *       stdin/stdout (gated behind {@code mcp.allow-stdio}, default false, because it executes
- *       a local command).</li>
+ *       stdin/stdout (gated behind {@code mcp.allow-stdio}, default false, because it executes a
+ *       local command).
  * </ul>
  *
- * <p>To avoid re-establishing transport state on every agent turn, a per-server session is
- * cached: STDIO keeps the subprocess alive across calls (initialize runs once), and Streamable
- * HTTP reuses the negotiated {@code Mcp-Session-Id} to skip the initialize round-trip. Sessions
- * are evicted after {@code mcp.session-idle-ms} of inactivity (SSE stays per-call, as its long-lived
- * GET stream is fragile to reuse).
+ * <p>To avoid re-establishing transport state on every agent turn, a per-server session is cached:
+ * STDIO keeps the subprocess alive across calls (initialize runs once), and Streamable HTTP reuses
+ * the negotiated {@code Mcp-Session-Id} to skip the initialize round-trip. Sessions are evicted
+ * after {@code mcp.session-idle-ms} of inactivity (SSE stays per-call, as its long-lived GET stream
+ * is fragile to reuse).
  */
 @Service
 public class McpServerService {
@@ -82,6 +84,8 @@ public class McpServerService {
 
     private final McpServerRepository repository;
     private final ToolDefinitionRepository toolRepository;
+    private final AgentDefinitionRepository agents;
+    private final SkillToolBindingRepository skillToolBindings;
     private final ObjectMapper mapper;
     private final RestClient.Builder restClientBuilder;
     private final int timeoutMs;
@@ -94,6 +98,8 @@ public class McpServerService {
     public McpServerService(
             McpServerRepository repository,
             ToolDefinitionRepository toolRepository,
+            AgentDefinitionRepository agents,
+            SkillToolBindingRepository skillToolBindings,
             ObjectMapper mapper,
             RestClient.Builder restClientBuilder,
             @Value("${mcp.timeout-ms:8000}") int timeoutMs,
@@ -102,6 +108,8 @@ public class McpServerService {
             @Value("${mcp.session-idle-ms:300000}") long sessionIdleMs) {
         this.repository = repository;
         this.toolRepository = toolRepository;
+        this.agents = agents;
+        this.skillToolBindings = skillToolBindings;
         this.mapper = mapper;
         this.restClientBuilder = restClientBuilder;
         this.timeoutMs = Math.max(1000, Math.min(30000, timeoutMs));
@@ -110,7 +118,9 @@ public class McpServerService {
         this.sessionIdleMs = Math.max(5000, sessionIdleMs);
     }
 
-    public List<McpServer> list() { return repository.findAll(); }
+    public List<McpServer> list() {
+        return repository.findAll();
+    }
 
     public McpServer get(String id) {
         return repository.findById(id).orElseThrow(() -> new IllegalArgumentException("MCP 服务不存在"));
@@ -145,10 +155,12 @@ public class McpServerService {
         current.setTransport(value.getTransport().toUpperCase());
         current.setAuthEnv(value.getAuthEnv());
         current.setEnabled(value.isEnabled());
-        boolean configChanged = !Objects.equals(current.getTransport(), value.getTransport().toUpperCase())
+        boolean configChanged =
+                !Objects.equals(current.getTransport(), value.getTransport().toUpperCase())
                 || !Objects.equals(current.getServerUrl(), value.getServerUrl().trim());
         current.touch();
         McpServer saved = repository.save(current);
+        syncToolEnabledState(saved);
         if (configChanged) {
             // 传输方式或地址变了，缓存的连接/进程已失效，立即逐出。
             evictSession(current.getId());
@@ -161,11 +173,20 @@ public class McpServerService {
         if (server.isEnabled()) {
             throw new IllegalArgumentException("MCP 服务处于启用状态，请先停用后再删除");
         }
-        evictSession(id);
-        toolRepository.findAll().stream()
-                .filter(t -> "MCP".equalsIgnoreCase(t.getType())
+        List<ToolDefinition> mirroredTools =
+                toolRepository
+                        .findAll()
+                        .stream()
+                        .filter(
+                                t ->
+                                        "MCP".equalsIgnoreCase(t.getType())
                         && server.getId().equals(t.getMcpServerId()))
-                .forEach(t -> toolRepository.deleteById(t.getId()));
+                        .toList();
+        for (ToolDefinition tool : mirroredTools) {
+            ensureToolNotReferenced(tool.getId());
+        }
+        evictSession(id);
+        mirroredTools.forEach(t -> toolRepository.deleteById(t.getId()));
         repository.deleteById(id);
     }
 
@@ -192,7 +213,11 @@ public class McpServerService {
             server.setInterfaceCount(0);
             server.setLastError(safeMessage(error));
         }
-        server.setLastLatencyMs((int) Math.min(Integer.MAX_VALUE, Duration.between(started, Instant.now()).toMillis()));
+        server.setLastLatencyMs(
+                (int)
+                        Math.min(
+                                Integer.MAX_VALUE,
+                                Duration.between(started, Instant.now()).toMillis()));
         server.touch();
         McpServer saved = repository.save(server);
         // Keep the agent-callable tool catalogue in sync with the discovered interface list.
@@ -201,8 +226,8 @@ public class McpServerService {
     }
 
     /**
-     * 周期性重新发现每个已启用的 MCP 服务，使镜像到 tool_definition 的工具目录与服务端保持一致
-     * （新增/移除工具、能力漂移）。单个服务的失败由 checkHealth 记录在其自身的行上，循环不会整体中断。
+     * 周期性重新发现每个已启用的 MCP 服务，使镜像到 tool_definition 的工具目录与服务端保持一致 （新增/移除工具、能力漂移）。单个服务的失败由 checkHealth
+     * 记录在其自身的行上，循环不会整体中断。
      */
     @Scheduled(fixedDelayString = "${mcp.health-check-interval-ms:300000}")
     public void scheduledHealthCheck() {
@@ -217,8 +242,8 @@ public class McpServerService {
     }
 
     /**
-     * Invokes a tool on the given MCP server. Returns the textual tool result, or
-     * throws on transport / JSON-RPC errors so the caller can surface a message.
+     * Invokes a tool on the given MCP server. Returns the textual tool result, or throws on
+     * transport / JSON-RPC errors so the caller can surface a message.
      */
     public String callTool(McpServer server, String toolName, String argumentsJson) {
         String transport = server.getTransport() == null ? "" : server.getTransport().toUpperCase();
@@ -255,23 +280,51 @@ public class McpServerService {
      * disappeared from the server are removed; stale rows from other servers are left untouched.
      */
     private void syncTools(McpServer server, List<Map<String, Object>> interfaces) {
-        List<ToolDefinition> existing = toolRepository.findAll().stream()
-                .filter(t -> "MCP".equalsIgnoreCase(t.getType())
+        List<ToolDefinition> existing =
+                toolRepository
+                        .findAll()
+                        .stream()
+                        .filter(
+                                t ->
+                                        "MCP".equalsIgnoreCase(t.getType())
                         && server.getId().equals(t.getMcpServerId()))
                 .collect(Collectors.toList());
-        Set<String> incomingNames = interfaces.stream()
+        Map<String, ToolDefinition> byRemoteName =
+                existing.stream()
+                        .filter(t -> t.getRemoteName() != null && !t.getRemoteName().isBlank())
+                        .collect(
+                                Collectors.toMap(
+                                        ToolDefinition::getRemoteName,
+                                        t -> t,
+                                        (left, right) -> left));
+        Set<String> incomingNames =
+                interfaces
+                        .stream()
                 .map(t -> String.valueOf(t.get("name")))
                 .collect(Collectors.toCollection(HashSet::new));
 
         for (ToolDefinition t : existing) {
-            if (!incomingNames.contains(t.getName())) {
+            String remoteName =
+                    t.getRemoteName() == null || t.getRemoteName().isBlank()
+                            ? t.getName()
+                            : t.getRemoteName();
+            if (!incomingNames.contains(remoteName)) {
+                if (isToolReferenced(t.getId())) {
+                    t.setEnabled(false);
+                    t.touch();
+                    toolRepository.save(t);
+                } else {
                 toolRepository.deleteById(t.getId());
             }
         }
+        }
 
+        Set<String> claimedRemoteNames = new HashSet<>();
         for (Map<String, Object> tool : interfaces) {
-            String name = String.valueOf(tool.get("name"));
-            String description = tool.get("description") == null ? "" : String.valueOf(tool.get("description"));
+            String remoteName = String.valueOf(tool.get("name"));
+            if (remoteName.isBlank() || !claimedRemoteNames.add(remoteName)) continue;
+            String description =
+                    tool.get("description") == null ? "" : String.valueOf(tool.get("description"));
             Object schema = tool.get("inputSchema");
             String schemaJson;
             try {
@@ -279,29 +332,137 @@ public class McpServerService {
             } catch (Exception ignored) {
                 schemaJson = "{}";
             }
-            ToolDefinition def = existing.stream()
-                    .filter(t -> name.equals(t.getName()))
-                    .findFirst()
-                    .orElse(null);
+            ToolDefinition def = byRemoteName.get(remoteName);
             if (def == null) {
                 def = new ToolDefinition();
                 def.setId(EntityIdGenerator.next("TL"));
             }
-            def.setName(name);
+            String functionName = uniqueFunctionName(remoteName, def.getId());
+            def.setName(functionName);
+            def.setRemoteName(remoteName);
             def.setType("MCP");
-            def.setDescription(description);
+            def.setDescription(
+                    remoteName.equals(functionName)
+                            ? description
+                            : "MCP 原名："
+                                    + remoteName
+                                    + (description.isBlank() ? "" : "\n" + description));
             def.setMcpServerId(server.getId());
             def.setParameterSchema(schemaJson);
+            def.setTimeoutMs(def.getTimeoutMs() == null ? 10000 : def.getTimeoutMs());
             def.setEnabled(server.isEnabled());
             def.touch();
             toolRepository.save(def);
         }
+        syncToolEnabledState(server);
+    }
+
+    private void syncToolEnabledState(McpServer server) {
+        for (ToolDefinition tool : toolRepository.findAll()) {
+            if ("MCP".equalsIgnoreCase(tool.getType())
+                    && server.getId().equals(tool.getMcpServerId())
+                    && tool.isEnabled() != server.isEnabled()) {
+                tool.setEnabled(server.isEnabled());
+                tool.touch();
+                toolRepository.save(tool);
+            }
+        }
+    }
+
+    private String uniqueFunctionName(String remoteName, String toolId) {
+        String base = sanitizeFunctionName(remoteName);
+        boolean conflict =
+                toolRepository
+                        .findAll()
+                        .stream()
+                        .anyMatch(
+                                tool ->
+                                        !tool.getId().equals(toolId)
+                                                && tool.getName() != null
+                                                && tool.getName().equalsIgnoreCase(base));
+        if (!conflict) return base;
+        String suffix = "_" + shortHash(remoteName);
+        int allowed = Math.max(1, 64 - suffix.length());
+        return (base.length() <= allowed ? base : base.substring(0, allowed)) + suffix;
+    }
+
+    private String sanitizeFunctionName(String value) {
+        String sanitized = value == null ? "" : value.replaceAll("[^A-Za-z0-9_-]", "_");
+        sanitized = sanitized.replaceAll("_+", "_").replaceAll("^-+|-+$", "");
+        if (sanitized.isBlank()) sanitized = "mcp_tool";
+        if (sanitized.length() <= 64) return sanitized;
+        String suffix = "_" + shortHash(value);
+        return sanitized.substring(0, Math.max(1, 64 - suffix.length())) + suffix;
+    }
+
+    private String shortHash(String value) {
+        try {
+            byte[] digest =
+                    MessageDigest.getInstance("SHA-256")
+                            .digest((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+            StringBuilder text = new StringBuilder();
+            for (int index = 0; index < 5; index++) {
+                text.append(String.format("%02x", digest[index]));
+            }
+            return text.toString();
+        } catch (Exception ignored) {
+            return Integer.toHexString(String.valueOf(value).hashCode());
+        }
+    }
+
+    private boolean isToolReferenced(String toolId) {
+        return agents.findAll()
+                        .stream()
+                        .anyMatch(agent -> containsToolId(agent.getToolIds(), toolId))
+                || !skillToolBindings.findByToolId(toolId).isEmpty();
+    }
+
+    private void ensureToolNotReferenced(String toolId) {
+        List<String> agentNames =
+                agents.findAll()
+                        .stream()
+                        .filter(agent -> containsToolId(agent.getToolIds(), toolId))
+                        .map(
+                                agent ->
+                                        agent.getDisplayName() == null
+                                                ? agent.getId()
+                                                : agent.getDisplayName())
+                        .toList();
+        List<String> skillIds =
+                skillToolBindings
+                        .findByToolId(toolId)
+                        .stream()
+                        .map(binding -> binding.getSkillId())
+                        .distinct()
+                        .toList();
+        if (agentNames.isEmpty() && skillIds.isEmpty()) return;
+        StringBuilder message = new StringBuilder("MCP 工具仍被引用，无法删除（请先解除绑定）：");
+        if (!agentNames.isEmpty())
+            message.append(" Agent[").append(String.join("、", agentNames)).append("]");
+        if (!skillIds.isEmpty())
+            message.append(" Skill[").append(String.join("、", skillIds)).append("]");
+        throw new IllegalArgumentException(message.toString());
+    }
+
+    private boolean containsToolId(String toolIdsJson, String toolId) {
+        if (toolIdsJson == null || toolIdsJson.isBlank()) return false;
+        try {
+            JsonNode root = mapper.readTree(toolIdsJson);
+            if (!root.isArray()) return false;
+            for (JsonNode value : root) {
+                if (toolId.equals(value.asText())) return true;
+            }
+        } catch (Exception ignored) {
+            return false;
+        }
+        return false;
     }
 
     // ---- Session cache (connection / process reuse) ----------------------
 
     private McpSession sessionFor(McpServer server) {
-        return sessions.computeIfAbsent(server.getId(), id -> new McpSession(server.getTransport()));
+        return sessions.computeIfAbsent(
+                server.getId(), id -> new McpSession(server.getTransport()));
     }
 
     /** Drop a cached session, but only if it is not currently in use (a later sweep retries). */
@@ -320,7 +481,10 @@ public class McpServerService {
     /** Invalidate cached transport state after a failed call so the next attempt re-establishes. */
     private void invalidate(McpSession session) {
         if (session.stdio != null) {
-            try { session.stdio.close(); } catch (Exception ignored) {}
+            try {
+                session.stdio.close();
+            } catch (Exception ignored) {
+            }
         }
         session.stdio = null;
         session.sessionId = null;
@@ -344,11 +508,13 @@ public class McpServerService {
         }
     }
 
-    private String ensureSessionStreamableHttp(McpServer server, McpSession session, RestClient client) throws Exception {
+    private String ensureSessionStreamableHttp(
+            McpServer server, McpSession session, RestClient client) throws Exception {
         if (session.sessionId != null && !session.sessionId.isBlank()) {
             return session.sessionId;
         }
-        ResponseEntity<String> initResp = rpc(client, server, null, session.nextId(), initParams(), "initialize");
+        ResponseEntity<String> initResp =
+                rpc(client, server, null, session.nextId(), initParams(), "initialize");
         String sessionId = initResp.getHeaders().getFirst("Mcp-Session-Id");
         notifyInitialized(client, server, sessionId);
         session.sessionId = sessionId;
@@ -362,7 +528,10 @@ public class McpServerService {
             return session.stdio;
         }
         if (session.stdio != null) {
-            try { session.stdio.close(); } catch (Exception ignored) {}
+            try {
+                session.stdio.close();
+            } catch (Exception ignored) {
+            }
             session.stdio = null;
             session.initialized = false;
         }
@@ -373,12 +542,16 @@ public class McpServerService {
             String initBody = waitFor(ch.queue, ch.buffer, e -> matchId(e, initId), timeoutMs);
             writeStdio(ch, rpcMsg(null, "notifications/initialized", Map.of()));
             session.capabilitiesJson =
-                    mapper.writeValueAsString(parseRpc(initBody).path("result").path("capabilities"));
+                    mapper.writeValueAsString(
+                            parseRpc(initBody).path("result").path("capabilities"));
             session.stdio = ch;
             session.initialized = true;
             return ch;
         } catch (Exception error) {
-            try { ch.close(); } catch (Exception ignored) {}
+            try {
+                ch.close();
+            } catch (Exception ignored) {
+            }
             throw error;
         }
     }
@@ -392,10 +565,12 @@ public class McpServerService {
             // Discovery re-initializes every run (infrequent: health check / create / update) so it
             // always captures current capabilities, and refreshes the cached session id for calls.
             RestClient client = buildClient();
-            ResponseEntity<String> initResp = rpc(client, server, null, session.nextId(), initParams(), "initialize");
+            ResponseEntity<String> initResp =
+                    rpc(client, server, null, session.nextId(), initParams(), "initialize");
             String sessionId = initResp.getHeaders().getFirst("Mcp-Session-Id");
             notifyInitialized(client, server, sessionId);
-            ResponseEntity<String> listResp = rpc(client, server, sessionId, session.nextId(), Map.of(), "tools/list");
+            ResponseEntity<String> listResp =
+                    rpc(client, server, sessionId, session.nextId(), Map.of(), "tools/list");
             JsonNode initJson = parseRpc(initResp.getBody());
             JsonNode listJson = parseRpc(listResp.getBody());
             session.sessionId = sessionId;
@@ -410,7 +585,8 @@ public class McpServerService {
         }
     }
 
-    private String callToolStreamableHttp(McpServer server, String toolName, String argumentsJson) throws Exception {
+    private String callToolStreamableHttp(McpServer server, String toolName, String argumentsJson)
+            throws Exception {
         McpSession session = sessionFor(server);
         session.lock.lock();
         try {
@@ -421,7 +597,8 @@ public class McpServerService {
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("name", toolName);
             params.put("arguments", parseArguments(argumentsJson));
-            ResponseEntity<String> callResp = rpc(client, server, sessionId, id, params, "tools/call");
+            ResponseEntity<String> callResp =
+                    rpc(client, server, sessionId, id, params, "tools/call");
             session.lastUsedAt = System.currentTimeMillis();
             return formatToolResult(parseRpc(callResp.getBody()));
         } catch (Exception error) {
@@ -433,11 +610,14 @@ public class McpServerService {
     }
 
     private RestClient buildClient() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+        SimpleClientHttpRequestFactory factory =
+                new SimpleClientHttpRequestFactory() {
             @Override
-            protected void prepareConnection(HttpURLConnection connection, String httpMethod) throws IOException {
+                    protected void prepareConnection(
+                            HttpURLConnection connection, String httpMethod) throws IOException {
                 super.prepareConnection(connection, httpMethod);
-                // Disable redirect following to prevent SSRF via 302 to cloud metadata / internal hosts.
+                        // Disable redirect following to prevent SSRF via 302 to cloud metadata /
+                        // internal hosts.
                 connection.setInstanceFollowRedirects(false);
             }
         };
@@ -447,9 +627,15 @@ public class McpServerService {
     }
 
     private ResponseEntity<String> rpc(
-            RestClient client, McpServer server, String sessionId, int id,
-            Map<String, Object> params, String method) {
-        var req = client.post().uri(server.getServerUrl())
+            RestClient client,
+            McpServer server,
+            String sessionId,
+            int id,
+            Map<String, Object> params,
+            String method) {
+        var req =
+                client.post()
+                        .uri(server.getServerUrl())
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM)
                 .header("MCP-Protocol-Version", PROTOCOL_VERSION);
@@ -460,7 +646,8 @@ public class McpServerService {
         if (token != null) {
             req.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
         }
-        return req.body(Map.of(
+        return req.body(
+                        Map.of(
                         "jsonrpc", "2.0",
                         "id", id,
                         "method", method,
@@ -471,7 +658,9 @@ public class McpServerService {
 
     private void notifyInitialized(RestClient client, McpServer server, String sessionId) {
         try {
-            var req = client.post().uri(server.getServerUrl())
+            var req =
+                    client.post()
+                            .uri(server.getServerUrl())
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM)
                     .header("MCP-Protocol-Version", PROTOCOL_VERSION);
@@ -482,7 +671,8 @@ public class McpServerService {
             if (token != null) {
                 req.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
             }
-            req.body(Map.of(
+            req.body(
+                            Map.of(
                             "jsonrpc", "2.0",
                             "method", "notifications/initialized",
                             "params", Map.of()))
@@ -515,7 +705,8 @@ public class McpServerService {
         }
     }
 
-    private String callToolStdio(McpServer server, String toolName, String argumentsJson) throws Exception {
+    private String callToolStdio(McpServer server, String toolName, String argumentsJson)
+            throws Exception {
         McpSession session = sessionFor(server);
         session.lock.lock();
         try {
@@ -540,7 +731,8 @@ public class McpServerService {
 
     private StdioChannel openStdio(McpServer server) throws Exception {
         String commandLine = server.getServerUrl().trim();
-        List<String> args = Arrays.stream(commandLine.split("\\s+"))
+        List<String> args =
+                Arrays.stream(commandLine.split("\\s+"))
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.toList());
         if (args.isEmpty()) {
@@ -558,12 +750,16 @@ public class McpServerService {
         BlockingQueue<String> queue = new LinkedBlockingQueue<>();
         Deque<String> buffer = new ArrayDeque<>();
         AtomicBoolean closed = new AtomicBoolean(false);
-        BufferedWriter writer = new BufferedWriter(
+        BufferedWriter writer =
+                new BufferedWriter(
                 new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
         ExecutorService reader = Executors.newSingleThreadExecutor();
-        reader.submit(() -> {
-            try (BufferedReader br = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+        reader.submit(
+                () -> {
+                    try (BufferedReader br =
+                            new BufferedReader(
+                                    new InputStreamReader(
+                                            process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while (!closed.get() && (line = br.readLine()) != null) {
                     if (!line.isBlank()) queue.add(line);
@@ -575,9 +771,12 @@ public class McpServerService {
             }
         });
         ExecutorService errReader = Executors.newSingleThreadExecutor();
-        errReader.submit(() -> {
-            try (BufferedReader br = new BufferedReader(
-                    new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+        errReader.submit(
+                () -> {
+                    try (BufferedReader br =
+                            new BufferedReader(
+                                    new InputStreamReader(
+                                            process.getErrorStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = br.readLine()) != null) {
                     log.debug("[mcp-stderr] {}: {}", server.getName(), line);
@@ -622,14 +821,19 @@ public class McpServerService {
             sseRequest(ch.postUrl, token, sessionId, null, Map.of(), "notifications/initialized");
             sseRequest(ch.postUrl, token, sessionId, 2, Map.of(), "tools/list");
 
-            String toolEvent = waitFor(ch.events, ch.buffer, e -> {
+            String toolEvent =
+                    waitFor(
+                            ch.events,
+                            ch.buffer,
+                            e -> {
                 try {
                     JsonNode n = parseEvent(e);
                     return n.path("id").asInt(-1) == 2 && n.has("result");
                 } catch (Exception ex) {
                     return false;
                 }
-            }, timeoutMs);
+                            },
+                            timeoutMs);
 
             JsonNode initJson = parseRpc(initBody);
             JsonNode listJson = parseEvent(toolEvent);
@@ -637,7 +841,8 @@ public class McpServerService {
         }
     }
 
-    private String callToolSse(McpServer server, String toolName, String argumentsJson) throws Exception {
+    private String callToolSse(McpServer server, String toolName, String argumentsJson)
+            throws Exception {
         String token = authToken(server.getAuthEnv());
         try (SseChannel ch = openSse(server, token)) {
             sseRequest(ch.postUrl, token, null, 1, initParams(), "initialize");
@@ -649,14 +854,19 @@ public class McpServerService {
             params.put("arguments", parseArguments(argumentsJson));
             sseRequest(ch.postUrl, token, sessionId, 3, params, "tools/call");
 
-            String callEvent = waitFor(ch.events, ch.buffer, e -> {
+            String callEvent =
+                    waitFor(
+                            ch.events,
+                            ch.buffer,
+                            e -> {
                 try {
                     JsonNode n = parseEvent(e);
                     return n.path("id").asInt(-1) == 3 && n.has("result");
                 } catch (Exception ex) {
                     return false;
                 }
-            }, timeoutMs);
+                            },
+                            timeoutMs);
             JsonNode callJson = parseEvent(callEvent);
             if (callJson.has("error")) {
                 JsonNode err = callJson.get("error");
@@ -684,9 +894,12 @@ public class McpServerService {
         Deque<String> buffer = new ArrayDeque<>();
         AtomicBoolean closed = new AtomicBoolean(false);
         ExecutorService reader = Executors.newSingleThreadExecutor();
-        reader.submit(() -> {
-            try (BufferedReader br = new BufferedReader(
-                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+        reader.submit(
+                () -> {
+                    try (BufferedReader br =
+                            new BufferedReader(
+                                    new InputStreamReader(
+                                            conn.getInputStream(), StandardCharsets.UTF_8))) {
                 StringBuilder block = new StringBuilder();
                 String line;
                 while (!closed.get() && (line = br.readLine()) != null) {
@@ -696,7 +909,9 @@ public class McpServerService {
                             block.setLength(0);
                         }
                     } else if (line.startsWith("event:")) {
-                        block.append("event:").append(line.substring(6).trim()).append("\n");
+                                block.append("event:")
+                                        .append(line.substring(6).trim())
+                                        .append("\n");
                     } else if (line.startsWith("data:")) {
                         block.append("data:").append(line.substring(5).trim()).append("\n");
                     }
@@ -708,7 +923,8 @@ public class McpServerService {
             }
         });
 
-        String endpointEvent = waitFor(events, buffer, e -> e.contains("event:endpoint"), timeoutMs);
+        String endpointEvent =
+                waitFor(events, buffer, e -> e.contains("event:endpoint"), timeoutMs);
         String endpointPath = eventData(endpointEvent);
         if (endpointPath.isBlank()) {
             closed.set(true);
@@ -721,8 +937,13 @@ public class McpServerService {
     }
 
     private String sseRequest(
-            String url, String token, String sessionId, Integer id,
-            Map<String, Object> params, String method) throws Exception {
+            String url,
+            String token,
+            String sessionId,
+            Integer id,
+            Map<String, Object> params,
+            String method)
+            throws Exception {
         HttpURLConnection c = (HttpURLConnection) URI.create(url).toURL().openConnection();
         c.setInstanceFollowRedirects(false);
         c.setRequestMethod("POST");
@@ -750,8 +971,11 @@ public class McpServerService {
             os.write(bytes);
         }
         int code = c.getResponseCode();
-        try (BufferedReader r = new BufferedReader(new InputStreamReader(
-                code < 400 ? c.getInputStream() : c.getErrorStream(), StandardCharsets.UTF_8))) {
+        try (BufferedReader r =
+                new BufferedReader(
+                        new InputStreamReader(
+                                code < 400 ? c.getInputStream() : c.getErrorStream(),
+                                StandardCharsets.UTF_8))) {
             StringBuilder sb = new StringBuilder();
             String line;
             while ((line = r.readLine()) != null) {
@@ -764,8 +988,11 @@ public class McpServerService {
     // ---- Shared parsing helpers ------------------------------------------
 
     private String waitFor(
-            BlockingQueue<String> queue, Deque<String> buffer,
-            Predicate<String> predicate, long timeoutMs) throws Exception {
+            BlockingQueue<String> queue,
+            Deque<String> buffer,
+            Predicate<String> predicate,
+            long timeoutMs)
+            throws Exception {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
             String e;
@@ -855,7 +1082,8 @@ public class McpServerService {
     }
 
     private Discovery buildDiscovery(JsonNode initJson, JsonNode listJson) throws Exception {
-        return new Discovery(buildInterfaces(listJson),
+        return new Discovery(
+                buildInterfaces(listJson),
                 mapper.writeValueAsString(initJson.path("result").path("capabilities")));
     }
 
@@ -925,7 +1153,8 @@ public class McpServerService {
         } catch (IllegalArgumentException error) {
             throw new IllegalArgumentException("MCP 服务地址格式无效");
         }
-        if (uri.getScheme() == null || !List.of("http", "https").contains(uri.getScheme().toLowerCase())
+        if (uri.getScheme() == null
+                || !List.of("http", "https").contains(uri.getScheme().toLowerCase())
                 || uri.getHost() == null) {
             throw new IllegalArgumentException("MCP 服务仅支持 HTTP 或 HTTPS 地址");
         }
@@ -961,9 +1190,17 @@ public class McpServerService {
     }
 
     private void ensureNameAvailable(String name, String excludingId) {
-        boolean duplicate = repository.findAll().stream()
-                .anyMatch(item -> !item.getId().equals(excludingId)
-                        && item.getName() != null && item.getName().trim().equalsIgnoreCase(name.trim()));
+        boolean duplicate =
+                repository
+                        .findAll()
+                        .stream()
+                        .anyMatch(
+                                item ->
+                                        !item.getId().equals(excludingId)
+                                                && item.getName() != null
+                                                && item.getName()
+                                                        .trim()
+                                                        .equalsIgnoreCase(name.trim()));
         if (duplicate) {
             throw new IllegalArgumentException("MCP 服务名称已存在");
         }
@@ -979,8 +1216,10 @@ public class McpServerService {
     private boolean resolvesToPrivateAddress(String host) {
         try {
             for (InetAddress address : InetAddress.getAllByName(host)) {
-                if (address.isAnyLocalAddress() || address.isLoopbackAddress()
-                        || address.isLinkLocalAddress() || address.isSiteLocalAddress()) {
+                if (address.isAnyLocalAddress()
+                        || address.isLoopbackAddress()
+                        || address.isLinkLocalAddress()
+                        || address.isSiteLocalAddress()) {
                     return true;
                 }
             }
@@ -1000,10 +1239,10 @@ public class McpServerService {
     private record Discovery(List<Map<String, Object>> interfaces, String capabilitiesJson) {}
 
     /**
-     * Cached transport session for one MCP server, keyed by server id in {@link #sessions}.
-     * Holds either a live STDIO subprocess (for the STDIO transport) or a cached HTTP
-     * session id (for Streamable HTTP). A per-session lock serializes all calls on the
-     * stateful channel; the idle sweeper closes sessions that have not been used recently.
+     * Cached transport session for one MCP server, keyed by server id in {@link #sessions}. Holds
+     * either a live STDIO subprocess (for the STDIO transport) or a cached HTTP session id (for
+     * Streamable HTTP). A per-session lock serializes all calls on the stateful channel; the idle
+     * sweeper closes sessions that have not been used recently.
      */
     private static final class McpSession implements AutoCloseable {
         final String transport;
@@ -1041,8 +1280,14 @@ public class McpServerService {
         final ExecutorService reader;
         final ExecutorService errReader;
 
-        StdioChannel(Process process, BufferedWriter writer, BlockingQueue<String> queue,
-                Deque<String> buffer, AtomicBoolean closed, ExecutorService reader, ExecutorService errReader) {
+        StdioChannel(
+                Process process,
+                BufferedWriter writer,
+                BlockingQueue<String> queue,
+                Deque<String> buffer,
+                AtomicBoolean closed,
+                ExecutorService reader,
+                ExecutorService errReader) {
             this.process = process;
             this.writer = writer;
             this.queue = queue;
@@ -1073,8 +1318,13 @@ public class McpServerService {
         final ExecutorService reader;
         final String postUrl;
 
-        SseChannel(HttpURLConnection connection, BlockingQueue<String> events, Deque<String> buffer,
-                AtomicBoolean closed, ExecutorService reader, String postUrl) {
+        SseChannel(
+                HttpURLConnection connection,
+                BlockingQueue<String> events,
+                Deque<String> buffer,
+                AtomicBoolean closed,
+                ExecutorService reader,
+                String postUrl) {
             this.connection = connection;
             this.events = events;
             this.buffer = buffer;

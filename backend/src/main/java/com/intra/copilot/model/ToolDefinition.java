@@ -1,5 +1,7 @@
 package com.intra.copilot.model;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.intra.copilot.util.EntityIdGenerator;
@@ -11,16 +13,34 @@ public class ToolDefinition {
     private String name;
     private String description;
     private String type = "BROWSER_PROPOSAL";
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String method;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String endpoint;
+    /** Original remote tool name for MCP tools after local function-name normalization. */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String remoteName;
     /**
      * Foreign key to the owning {@link McpServer} row when type is MCP. Replaces the previous
      * mcp_server_url string copy so tool rows stay linked to their server even if the server URL
      * changes, and the credentials/env reference lives on the server row only.
      */
     private String mcpServerId;
-    private String parameterSchema = "{}";
-    private Integer timeoutMs = 10000;
+
+    private String parameterSchema;
+    private Integer timeoutMs;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String authHeaderName;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String authEnv;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String authScheme;
+
     private boolean enabled = true;
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
@@ -73,6 +93,14 @@ public class ToolDefinition {
         endpoint = value;
     }
 
+    public String getRemoteName() {
+        return remoteName;
+    }
+
+    public void setRemoteName(String value) {
+        remoteName = value;
+    }
+
     public String getMcpServerId() {
         return mcpServerId;
     }
@@ -95,6 +123,30 @@ public class ToolDefinition {
 
     public void setTimeoutMs(Integer value) {
         timeoutMs = value;
+    }
+
+    public String getAuthHeaderName() {
+        return authHeaderName;
+    }
+
+    public void setAuthHeaderName(String value) {
+        authHeaderName = value;
+    }
+
+    public String getAuthEnv() {
+        return authEnv;
+    }
+
+    public void setAuthEnv(String value) {
+        authEnv = value;
+    }
+
+    public String getAuthScheme() {
+        return authScheme;
+    }
+
+    public void setAuthScheme(String value) {
+        authScheme = value;
     }
 
     public boolean isEnabled() {
