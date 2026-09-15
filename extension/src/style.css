@@ -24,6 +24,7 @@ html {
   --code-border: #d7e0ec;
   --code-text: #1e293b;
   --accent: #2563eb;
+  --mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", monospace;
 }
 :root[data-theme="dark"] {
   --page-bg: #111827;
@@ -38,6 +39,7 @@ html {
   --code-border: #334155;
   --code-text: #e2e8f0;
   --accent: #3b82f6;
+  --mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"] {
@@ -53,6 +55,7 @@ html {
     --code-border: #334155;
     --code-text: #e2e8f0;
     --accent: #3b82f6;
+    --mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", monospace;
   }
 }
 body {
@@ -605,6 +608,123 @@ small {
 .thinking-indicator {
   color: var(--muted);
   font-style: italic;
+}
+
+/* 工具调用过程折叠面板：把 Agent 执行的工具、参数与返回值结构化展示，避免污染正文。 */
+.tool-trace {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.tool-trace-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.tool-trace-toggle:hover {
+  background: var(--page-bg);
+}
+.tool-trace-caret {
+  color: var(--muted);
+  font-size: 10px;
+}
+.tool-trace-count {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--page-bg);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.tool-trace-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tool-trace-step {
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+.tool-trace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.tool-trace-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #93c5fd;
+  word-break: break-all;
+}
+.tool-trace-badge {
+  flex: none;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.tool-trace-badge.ok {
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+}
+.tool-trace-badge.failed {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+}
+.tool-trace-args,
+.tool-trace-result {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--page-bg);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+.tool-trace-pending {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-style: italic;
+}
+
+/* 生成终态徽标：停止 / 失败不再拼进正文，改为独立状态条。 */
+.msg-status {
+  margin-top: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.msg-status.status-stopped {
+  background: rgba(234, 179, 8, 0.14);
+  color: #facc15;
+}
+.msg-status.status-failed {
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
 }
 .message-actions {
   display: flex;

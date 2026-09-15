@@ -162,6 +162,80 @@ function FeedbackIcon({ direction }: { direction: "up" | "down" }) {
   );
 }
 
+/** 工具调用过程的折叠面板：把 Agent 实际执行了哪些工具、参数与返回值结构化展示，不污染正文。 */
+function ToolTraceView({
+  trace,
+  title,
+  argsLabel,
+  resultLabel,
+  okLabel,
+  failLabel,
+}: {
+  trace: ToolTraceStep[];
+  title: string;
+  argsLabel: string;
+  resultLabel: string;
+  okLabel: string;
+  failLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!trace.length) return null;
+  const done = trace.filter((step) => step.result != null).length;
+  return (
+    <div className={"tool-trace " + (open ? "open" : "collapsed")}>
+      <button
+        type="button"
+        className="tool-trace-toggle"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className="tool-trace-caret" aria-hidden="true">
+          {open ? "▾" : "▸"}
+        </span>
+        {title}
+        <span className="tool-trace-count">
+          {done}/{trace.length}
+        </span>
+      </button>
+      {open && (
+        <ol className="tool-trace-list">
+          {trace.map((step, index) => (
+            <li key={index} className="tool-trace-step">
+              <div className="tool-trace-head">
+                <code className="tool-trace-name">{step.tool}</code>
+                {step.result != null && (
+                  <span
+                    className={
+                      "tool-trace-badge " +
+                      (step.success === false ? "failed" : "ok")
+                    }
+                  >
+                    {step.success === false ? failLabel : okLabel}
+                  </span>
+                )}
+              </div>
+              {step.arguments ? (
+                <pre className="tool-trace-args">
+                  {argsLabel}
+                  {step.arguments}
+                </pre>
+              ) : null}
+              {step.result != null ? (
+                <pre className="tool-trace-result">
+                  {resultLabel}
+                  {step.result}
+                </pre>
+              ) : (
+                <div className="tool-trace-pending">{resultLabel}…</div>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 type PendingAttachment = {
   id?: string;
   name: string;
@@ -291,6 +365,8 @@ const translations = {
     toolResult: "工具返回",
     toolTrace: "执行过程",
     toolArgs: "参数",
+    toolOk: "成功",
+    toolFail: "失败",
     generationFailed: "生成失败",
     handledBy: "处理 Agent",
     delegatedTo: "委派子 Agent",
@@ -439,6 +515,11 @@ const translations = {
     agentRefresh: "Refresh agents",
     toolInvoked: "Calling tool",
     toolResult: "Tool returned",
+    toolTrace: "Tool calls",
+    toolArgs: "Arguments",
+    toolOk: "Success",
+    toolFail: "Failed",
+    generationFailed: "Generation failed",
     handledBy: "Handled by",
     delegatedTo: "Delegated to",
     expandComposer: "Expand input",
@@ -691,6 +772,8 @@ function AssistantMarkdown({
 
 function App() {
   const [authedFetch, setAuthedFetch] = useState<AuthedFetch | null>(null);
+  // 是否贴近消息列表底部：用户向上翻阅历史时暂停自动跟随，仅在其回到底部后才恢复。
+  const [atBottom, setAtBottom] = useState(true);
   const [authError, setAuthError] = useState<string>("");
   const [sessions, setSessions] = useState<any[]>([]);
   const [session, setSession] = useState<any>();
@@ -710,6 +793,9 @@ function App() {
   const [input, setInput] = useState("");
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 同步版发送锁：状态更新是异步的，busyRef 能在毫秒级内拦截重复 send()（Enter 连发 /
+  // 按钮重复点击），避免同一请求产生两条相同助手消息。
+  const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [theme, setTheme] = useState<Theme>("system");
   const [language, setLanguage] = useState<Language>("zh");
@@ -835,13 +921,27 @@ function App() {
   }, [agents]);
 
   useEffect(() => {
-    const messageList = mainRef.current;
-    if (!messageList) return;
-    messageList.scrollTo({
-      top: messageList.scrollHeight,
+    const list = mainRef.current;
+    if (!list) return;
+    // 监听滚动位置，更新 atBottom：只有贴近底部时才自动跟随流式输出滚动。
+    const onScroll = () => {
+      const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
+      setAtBottom(distance < 48);
+    };
+    list.addEventListener("scroll", onScroll, { passive: true });
+    return () => list.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    // 仅在贴近底部时跟随滚动：用户翻阅历史时不被新 token 强制拽回底部。
+    if (!atBottom) return;
+    const list = mainRef.current;
+    if (!list) return;
+    list.scrollTo({
+      top: list.scrollHeight,
       behavior: "smooth",
     });
-  }, [msgs]);
+  }, [msgs, atBottom]);
 
   useEffect(() => {
     if (!toolsOpen && !permissionOpen) return;
@@ -1666,16 +1766,11 @@ function App() {
       const next = [...items];
       const index = messageIndex ?? next.length - 1;
       const last = next[index];
-      if (
-        !last ||
-        last.role !== "assistant" ||
-        last.content.includes(t.stopped)
-      ) {
-        return next;
-      }
+      if (!last || last.role !== "assistant") return next;
+      // 与失败一致：用 status 徽标表达“已停止”，不把提示文本塞进正文。
       next[index] = {
         ...last,
-        content: last.content ? `${last.content}\n\n${t.stopped}` : t.stopped,
+        status: "stopped",
         stopped: true,
         stage: undefined,
       };
@@ -1691,18 +1786,13 @@ function App() {
       const next = [...items];
       const index = messageIndex ?? next.length - 1;
       const last = next[index];
-      if (
-        !last ||
-        last.role !== "assistant" ||
-        last.content.includes(visibleMessage)
-      ) {
-        return next;
-      }
+      if (!last || last.role !== "assistant") return next;
+      // 用独立的 status 徽标承载错误信息，不再拼进正文——避免“复制回答”把错误提示
+      // 一起拷走，也避免破坏 Markdown 结构（尤其是代码围栏）。
       next[index] = {
         ...last,
-        content: last.content
-          ? `${last.content}\n\n> ${visibleMessage}`
-          : visibleMessage,
+        status: "failed",
+        errorMessage: visibleMessage,
         stage: undefined,
       };
       return next;
@@ -1799,6 +1889,9 @@ function App() {
     assistantIndex: number;
     userMessage: Msg;
   }) {
+    // 防重复发送：busyRef 同步拦截毫秒级内的重复调用（Enter 连发 / 按钮重复点击），
+    // 避免同一请求产生两条相同助手消息。状态更新是异步的，故不能用 busy 在这里判断。
+    if (busyRef.current) return;
     const text = retryRequest
       ? retryRequest.userMessage.content.trim()
       : input.trim();
@@ -1847,6 +1940,7 @@ function App() {
           uploaded = await response.json();
         } catch (e) {
           setError((e as Error).message || t.uploadFailed);
+          busyRef.current = false;
           setBusy(false);
           return;
         }
@@ -1867,6 +1961,7 @@ function App() {
       setAttachments([]);
       setScreenshot(undefined);
     }
+    busyRef.current = true;
     setBusy(true);
     setError("");
 
@@ -1881,6 +1976,9 @@ function App() {
                 stage: undefined,
                 agentName: undefined,
                 delegatedTo: undefined,
+                status: undefined,
+                errorMessage: undefined,
+                toolTrace: [],
               }
             : item,
         ),
@@ -2229,6 +2327,7 @@ function App() {
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
       }
+      busyRef.current = false;
       setBusy(false);
     }
   }
@@ -2535,7 +2634,12 @@ function App() {
                         </div>
                       ) : (
                         <span className="thinking-indicator">
-                          {message.stage || t.thinking}
+                          {message.stage ||
+                            (message.status === "failed"
+                              ? message.errorMessage || t.generationFailed
+                              : message.status === "stopped"
+                                ? t.stopped
+                                : t.thinking)}
                         </span>
                       )
                     ) : (
@@ -2543,6 +2647,26 @@ function App() {
                       (message.attachments?.length ? t.imageOnly : t.thinking)
                     )}
                   </div>
+                  {assistant && message.toolTrace?.length ? (
+                    <ToolTraceView
+                      trace={message.toolTrace}
+                      title={t.toolTrace}
+                      argsLabel={t.toolArgs}
+                      resultLabel={t.toolResult}
+                      okLabel={t.toolOk}
+                      failLabel={t.toolFail}
+                    />
+                  ) : null}
+                  {assistant &&
+                  message.status &&
+                  message.status !== "ok" &&
+                  message.content ? (
+                    <div className={"msg-status status-" + message.status}>
+                      {message.status === "stopped"
+                        ? t.stopped
+                        : message.errorMessage || t.generationFailed}
+                    </div>
+                  ) : null}
                   {!assistant &&
                     index < msgs.length - 1 &&
                     msgs[index + 1]?.role === "assistant" &&
