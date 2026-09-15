@@ -220,6 +220,9 @@ const translations = {
     uploadFailed: "附件上传失败",
     invalidAction: "操作提案格式无效",
     rejected: "用户拒绝",
+    confirmOk: "确定",
+    confirmCancel: "取消",
+    confirmTitle: "确认",
     inputPlaceholder: "描述问题或输入你的需求,Shift+Enter换行...",
     chatInput: "聊天输入框",
     agentSelector: "选择 Agent",
@@ -362,6 +365,9 @@ const translations = {
     uploadFailed: "Attachment upload failed",
     invalidAction: "Invalid action proposal",
     rejected: "Rejected by user",
+    confirmOk: "OK",
+    confirmCancel: "Cancel",
+    confirmTitle: "Confirm",
     inputPlaceholder: "Describe the problem or enter your request…",
     chatInput: "Chat input",
     agentSelector: "Select Agent",
@@ -706,6 +712,25 @@ function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const authedFetchRef = useRef<AuthedFetch | null>(null);
   const agentsRequestRef = useRef<AbortController | null>(null);
+
+  type ConfirmState = {
+    title?: string;
+    message: React.ReactNode;
+    danger?: boolean;
+  };
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+  const confirmResolveRef = useRef<((value: boolean) => void) | null>(null);
+
+  function askConfirm(options: ConfirmState): Promise<boolean> {
+    setConfirmState(options);
+    return new Promise((resolve) => {
+      confirmResolveRef.current = (value) => {
+        confirmResolveRef.current = null;
+        setConfirmState(null);
+        resolve(value);
+      };
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1337,7 +1362,12 @@ function App() {
   async function removeSessions(ids: string[]) {
     if (!ids.length) return;
     const names = ids.length === 1 ? t.thisSession : t.sessions(ids.length);
-    if (!window.confirm(t.deleteConfirm(names))) return;
+    const confirmed = await askConfirm({
+      title: t.deleteTitle,
+      message: t.deleteConfirm(names),
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       const responses = await Promise.all(
         ids.map((id) => apiFetch(`/sessions/${id}`, { method: "DELETE" })),
@@ -1974,13 +2004,22 @@ function App() {
           if (name === "action_proposed" && data) {
             try {
               const action = JSON.parse(data);
-              const approved = window.confirm(
-                t.actionConfirm(
-                  action.type,
-                  action.reason || "",
-                  action.risk || "",
-                ),
-              );
+              const approved = await askConfirm({
+                title: t.confirmTitle,
+                message: t
+                  .actionConfirm(
+                    action.type,
+                    action.reason || "",
+                    action.risk || "",
+                  )
+                  .split("\n")
+                  .map((line, index) => (
+                    <React.Fragment key={index}>
+                      {line}
+                      {index > 0 ? <br /> : null}
+                    </React.Fragment>
+                  )),
+              });
               let result = {
                 status: approved ? "EXECUTED" : "REJECTED",
                 result: approved ? "" : t.rejected,
@@ -3067,6 +3106,44 @@ function App() {
           {feedbackToast.kind === "thanks"
             ? t.feedbackThanks
             : t.feedbackCleared}
+        </div>
+      )}
+      {confirmState && (
+        <div
+          className="confirm-overlay"
+          onClick={() => confirmResolveRef.current?.(false)}
+        >
+          <div
+            className="confirm-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="confirm-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {confirmState.title && (
+              <strong id="confirm-title">{confirmState.title}</strong>
+            )}
+            <div className="confirm-message">{confirmState.message}</div>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="confirm-button confirm-button-secondary"
+                onClick={() => confirmResolveRef.current?.(false)}
+              >
+                {t.confirmCancel}
+              </button>
+              <button
+                type="button"
+                className={
+                  "confirm-button" +
+                  (confirmState.danger ? " confirm-button-danger" : "")
+                }
+                onClick={() => confirmResolveRef.current?.(true)}
+              >
+                {t.confirmOk}
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {previewImage && (
