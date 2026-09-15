@@ -1100,7 +1100,10 @@ public class ChatService {
         private boolean emitToken(SseEmitter out, AtomicBoolean finished, String chunk) {
                 if (finished.get() || chunk == null || chunk.isEmpty()) return false;
                 try {
-                        out.send(SseEmitter.event().name("token").data(chunk));
+                        // 用 JSON 信封包裹正文增量：Jackson 会把换行/空格/引号等正确转义为
+                        // 合法单行 JSON，从根本上避免裸文本塞进 data: 时破坏 SSE 帧（换行被当
+                        // 成事件分隔符、行首空格被前端正则吞掉），保证前端拼接回的内容逐字符一致。
+                        out.send(SseEmitter.event().name("token").data(Map.of("text", chunk)));
                         return true;
                 } catch (IOException error) {
                         finished.set(true);
@@ -1456,7 +1459,7 @@ public class ChatService {
                                 for (String chunk : splitForStreaming(currentAnswer)) {
                                         if (finished.get()) return;
                                         try {
-                                                out.send(SseEmitter.event().name("token").data(chunk));
+                                                out.send(SseEmitter.event().name("token").data(Map.of("text", chunk)));
                                         } catch (IOException e) {
                                                 finished.set(true);
                                                 return;
