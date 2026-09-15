@@ -30,6 +30,7 @@ export type AgentConfigSection =
   | "knowledge"
   | "tools"
   | "skills"
+  | "hooks"
   | "versions";
 
 function parseVersionSnapshot(value?: string): Partial<Agent> | undefined {
@@ -372,6 +373,7 @@ export function AgentSettingsPage({
             ["knowledge", t.knowledgeBinding],
             ["tools", t.tools],
             ["skills", t.skills],
+            ["hooks", t.hookBindings],
             ["versions", t.versions],
           ] as const
         ).map(([key, label]) => (
@@ -1015,54 +1017,56 @@ export function AgentSettingsPage({
                 )}
               </section>
             )}
-            {agentConfigSection === "skills" && (
-              <section className="binding-section">
-                <div className="binding-heading">
-                  <div>
-                    <h4>{t.hookBindings}</h4>
-                    <p>{t.hookBindingsHint}</p>
-                  </div>
-                  <span className="binding-count">{boundHooks.length}</span>
+          </div>
+        )}
+        {agentConfigSection === "hooks" && (
+          <div className="settings-panel">
+            <section className="binding-section">
+              <div className="binding-heading">
+                <div>
+                  <h4>{t.hookBindings}</h4>
+                  <p>{t.hookBindingsHint}</p>
                 </div>
-                {boundHooks.length === 0 ? (
-                  <p className="binding-empty">{t.noBoundHooks}</p>
-                ) : (
-                  <div className="binding-list">
-                    {boundHooks.map((hook) => (
-                      <div
-                        className="binding-option hook-binding-option"
-                        key={hook.id}
-                      >
-                        <span className="binding-copy">
-                          <span className="binding-name">
-                            {hook.name}
-                            <span
-                              className={
-                                hook.enabled
-                                  ? "binding-meta ok"
-                                  : "binding-meta off"
-                              }
-                            >
-                              {hook.enabled ? t.enabled : t.disabled}
-                            </span>
+                <span className="binding-count">{boundHooks.length}</span>
+              </div>
+              {boundHooks.length === 0 ? (
+                <p className="binding-empty">{t.noBoundHooks}</p>
+              ) : (
+                <div className="binding-list">
+                  {boundHooks.map((hook) => (
+                    <div
+                      className="binding-option hook-binding-option"
+                      key={hook.id}
+                    >
+                      <span className="binding-copy">
+                        <span className="binding-name">
+                          {hook.name}
+                          <span
+                            className={
+                              hook.enabled
+                                ? "binding-meta ok"
+                                : "binding-meta off"
+                            }
+                          >
+                            {hook.enabled ? t.enabled : t.disabled}
                           </span>
-                          <span className="binding-meta">
-                            {hookBindingTargets(hook, agentId, agentRole, t)} ·{" "}
-                            {hookPhaseLabel(hook.phase, t)} ·{" "}
-                            {hookRuleLabel(hook.ruleType, t)}
-                          </span>
-                          {hook.description && (
-                            <span className="binding-description">
-                              {hook.description}
-                            </span>
-                          )}
                         </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-            )}
+                        <span className="binding-meta">
+                          {hookBindingTargets(hook, agentId, agentRole, t)} ·{" "}
+                          {hookPhaseLabel(hook.phase, t)} ·{" "}
+                          {hookRuleLabel(hook.ruleType, t)}
+                        </span>
+                        {hook.description && (
+                          <span className="binding-description">
+                            {hook.description}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         )}
         {agentConfigSection === "versions" && (

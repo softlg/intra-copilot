@@ -389,6 +389,7 @@ function AdminApp({
     | "knowledge"
     | "tools"
     | "skills"
+    | "hooks"
     | "versions"
   >("basic");
   const [agentId, setAgentId] = useState("custom-agent");
