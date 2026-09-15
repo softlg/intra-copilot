@@ -172,3 +172,15 @@ Jackson 会把 `\n`、空格、引号全部正确转义为合法单行 JSON，�
 - 前后端 token 格式改动需**同版本发布**：保留前端裸文本回退（1.2），后端 JSON 化后旧插件也能按回退路径工作（JSON 字符串被当文本显示会带引号——如需完全兼容旧插件，可改为后端把 chunk 按 SSE 规范拆成多个 `data:` 行，前端只需修 ` ?` 与多行 join，两点均做最稳）；
 - `message_completed` 无条件替换会覆盖用户中途点"停止"的内容——替换前需判断 `stopped` 状态；
 - normalizeAssistantMarkdown 收缩后，个别模型退化输出可能回退到旧瑕疵，通过 prompt 约束 + 观察反馈（已有 FORMAT_UI 反馈渠道）跟踪。
+
+## 六、实施状态（2026-09-15）
+
+全部四个阶段已落地并提交（`234ea33` `64e0621` `afd9685`）：
+
+- **Phase 1（后端 + 前端解析）**：`ChatService.emitToken` 与兜底重放路径改为 `Map.of("text", chunk)` JSON 信封，Jackson 转义换行/空格；前端 `sidepanel.tsx` 重写标准 SSE 解析器 `parseSseBlock`（多 `data:` 行 join、仅剥离帧封装单空格），token 按 `{"text":...}` 解析并回退裸文本；`message_completed` 无条件用权威内容覆盖（停止态除外）。
+- **Phase 2（工具痕迹结构化）**：`Msg` 新增 `toolTrace` 字段，`tool_invoked`/`tool_result` 写入数组而非正文；新增 `ToolTraceView` 折叠面板（参数/返回值/成功失败徽标）；`message_completed` 设 `status:"ok"`。
+- **Phase 3（性能 / 滚动 / 状态 / 防重）**：token 以 ~60ms 节流批量 flush 减少全量重渲染；滚动仅当用户贴近底部时跟随；`markGenerationFailed`/`markGenerationStopped` 改用独立 `status` 徽标，不再污染正文（根治"复制回答带错误提示"）；`busyRef` 同步守卫拦截重复 `send()`；重试重置 `status/errorMessage/toolTrace`。
+- **Phase 4（验证与提交）**：已按模块提交；因本沙箱环境 npm 被 wsl.exe 黑名单拦截、Maven 不在 PATH，**未能在本地运行 `mvn test` / `npx tsc --noEmit` / `npm run build`**，需在用户环境执行这些验证命令后再发布。
+
+> 未做项（计划中标注为可选/后续观察）：system prompt 增加输出格式规范、`normalizeAssistantMarkdown` 进一步收缩为纯兜底。根因（SSE token 保真）已由 Phase 1 解决，这两项属锦上添花，留待观察反馈再决定。
+
