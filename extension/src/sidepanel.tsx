@@ -35,6 +35,29 @@ type AttachmentView = {
 // 转成同源 object URL 后再交给 img/下载使用，并按 id 缓存避免重复请求。
 const attachmentObjectUrlCache = new Map<string, string>();
 
+/**
+ * 在页面主世界执行的上下文采集函数。该函数会被 chrome.scripting.executeScript
+ * 序列化后注入到目标标签页执行，因此不能引用任何模块级变量。
+ */
+function collectPageContext() {
+  return {
+    url: location.href,
+    title: document.title,
+    selection: (getSelection()?.toString() || "").slice(0, 4000),
+    visibleText: (document.body?.innerText || "").slice(0, 12000),
+    domSummary: Array.from(
+      document.querySelectorAll("input,button,select,textarea,a"),
+    )
+      .slice(0, 80)
+      .map(
+        (e) =>
+          `${(e as HTMLElement).tagName}:${(e as HTMLElement).innerText || (e as HTMLInputElement).placeholder || (e as HTMLInputElement).name || ""}`,
+      )
+      .join("\n"),
+    timestamp: new Date().toISOString(),
+  };
+}
+
 async function resolveAttachment(
   fetchFn: (path: string, init?: RequestInit) => Promise<Response>,
   id: string,
@@ -47,6 +70,25 @@ async function resolveAttachment(
   const objectUrl = URL.createObjectURL(blob);
   attachmentObjectUrlCache.set(id, objectUrl);
   return objectUrl;
+}
+
+async function collectContextFromTab(
+  id: number,
+): Promise<Record<string, string> | null> {
+  try {
+    return await chrome.tabs.sendMessage(id, { type: "COLLECT_CONTEXT" });
+  } catch {
+    // Content script may not be injected on this tab yet.
+  }
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: id },
+      func: collectPageContext,
+    });
+    return (results[0]?.result as Record<string, string>) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function MessageAttachmentView({
@@ -129,6 +171,15 @@ type PendingAttachment = {
   file?: File;
 };
 
+type ToolTraceStep = {
+  tool: string;
+  /** tool_invoked 携带的入参（JSON 字符串）。 */
+  arguments?: string;
+  /** tool_result 携带的返回值（可能因超长被截断）。 */
+  result?: string;
+  success?: boolean;
+};
+
 type Msg = {
   role: string;
   content: string;
@@ -141,6 +192,12 @@ type Msg = {
   agentName?: string;
   /** 由 SSE delegation_decided 事件填充：领域 Agent 委派给了哪个子 Agent。 */
   delegatedTo?: string;
+  /** 工具调用过程（由 tool_invoked/tool_result 事件填充），独立渲染、不污染正文。 */
+  toolTrace?: ToolTraceStep[];
+  /** 生成终态：ok=正常完成；stopped=用户停止；failed=出错。用于渲染独立状态徽标。 */
+  status?: "ok" | "stopped" | "failed";
+  /** failed 时的可读错误（仅作徽标文案，不再拼进正文）。 */
+  errorMessage?: string;
 };
 type PageInfoKey = "url" | "title" | "selection" | "visibleText" | "domSummary";
 const PAGE_INFO_KEYS: PageInfoKey[] = [
@@ -232,6 +289,9 @@ const translations = {
     agentRefresh: "刷新 Agent 列表",
     toolInvoked: "调用工具",
     toolResult: "工具返回",
+    toolTrace: "执行过程",
+    toolArgs: "参数",
+    generationFailed: "生成失败",
     handledBy: "处理 Agent",
     delegatedTo: "委派子 Agent",
     expandComposer: "展开输入框",
@@ -261,6 +321,8 @@ const translations = {
     screenshotFailed: "截图失败，请确认浏览器权限。",
     screenshotRestricted: "当前页面不允许截图，请切换到普通网页后重试。",
     screenshotRateLimited: "截图请求过于频繁，请稍后再试。",
+    pageContextReadFailed:
+      "未能读取当前页面上下文，可能是浏览器内置页面或标签页尚未完成注入，请刷新后重试。",
     dismissError: "关闭异常提示",
     imagePreview: "查看图片",
     closeImagePreview: "关闭图片预览",
@@ -410,6 +472,8 @@ const translations = {
       "This page cannot be captured. Switch to a regular webpage and try again.",
     screenshotRateLimited:
       "Screenshot requested too often. Please try again shortly.",
+    pageContextReadFailed:
+      "Could not read the current page context. The page may be a built-in browser page or the tab may need to be refreshed.",
     dismissError: "Dismiss error",
     imagePreview: "View image",
     closeImagePreview: "Close image preview",
@@ -1837,6 +1901,7 @@ function App() {
     }
 
     let pageContext = "";
+    let contextError = "";
     try {
       const tabs = await chrome.tabs.query({
         active: true,
@@ -1849,18 +1914,17 @@ function App() {
           : [];
       if (readPageEnabled && ids.length) {
         const contexts = await Promise.all(
-          ids.map(async (id) => {
-            try {
-              return await chrome.tabs.sendMessage(id, {
-                type: "COLLECT_CONTEXT",
-              });
-            } catch {
-              return null;
-            }
-          }),
+          ids.map((id) => collectContextFromTab(id)),
         );
+        const meaningful = contexts.filter(
+          (ctx): ctx is Record<string, string> =>
+            ctx != null && !!(ctx.url || ctx.title || ctx.visibleText),
+        );
+        if (meaningful.length === 0 && contexts.some((ctx) => ctx == null)) {
+          contextError = t.pageContextReadFailed;
+        }
         pageContext = JSON.stringify(
-          contexts.filter(Boolean).map((context: Record<string, string>) => {
+          meaningful.map((context) => {
             const selected: Record<string, string> = {
               source: "current_page",
               timestamp: context.timestamp,
@@ -1875,6 +1939,7 @@ function App() {
     } catch {
       // The active tab may not allow content scripts (for example chrome:// pages).
     }
+    if (contextError) setError(contextError);
 
     let streamError = "";
     let sawContent = false;
@@ -1925,10 +1990,46 @@ function App() {
           return next;
         });
       };
-      // 把工具调用过程追加到当前助手消息中（与 token 追加逻辑保持一致）。
-      const appendToolLine = (line: string) => {
-        patchAssistantMsg((last) => ({ content: last.content + line }));
+      // 流式 token 累加 + 批量 flush：避免每个 delta 都触发整条消息全量重渲染
+      // （react-markdown + rehype-highlight 对长回复开销明显），以 ~60ms 节流合并刷新。
+      let pendingToken = "";
+      let tokenFlushScheduled = false;
+      const flushTokens = () => {
+        tokenFlushScheduled = false;
+        if (!pendingToken) return;
+        const chunk = pendingToken;
+        pendingToken = "";
+        sawContent = true;
+        patchAssistantMsg((last) => ({
+          content: last.content + chunk,
+          stage: undefined,
+        }));
       };
+      const scheduleTokenFlush = () => {
+        if (tokenFlushScheduled) return;
+        tokenFlushScheduled = true;
+        window.setTimeout(flushTokens, 60);
+      };
+      // 标准化 SSE 事件解析：逐行解析，多个 data: 行按换行 join（对齐 EventSource 规范），
+      // 只剥离 colon 后单个空格的帧封装字符，绝不吞掉正文里的真实空格；事件名同样按规范解析。
+      function parseSseBlock(block: string): {
+        name: string | null;
+        data: string | null;
+      } {
+        let name: string | null = null;
+        const dataLines: string[] = [];
+        for (const rawLine of block.split("\n")) {
+          if (rawLine.startsWith(":")) continue;
+          const colon = rawLine.indexOf(":");
+          if (colon === -1) continue;
+          const field = rawLine.slice(0, colon).trim();
+          const value = rawLine.slice(colon + 1).replace(/^ /, "");
+          if (field === "event") name = value;
+          else if (field === "data") dataLines.push(value);
+        }
+        return { name, data: dataLines.length ? dataLines.join("\n") : null };
+      }
+
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -1936,21 +2037,22 @@ function App() {
         const parts = buffer.split("\n\n");
         buffer = parts.pop() || "";
         for (const part of parts) {
-          const name = (part.match(/^event: ?(.+)$/m) || [])[1];
-          const data = (part.match(/^data: ?(.+)$/m) || [])[1];
+          const { name, data } = parseSseBlock(part);
           if (name === "token" && data) {
-            sawContent = true;
-            setMsgs((items) => {
-              const target = items[assistantIndex];
-              if (!target || target.role !== "assistant") return items;
-              const next = [...items];
-              next[assistantIndex] = {
-                ...target,
-                content: target.content + data,
-                stage: undefined,
-              };
-              return next;
-            });
+            // 新后端用 JSON 信封 {"text": "..."} 下发正文，任意字符安全；
+            // 解析失败则按裸文本处理（兼容未升级的旧后端）。
+            let tokenText = data;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed && typeof parsed.text === "string")
+                tokenText = parsed.text;
+            } catch {
+              /* 保持原始 data（旧后端裸文本格式） */
+            }
+            if (tokenText) {
+              pendingToken += tokenText;
+              scheduleTokenFlush();
+            }
           }
           if (name === "stage" && data) {
             try {
@@ -1985,17 +2087,19 @@ function App() {
             }
           }
           if (name === "message_completed" && data) {
-            // 兜底：若中途没有收到任何 token（例如流被代理缓冲），用完整内容补齐，
-            // 避免界面上出现一条空的助手消息。
+            // 用服务端权威完整内容覆盖本地累积内容：即使流式阶段因任意原因被损坏，
+            // 此处也能一次性纠偏（message_completed 仅在正常完成时下发）。
             try {
               const completed = JSON.parse(data);
               if (typeof completed.content === "string") {
+                flushTokens();
                 if (completed.content) sawContent = true;
-                patchAssistantMsg((last) =>
-                  last.content
-                    ? { stage: undefined }
-                    : { content: completed.content, stage: undefined },
-                );
+                patchAssistantMsg((last) => ({
+                  content: completed.content,
+                  stage: undefined,
+                  stopped: false,
+                  status: "ok",
+                }));
               }
             } catch {
               /* 忽略无法解析的事件 */
@@ -2046,10 +2150,15 @@ function App() {
             }
           }
           if (name === "tool_invoked" && data) {
-            // 工具调用过程可视化：让用户看到 Agent 实际执行了什么，而不是只有最终答案。
+            // 工具调用过程可视化：追加到独立的 toolTrace，再由 UI 折叠区渲染，不污染正文。
             try {
               const payload = JSON.parse(data);
-              appendToolLine(`\n\n> ${t.toolInvoked} \`${payload.tool}\`\n`);
+              patchAssistantMsg((last) => ({
+                toolTrace: [
+                  ...(last.toolTrace || []),
+                  { tool: payload.tool, arguments: payload.arguments },
+                ],
+              }));
             } catch {
               /* 忽略无法解析的工具事件 */
             }
@@ -2057,14 +2166,31 @@ function App() {
           if (name === "tool_result" && data) {
             try {
               const payload = JSON.parse(data);
-              appendToolLine(
-                `\n\n> ${t.toolResult} \`${payload.tool}\`\n\n\`\`\`\n${payload.result}\n\`\`\`\n`,
-              );
+              patchAssistantMsg((last) => {
+                const next = [...(last.toolTrace || [])];
+                const idx = next.findIndex(
+                  (step) => step.tool === payload.tool && step.result == null,
+                );
+                if (idx >= 0) {
+                  next[idx] = {
+                    ...next[idx],
+                    result: payload.result,
+                    success: payload.success,
+                  };
+                } else {
+                  next.push({
+                    tool: payload.tool,
+                    result: payload.result,
+                    success: payload.success,
+                  });
+                }
+                return { toolTrace: next };
+              });
             } catch {
               /* 忽略无法解析的工具事件 */
             }
           }
-          if (name === "error") {
+          if (name === "error" && data) {
             // 后端以 JSON 形式下发 { code, message }，直接展示原始 data 会把 JSON 暴露给用户。
             let message = data;
             try {
@@ -2082,6 +2208,7 @@ function App() {
           }
         }
       }
+      flushTokens();
       if (!sawContent && !streamError)
         markGenerationFailed(t.requestFailed, assistantIndex);
     } catch (e) {
