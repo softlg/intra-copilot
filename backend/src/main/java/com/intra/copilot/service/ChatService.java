@@ -31,6 +31,20 @@ public class ChatService {
         // 相邻项间距耗尽时才触发全量重排。
         private static final long SORT_STEP = 1024L;
 
+        // 统一的输出格式规范：追加到所有 Agent 的有效 system prompt 末尾。
+        // SSE 通道现已保真，前端也不再依赖重度的文本后处理，因此这里直接要求模型
+        // 输出结构良好的 Markdown，从源头减少标题/代码块/表格渲染错乱。
+        private static final String OUTPUT_FORMAT_GUIDANCE =
+                "\n\n"
+                        + "[输出格式]\n"
+                        + "请始终输出结构良好的 Markdown，便于在前端清晰渲染：\n"
+                        + "1. 标题：# 后必须有一个空格（如 `## 标题`），且独占一行；不要在一行文字中间直接接标题。\n"
+                        + "2. 代码块：用成对的反引号围栏包裹，并在开头围栏标注语言，例如 ```java；围栏必须各自独占一行，内部不要混入叙述文字。\n"
+                        + "3. 行内代码：用单个反引号包裹变量、命令、字段名等。\n"
+                        + "4. 表格：使用 GitHub 风格 Markdown 表格，表头与分隔行完整。\n"
+                        + "5. 列表与换行：有序/无序列表各自独立成行；段落之间用空行分隔。\n"
+                        + "6. 工具调用过程不要写入正文——它们会由前端在独立的“执行过程”面板中展示；你只需给出面向用户的最终答复。";
+
         private final ConversationRepository conversations;
         private final MessageRepository messages;
         private final ActionProposalRepository actions;
@@ -1268,6 +1282,8 @@ public class ChatService {
                                 systemBuilder.append("\n\n[Tool] 你已获得若干可通过 function calling 调用的 Tool，")
                                                 .append("在需要获取数据或执行动作时直接调用对应 Tool，Tool 返回结果会作为下一轮上下文提供给你。");
                         }
+                        // 统一的输出格式规范（见 OUTPUT_FORMAT_GUIDANCE），覆盖用户助手与领域 Agent。
+                        systemBuilder.append(OUTPUT_FORMAT_GUIDANCE);
                         final String systemEffective = systemBuilder.toString();
 
                         boolean delegatedSummary = delegation.delegated()
