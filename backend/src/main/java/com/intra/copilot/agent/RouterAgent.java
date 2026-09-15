@@ -16,20 +16,17 @@ public class RouterAgent {
     }
 
     /**
-     * Deterministic fallback used when the route LLM is unavailable / low confidence.
-     * Now actually honours the administrator-configured {@code routingRules} of the
-     * route-copilot agent (format: {@code keyword => agentId} per line, separators
-     * {@code =>}, {@code ->} or {@code :}); first keyword contained in the message wins.
-     * Falls back to the general agent only when no rule matches.
+     * Deterministic fallback used when the route LLM is unavailable / low confidence. Now actually
+     * honours the administrator-configured {@code routingRules} of the route-copilot agent (format:
+     * {@code keyword => agentId} per line, separators {@code =>}, {@code ->} or {@code :}); first
+     * keyword contained in the message wins. Falls back to the general agent only when no rule
+     * matches.
      */
     public Agent route(String text) {
-        String rules = null;
-        for (AgentDefinition definition : registry.allDefinitions()) {
-            if ("route-copilot".equals(definition.getId())) {
-                rules = definition.getRoutingRules();
-                break;
-            }
-        }
+        String rules =
+                registry.findPublished("route-copilot")
+                        .map(AgentDefinition::getRoutingRules)
+                        .orElse(null);
         if (rules != null && !rules.isBlank() && text != null && !text.isBlank()) {
             String lower = text.toLowerCase();
             for (String line : rules.split("\\R")) {

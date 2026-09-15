@@ -1753,8 +1753,7 @@ function AdminApp({
     }
   };
 
-  const saveAgent = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const persistAgent = async (): Promise<Agent | undefined> => {
     const id = agentId.trim();
     const displayName = agentDisplayName.trim();
     const systemPrompt = agentSystemPrompt.trim();
@@ -1772,101 +1771,144 @@ function AdminApp({
     }
     if (!agentDescription.trim()) {
       setAgentError(t.agentDescriptionRequired);
-      return;
+      return undefined;
     }
+    const savedAgent = await request<Agent>(
+      editingAgentId ? `/admin/agents/${editingAgentId}` : "/admin/agents",
+      {
+        method: editingAgentId ? "PUT" : "POST",
+        body: JSON.stringify({
+          id: editingAgentId ? id : null,
+          displayName,
+          description: agentDescription.trim(),
+          systemPrompt,
+          role: agentRole,
+          parentAgentId: agentParentId.trim() || null,
+          handlingMode: agentHandlingMode,
+          returnMode: agentReturnMode,
+          planningMode: agentPlanningMode,
+          maxPlanSteps: agentMaxPlanSteps,
+          enabled: agentEnabled,
+          priority: Math.max(0, Math.min(10000, Number(agentPriority) || 0)),
+          routingRules: agentRoutingRules.trim() || null,
+          supportsBrowserActions: agentBrowserActions,
+          model: agentModel.trim() || null,
+          temperature: agentTemperature.trim()
+            ? Number(agentTemperature)
+            : null,
+          knowledgeBaseIds: agentKnowledgeBaseIds.trim(),
+          toolIds: JSON.stringify(agentToolIds),
+          skillIds: JSON.stringify(agentSkillIds),
+        }),
+      },
+    );
+    if (agentRole === "DOMAIN" && savedAgent?.id) {
+      await request(`/admin/agents/${savedAgent.id}/children`, {
+        method: "PUT",
+        body: JSON.stringify(
+          agentChildIds.map((childAgentId, index) => ({
+            childAgentId,
+            priority: index * 10,
+            enabled: true,
+            routingRule: agentChildRules[childAgentId]?.trim() || null,
+          })),
+        ),
+      });
+    }
+    const refreshedAgents = await loadAgents();
+    const refreshedAgent =
+      refreshedAgents.find((item) => item.id === savedAgent.id) ?? savedAgent;
+    if (agentConfigId === refreshedAgent.id) {
+      setAgentConfigBaseline(
+        agentConfigSnapshot(refreshedAgent, agentChildIds, agentChildRules),
+      );
+    }
+    return refreshedAgent;
+  };
+
+  const saveAgentDraft = async (): Promise<Agent | undefined> => {
+    if (agentSubmitting) return undefined;
     setAgentSubmitting(true);
     setAgentError("");
     try {
-      const savedAgent = await request<Agent>(
-        editingAgentId ? `/admin/agents/${editingAgentId}` : "/admin/agents",
-        {
-          method: editingAgentId ? "PUT" : "POST",
-          body: JSON.stringify({
-            id: editingAgentId ? id : null,
-            displayName,
-            description: agentDescription.trim(),
-            systemPrompt,
-            role: agentRole,
-            parentAgentId: agentParentId.trim() || null,
-            handlingMode: agentHandlingMode,
-            returnMode: agentReturnMode,
-            planningMode: agentPlanningMode,
-            maxPlanSteps: agentMaxPlanSteps,
-            enabled: agentEnabled,
-            priority: Math.max(0, Math.min(10000, Number(agentPriority) || 0)),
-            routingRules: agentRoutingRules.trim() || null,
-            supportsBrowserActions: agentBrowserActions,
-            model: agentModel.trim() || null,
-            temperature: agentTemperature.trim()
-              ? Number(agentTemperature)
-              : null,
-            knowledgeBaseIds: agentKnowledgeBaseIds.trim(),
-            toolIds: JSON.stringify(agentToolIds),
-            skillIds: JSON.stringify(agentSkillIds),
-          }),
-        },
-      );
-      if (agentRole === "DOMAIN" && savedAgent?.id) {
-        await request(`/admin/agents/${savedAgent.id}/children`, {
-          method: "PUT",
-          body: JSON.stringify(
-            agentChildIds.map((childAgentId, index) => ({
-              childAgentId,
-              priority: index * 10,
-              enabled: true,
-              routingRule: agentChildRules[childAgentId]?.trim() || null,
-            })),
-          ),
-        });
-      }
+      const savedAgent = await persistAgent();
+      if (!savedAgent) return undefined;
       setAgentDialogOpen(false);
-      const refreshedAgents = await loadAgents();
-      const refreshedAgent =
-        refreshedAgents.find((item) => item.id === savedAgent.id) ?? savedAgent;
-      const requestId = ++agentSettingsRequestId.current;
-      setAgentReturnTab(agentTabForRole(refreshedAgent.role ?? agentRole));
-      populateAgentConfig(refreshedAgent, requestId, false);
-      toast.success(t.agentSaved);
+      if (agentConfigId === savedAgent.id) {
+        const requestId = ++agentSettingsRequestId.current;
+        setAgentReturnTab(agentTabForRole(savedAgent.role ?? agentRole));
+        populateAgentConfig(savedAgent, requestId, false);
+      }
+      toast.success(
+        savedAgent.publishedVersion
+          ? t.draftSavedLiveVersion(savedAgent.publishedVersion)
+          : t.draftSavedNotPublished,
+      );
+      return savedAgent;
     } catch (error) {
       setAgentError(
         error instanceof Error ? error.message : t.createAgentFailed,
       );
+      return undefined;
     } finally {
       setAgentSubmitting(false);
     }
   };
 
-  const publishAgent = async () => {
-    if (!configuredAgent || agentConfigDirty) return;
-    const targetAgent = configuredAgent;
-    setAgentSubmitting(true);
-    setAgentError("");
-    try {
-      const published = await request<AgentConfigVersion>(
-        `/admin/agents/${targetAgent.id}/publish`,
-        {
-          method: "POST",
-          body: JSON.stringify({ releaseNote: "后台配置发布" }),
-        },
-      );
-      const publishedAgent: Agent = {
-        ...targetAgent,
-        published: true,
-        publishedVersion: published.version,
-      };
-      setAgents((current) =>
-        current.map((item) =>
-          item.id === targetAgent.id ? publishedAgent : item,
-        ),
-      );
+  const saveAgent = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await saveAgentDraft();
+  };
+
+  const publishSavedAgent = async (targetAgent: Agent) => {
+    const published = await request<AgentConfigVersion>(
+      `/admin/agents/${targetAgent.id}/publish`,
+      {
+        method: "POST",
+        body: JSON.stringify({ releaseNote: "后台配置发布" }),
+      },
+    );
+    const refreshedAgents = await loadAgents();
+    const publishedAgent: Agent = refreshedAgents.find(
+      (item) => item.id === targetAgent.id,
+    ) ?? {
+      ...targetAgent,
+      published: true,
+      publishedVersion: published.version,
+    };
+    if (agentConfigId === targetAgent.id) {
       const requestId = ++agentSettingsRequestId.current;
       populateAgentConfig(publishedAgent, requestId, false);
-      toast.success(t.publishSuccess(published.version));
+    }
+    toast.success(t.publishSuccess(published.version));
+    return publishedAgent;
+  };
+
+  const saveAndPublishAgent = async () => {
+    if (agentSubmitting || !configuredAgent) return;
+    setAgentSubmitting(true);
+    setAgentError("");
+    let savedAgent: Agent | undefined;
+    try {
+      savedAgent = await persistAgent();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t.createAgentFailed;
+      setAgentError(message);
+      toast.error(`${t.saveAgent}: ${message}`);
+    }
+    if (!savedAgent) {
+      setAgentSubmitting(false);
+      return;
+    }
+    try {
+      await publishSavedAgent(savedAgent);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : t.publishFailed;
-      setAgentError(errorMessage);
-      toast.error(`${t.publishFailed}: ${errorMessage}`);
+      const message = t.draftSavedPublishFailed(errorMessage);
+      setAgentError(message);
+      toast.error(message);
     } finally {
       setAgentSubmitting(false);
     }
@@ -2732,7 +2774,8 @@ function AdminApp({
             setAgentSkillSearch={setAgentSkillSearch}
             setResourceDetails={setResourceDetails}
             saveAgent={saveAgent}
-            publishAgent={publishAgent}
+            saveAgentDraft={saveAgentDraft}
+            saveAndPublishAgent={saveAndPublishAgent}
             rollbackAgent={rollbackAgent}
           />
         )}

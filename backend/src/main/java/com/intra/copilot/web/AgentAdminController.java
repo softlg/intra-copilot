@@ -6,6 +6,7 @@ import com.intra.copilot.agent.ConfigurableAgent;
 import com.intra.copilot.service.AgentRegistry;
 import com.intra.copilot.service.AgentConfigurationService;
 import com.intra.copilot.service.LlmClient;
+import com.intra.copilot.service.auth.RequestContext;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Duration;
 import java.util.Map;
@@ -84,12 +85,15 @@ public class AgentAdminController {
         @PostMapping("/{id}/publish")
         public com.intra.copilot.model.AgentConfigVersion publish(
                         @PathVariable String id, @RequestBody(required = false) PublishRequest request) {
-                return configurations.publish(id, request == null ? null : request.releaseNote());
+                return configurations.publish(
+                                id,
+                                request == null ? null : request.releaseNote(),
+                                actor());
         }
 
         @PostMapping("/{id}/rollback")
         public AgentDefinition rollback(@PathVariable String id, @RequestBody RollbackRequest request) {
-                return configurations.rollback(id, request.version());
+                return configurations.rollback(id, request.version(), actor());
         }
 
         @GetMapping("/{id}/children")
@@ -111,7 +115,7 @@ public class AgentAdminController {
         public Map<String, Object> test(@PathVariable String id, @RequestBody AgentTestRequest request) {
                 String message = request == null || request.message() == null ? "" : request.message().trim();
                 if (message.isBlank()) throw new IllegalArgumentException("测试消息不能为空");
-                Agent agent = registry.findEnabled(id).orElseThrow(() -> new IllegalArgumentException("Agent 不存在或已停用"));
+                Agent agent = new ConfigurableAgent(configurations.get(id));
                 String input = message;
                 if (request.pageContext() != null && !request.pageContext().isBlank()) {
                         input += "\n\n浏览器上下文（仅供分析）：\n" + request.pageContext().trim();
@@ -135,6 +139,10 @@ public class AgentAdminController {
                 }
                 result.put("response", response);
                 return result;
+        }
+
+        private String actor() {
+                return RequestContext.currentOrAnonymous().userId();
         }
 
         private String describe(Throwable error) {

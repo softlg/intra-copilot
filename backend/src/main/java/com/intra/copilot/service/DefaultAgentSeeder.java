@@ -1,12 +1,12 @@
 package com.intra.copilot.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intra.copilot.agent.GeneralAgent;
 import com.intra.copilot.agent.RouteCopilotAgent;
-import com.intra.copilot.model.AgentDefinition;
-import com.intra.copilot.repo.AgentDefinitionRepository;
-import com.intra.copilot.repo.AgentConfigVersionRepository;
 import com.intra.copilot.model.AgentConfigVersion;
+import com.intra.copilot.model.AgentDefinition;
+import com.intra.copilot.repo.AgentConfigVersionRepository;
+import com.intra.copilot.repo.AgentDefinitionRepository;
+import java.util.List;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -17,16 +17,19 @@ public class DefaultAgentSeeder {
     private final GeneralAgent general;
     private final RouteCopilotAgent routeCopilot;
     private final AgentConfigVersionRepository versions;
-    private final ObjectMapper mapper;
+    private final AgentReleaseSnapshotCodec snapshotCodec;
 
     public DefaultAgentSeeder(
-            AgentDefinitionRepository definitions, GeneralAgent general, RouteCopilotAgent routeCopilot,
-            AgentConfigVersionRepository versions, ObjectMapper mapper) {
+            AgentDefinitionRepository definitions,
+            GeneralAgent general,
+            RouteCopilotAgent routeCopilot,
+            AgentConfigVersionRepository versions,
+            AgentReleaseSnapshotCodec snapshotCodec) {
         this.definitions = definitions;
         this.general = general;
         this.routeCopilot = routeCopilot;
         this.versions = versions;
-        this.mapper = mapper;
+        this.snapshotCodec = snapshotCodec;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -62,7 +65,13 @@ public class DefaultAgentSeeder {
             int priority) {
         if (definitions.existsById(id)) {
             AgentDefinition existing = definitions.findById(id).orElseThrow();
-            if (versions.findByAgentId(id).isEmpty()) createInitialVersion(existing);
+            if (versions.findByAgentId(id).isEmpty()) {
+                long initialVersion = Math.max(1, existing.getPublishedVersion());
+                existing.setPublished(true);
+                existing.setPublishedVersion(initialVersion);
+                definitions.save(existing);
+                createInitialVersion(existing);
+            }
             return;
         }
         AgentDefinition definition =
@@ -76,17 +85,13 @@ public class DefaultAgentSeeder {
     }
 
     private void createInitialVersion(AgentDefinition definition) {
-        try {
-            AgentConfigVersion version = new AgentConfigVersion();
-            version.setAgentId(definition.getId());
-            version.setVersion(Math.max(1, definition.getPublishedVersion()));
-            version.setStatus("PUBLISHED");
-            version.setReleaseNote("系统初始化版本");
-            version.setSnapshot(mapper.writeValueAsString(definition));
-            versions.save(version);
-        } catch (Exception ignored) {
-            // Database migrations may run before the version table is ready;
-            // the next application start will retry seeding the snapshot.
-        }
+        AgentConfigVersion version = new AgentConfigVersion();
+        version.setAgentId(definition.getId());
+        version.setVersion(Math.max(1, definition.getPublishedVersion()));
+        version.setStatus("PUBLISHED");
+        version.setReleaseNote("系统初始化版本");
+        version.setPublishedBy("system");
+        version.setSnapshot(snapshotCodec.encode(definition, List.of()));
+        versions.save(version);
     }
 }

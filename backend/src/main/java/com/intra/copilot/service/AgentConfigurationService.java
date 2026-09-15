@@ -24,6 +24,7 @@ public class AgentConfigurationService {
     private final AgentSkillBindingRepository skillBindings;
     private final AgentRegistry registry;
     private final ObjectMapper mapper;
+    private final AgentReleaseSnapshotCodec snapshotCodec;
 
     public AgentConfigurationService(
             AgentDefinitionRepository definitions,
@@ -31,13 +32,15 @@ public class AgentConfigurationService {
             AgentChildBindingRepository bindings,
             AgentSkillBindingRepository skillBindings,
             AgentRegistry registry,
-            ObjectMapper mapper) {
+            ObjectMapper mapper,
+            AgentReleaseSnapshotCodec snapshotCodec) {
         this.definitions = definitions;
         this.versions = versions;
         this.bindings = bindings;
         this.skillBindings = skillBindings;
         this.registry = registry;
         this.mapper = mapper;
+        this.snapshotCodec = snapshotCodec;
     }
 
     @Transactional
@@ -58,7 +61,6 @@ public class AgentConfigurationService {
             definition.setVersion(1);
         }
         AgentDefinition saved = definitions.save(definition);
-        skillBindings.replace(saved.getId(), parseIds(saved.getSkillIds()));
         synchronizeChildBinding(saved);
         attachParent(saved);
         registry.evict();
@@ -67,34 +69,27 @@ public class AgentConfigurationService {
 
     @Transactional
     public AgentConfigVersion publish(String id, String releaseNote) {
+        return publish(id, releaseNote, "anonymous");
+    }
+
+    @Transactional
+    public AgentConfigVersion publish(String id, String releaseNote, String publishedBy) {
         AgentDefinition definition = get(id);
         validate(definition);
-        long next =
-                versions.findByAgentId(id)
-                                .stream()
-                                .mapToLong(AgentConfigVersion::getVersion)
-                                .max()
-                                .orElse(0)
-                        + 1;
-        versions.findByAgentId(id)
-                .forEach(
-                        item -> {
-                            item.setStatus("ARCHIVED");
-                            versions.save(item);
-                        });
+        List<AgentChildBinding> releaseBindings = bindings.findByParent(id);
+        long next = nextVersion(id);
+        archiveVersions(id);
         definition.setPublished(true);
         definition.setPublishedVersion(next);
         definitions.save(definition);
+        skillBindings.replace(definition.getId(), parseIds(definition.getSkillIds()));
         AgentConfigVersion version = new AgentConfigVersion();
         version.setAgentId(id);
         version.setVersion(next);
         version.setStatus("PUBLISHED");
         version.setReleaseNote(releaseNote);
-        try {
-            version.setSnapshot(mapper.writeValueAsString(definition));
-        } catch (Exception error) {
-            throw new IllegalArgumentException("Agent 配置无法生成版本快照");
-        }
+        version.setPublishedBy(trimToNull(publishedBy));
+        version.setSnapshot(snapshotCodec.encode(definition, releaseBindings));
         AgentConfigVersion saved = versions.save(version);
         registry.evict();
         return saved;
@@ -102,52 +97,53 @@ public class AgentConfigurationService {
 
     @Transactional
     public AgentDefinition rollback(String id, long version) {
+        return rollback(id, version, "anonymous");
+    }
+
+    @Transactional
+    public AgentDefinition rollback(String id, long version, String publishedBy) {
         AgentConfigVersion target =
                 versions.findByAgentId(id)
                         .stream()
                         .filter(item -> item.getVersion() == version)
                         .findFirst()
                         .orElseThrow(() -> new IllegalArgumentException("Agent 版本不存在"));
-        try {
-            AgentDefinition restored =
-                    mapper.readValue(target.getSnapshot(), AgentDefinition.class);
-            restored.setId(id);
-            AgentDefinition current = get(id);
-            restored.setPublished(true);
-            restored.setPublishedVersion(version);
-            restored.setVersion(current.getVersion() + 1);
-            // A rollback is itself a new published release.  Keeping a new
-            // version entry makes the operation auditable and allows a later
-            // rollback without mutating historical snapshots.
-            long next =
-                    versions.findByAgentId(id)
-                                    .stream()
-                                    .mapToLong(AgentConfigVersion::getVersion)
-                                    .max()
-                                    .orElse(version)
-                            + 1;
-            versions.findByAgentId(id)
-                    .forEach(
-                            item -> {
-                                item.setStatus("ARCHIVED");
-                                versions.save(item);
-                            });
-            AgentConfigVersion release = new AgentConfigVersion();
-            release.setAgentId(id);
-            release.setVersion(next);
-            release.setStatus("PUBLISHED");
-            release.setReleaseNote("回滚到版本 " + version);
-            release.setSnapshot(mapper.writeValueAsString(restored));
-            restored.setPublishedVersion(next);
-            definitions.save(restored);
-            skillBindings.replace(restored.getId(), parseIds(restored.getSkillIds()));
-            versions.save(release);
-            attachParent(restored);
-            registry.evict();
-            return restored;
-        } catch (Exception error) {
+        AgentReleaseSnapshotCodec.Decoded decoded = snapshotCodec.decode(target.getSnapshot());
+        if (decoded.definition() == null) {
             throw new IllegalArgumentException("Agent 版本快照无法恢复");
         }
+        AgentDefinition current = get(id);
+        AgentDefinition restored = decoded.definition();
+        restored.setId(id);
+        // Enable/disable is immediate operational state and survives rollback.
+        restored.setEnabled(current.isEnabled());
+        restored.setPublished(true);
+        restored.setPublishedVersion(nextVersion(id));
+        restored.setVersion(current.getVersion() + 1);
+
+        List<AgentChildBinding> restoredBindings =
+                decoded.structured() && decoded.schemaVersion() >= 1
+                        ? normalizeBindings(id, decoded.childBindings())
+                        : bindings.findByParent(id);
+        long next = restored.getPublishedVersion();
+        archiveVersions(id);
+        definitions.save(restored);
+        skillBindings.replace(restored.getId(), parseIds(restored.getSkillIds()));
+        if (decoded.structured() && decoded.schemaVersion() >= 1) {
+            restoreChildBindings(id, restoredBindings);
+        }
+
+        AgentConfigVersion release = new AgentConfigVersion();
+        release.setAgentId(id);
+        release.setVersion(next);
+        release.setStatus("PUBLISHED");
+        release.setReleaseNote("回滚到版本 " + version);
+        release.setPublishedBy(trimToNull(publishedBy));
+        release.setSnapshot(snapshotCodec.encode(restored, restoredBindings));
+        versions.save(release);
+        attachParent(restored);
+        registry.evict();
+        return restored;
     }
 
     public List<AgentConfigVersion> versions(String id) {
@@ -300,6 +296,65 @@ public class AgentConfigurationService {
                         .max()
                         .orElse(90)
                 + 10;
+    }
+
+    private long nextVersion(String id) {
+        return versions.findByAgentId(id)
+                        .stream()
+                        .mapToLong(AgentConfigVersion::getVersion)
+                        .max()
+                        .orElse(0)
+                + 1;
+    }
+
+    private void archiveVersions(String id) {
+        versions.findByAgentId(id)
+                .forEach(
+                        item -> {
+                            item.setStatus("ARCHIVED");
+                            versions.save(item);
+                        });
+    }
+
+    private List<AgentChildBinding> normalizeBindings(
+            String parentId, List<AgentChildBinding> values) {
+        if (values == null || values.isEmpty()) return List.of();
+        return values.stream()
+                .filter(value -> value != null)
+                .filter(
+                        value ->
+                                value.getChildAgentId() != null
+                                        && !value.getChildAgentId().isBlank())
+                .filter(value -> !parentId.equals(value.getChildAgentId()))
+                .collect(
+                        java.util.stream.Collectors.toMap(
+                                value -> value.getChildAgentId().trim(),
+                                value -> copyBinding(parentId, value),
+                                (first, ignored) -> first,
+                                java.util.LinkedHashMap::new))
+                .values()
+                .stream()
+                .toList();
+    }
+
+    private AgentChildBinding copyBinding(String parentId, AgentChildBinding source) {
+        AgentChildBinding binding = new AgentChildBinding();
+        binding.setParentAgentId(parentId);
+        binding.setChildAgentId(source.getChildAgentId().trim());
+        binding.setPriority(Math.max(0, source.getPriority()));
+        binding.setRoutingRule(source.getRoutingRule());
+        binding.setEnabled(source.isEnabled());
+        return binding;
+    }
+
+    private void restoreChildBindings(String parentId, List<AgentChildBinding> values) {
+        bindings.deleteByParent(parentId);
+        for (AgentChildBinding value : values) {
+            bindings.deleteByChild(value.getChildAgentId());
+            AgentChildBinding binding = copyBinding(parentId, value);
+            binding.setId(EntityIdGenerator.next("AB"));
+            bindings.insert(binding);
+        }
     }
 
     private String trimToNull(String value) {

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intra.copilot.model.AgentChildBinding;
+import com.intra.copilot.model.AgentConfigVersion;
 import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.repo.AgentChildBindingRepository;
 import com.intra.copilot.repo.AgentConfigVersionRepository;
@@ -35,7 +36,8 @@ class AgentConfigurationServiceTest {
                         bindings,
                         mock(AgentSkillBindingRepository.class),
                         registry,
-                        new ObjectMapper());
+                        new ObjectMapper(),
+                        new AgentReleaseSnapshotCodec(new ObjectMapper().findAndRegisterModules()));
 
         AgentDefinition domain = domain("finance");
         AgentDefinition child = subAgent("expense", "finance");
@@ -70,7 +72,8 @@ class AgentConfigurationServiceTest {
                         bindings,
                         mock(AgentSkillBindingRepository.class),
                         registry,
-                        new ObjectMapper());
+                        new ObjectMapper(),
+                        new AgentReleaseSnapshotCodec(new ObjectMapper().findAndRegisterModules()));
 
         AgentDefinition newDomain = domain("operations");
         AgentDefinition child = subAgent("expense", "operations");
@@ -104,7 +107,8 @@ class AgentConfigurationServiceTest {
                         bindings,
                         mock(AgentSkillBindingRepository.class),
                         registry,
-                        new ObjectMapper());
+                        new ObjectMapper(),
+                        new AgentReleaseSnapshotCodec(new ObjectMapper().findAndRegisterModules()));
 
         AgentDefinition targetDomain = domain("operations");
         AgentDefinition child = subAgent("expense", "finance");
@@ -138,7 +142,8 @@ class AgentConfigurationServiceTest {
                         bindings,
                         mock(AgentSkillBindingRepository.class),
                         registry,
-                        new ObjectMapper());
+                        new ObjectMapper(),
+                        new AgentReleaseSnapshotCodec(new ObjectMapper().findAndRegisterModules()));
 
         AgentDefinition definition = domain("planning");
         definition.setPlanningMode("invalid");
@@ -151,6 +156,104 @@ class AgentConfigurationServiceTest {
 
         assertEquals("AUTO", saved.getPlanningMode());
         assertEquals(12, saved.getMaxPlanSteps());
+    }
+
+    @Test
+    void publishCapturesDefinitionAndChildBindingsAsStructuredSnapshot() {
+        AgentDefinitionRepository definitions = mock(AgentDefinitionRepository.class);
+        AgentConfigVersionRepository versions = mock(AgentConfigVersionRepository.class);
+        AgentChildBindingRepository bindings = mock(AgentChildBindingRepository.class);
+        AgentSkillBindingRepository skillBindings = mock(AgentSkillBindingRepository.class);
+        AgentRegistry registry = mock(AgentRegistry.class);
+        AgentReleaseSnapshotCodec codec =
+                new AgentReleaseSnapshotCodec(new ObjectMapper().findAndRegisterModules());
+        AgentConfigurationService service =
+                new AgentConfigurationService(
+                        definitions,
+                        versions,
+                        bindings,
+                        skillBindings,
+                        registry,
+                        new ObjectMapper(),
+                        codec);
+
+        AgentDefinition domain = domain("finance");
+        domain.setPublishedVersion(2);
+        AgentChildBinding child = binding("finance", "expense", 10);
+        AgentConfigVersion previous = new AgentConfigVersion();
+        previous.setAgentId("finance");
+        previous.setVersion(2);
+        previous.setStatus("PUBLISHED");
+        previous.setSnapshot(codec.encode(domain, List.of(child)));
+
+        when(definitions.findById("finance")).thenReturn(Optional.of(domain));
+        when(bindings.findByParent("finance")).thenReturn(List.of(child));
+        when(versions.findByAgentId("finance")).thenReturn(List.of(previous));
+        when(versions.save(any(AgentConfigVersion.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        AgentConfigVersion published = service.publish("finance", "发布领域 Agent", "alice");
+
+        assertEquals(3, published.getVersion());
+        assertEquals("alice", published.getPublishedBy());
+        AgentReleaseSnapshotCodec.Decoded decoded = codec.decode(published.getSnapshot());
+        assertEquals("finance", decoded.definition().getId());
+        assertEquals("expense", decoded.childBindings().get(0).getChildAgentId());
+        assertEquals(3, domain.getPublishedVersion());
+        verify(skillBindings).replace("finance", List.of());
+        verify(registry).evict();
+    }
+
+    @Test
+    void rollbackRestoresSnapshotBindingsAndCreatesNewRelease() {
+        AgentDefinitionRepository definitions = mock(AgentDefinitionRepository.class);
+        AgentConfigVersionRepository versions = mock(AgentConfigVersionRepository.class);
+        AgentChildBindingRepository bindings = mock(AgentChildBindingRepository.class);
+        AgentSkillBindingRepository skillBindings = mock(AgentSkillBindingRepository.class);
+        AgentRegistry registry = mock(AgentRegistry.class);
+        AgentReleaseSnapshotCodec codec =
+                new AgentReleaseSnapshotCodec(new ObjectMapper().findAndRegisterModules());
+        AgentConfigurationService service =
+                new AgentConfigurationService(
+                        definitions,
+                        versions,
+                        bindings,
+                        skillBindings,
+                        registry,
+                        new ObjectMapper(),
+                        codec);
+
+        AgentDefinition oldDefinition = domain("finance");
+        oldDefinition.setSystemPrompt("v1 production prompt");
+        AgentChildBinding oldChild = binding("finance", "expense-v1", 10);
+        AgentConfigVersion target = new AgentConfigVersion();
+        target.setAgentId("finance");
+        target.setVersion(1);
+        target.setStatus("ARCHIVED");
+        target.setSnapshot(codec.encode(oldDefinition, List.of(oldChild)));
+
+        AgentDefinition current = domain("finance");
+        current.setSystemPrompt("v3 draft prompt");
+        current.setEnabled(false);
+        current.setVersion(3);
+        current.setPublishedVersion(2);
+        when(versions.findByAgentId("finance")).thenReturn(List.of(target));
+        when(definitions.findById("finance")).thenReturn(Optional.of(current));
+        when(versions.save(any(AgentConfigVersion.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        AgentDefinition restored = service.rollback("finance", 1, "bob");
+
+        assertEquals("v1 production prompt", restored.getSystemPrompt());
+        assertEquals(2, restored.getPublishedVersion());
+        assertEquals(false, restored.isEnabled());
+        verify(bindings).deleteByParent("finance");
+        verify(bindings).deleteByChild("expense-v1");
+        ArgumentCaptor<AgentChildBinding> bindingCaptor =
+                ArgumentCaptor.forClass(AgentChildBinding.class);
+        verify(bindings).insert(bindingCaptor.capture());
+        assertEquals("expense-v1", bindingCaptor.getValue().getChildAgentId());
+        verify(registry).evict();
     }
 
     private AgentDefinition domain(String id) {

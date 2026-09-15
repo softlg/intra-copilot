@@ -227,6 +227,9 @@ function timelineEntryMatches(
     entry.invocation.requestedAgentId,
     entry.invocation.intent,
     entry.invocation.routeReason,
+    entry.invocation.agentVersion == null
+      ? undefined
+      : String(entry.invocation.agentVersion),
     entry.invocation.responseContent,
     entry.invocation.error,
   ].some((value) => value?.toLowerCase().includes(query));
@@ -609,7 +612,11 @@ function ConversationInspector({
       <div className="conversation-inspector-head">
         <div>
           <span>{t.conversationStepDetails}</span>
-          <h4>{invocation.selectedAgentId || "-"}</h4>
+          <h4>
+            {invocation.selectedAgentId || "-"}
+            {invocation.agentVersion != null &&
+              ` · v${invocation.agentVersion}`}
+          </h4>
         </div>
         <button
           type="button"
@@ -1203,6 +1210,11 @@ export function ConversationLogsPage({
                                   <strong>
                                     {entry.invocation.selectedAgentId || "-"}
                                   </strong>
+                                  {entry.invocation.agentVersion != null && (
+                                    <span className="conversation-chip">
+                                      v{entry.invocation.agentVersion}
+                                    </span>
+                                  )}
                                   <span className="conversation-chip">
                                     {entry.invocation.routeSource || "-"}
                                   </span>

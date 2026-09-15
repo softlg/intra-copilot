@@ -142,7 +142,8 @@ export interface AgentSettingsPageProps {
   setAgentSkillSearch: Dispatch<SetStateAction<string>>;
   setResourceDetails: Dispatch<SetStateAction<ResourceDetails | undefined>>;
   saveAgent: FormEventHandler<HTMLFormElement>;
-  publishAgent: () => void;
+  saveAgentDraft: () => Promise<Agent | undefined>;
+  saveAndPublishAgent: () => void;
   rollbackAgent: (version: number) => void;
 }
 
@@ -214,7 +215,8 @@ export function AgentSettingsPage({
   setAgentSkillSearch,
   setResourceDetails,
   saveAgent,
-  publishAgent,
+  saveAgentDraft,
+  saveAndPublishAgent,
   rollbackAgent,
 }: AgentSettingsPageProps) {
   const [selectedVersion, setSelectedVersion] = useState<AgentConfigVersion>();
@@ -237,6 +239,26 @@ export function AgentSettingsPage({
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [selectedVersion]);
 
+  useEffect(() => {
+    const saveWithKeyboard = (event: KeyboardEvent) => {
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        event.key.toLowerCase() !== "s" ||
+        agentSubmitting
+      ) {
+        return;
+      }
+      event.preventDefault();
+      if (event.shiftKey) {
+        saveAndPublishAgent();
+      } else if (agentConfigDirty) {
+        void saveAgentDraft();
+      }
+    };
+    window.addEventListener("keydown", saveWithKeyboard);
+    return () => window.removeEventListener("keydown", saveWithKeyboard);
+  }, [agentConfigDirty, agentSubmitting, saveAgentDraft, saveAndPublishAgent]);
+
   const availableChildAgents = agents.filter(
     (item) =>
       item.role === "SUB" &&
@@ -250,16 +272,21 @@ export function AgentSettingsPage({
         (configuredAgent.version ?? 0) >
           (configuredAgent.publishedVersion ?? 0))),
   );
+  const hasPublishedRelease = (configuredAgent?.publishedVersion ?? 0) > 0;
   const publicationState = agentConfigDirty
     ? "unsaved"
-    : hasUnpublishedChanges
-      ? "unpublished"
-      : "published";
+    : !hasPublishedRelease
+      ? "never"
+      : hasUnpublishedChanges
+        ? "unpublished"
+        : "published";
   const publicationLabel = agentConfigDirty
     ? t.unsavedPublicationChanges
-    : hasUnpublishedChanges
-      ? t.unpublishedChanges
-      : t.publishedAndCurrent;
+    : !hasPublishedRelease
+      ? t.neverPublished
+      : hasUnpublishedChanges
+        ? t.unpublishedChanges
+        : t.publishedAndCurrent;
 
   return (
     <section className="agent-settings-page">
@@ -281,7 +308,11 @@ export function AgentSettingsPage({
             <span>{publicationLabel}</span>
             {configuredAgent && (
               <small>
-                {t.publishedVersionValue(configuredAgent.publishedVersion ?? 0)}
+                {hasPublishedRelease
+                  ? t.publishedVersionValue(
+                      configuredAgent.publishedVersion ?? 0,
+                    )
+                  : t.noPublishedVersion}
               </small>
             )}
           </div>
@@ -291,19 +322,37 @@ export function AgentSettingsPage({
           <button
             type="button"
             className="agent-test"
-            onClick={() => {
-              if (configuredAgent) openAgentTest(configuredAgent);
+            onClick={async () => {
+              if (!configuredAgent || agentSubmitting) return;
+              if (!agentConfigDirty) {
+                openAgentTest(configuredAgent);
+                return;
+              }
+              const saved = await saveAgentDraft();
+              if (saved) openAgentTest(saved);
             }}
-            disabled={!agentEnabled || !configuredAgent}
+            disabled={!configuredAgent || agentSubmitting}
           >
             {t.testAgent}
           </button>
           <button
-            type="submit"
-            form="agent-settings-form"
-            disabled={agentSubmitting}
+            type="button"
+            className="secondary"
+            onClick={() => void saveAgentDraft()}
+            disabled={agentSubmitting || !configuredAgent || !agentConfigDirty}
           >
-            {agentSubmitting ? t.saving : t.saveAgent}
+            {agentSubmitting ? t.saving : t.saveDraft}
+          </button>
+          <button
+            type="button"
+            onClick={saveAndPublishAgent}
+            disabled={
+              agentSubmitting ||
+              !configuredAgent ||
+              (!agentConfigDirty && !hasUnpublishedChanges)
+            }
+          >
+            {agentSubmitting ? t.publishing : t.saveAndPublish}
           </button>
         </div>
       </div>
@@ -1020,31 +1069,13 @@ export function AgentSettingsPage({
           <div className="settings-panel">
             <div className="binding-heading">
               <div>
-                <h4>{t.versions}</h4>
+                <h4>{t.versionHistory}</h4>
                 <p>
-                  {t.publishedVersion}: {configuredAgent?.publishedVersion ?? 0}
+                  {hasPublishedRelease
+                    ? `${t.publishedVersion}: ${configuredAgent?.publishedVersion}`
+                    : t.noPublishedVersion}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={publishAgent}
-                disabled={
-                  agentSubmitting || agentConfigDirty || !hasUnpublishedChanges
-                }
-                title={
-                  agentConfigDirty
-                    ? t.saveBeforePublish
-                    : !hasUnpublishedChanges
-                      ? t.publishedAndCurrent
-                      : undefined
-                }
-              >
-                {agentSubmitting
-                  ? t.publishing
-                  : hasUnpublishedChanges
-                    ? t.publish
-                    : t.published}
-              </button>
             </div>
             <p
               className={`publish-guidance ${
@@ -1068,7 +1099,7 @@ export function AgentSettingsPage({
               </span>
             </p>
             {agentVersions.length === 0 ? (
-              <p className="binding-empty">{t.draft}</p>
+              <p className="binding-empty">{t.noVersionHistory}</p>
             ) : (
               <div className="version-list">
                 {agentVersions.map((version) => (
@@ -1076,7 +1107,11 @@ export function AgentSettingsPage({
                     <div className="version-row-content">
                       <strong>v{version.version}</strong>
                       <span className="binding-meta">
-                        {version.status === "PUBLISHED" ? t.published : t.draft}
+                        {version.status === "PUBLISHED"
+                          ? t.published
+                          : version.status === "ARCHIVED"
+                            ? t.archivedRelease
+                            : t.draft}
                       </span>
                       {version.releaseNote && <p>{version.releaseNote}</p>}
                     </div>

@@ -9,7 +9,6 @@ import com.intra.copilot.agent.RouteCopilotAgent;
 import com.intra.copilot.agent.RouterAgent;
 import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.model.AgentChildBinding;
-import com.intra.copilot.repo.AgentChildBindingRepository;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +29,6 @@ public class AgentOrchestrator {
     private final GeneralAgent general;
     private final RouteCopilotAgent routeCopilot;
     private final LlmClient llm;
-    private final AgentChildBindingRepository childBindings;
     private final TraceRecorder trace;
     private final ObjectMapper json = new ObjectMapper();
 
@@ -40,14 +38,12 @@ public class AgentOrchestrator {
             GeneralAgent general,
             RouteCopilotAgent routeCopilot,
             LlmClient llm,
-            AgentChildBindingRepository childBindings,
             TraceRecorder trace) {
         this.registry = registry;
         this.rules = rules;
         this.general = general;
         this.routeCopilot = routeCopilot;
         this.llm = llm;
-        this.childBindings = childBindings;
         this.trace = trace;
     }
 
@@ -214,7 +210,7 @@ public class AgentOrchestrator {
             return new DelegationResult(false, resolve(domain.getId()), "DIRECT",
                     "领域 Agent 配置为直接处理", 1.0, List.of(), null);
         }
-        List<ChildCandidate> candidates = childBindings.findByParent(domain.getId()).stream()
+        List<ChildCandidate> candidates = registry.findPublishedChildBindings(domain.getId()).stream()
                 .filter(AgentChildBinding::isEnabled)
                 .map(binding -> registry.findPublished(binding.getChildAgentId())
                         .filter(child -> "SUB".equals(child.getRole()))
@@ -496,13 +492,12 @@ public class AgentOrchestrator {
     private String routingPrompt() {
         String routingRules = "";
         String routeSystemPrompt = routeCopilot.systemPrompt() == null ? "" : routeCopilot.systemPrompt();
-        for (AgentDefinition definition : registry.allDefinitions()) {
-            if ("route-copilot".equals(definition.getId())) {
-                routingRules = definition.getRoutingRules();
-                if (definition.getSystemPrompt() != null && !definition.getSystemPrompt().isBlank()) {
-                    routeSystemPrompt = definition.getSystemPrompt();
-                }
-                break;
+        AgentDefinition routeDefinition = registry.findPublished("route-copilot").orElse(null);
+        if (routeDefinition != null) {
+            routingRules = routeDefinition.getRoutingRules();
+            if (routeDefinition.getSystemPrompt() != null
+                    && !routeDefinition.getSystemPrompt().isBlank()) {
+                routeSystemPrompt = routeDefinition.getSystemPrompt();
             }
         }
         String available =

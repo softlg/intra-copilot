@@ -775,6 +775,7 @@ public class ChatService {
                                 .name("模型调用请求")
                                 .status("OK")
                                 .put("agentId", agent.id())
+                                .put("agentVersion", agentVersion(agent))
                                 .put("systemPrompt", agent.systemPrompt())
                                 .put("systemPromptLength", agent.systemPrompt() == null ? 0 : agent.systemPrompt().length())
                                 .put("historySize", h.size())
@@ -889,6 +890,10 @@ public class ChatService {
                 if (definition == null) return;
                 invocation.setAgentModel(definition.getModel());
                 invocation.setAgentTemperature(definition.getTemperature());
+                invocation.setAgentVersion(
+                        definition.getPublishedVersion() > 0
+                                ? definition.getPublishedVersion()
+                                : null);
                 invocation.setKnowledgeBaseIds(definition.getKnowledgeBaseIds());
                 invocation.setToolIds(definition.getToolIds());
                 invocation.setSkillIds(definition.getSkillIds());
@@ -1403,6 +1408,7 @@ public class ChatService {
                                                 .name("子 Agent 模型响应")
                                                 .status("OK")
                                                 .put("agentId", agent.id())
+                                                .put("agentVersion", agentVersion(agent))
                                                 .put("content", lastReply == null ? currentAnswer : lastReply)
                                                 .put("contentLength", (lastReply == null ? currentAnswer : lastReply).length())
                                                 .put("durationMs", childInvocation.getDurationMs())
@@ -1433,6 +1439,7 @@ public class ChatService {
                                         .name("模型响应")
                                         .status("OK")
                                         .put("agentId", finalAgentId)
+                                        .put("agentVersion", agentVersion(agent))
                                         .put("content", currentAnswer)
                                         .put("contentLength", currentAnswer.length())
                                         .put("durationMs", completedMs)
@@ -2248,6 +2255,14 @@ public class ChatService {
                         }
                 }
                 return chunks;
+        }
+
+        private Long agentVersion(Agent agent) {
+                if (agent instanceof ConfigurableAgent configurable
+                        && configurable.definition().getPublishedVersion() > 0) {
+                        return configurable.definition().getPublishedVersion();
+                }
+                return null;
         }
 
         public ActionProposal result(String id, String status, String result) {

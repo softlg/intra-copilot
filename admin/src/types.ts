@@ -38,6 +38,7 @@ export type AgentConfigVersion = {
   status: string;
   snapshot?: string;
   releaseNote?: string;
+  publishedBy?: string;
   createdAt?: string;
 };
 
@@ -404,6 +405,7 @@ export type ConversationInvocation = {
   contextSent?: string;
   responseContent?: string;
   clientIp?: string;
+  agentVersion?: number;
   durationMs?: number;
   error?: string;
   createdAt?: string;

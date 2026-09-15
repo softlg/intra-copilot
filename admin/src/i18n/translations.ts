@@ -222,6 +222,8 @@ export const translations = {
     editAgentSubtitle:
       "调整 Agent 的能力、提示词和关联资源，保存为草稿，发布后生效。",
     saveAgent: "保存",
+    saveDraft: "仅保存草稿",
+    saveAndPublish: "保存并发布",
     saving: "保存中…",
     model: "模型（可选）",
     modelPlaceholder: "留空使用系统默认模型",
@@ -402,16 +404,25 @@ export const translations = {
       "勾选即归属当前领域，取消勾选会解除归属；可按关键词优先指派，留空则自动决策。",
     childRoutingRulePlaceholder: "例如：舱单, 提单, 核对",
     versions: "版本发布",
+    versionHistory: "历史发布",
     draft: "草稿",
     published: "已发布",
+    archivedRelease: "历史发布",
     publish: "发布配置",
     publishing: "发布中…",
     rollback: "回滚",
     publishedVersion: "当前发布版本",
     agentSaved: "Agent 配置已保存为草稿",
+    draftSavedLiveVersion: (version: number) =>
+      `草稿已保存，线上继续使用 v${version}`,
+    draftSavedNotPublished: "草稿已保存，该 Agent 尚未发布",
+    draftSavedPublishFailed: (message: string) =>
+      `草稿已保存，但发布失败：${message}`,
     unsavedPublicationChanges: "有未保存修改",
     unpublishedChanges: "有已保存但未发布的修改",
     publishedAndCurrent: "当前配置已发布",
+    neverPublished: "从未发布",
+    noPublishedVersion: "当前没有线上版本",
     publishedVersionValue: (version: number) => `已发布 v${version}`,
     saveBeforePublish: "请先保存当前修改，再发布配置。",
     publishSuccess: (version: number) => `配置已发布为 v${version}`,
@@ -423,6 +434,7 @@ export const translations = {
     versionStatus: "版本状态",
     versionPublishedAt: "版本创建时间",
     versionReleaseNote: "发布说明",
+    noVersionHistory: "暂无发布记录，保存并发布后会在这里生成版本快照。",
     versionSnapshotUnavailable: "该历史版本没有可解析的配置快照。",
     rawSnapshot: "原始快照",
     intentRoutingHint:
@@ -956,6 +968,8 @@ export const translations = {
     editAgentSubtitle:
       "Tune capabilities, prompts, and resource links. Changes are saved as a draft and take effect after publishing.",
     saveAgent: "Save",
+    saveDraft: "Save draft only",
+    saveAndPublish: "Save and publish",
     saving: "Saving…",
     model: "Model (optional)",
     modelPlaceholder: "Leave empty to use the default model",
@@ -1151,16 +1165,25 @@ export const translations = {
     childRoutingRulePlaceholder:
       "e.g. manifest, bill of lading, reconciliation",
     versions: "Version publishing",
+    versionHistory: "Release history",
     draft: "Draft",
     published: "Published",
+    archivedRelease: "Archived release",
     publish: "Publish configuration",
     publishing: "Publishing…",
     rollback: "Rollback",
     publishedVersion: "Published version",
     agentSaved: "Agent configuration saved as a draft",
+    draftSavedLiveVersion: (version: number) =>
+      `Draft saved. Production continues to use v${version}`,
+    draftSavedNotPublished: "Draft saved. This Agent has not been published",
+    draftSavedPublishFailed: (message: string) =>
+      `Draft saved, but publishing failed: ${message}`,
     unsavedPublicationChanges: "Unsaved changes",
     unpublishedChanges: "Saved changes are not published",
     publishedAndCurrent: "Current configuration is published",
+    neverPublished: "Never published",
+    noPublishedVersion: "No production version yet",
     publishedVersionValue: (version: number) => `Published v${version}`,
     saveBeforePublish: "Save the current changes before publishing.",
     publishSuccess: (version: number) =>
@@ -1175,6 +1198,8 @@ export const translations = {
     versionStatus: "Version status",
     versionPublishedAt: "Version created at",
     versionReleaseNote: "Release note",
+    noVersionHistory:
+      "No releases yet. Save and publish to create the first version snapshot.",
     versionSnapshotUnavailable:
       "This historical version has no readable configuration snapshot.",
     rawSnapshot: "Raw snapshot",

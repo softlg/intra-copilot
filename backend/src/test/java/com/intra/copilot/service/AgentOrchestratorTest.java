@@ -14,7 +14,6 @@ import com.intra.copilot.agent.RouteCopilotAgent;
 import com.intra.copilot.agent.RouterAgent;
 import com.intra.copilot.model.AgentChildBinding;
 import com.intra.copilot.model.AgentDefinition;
-import com.intra.copilot.repo.AgentChildBindingRepository;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -29,7 +28,6 @@ class AgentOrchestratorTest {
         AgentRegistry registry = mock(AgentRegistry.class);
         RouterAgent rules = mock(RouterAgent.class);
         LlmClient llm = mock(LlmClient.class);
-        AgentChildBindingRepository childBindings = mock(AgentChildBindingRepository.class);
         TraceRecorder trace = mock(TraceRecorder.class);
         GeneralAgent general = new GeneralAgent();
 
@@ -48,13 +46,14 @@ class AgentOrchestratorTest {
         finance.setPublished(true);
 
         when(registry.allDefinitions()).thenReturn(List.of(routeConfig, finance));
+        when(registry.findPublished("route-copilot")).thenReturn(Optional.of(routeConfig));
         when(registry.enabledDefinitions()).thenReturn(List.of(finance));
         when(registry.findPublished("finance-agent")).thenReturn(Optional.of(finance));
         when(llm.complete(anyString(), anyList(), anyString())).thenReturn(Mono.empty());
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry, rules, general, new RouteCopilotAgent(), llm, childBindings, trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
         List<Map<String, String>> history =
                 List.of(
                         Map.of("role", "user", "content", "我要报销"),
@@ -79,7 +78,6 @@ class AgentOrchestratorTest {
         AgentRegistry registry = mock(AgentRegistry.class);
         RouterAgent rules = mock(RouterAgent.class);
         LlmClient llm = mock(LlmClient.class);
-        AgentChildBindingRepository childBindings = mock(AgentChildBindingRepository.class);
         TraceRecorder trace = mock(TraceRecorder.class);
         GeneralAgent general = new GeneralAgent();
 
@@ -107,7 +105,7 @@ class AgentOrchestratorTest {
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry, rules, general, new RouteCopilotAgent(), llm, childBindings, trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
         List<Map<String, String>> history =
                 List.of(
                         Map.of("role", "user", "content", "我要报销"),
@@ -131,7 +129,6 @@ class AgentOrchestratorTest {
         AgentRegistry registry = mock(AgentRegistry.class);
         RouterAgent rules = mock(RouterAgent.class);
         LlmClient llm = mock(LlmClient.class);
-        AgentChildBindingRepository childBindings = mock(AgentChildBindingRepository.class);
         TraceRecorder trace = mock(TraceRecorder.class);
         GeneralAgent general = new GeneralAgent();
 
@@ -142,7 +139,7 @@ class AgentOrchestratorTest {
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry, rules, general, new RouteCopilotAgent(), llm, childBindings, trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
         List<Map<String, String>> history =
                 List.of(
                         Map.of(
@@ -165,7 +162,6 @@ class AgentOrchestratorTest {
         AgentRegistry registry = mock(AgentRegistry.class);
         RouterAgent rules = mock(RouterAgent.class);
         LlmClient llm = mock(LlmClient.class);
-        AgentChildBindingRepository childBindings = mock(AgentChildBindingRepository.class);
         TraceRecorder trace = mock(TraceRecorder.class);
         GeneralAgent general = new GeneralAgent();
 
@@ -186,19 +182,14 @@ class AgentOrchestratorTest {
         finance.setPublished(true);
 
         when(registry.allDefinitions()).thenReturn(List.of(routeConfig, finance));
+        when(registry.findPublished("route-copilot")).thenReturn(Optional.of(routeConfig));
         when(registry.enabledDefinitions()).thenReturn(List.of(finance));
         when(llm.complete(anyString(), anyList(), anyString())).thenReturn(Mono.empty());
         when(rules.route("我要报销")).thenReturn(general);
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry,
-                        rules,
-                        general,
-                        new RouteCopilotAgent(),
-                        llm,
-                        childBindings,
-                        trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
 
         orchestrator.route("我要报销", "/orders", List.of());
 
@@ -222,7 +213,6 @@ class AgentOrchestratorTest {
         AgentRegistry registry = mock(AgentRegistry.class);
         RouterAgent rules = mock(RouterAgent.class);
         LlmClient llm = mock(LlmClient.class);
-        AgentChildBindingRepository childBindings = mock(AgentChildBindingRepository.class);
         TraceRecorder trace = mock(TraceRecorder.class);
         GeneralAgent general = new GeneralAgent();
 
@@ -248,16 +238,9 @@ class AgentOrchestratorTest {
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry,
-                        rules,
-                        general,
-                        new RouteCopilotAgent(),
-                        llm,
-                        childBindings,
-                        trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
 
-        AgentOrchestrator.RoutingResult result =
-                orchestrator.route("请看图片", "", List.of(), images);
+        AgentOrchestrator.RoutingResult result = orchestrator.route("请看图片", "", List.of(), images);
 
         assertEquals("finance-agent", result.selectedAgentId());
         ArgumentCaptor<String> inputCaptor = ArgumentCaptor.forClass(String.class);
@@ -270,7 +253,6 @@ class AgentOrchestratorTest {
         AgentRegistry registry = mock(AgentRegistry.class);
         RouterAgent rules = mock(RouterAgent.class);
         LlmClient llm = mock(LlmClient.class);
-        AgentChildBindingRepository childBindings = mock(AgentChildBindingRepository.class);
         TraceRecorder trace = mock(TraceRecorder.class);
         GeneralAgent general = new GeneralAgent();
 
@@ -293,19 +275,13 @@ class AgentOrchestratorTest {
         binding.setChildAgentId("expense-agent");
         binding.setEnabled(true);
 
-        when(childBindings.findByParent("finance-agent")).thenReturn(List.of(binding));
+        when(registry.findPublishedChildBindings("finance-agent")).thenReturn(List.of(binding));
         when(registry.findPublished("expense-agent")).thenReturn(Optional.of(child));
         when(llm.complete(anyString(), anyList(), anyString())).thenReturn(Mono.empty());
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry,
-                        rules,
-                        general,
-                        new RouteCopilotAgent(),
-                        llm,
-                        childBindings,
-                        trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
 
         orchestrator.decideDomain(domain, "提交报销单", "/expense", List.of());
 

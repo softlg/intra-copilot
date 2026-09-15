@@ -1754,6 +1754,12 @@ article p {
   color: var(--status-warning-text);
 }
 
+.agent-publish-state.is-never {
+  border-color: var(--border);
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
 .agent-publish-state.is-unsaved {
   border-color: var(--brand-border);
   background: var(--accent-tint);

@@ -2,11 +2,15 @@ package com.intra.copilot.service;
 
 import com.intra.copilot.agent.Agent;
 import com.intra.copilot.agent.ConfigurableAgent;
+import com.intra.copilot.model.AgentChildBinding;
+import com.intra.copilot.model.AgentConfigVersion;
 import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.repo.AgentChildBindingRepository;
+import com.intra.copilot.repo.AgentConfigVersionRepository;
 import com.intra.copilot.repo.AgentDefinitionRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -17,20 +21,29 @@ import org.springframework.transaction.annotation.Transactional;
 public class AgentRegistry {
     private final AgentDefinitionRepository definitions;
     private final AgentChildBindingRepository childBindings;
+    private final AgentConfigVersionRepository versions;
+    private final AgentReleaseSnapshotCodec snapshotCodec;
     // 路由每次请求都会读全量定义（含兜底规则、可用 Agent 列表），加一个短 TTL 缓存避免每轮 LLM 都打 DB。
     private static final long TTL_MS = 5000;
     private final AtomicReference<Cache> allCache = new AtomicReference<>(new Cache(null, 0L));
 
     public AgentRegistry(
-            AgentDefinitionRepository definitions, AgentChildBindingRepository childBindings) {
+            AgentDefinitionRepository definitions,
+            AgentChildBindingRepository childBindings,
+            AgentConfigVersionRepository versions,
+            AgentReleaseSnapshotCodec snapshotCodec) {
         this.definitions = definitions;
         this.childBindings = childBindings;
+        this.versions = versions;
+        this.snapshotCodec = snapshotCodec;
     }
 
     public List<AgentDefinition> enabledDefinitions() {
         return allDefinitions()
                 .stream()
                 .filter(AgentDefinition::isEnabled)
+                .map(this::publishedDefinition)
+                .flatMap(Optional::stream)
                 .sorted(
                         java.util.Comparator.comparingInt(AgentDefinition::getPriority)
                                 .thenComparing(AgentDefinition::getDisplayName))
@@ -64,16 +77,37 @@ public class AgentRegistry {
     }
 
     public Optional<Agent> findEnabled(String id) {
-        return definitions
-                .findById(id)
-                .filter(definition -> definition.isEnabled() && definition.isPublished())
-                .map(ConfigurableAgent::new);
+        return findPublished(id).map(ConfigurableAgent::new);
     }
 
     public Optional<AgentDefinition> findPublished(String id) {
-        return definitions
-                .findById(id)
-                .filter(definition -> definition.isEnabled() && definition.isPublished());
+        return definitions.findById(id).flatMap(this::publishedDefinition);
+    }
+
+    /**
+     * Resolves the child bindings that were part of the parent's currently published release.
+     * Legacy bare AgentDefinition snapshots have no binding payload, so they fall back to the
+     * current relational bindings once.
+     */
+    public List<AgentChildBinding> findPublishedChildBindings(String parentId) {
+        AgentDefinition current =
+                definitions.findById(parentId).filter(AgentDefinition::isEnabled).orElse(null);
+        if (current == null || current.getPublishedVersion() <= 0) return List.of();
+        AgentConfigVersion release =
+                versions.findByAgentIdAndVersion(parentId, current.getPublishedVersion())
+                        .orElse(null);
+        if (release == null) return List.of();
+        AgentReleaseSnapshotCodec.Decoded decoded = snapshotCodec.decode(release.getSnapshot());
+        if (decoded.definition() == null) return List.of();
+        if (decoded.structured() && decoded.schemaVersion() >= 1) {
+            return decoded.childBindings()
+                    .stream()
+                    .filter(Objects::nonNull)
+                    .filter(binding -> parentId.equals(binding.getParentAgentId()))
+                    .filter(binding -> binding.getChildAgentId() != null)
+                    .toList();
+        }
+        return childBindings.findByParent(parentId);
     }
 
     /** 配置变更后清缓存，避免最长 5s 读到旧值。 */
@@ -110,6 +144,26 @@ public class AgentRegistry {
         }
         definitions.delete(definition);
         evict();
+    }
+
+    private Optional<AgentDefinition> publishedDefinition(AgentDefinition current) {
+        if (current == null || !current.isEnabled() || current.getPublishedVersion() <= 0) {
+            return Optional.empty();
+        }
+        AgentConfigVersion release =
+                versions.findByAgentIdAndVersion(current.getId(), current.getPublishedVersion())
+                        .orElse(null);
+        if (release == null) return Optional.empty();
+        AgentReleaseSnapshotCodec.Decoded decoded = snapshotCodec.decode(release.getSnapshot());
+        AgentDefinition snapshot = decoded.definition();
+        if (snapshot == null) return Optional.empty();
+        snapshot.setId(current.getId());
+        // Enable/disable is an operational switch and applies immediately. All other fields come
+        // from the immutable release snapshot and are unaffected by draft edits.
+        snapshot.setEnabled(current.isEnabled());
+        snapshot.setPublished(true);
+        snapshot.setPublishedVersion(release.getVersion());
+        return Optional.of(snapshot);
     }
 
     private static final class Cache {

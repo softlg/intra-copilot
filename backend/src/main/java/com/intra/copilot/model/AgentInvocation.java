@@ -34,6 +34,7 @@ public class AgentInvocation {
     // 运行时资源快照，避免后台查询时 JOIN agent_definition。
     private String agentModel;
     private Double agentTemperature;
+    private Long agentVersion;
     private String knowledgeBaseIds;
     private String toolIds;
     private String skillIds;
@@ -51,18 +52,53 @@ public class AgentInvocation {
         return conversationId;
     }
 
-    public String getCorrelationId() { return correlationId; }
-    public void setCorrelationId(String value) { correlationId = value; }
-    public String getParentInvocationId() { return parentInvocationId; }
-    public void setParentInvocationId(String value) { parentInvocationId = value; }
-    public Integer getSequence() { return sequence; }
-    public void setSequence(Integer value) { sequence = value; }
-    public Integer getDepth() { return depth; }
-    public void setDepth(Integer value) { depth = value; }
-    public String getAgentRole() { return agentRole; }
-    public void setAgentRole(String value) { agentRole = value; }
-    public String getDecisionMode() { return decisionMode; }
-    public void setDecisionMode(String value) { decisionMode = value; }
+    public String getCorrelationId() {
+        return correlationId;
+    }
+
+    public void setCorrelationId(String value) {
+        correlationId = value;
+    }
+
+    public String getParentInvocationId() {
+        return parentInvocationId;
+    }
+
+    public void setParentInvocationId(String value) {
+        parentInvocationId = value;
+    }
+
+    public Integer getSequence() {
+        return sequence;
+    }
+
+    public void setSequence(Integer value) {
+        sequence = value;
+    }
+
+    public Integer getDepth() {
+        return depth;
+    }
+
+    public void setDepth(Integer value) {
+        depth = value;
+    }
+
+    public String getAgentRole() {
+        return agentRole;
+    }
+
+    public void setAgentRole(String value) {
+        agentRole = value;
+    }
+
+    public String getDecisionMode() {
+        return decisionMode;
+    }
+
+    public void setDecisionMode(String value) {
+        decisionMode = value;
+    }
 
     public void setConversationId(String value) {
         conversationId = value;
@@ -152,10 +188,21 @@ public class AgentInvocation {
         return error;
     }
 
-    public String getStatus() { return status; }
-    public void setStatus(String value) { status = value; }
-    public String getErrorCode() { return errorCode; }
-    public void setErrorCode(String value) { errorCode = value; }
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String value) {
+        status = value;
+    }
+
+    public String getErrorCode() {
+        return errorCode;
+    }
+
+    public void setErrorCode(String value) {
+        errorCode = value;
+    }
 
     public void setError(String value) {
         error = value;
@@ -177,22 +224,77 @@ public class AgentInvocation {
         outputTokens = value;
     }
 
-    public String getAgentModel() { return agentModel; }
-    public void setAgentModel(String value) { agentModel = value; }
-    public Double getAgentTemperature() { return agentTemperature; }
-    public void setAgentTemperature(Double value) { agentTemperature = value; }
-    public String getKnowledgeBaseIds() { return knowledgeBaseIds; }
-    public void setKnowledgeBaseIds(String value) { knowledgeBaseIds = value; }
-    public String getToolIds() { return toolIds; }
-    public void setToolIds(String value) { toolIds = value; }
-    public String getSkillIds() { return skillIds; }
-    public void setSkillIds(String value) { skillIds = value; }
-    public String getSkillContext() { return skillContext; }
-    public void setSkillContext(String value) { skillContext = value; }
-    public String getUserMessage() { return userMessage; }
-    public void setUserMessage(String value) { userMessage = value; }
-    public String getAttachments() { return attachments; }
-    public void setAttachments(String value) { attachments = value; }
+    public String getAgentModel() {
+        return agentModel;
+    }
+
+    public void setAgentModel(String value) {
+        agentModel = value;
+    }
+
+    public Double getAgentTemperature() {
+        return agentTemperature;
+    }
+
+    public void setAgentTemperature(Double value) {
+        agentTemperature = value;
+    }
+
+    public Long getAgentVersion() {
+        return agentVersion;
+    }
+
+    public void setAgentVersion(Long value) {
+        agentVersion = value;
+    }
+
+    public String getKnowledgeBaseIds() {
+        return knowledgeBaseIds;
+    }
+
+    public void setKnowledgeBaseIds(String value) {
+        knowledgeBaseIds = value;
+    }
+
+    public String getToolIds() {
+        return toolIds;
+    }
+
+    public void setToolIds(String value) {
+        toolIds = value;
+    }
+
+    public String getSkillIds() {
+        return skillIds;
+    }
+
+    public void setSkillIds(String value) {
+        skillIds = value;
+    }
+
+    public String getSkillContext() {
+        return skillContext;
+    }
+
+    public void setSkillContext(String value) {
+        skillContext = value;
+    }
+
+    public String getUserMessage() {
+        return userMessage;
+    }
+
+    public void setUserMessage(String value) {
+        userMessage = value;
+    }
+
+    public String getAttachments() {
+        return attachments;
+    }
+
+    public void setAttachments(String value) {
+        attachments = value;
+    }
 
     public Instant getCreatedAt() {
         return createdAt;
