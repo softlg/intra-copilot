@@ -2353,6 +2353,16 @@ article p {
   display: flex;
   flex-direction: column;
   gap: 0;
+  padding: 17px;
+  border-left: 3px solid transparent;
+}
+
+.tool-card:has(.tool-card-status.is-enabled) {
+  border-left-color: var(--success);
+}
+
+.tool-card:has(.tool-card-status.is-disabled) {
+  border-left-color: var(--border);
 }
 
 .resource-section .tool-card {
@@ -2363,15 +2373,20 @@ article p {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .tool-card-title {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   color: var(--muted-subtle);
+}
+
+.tool-card-title > svg {
+  flex: 0 0 auto;
+  color: var(--accent-text);
 }
 
 .tool-card-title strong {
@@ -2379,8 +2394,41 @@ article p {
   overflow: hidden;
   color: var(--text);
   font-size: 16px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tool-card-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tool-card-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tool-card-status.is-enabled {
+  background: var(--success-surface);
+  color: var(--success);
+}
+
+.tool-card-status.is-disabled {
+  border: 1px solid var(--off-border);
+  background: var(--off-surface);
+  color: var(--muted);
 }
 
 .tool-card-description {
@@ -2389,7 +2437,7 @@ article p {
   -webkit-line-clamp: 2;
   overflow: hidden;
   min-height: 0;
-  margin: 10px 0 0;
+  margin: 11px 0 0;
   color: var(--muted-subtle);
   font-size: 13px;
   line-height: 1.55;
@@ -2403,9 +2451,14 @@ article p {
 }
 
 .tool-card-kind {
-  text-transform: uppercase;
-  font-size: 10px;
-  letter-spacing: 0.03em;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .hook-card {

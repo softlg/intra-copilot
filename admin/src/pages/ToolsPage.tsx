@@ -123,7 +123,10 @@ export function ToolsPage({
                     <Icon name="tool" size={18} />
                     <strong title={tool.name}>{tool.name}</strong>
                   </div>
-                  <span className={tool.enabled ? "ok" : "off"}>
+                  <span
+                    className={`tool-card-status ${tool.enabled ? "is-enabled" : "is-disabled"}`}
+                    title={tool.enabled ? t.enabled : t.disabled}
+                  >
                     {tool.enabled ? t.enabled : t.disabled}
                   </span>
                 </div>
