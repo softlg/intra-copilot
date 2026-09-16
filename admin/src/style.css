@@ -812,7 +812,9 @@ article p {
 }
 
 .agent-card {
-  min-height: 218px;
+  height: 300px;
+  min-height: 300px;
+  overflow: hidden;
 }
 
 .agent-card.is-disabled {
@@ -879,8 +881,15 @@ article p {
   opacity: 0.45;
 }
 
-.agent-card > p {
-  flex: 1;
+.agent-card > p:not(.agent-parent) {
+  display: -webkit-box;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 12px 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow-wrap: anywhere;
 }
 
 .agent-card-footer {
