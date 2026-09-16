@@ -73,6 +73,8 @@ const copy = {
     runSelected: "执行选中场景",
     running: "执行中…",
     selectedCount: "已选择 {count} 个场景",
+    selectAll: "全选",
+    clearSelection: "取消全选",
     noCases: "尚未生成验证场景。",
     noIssues: "静态检查未发现问题。",
     issue: "建议",
@@ -131,6 +133,8 @@ const copy = {
     runSelected: "Run selected scenarios",
     running: "Running…",
     selectedCount: "{count} selected",
+    selectAll: "Select all",
+    clearSelection: "Clear selection",
     noCases: "No validation scenarios generated yet.",
     noIssues: "Static check found no issues.",
     issue: "Advice",
@@ -436,6 +440,14 @@ export function AdminCopilotPanel({
     });
   };
 
+  const selectAllCases = () => {
+    setSelectedCases(new Set(validationCases.map((_, index) => index)));
+  };
+
+  const clearSelectedCases = () => {
+    setSelectedCases(new Set());
+  };
+
   const applySuggestedPatch = (patch?: Record<string, unknown>) => {
     if (!patch || Object.keys(patch).length === 0) return;
     onApplyPatch(patch);
@@ -519,6 +531,8 @@ export function AdminCopilotPanel({
             onGenerate={() => void generateCases()}
             onRun={() => void runBehaviorValidation()}
             onToggleCase={toggleCase}
+            onSelectAll={selectAllCases}
+            onClearSelection={clearSelectedCases}
             onApplyPatch={applySuggestedPatch}
           />
         ) : (
@@ -776,6 +790,8 @@ function ValidationView({
   onGenerate,
   onRun,
   onToggleCase,
+  onSelectAll,
+  onClearSelection,
   onApplyPatch,
 }: {
   text: (typeof copy)[Language];
@@ -791,6 +807,8 @@ function ValidationView({
   onGenerate: () => void;
   onRun: () => void;
   onToggleCase: (index: number) => void;
+  onSelectAll: () => void;
+  onClearSelection: () => void;
   onApplyPatch: (patch?: Record<string, unknown>) => void;
 }) {
   if (!agentId) {
@@ -869,11 +887,36 @@ function ValidationView({
       )}
 
       <section className="copilot-validation-section">
-        <div className="copilot-section-heading">
+        <div className="copilot-section-heading copilot-case-heading">
           <h3>{text.generateCases}</h3>
-          <span>
-            {text.selectedCount.replace("{count}", String(selectedCases.size))}
-          </span>
+          <div className="copilot-case-controls">
+            <span>
+              {text.selectedCount.replace(
+                "{count}",
+                String(selectedCases.size),
+              )}
+            </span>
+            <button
+              type="button"
+              className="secondary"
+              onClick={onSelectAll}
+              disabled={
+                Boolean(busy) ||
+                cases.length === 0 ||
+                selectedCases.size === cases.length
+              }
+            >
+              {text.selectAll}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={onClearSelection}
+              disabled={Boolean(busy) || selectedCases.size === 0}
+            >
+              {text.clearSelection}
+            </button>
+          </div>
         </div>
         {cases.length === 0 ? (
           <p className="copilot-empty">{text.noCases}</p>

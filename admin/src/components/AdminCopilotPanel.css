@@ -512,6 +512,32 @@
   text-align: right;
 }
 
+.copilot-case-heading {
+  align-items: center;
+}
+
+.copilot-case-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.copilot-case-controls > span {
+  margin-right: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.copilot-case-controls button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .copilot-issue-list,
 .copilot-case-list {
   display: grid;
