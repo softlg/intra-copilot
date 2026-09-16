@@ -1,6 +1,6 @@
 import { Icon } from "../components/Icon";
-import { Dropdown } from "../components/Dropdown";
 import { EmptyState } from "../components/EmptyState";
+import { ResourceCardControls } from "../components/ResourceCardControls";
 import { Skeleton } from "../components/Skeleton";
 import { TruncatedId } from "../components/TruncatedId";
 import type { Translations } from "../i18n/translations";
@@ -130,11 +130,23 @@ export function HooksPage({
         <div className="grid">
           {filteredHooks.map((hook) => (
             <article key={hook.id} className="hook-card">
-              <div className="row">
-                <strong>{hook.name}</strong>
-                <span className={hook.enabled ? "ok" : "off"}>
-                  {hook.enabled ? t.enabled : t.disabled}
-                </span>
+              <div className="agent-card-header">
+                <div className="agent-card-title">
+                  <strong>{hook.name}</strong>
+                  <span className={hook.enabled ? "ok" : "off"}>
+                    {hook.enabled ? t.enabled : t.disabled}
+                  </span>
+                </div>
+                <ResourceCardControls
+                  enabled={hook.enabled}
+                  busy={actionId === hook.id}
+                  enableLabel={t.enable}
+                  disableLabel={t.stop}
+                  deleteLabel={t.deleteResource}
+                  deleteDisabledHint={t.deleteDisabledEnabled}
+                  onToggle={() => onToggle(hook)}
+                  onDelete={() => onDelete(hook)}
+                />
               </div>
               <TruncatedId value={hook.id} label="Hook ID" />
               <p>{hook.description || t.noDescription}</p>
@@ -157,26 +169,6 @@ export function HooksPage({
                 >
                   {t.edit}
                 </button>
-                <Dropdown
-                  ariaLabel={t.hookActions}
-                  trigger={
-                    <Icon name="more" className="dropdown-trigger-icon" />
-                  }
-                  items={[
-                    {
-                      key: "toggle",
-                      label: hook.enabled ? t.stop : t.enable,
-                      onSelect: () => onToggle(hook),
-                      disabled: actionId === hook.id,
-                    },
-                    {
-                      key: "delete",
-                      label: t.deleteResource,
-                      onSelect: () => onDelete(hook),
-                      disabled: hook.enabled,
-                    },
-                  ]}
-                />
               </div>
             </article>
           ))}

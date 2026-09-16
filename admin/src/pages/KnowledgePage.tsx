@@ -1,8 +1,8 @@
 import { Icon } from "../components/Icon";
-import { Dropdown } from "../components/Dropdown";
 import { Skeleton } from "../components/Skeleton";
 import { EmptyState } from "../components/EmptyState";
 import { InlineEditable } from "../components/InlineEditable";
+import { ResourceCardControls } from "../components/ResourceCardControls";
 import { TruncatedId } from "../components/TruncatedId";
 import { documentStatus } from "../lib/knowledge";
 import { useEffect, useState } from "react";
@@ -214,11 +214,23 @@ export function KnowledgePage({
                       }
                     }}
                   >
-                    <div className="row">
-                      <strong>{base.name}</strong>
-                      <span className={base.enabled ? "ok" : "off"}>
-                        {base.enabled ? t.enabled : t.disabled}
-                      </span>
+                    <div className="agent-card-header">
+                      <div className="agent-card-title">
+                        <strong>{base.name}</strong>
+                        <span className={base.enabled ? "ok" : "off"}>
+                          {base.enabled ? t.enabled : t.disabled}
+                        </span>
+                      </div>
+                      <ResourceCardControls
+                        enabled={base.enabled}
+                        busy={baseSaving}
+                        enableLabel={t.enable}
+                        disableLabel={t.stop}
+                        deleteLabel={t.delete}
+                        deleteDisabledHint={t.deleteDisabledEnabled}
+                        onToggle={() => void toggleBase(base)}
+                        onDelete={() => deleteBase(base)}
+                      />
                     </div>
                     <TruncatedId value={base.id} label="Knowledge base ID" />
                     <p>{base.description || t.supportedDocs}</p>
@@ -237,25 +249,6 @@ export function KnowledgePage({
                       >
                         {t.enter}
                       </button>
-                      <Dropdown
-                        ariaLabel={t.moreActions}
-                        trigger={
-                          <Icon name="more" className="dropdown-trigger-icon" />
-                        }
-                        items={[
-                          {
-                            key: "toggle",
-                            label: base.enabled ? t.stop : t.enable,
-                            onSelect: () => void toggleBase(base),
-                          },
-                          {
-                            key: "delete",
-                            label: t.delete,
-                            tone: "danger",
-                            onSelect: () => deleteBase(base),
-                          },
-                        ]}
-                      />
                     </div>
                   </article>
                 ))}

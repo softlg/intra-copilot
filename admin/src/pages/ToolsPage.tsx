@@ -1,6 +1,7 @@
 import { Icon } from "../components/Icon";
 import { Dropdown } from "../components/Dropdown";
 import { EmptyState } from "../components/EmptyState";
+import { ResourceCardControls } from "../components/ResourceCardControls";
 import { Skeleton } from "../components/Skeleton";
 import type { Translations } from "../i18n/translations";
 import type { ResourceStatus, ToolDefinition } from "../types";
@@ -118,17 +119,24 @@ export function ToolsPage({
           <div className="grid">
             {filteredTools.map((tool) => (
               <article key={tool.id} className="tool-card">
-                <div className="tool-card-header">
-                  <div className="tool-card-title">
+                <div className="agent-card-header">
+                  <div className="agent-card-title tool-card-title">
                     <Icon name="tool" size={18} />
                     <strong title={tool.name}>{tool.name}</strong>
+                    <span className={tool.enabled ? "ok" : "off"}>
+                      {tool.enabled ? t.enabled : t.disabled}
+                    </span>
                   </div>
-                  <span
-                    className={`tool-card-status ${tool.enabled ? "is-enabled" : "is-disabled"}`}
-                    title={tool.enabled ? t.enabled : t.disabled}
-                  >
-                    {tool.enabled ? t.enabled : t.disabled}
-                  </span>
+                  <ResourceCardControls
+                    enabled={tool.enabled}
+                    busy={actionId === tool.id}
+                    enableLabel={t.enable}
+                    disableLabel={t.stop}
+                    deleteLabel={t.deleteResource}
+                    deleteDisabledHint={t.deleteDisabledEnabled}
+                    onToggle={() => onToggle(tool)}
+                    onDelete={() => onDelete(tool)}
+                  />
                 </div>
                 <p className="tool-card-description">
                   {tool.description || t.noDescription}
@@ -165,24 +173,6 @@ export function ToolsPage({
                         label: t.testTool,
                         onSelect: () => onTest(tool),
                         disabled: actionId === tool.id,
-                      },
-                      {
-                        key: "details",
-                        label: t.viewDetails,
-                        onSelect: () => onShowDetails(tool),
-                      },
-                      {
-                        key: "toggle",
-                        label: tool.enabled ? t.stop : t.enable,
-                        onSelect: () => onToggle(tool),
-                        disabled: actionId === tool.id,
-                      },
-                      {
-                        key: "delete",
-                        label: t.deleteResource,
-                        onSelect: () => onDelete(tool),
-                        disabled: tool.enabled,
-                        tone: "danger",
                       },
                     ]}
                   />
