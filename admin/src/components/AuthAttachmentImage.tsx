@@ -6,27 +6,30 @@ export interface AuthAttachmentImageProps {
   url: string;
   alt: string;
   filename?: string;
-  /** Wrap the image in an <a target="_blank"> pointing at the blob URL. */
+  /** Wrap the image in a button that opens a zoom (lightbox) overlay. */
   asLink?: boolean;
   linkClassName?: string;
   imgClassName?: string;
+  closeLabel?: string;
 }
 
 /**
  * 附件图片在后台的鉴权渲染。后台附件接口要求 Authorization: Bearer，
  * 而 <img src> 无法携带请求头，因此先用管理员会话令牌 fetch 成 blob，
- * 再用 object URL 交给 <img>/<a> 展示，避免 MISSING_TOKEN。
+ * 再用 object URL 交给 <img> 展示，避免 MISSING_TOKEN。
+ * 点击图片打开放大预览（lightbox），不触发浏览器下载。
  */
 export function AuthAttachmentImage({
   url,
   alt,
-  filename,
   asLink = false,
   linkClassName,
   imgClassName,
+  closeLabel = "Close",
 }: AuthAttachmentImageProps) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,6 +37,7 @@ export function AuthAttachmentImage({
 
     setFailed(false);
     setObjectUrl(null);
+    setZoomed(false);
     (async () => {
       try {
         const response = await apiFetch(url);
@@ -53,6 +57,15 @@ export function AuthAttachmentImage({
     };
   }, [url]);
 
+  useEffect(() => {
+    if (!zoomed) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setZoomed(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [zoomed]);
+
   if (failed) return null;
 
   const img = objectUrl ? (
@@ -62,16 +75,47 @@ export function AuthAttachmentImage({
   if (!asLink) return img;
 
   return (
-    <a
-      className={linkClassName}
-      href={objectUrl ?? undefined}
-      target="_blank"
-      rel="noreferrer"
-      download={filename}
-      aria-label={`${alt}`}
-    >
-      {img}
-    </a>
+    <>
+      <a
+        className={linkClassName}
+        href={objectUrl ?? undefined}
+        onClick={(event) => {
+          event.preventDefault();
+          if (objectUrl) setZoomed(true);
+        }}
+        aria-label={alt}
+        title={alt}
+      >
+        {img}
+      </a>
+      {zoomed && objectUrl && (
+        <div
+          className="attachment-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={alt}
+          onClick={() => setZoomed(false)}
+        >
+          <img
+            className="attachment-lightbox-image"
+            src={objectUrl}
+            alt={alt}
+          />
+          <button
+            type="button"
+            className="attachment-lightbox-close"
+            aria-label={closeLabel}
+            title={closeLabel}
+            onClick={(event) => {
+              event.stopPropagation();
+              setZoomed(false);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 

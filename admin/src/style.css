@@ -3542,6 +3542,51 @@ button.conversation-log-attachment-download:hover {
   text-decoration: underline;
 }
 
+/* 附件图片放大预览（lightbox） */
+.attachment-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: zoom-out;
+}
+
+.attachment-lightbox-image {
+  max-width: min(92vw, 1600px);
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+.attachment-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.attachment-lightbox-close:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
 .conversation-log-attachment small {
   min-width: 0;
   overflow: hidden;

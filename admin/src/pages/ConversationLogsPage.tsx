@@ -1152,6 +1152,7 @@ export function ConversationLogsPage({
                                                 alt={`${t.imageAttachment}: ${attachment.filename}`}
                                                 filename={attachment.filename}
                                                 linkClassName="conversation-log-attachment-preview"
+                                                closeLabel={t.close}
                                               />
                                             )}
                                           <span className="conversation-log-attachment-kind">
