@@ -958,13 +958,13 @@ article p {
 
 .knowledge-card-clickable {
   cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    transform 0.15s ease;
 }
 
+/* Shared card hover/focus highlight: knowledge cards and all grid cards. */
 .knowledge-card-clickable:hover,
-.knowledge-card-clickable:focus-visible {
+.knowledge-card-clickable:focus-visible,
+.grid > article:hover,
+.grid > article:focus-visible {
   border-color: var(--accent);
   outline: none;
   transform: translateY(-1px);
@@ -2522,26 +2522,10 @@ article p {
   flex-direction: column;
   gap: 0;
   padding: 17px;
-  border-left: 3px solid transparent;
-}
-
-.tool-card:has(.tool-card-status.is-enabled) {
-  border-left-color: var(--success);
-}
-
-.tool-card:has(.tool-card-status.is-disabled) {
-  border-left-color: var(--border);
 }
 
 .resource-section .tool-card {
   min-height: 0;
-}
-
-.tool-card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
 }
 
 .tool-card-title {
@@ -2565,38 +2549,6 @@ article p {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.tool-card-status {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.tool-card-status::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.tool-card-status.is-enabled {
-  background: var(--success-surface);
-  color: var(--success);
-}
-
-.tool-card-status.is-disabled {
-  border: 1px solid var(--off-border);
-  background: var(--off-surface);
-  color: var(--muted);
 }
 
 .tool-card-description {
