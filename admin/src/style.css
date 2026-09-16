@@ -3587,6 +3587,7 @@ button.conversation-log-attachment-download:hover {
   background: rgba(0, 0, 0, 0.8);
 }
 
+
 .conversation-log-attachment small {
   min-width: 0;
   overflow: hidden;
@@ -3789,7 +3790,7 @@ button.conversation-log-attachment-download:hover {
 .conversation-detail-summary {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 1px;
   border-bottom: 1px solid var(--border);
   background: var(--border);
