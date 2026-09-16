@@ -13,6 +13,8 @@ import com.intra.copilot.repo.AgentValidationRunRepository;
 import com.intra.copilot.repo.KnowledgeBaseRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
+import com.intra.copilot.service.auth.RequestContext;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
@@ -24,14 +26,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** Static and optional behavior validation for a configured Agent. */
 @Service
 public class AgentValidationService {
     private static final Duration MODEL_TIMEOUT = Duration.ofSeconds(45);
     private static final int MAX_CASES = 12;
+    private static final long STREAM_TIMEOUT_MS = Duration.ofMinutes(20).toMillis();
 
     private final AgentConfigurationService agentConfigurations;
     private final AgentValidationRunRepository runs;
@@ -43,6 +52,7 @@ public class AgentValidationService {
     private final ObjectMapper json;
     private final AdminUserService users;
     private final AdminAuditService audits;
+    private final Map<String, AtomicBoolean> streamCancellations = new ConcurrentHashMap<>();
 
     public AgentValidationService(
             AgentConfigurationService agentConfigurations,
@@ -80,6 +90,80 @@ public class AgentValidationService {
 
     @Transactional
     public Map<String, Object> validateBehavior(String agentId, BehaviorRequest request) {
+        return executeValidation(agentConfigurations.get(agentId), true, requireCases(request));
+    }
+
+    /**
+     * Behavior validation that reports each scenario as it is evaluated so the console can show
+     * progress. Still a single request and a single stored validation run; scenarios are merely
+     * streamed while the loop runs.
+     */
+    public SseEmitter streamValidateBehavior(String agentId, BehaviorRequest request) {
+        List<ValidationCaseRequest> selected = requireCases(request);
+        AgentDefinition agent = agentConfigurations.get(agentId);
+        String streamId = UUID.randomUUID().toString();
+        AtomicBoolean canceled = new AtomicBoolean(false);
+        streamCancellations.put(streamId, canceled);
+
+        SseEmitter out = new SseEmitter(STREAM_TIMEOUT_MS);
+        AtomicBoolean finished = new AtomicBoolean(false);
+        Runnable cleanup = () -> {
+            finished.set(true);
+            streamCancellations.remove(streamId);
+        };
+        out.onCompletion(cleanup);
+        out.onTimeout(cleanup);
+        out.onError(error -> cleanup.run());
+
+        RequestContext.Identity identity = RequestContext.currentOrNull();
+        Thread worker =
+                new Thread(
+                        () ->
+                                RequestContext.runWith(
+                                        identity,
+                                        () -> {
+                                            try {
+                                                emitStream(
+                                                        out,
+                                                        finished,
+                                                        "run_start",
+                                                        Map.of(
+                                                                "runId", streamId,
+                                                                "total", selected.size()));
+                                                Map<String, Object> report =
+                                                        executeValidation(
+                                                                agent,
+                                                                true,
+                                                                selected,
+                                                                (name, payload) ->
+                                                                        emitStream(out, finished, name, payload),
+                                                                () -> finished.get() || canceled.get());
+                                                emitStream(out, finished, "done", report);
+                                            } catch (RuntimeException error) {
+                                                emitStream(
+                                                        out,
+                                                        finished,
+                                                        "error",
+                                                        Map.of("message", safeMessage(error)));
+                                            } finally {
+                                                cleanup.run();
+                                                out.complete();
+                                            }
+                                        }),
+                        "validate-stream-" + streamId.substring(0, 8));
+        worker.setDaemon(true);
+        worker.start();
+        return out;
+    }
+
+    /** Skips the scenarios that have not started yet; the running one finishes normally. */
+    public Map<String, Object> cancelStreamValidation(String streamId) {
+        AtomicBoolean flag = streamId == null ? null : streamCancellations.get(streamId);
+        if (flag != null) flag.set(true);
+        return Map.of("runId", streamId == null ? "" : streamId, "canceled", flag != null);
+    }
+
+    private List<ValidationCaseRequest> requireCases(BehaviorRequest request) {
         if (request == null || request.cases() == null || request.cases().isEmpty()) {
             throw new IllegalArgumentException("请先生成并勾选要执行的验证场景");
         }
@@ -92,7 +176,17 @@ public class AgentValidationService {
         if (selected.isEmpty()) {
             throw new IllegalArgumentException("请至少选择一个包含输入内容的验证场景");
         }
-        return executeValidation(agentConfigurations.get(agentId), true, selected);
+        return selected;
+    }
+
+    private void emitStream(
+            SseEmitter out, AtomicBoolean finished, String name, Map<String, Object> data) {
+        if (finished.get()) return;
+        try {
+            out.send(SseEmitter.event().name(name).data(data));
+        } catch (IOException | IllegalStateException error) {
+            finished.set(true);
+        }
     }
 
     /**
@@ -112,11 +206,21 @@ public class AgentValidationService {
 
     private Map<String, Object> executeValidation(
             AgentDefinition agent, boolean runBehavior, List<ValidationCaseRequest> effectiveCases) {
+        return executeValidation(agent, runBehavior, effectiveCases, null, null);
+    }
+
+    private Map<String, Object> executeValidation(
+            AgentDefinition agent,
+            boolean runBehavior,
+            List<ValidationCaseRequest> effectiveCases,
+            BiConsumer<String, Map<String, Object>> listener,
+            Supplier<Boolean> canceled) {
 
         List<Map<String, Object>> issues = staticIssues(agent);
         List<Map<String, Object>> caseResults = new ArrayList<>();
         int passed = 0;
         int failed = 0;
+        boolean stopped = false;
 
         AgentValidationRun run = new AgentValidationRun();
         run.setAdminUserId(users.requireCurrent().getId());
@@ -128,7 +232,17 @@ public class AgentValidationService {
 
         if (runBehavior) {
             for (int index = 0; index < effectiveCases.size(); index++) {
+                if (canceled != null && Boolean.TRUE.equals(canceled.get())) {
+                    stopped = true;
+                    break;
+                }
                 ValidationCaseRequest item = effectiveCases.get(index);
+                Map<String, Object> scenario = new LinkedHashMap<>();
+                scenario.put("index", index);
+                scenario.put("total", effectiveCases.size());
+                scenario.put("title", limit(item.title(), 200, "验证场景 " + (index + 1)));
+                scenario.put("input", item.input());
+                emitProgress(listener, "case_start", scenario);
                 Map<String, Object> actual = executeCase(agent, item);
                 boolean casePassed = Boolean.TRUE.equals(actual.get("passed"));
                 if (casePassed) passed++;
@@ -156,8 +270,15 @@ public class AgentValidationService {
                 stored.setPassed(casePassed);
                 stored.setReason(limit(Objects.toString(actual.get("reason"), ""), 4000, null));
                 cases.append(stored);
+
+                Map<String, Object> evaluated = new LinkedHashMap<>();
+                evaluated.put("index", index);
+                evaluated.put("total", effectiveCases.size());
+                evaluated.put("passed", casePassed);
+                evaluated.put("case", result);
+                emitProgress(listener, "case_result", evaluated);
             }
-            run.setStatus("COMPLETE");
+            run.setStatus(stopped ? "CANCELED" : "COMPLETE");
             run.setCompletedAt(Instant.now());
         }
 
@@ -192,6 +313,16 @@ public class AgentValidationService {
                 null,
                 Map.of("runId", run.getId(), "issueCount", issues.size()));
         return report;
+    }
+
+    private void emitProgress(
+            BiConsumer<String, Map<String, Object>> listener, String name, Map<String, Object> data) {
+        if (listener == null) return;
+        try {
+            listener.accept(name, data);
+        } catch (RuntimeException ignored) {
+            // Streaming is best effort; validation results stay authoritative.
+        }
     }
 
     private Map<String, Object> caseView(ValidationCaseRequest item) {

@@ -5,6 +5,7 @@ import com.intra.copilot.service.AgentValidationService;
 import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/api/v1/admin/agents/{agentId}/validations")
@@ -37,6 +38,19 @@ public class AgentValidationController {
             @PathVariable String agentId,
             @RequestBody AgentValidationService.BehaviorRequest request) {
         return validations.validateBehavior(agentId, request);
+    }
+
+    /** Streams one event per scenario so the console can show execution progress. */
+    @PostMapping("/behavior/stream")
+    public SseEmitter streamValidateBehavior(
+            @PathVariable String agentId,
+            @RequestBody AgentValidationService.BehaviorRequest request) {
+        return validations.streamValidateBehavior(agentId, request);
+    }
+
+    @PostMapping("/behavior/{runId}/cancel")
+    public Map<String, Object> cancelStreamValidation(@PathVariable String runId) {
+        return validations.cancelStreamValidation(runId);
     }
 
     @GetMapping
