@@ -109,8 +109,10 @@ const copy = {
     noResources: "不新增资源",
     applyProposal: "确认并创建",
     applying: "创建中…",
-    proposalApplied: "提案已应用，Agent 已保存为未发布草案。",
-    resourceProposalApplied: "资源提案已应用。",
+    proposalApplied: "已应用提案「{title}」，Agent 已保存为未发布草案。",
+    resourceProposalApplied: "已应用资源提案「{title}」。",
+    appliedAgentDetail: "Agent 已保存为未发布草案，记得保存后发布。",
+    appliedResourceDetail: "资源已创建并加入当前 Agent。",
     validationAgent: "当前 Agent",
     staticCheck: "静态检查",
     checking: "检查中…",
@@ -189,8 +191,12 @@ const copy = {
     noResources: "No new resources",
     applyProposal: "Confirm and create",
     applying: "Creating…",
-    proposalApplied: "Proposal applied as an unpublished Agent draft.",
-    resourceProposalApplied: "Resource proposal applied.",
+    proposalApplied:
+      'Applied proposal "{title}" as an unpublished Agent draft.',
+    resourceProposalApplied: 'Applied resource proposal "{title}".',
+    appliedAgentDetail:
+      "Agent saved as an unpublished draft; remember to publish after saving.",
+    appliedResourceDetail: "Resources created and added to the current Agent.",
     validationAgent: "Current Agent",
     staticCheck: "Static check",
     checking: "Checking…",
@@ -430,6 +436,37 @@ function AppliedPatchSummary({
   );
 }
 
+function AppliedProposalBanner({
+  text,
+  title,
+  detail,
+  onDismiss,
+}: {
+  text: (typeof copy)[Language];
+  title: string;
+  detail: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <section className="copilot-applied-banner" aria-live="polite">
+      <Icon name="check" size={15} className="copilot-applied-banner-icon" />
+      <div className="copilot-applied-banner-body">
+        <strong>{title}</strong>
+        <p>{detail}</p>
+      </div>
+      <button
+        type="button"
+        className="copilot-applied-dismiss"
+        onClick={onDismiss}
+        aria-label={text.close}
+        title={text.close}
+      >
+        <Icon name="close" size={14} />
+      </button>
+    </section>
+  );
+}
+
 export function AdminCopilotPanel({
   language,
   currentAgentId,
@@ -469,6 +506,10 @@ export function AdminCopilotPanel({
   const [appliedPatchKeys, setAppliedPatchKeys] = useState<Set<string>>(
     new Set(),
   );
+  const [appliedProposalSummary, setAppliedProposalSummary] = useState<{
+    title: string;
+    detail: string;
+  }>();
   const [panelWidth, setPanelWidth] = useState(() =>
     clampPanelWidth(
       Number(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY)) ||
@@ -546,6 +587,7 @@ export function AdminCopilotPanel({
     setSelectedCases(new Set());
     setAppliedPatchSummary(undefined);
     setAppliedPatchKeys(new Set());
+    setAppliedProposalSummary(undefined);
     if (!currentAgentId) {
       setValidationHistory([]);
       return;
@@ -703,10 +745,20 @@ export function AdminCopilotPanel({
       const applied = await applyCopilotProposal(proposal.id);
       if (applied.targetType === "AGENT") {
         onAppliedAgent(applied.targetId);
-        toast.success(text.proposalApplied);
+        toast.success(text.proposalApplied.replace("{title}", proposal.title));
+        setAppliedProposalSummary({
+          title: proposal.title,
+          detail: text.appliedAgentDetail,
+        });
       } else {
         onResourcesChanged();
-        toast.success(text.resourceProposalApplied);
+        toast.success(
+          text.resourceProposalApplied.replace("{title}", proposal.title),
+        );
+        setAppliedProposalSummary({
+          title: proposal.title,
+          detail: text.appliedResourceDetail,
+        });
       }
       if (activeSession) await loadSession(activeSession.id);
     } catch (error) {
@@ -1082,6 +1134,15 @@ export function AdminCopilotPanel({
                 onApply={() => void applyProposal(proposal)}
               />
             ))}
+
+            {appliedProposalSummary && view === "build" && (
+              <AppliedProposalBanner
+                text={text}
+                title={appliedProposalSummary.title}
+                detail={appliedProposalSummary.detail}
+                onDismiss={() => setAppliedProposalSummary(undefined)}
+              />
+            )}
 
             <div className="copilot-composer">
               <label htmlFor="admin-copilot-message" className="sr-only">

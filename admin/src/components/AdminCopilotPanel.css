@@ -1037,6 +1037,42 @@ body.copilot-panel-resizing * {
   color: var(--text);
 }
 
+.copilot-applied-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 14px 0;
+  padding: 11px 12px;
+  border: 1px solid var(--brand-border);
+  border-radius: 10px;
+  background: var(--brand-surface);
+}
+
+.copilot-applied-banner-icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--brand-surface-text);
+}
+
+.copilot-applied-banner-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.copilot-applied-banner-body strong {
+  display: block;
+  color: var(--brand-surface-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.copilot-applied-banner-body p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .copilot-applied-list {
   display: grid;
   gap: 10px;
