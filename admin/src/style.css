@@ -2229,6 +2229,23 @@ article p {
   resize: vertical;
 }
 
+.router-context-field {
+  display: grid;
+  gap: 8px;
+}
+
+.router-context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.router-context-actions button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 .router-test-options {
   display: flex;
   align-items: center;
@@ -2261,13 +2278,8 @@ article p {
   opacity: 0.6;
 }
 
-.router-upload-button input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  cursor: pointer;
-  opacity: 0;
+.router-upload-button:disabled {
+  cursor: wait;
 }
 
 .router-read-page {
@@ -2426,6 +2438,136 @@ article p {
   margin: 5px 0 0;
   color: var(--muted);
   white-space: pre-wrap;
+}
+
+.router-chain-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.router-chain-meta span {
+  padding: 3px 7px;
+  border: 1px solid var(--border-faint);
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.router-chain-meta span.danger {
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger-text);
+}
+
+.router-chain-raw {
+  margin-top: 8px;
+}
+
+.router-chain-raw summary {
+  width: fit-content;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.router-chain-raw pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 7px 0 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--pre-bg);
+  color: var(--code-color);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.router-resource-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.router-resource-list strong {
+  font-size: 12px;
+}
+
+.router-resource-list span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.router-plan-steps {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding-left: 22px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.router-plan-steps code {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--accent-text);
+}
+
+.router-plan-steps small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.router-resource-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.router-resource-grid > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border-faint);
+  border-radius: 7px;
+  background: var(--surface-sunken);
+}
+
+.router-resource-grid span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.router-resource-grid strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.router-resource-items {
+  display: grid;
+  gap: 4px;
+}
+
+.router-resource-list.danger {
+  padding: 9px 10px;
+  border: 1px solid var(--danger-border);
+  border-radius: 7px;
+  background: var(--danger-surface);
+}
+
+.router-resource-list.danger strong,
+.router-resource-list.danger span {
+  color: var(--danger-text);
 }
 
 .router-hook-checks {
@@ -3586,7 +3728,6 @@ button.conversation-log-attachment-download:hover {
 .attachment-lightbox-close:hover {
   background: rgba(0, 0, 0, 0.8);
 }
-
 
 .conversation-log-attachment small {
   min-width: 0;
@@ -5364,6 +5505,10 @@ pre {
   }
 
   .router-result-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .router-resource-grid {
     grid-template-columns: 1fr;
   }
 

@@ -155,6 +155,67 @@ public class PlanningService {
                         repaired));
     }
 
+    /**
+     * Generates the same validated plan used by production without persisting a plan or its steps.
+     * Admin route tests must remain observational and must not create execution records.
+     */
+    public Optional<PlanPreview> previewPlan(
+            AgentDefinition definition,
+            String userInput,
+            String pageContext,
+            List<Map<String, String>> history,
+            List<ToolDefinition> availableTools) {
+        if (!shouldPlan(definition, userInput, availableTools)) return Optional.empty();
+        int maxSteps = Math.max(1, Math.min(12, definition.getMaxPlanSteps()));
+        String system = planningPrompt(definition, availableTools, maxSteps);
+        String input =
+                """
+                用户目标：
+                %s
+
+                页面上下文：
+                %s
+                """
+                        .formatted(textOrNone(userInput), textOrNone(pageContext))
+                        .strip();
+        long planningStarted = System.nanoTime();
+        String raw = "";
+        String repairedRaw = "";
+        boolean repaired = false;
+        PlanDraft draft;
+        try {
+            raw = complete(system, history, input);
+            draft = parsePlan(raw, availableTools, definition.getId(), maxSteps);
+            if (draft == null) {
+                String repair =
+                        """
+                        上一次输出无法解析或违反约束。请重新输出严格 JSON。
+
+                        上次输出：
+                        %s
+                        """
+                                .formatted(limit(raw, 4000))
+                                .strip();
+                repairedRaw = complete(system, history, input + "\n\n" + repair);
+                repaired = true;
+                draft = parsePlan(repairedRaw, availableTools, definition.getId(), maxSteps);
+            }
+        } catch (Exception error) {
+            return Optional.empty();
+        }
+        if (draft == null) return Optional.empty();
+        return Optional.of(
+                new PlanPreview(
+                        normalizeMode(definition.getPlanningMode()),
+                        draft.goal(),
+                        draft.summary(),
+                        draft.steps(),
+                        limit(system + "\n\n" + input, 16000),
+                        limit(repaired ? repairedRaw : raw, 16000),
+                        (System.nanoTime() - planningStarted) / 1_000_000L,
+                        repaired));
+    }
+
     @Transactional
     public Optional<PlanExecution> revisePlan(
             AgentPlan previous,
@@ -387,6 +448,16 @@ public class PlanningService {
     public record PlanExecution(
             AgentPlan plan,
             List<AgentPlanStep> steps,
+            String plannerRequest,
+            String plannerRawOutput,
+            long plannerDurationMs,
+            boolean repaired) {}
+
+    public record PlanPreview(
+            String planningMode,
+            String goal,
+            String summary,
+            List<StepDraft> steps,
             String plannerRequest,
             String plannerRawOutput,
             long plannerDurationMs,

@@ -2530,12 +2530,7 @@ function AdminApp({
     }
   };
 
-  const uploadRouteAttachments = async (
-    files: FileList | null,
-    input: HTMLInputElement,
-  ) => {
-    const selectedFiles = files ? Array.from(files) : [];
-    input.value = "";
+  const uploadRouteAttachments = async (selectedFiles: File[]) => {
     if (!selectedFiles.length) return;
 
     setRouteUploading(true);
@@ -2561,6 +2556,28 @@ function AdminApp({
     } finally {
       setRouteUploading(false);
     }
+  };
+
+  const pasteRoutePageContext = async () => {
+    if (!navigator.clipboard?.readText) {
+      toast.error(t.routerClipboardUnavailable);
+      return;
+    }
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text.trim()) setRoutePageContext(text);
+    } catch {
+      toast.error(t.routerClipboardUnavailable);
+    }
+  };
+
+  const openRoutePage = () => {
+    const match = routePageContext.match(/https?:\/\/[^\s"'<>]+/i);
+    if (!match) {
+      toast.error(t.routerPageUrlMissing);
+      return;
+    }
+    window.open(match[0], "_blank", "noopener,noreferrer");
   };
 
   const removeRouteAttachment = (id: string) => {
@@ -3491,6 +3508,8 @@ function AdminApp({
               onReadPageChange={setRouteReadPage}
               onUploadAttachments={uploadRouteAttachments}
               onRemoveAttachment={removeRouteAttachment}
+              onPastePageContext={pasteRoutePageContext}
+              onOpenPageContext={openRoutePage}
               route={route}
               analyzing={routeAnalyzing}
               onAnalyze={analyzeRoute}
