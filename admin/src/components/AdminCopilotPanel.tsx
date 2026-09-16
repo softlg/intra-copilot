@@ -68,6 +68,7 @@ export type AdminCopilotPanelProps = {
   onApplyPatch: (changes: Record<string, unknown>) => void;
   onAppliedAgent: (agentId: string) => void;
   onResourcesChanged: () => void;
+  resourceLabels?: Record<string, string>;
 };
 
 const copy = {
@@ -142,6 +143,12 @@ const copy = {
     sessionFailed: "会话加载失败。",
     proposalSelected: "确认提案后会创建以下内容，不会自动发布 Agent。",
     noProposal: "完成需求访谈后会在这里显示资源与 Agent 草案。",
+    appliedPatchTitle: "已应用修改（{count} 项）",
+    before: "改前",
+    after: "改后",
+    applied: "已应用",
+    appliedPatchHint:
+      "已写入当前表单，请检查无误后保存；建议重新运行静态检查确认效果。",
   },
   en: {
     title: "AI Workspace",
@@ -218,6 +225,12 @@ const copy = {
       "Confirming creates the resources below. The Agent is not published automatically.",
     noProposal:
       "Complete the interview to preview resources and the Agent draft.",
+    appliedPatchTitle: "Applied changes ({count})",
+    before: "Before",
+    after: "After",
+    applied: "Applied",
+    appliedPatchHint:
+      "Written to the form. Review and save; re-run the static check to confirm.",
   },
 } as const;
 
@@ -264,6 +277,159 @@ function severityLabel(
   return labels[language][severity];
 }
 
+const FIELD_LABELS: Record<string, { zh: string; en: string }> = {
+  displayName: { zh: "名称", en: "Name" },
+  description: { zh: "描述", en: "Description" },
+  systemPrompt: { zh: "系统提示词", en: "System prompt" },
+  routingRules: { zh: "路由规则", en: "Routing rules" },
+  model: { zh: "模型", en: "Model" },
+  temperature: { zh: "温度", en: "Temperature" },
+  planningMode: { zh: "规划模式", en: "Planning mode" },
+  maxPlanSteps: { zh: "最大规划步数", en: "Max plan steps" },
+  knowledgeBaseIds: { zh: "知识库", en: "Knowledge bases" },
+  toolIds: { zh: "工具", en: "Tools" },
+  skillIds: { zh: "技能", en: "Skills" },
+};
+
+const ID_LIST_FIELDS = new Set(["knowledgeBaseIds", "toolIds", "skillIds"]);
+
+function normalizeIdList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item)).filter(Boolean);
+      }
+    } catch {
+      // fall through to plain split
+    }
+    return trimmed
+      .split(/[,\n;]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function formatPatchValue(
+  value: unknown,
+  field: string,
+  labels?: Record<string, string>,
+): string {
+  if (value === null || value === undefined) return "—";
+  if (ID_LIST_FIELDS.has(field)) {
+    const ids = normalizeIdList(value);
+    if (ids.length === 0) return "（无）";
+    return ids.map((id) => labels?.[id] ?? id).join("、");
+  }
+  if (Array.isArray(value)) {
+    return value.length
+      ? value.map((item) => String(item)).join("、")
+      : "（无）";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function PatchValue({
+  field,
+  value,
+  labels,
+  highlight,
+}: {
+  field: string;
+  value: unknown;
+  labels?: Record<string, string>;
+  highlight?: boolean;
+}) {
+  const display = formatPatchValue(value, field, labels);
+  const long = display.length > 56 || display.includes("\n");
+  const className = highlight ? "is-after" : undefined;
+  if (long) {
+    return <pre className={className}>{display}</pre>;
+  }
+  return <span className={className}>{display}</span>;
+}
+
+function AppliedPatchSummary({
+  text,
+  language,
+  patch,
+  before,
+  labels,
+  onDismiss,
+}: {
+  text: (typeof copy)[Language];
+  language: Language;
+  patch: Record<string, unknown>;
+  before: Record<string, unknown>;
+  labels?: Record<string, string>;
+  onDismiss: () => void;
+}) {
+  const entries = Object.entries(patch).filter(([key]) => key !== "agentId");
+  if (entries.length === 0) return null;
+  return (
+    <section className="copilot-applied-patch" aria-live="polite">
+      <div className="copilot-applied-head">
+        <span className="copilot-applied-title">
+          <Icon name="check" size={15} />
+          {text.appliedPatchTitle.replace("{count}", String(entries.length))}
+        </span>
+        <button
+          type="button"
+          className="copilot-applied-dismiss"
+          onClick={onDismiss}
+          aria-label={text.close}
+          title={text.close}
+        >
+          <Icon name="close" size={14} />
+        </button>
+      </div>
+      <ul className="copilot-applied-list">
+        {entries.map(([field, value]) => (
+          <li key={field}>
+            <span className="copilot-applied-field">
+              {FIELD_LABELS[field]?.[language] ?? field}
+            </span>
+            <div className="copilot-applied-diff">
+              <div className="copilot-applied-side">
+                <span className="copilot-applied-tag">{text.before}</span>
+                <PatchValue
+                  field={field}
+                  value={before[field]}
+                  labels={labels}
+                />
+              </div>
+              <Icon
+                name="chevron-right"
+                size={13}
+                className="copilot-applied-arrow"
+              />
+              <div className="copilot-applied-side is-after">
+                <span className="copilot-applied-tag">{text.after}</span>
+                <PatchValue
+                  field={field}
+                  value={value}
+                  labels={labels}
+                  highlight
+                />
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="copilot-applied-hint">{text.appliedPatchHint}</p>
+    </section>
+  );
+}
+
 export function AdminCopilotPanel({
   language,
   currentAgentId,
@@ -273,6 +439,7 @@ export function AdminCopilotPanel({
   onApplyPatch,
   onAppliedAgent,
   onResourcesChanged,
+  resourceLabels,
 }: AdminCopilotPanelProps) {
   const text = copy[language];
   const [view, setView] = useState<PanelView>("assist");
@@ -295,6 +462,13 @@ export function AdminCopilotPanel({
   const [validationHistory, setValidationHistory] = useState<
     AgentValidationHistoryItem[]
   >([]);
+  const [appliedPatchSummary, setAppliedPatchSummary] = useState<{
+    patch: Record<string, unknown>;
+    before: Record<string, unknown>;
+  }>();
+  const [appliedPatchKeys, setAppliedPatchKeys] = useState<Set<string>>(
+    new Set(),
+  );
   const [panelWidth, setPanelWidth] = useState(() =>
     clampPanelWidth(
       Number(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY)) ||
@@ -370,6 +544,8 @@ export function AdminCopilotPanel({
     setValidationReport(undefined);
     setValidationCases([]);
     setSelectedCases(new Set());
+    setAppliedPatchSummary(undefined);
+    setAppliedPatchKeys(new Set());
     if (!currentAgentId) {
       setValidationHistory([]);
       return;
@@ -616,11 +792,25 @@ export function AdminCopilotPanel({
     setSelectedCases(new Set());
   };
 
-  const applySuggestedPatch = (patch?: Record<string, unknown>) => {
+  const applySuggestedPatch = (
+    patch?: Record<string, unknown>,
+    key?: string,
+  ) => {
     if (!patch || Object.keys(patch).length === 0) return;
+    const before = { ...currentAgentSnapshot };
     onApplyPatch(patch);
+    setAppliedPatchSummary({ patch, before });
+    if (key) {
+      setAppliedPatchKeys((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
+    }
     toast.success(text.patchApplied);
   };
+
+  const dismissAppliedPatch = () => setAppliedPatchSummary(undefined);
 
   const resizePanelTo = (width: number) => {
     const workspaceWidth = panelRef.current?.parentElement?.clientWidth;
@@ -785,6 +975,10 @@ export function AdminCopilotPanel({
             onSelectAll={selectAllCases}
             onClearSelection={clearSelectedCases}
             onApplyPatch={applySuggestedPatch}
+            appliedPatchSummary={appliedPatchSummary}
+            appliedPatchKeys={appliedPatchKeys}
+            resourceLabels={resourceLabels}
+            onDismissAppliedPatch={dismissAppliedPatch}
           />
         ) : (
           <div className="copilot-chat">
@@ -798,6 +992,17 @@ export function AdminCopilotPanel({
               onRename={renameSession}
               onDelete={deleteSessions}
             />
+
+            {appliedPatchSummary && (
+              <AppliedPatchSummary
+                text={text}
+                language={language}
+                patch={appliedPatchSummary.patch}
+                before={appliedPatchSummary.before}
+                labels={resourceLabels}
+                onDismiss={dismissAppliedPatch}
+              />
+            )}
 
             <div className="copilot-messages" aria-live="polite">
               {!activeSession && visibleSessions.length === 0 && (
@@ -822,7 +1027,10 @@ export function AdminCopilotPanel({
                         <AssistantDetails
                           text={text}
                           payload={payload}
-                          onApplyPatch={applySuggestedPatch}
+                          onApplyPatch={(patch) =>
+                            applySuggestedPatch(patch, "assist-patch")
+                          }
+                          appliedKeys={appliedPatchKeys}
                           canApplyPatch={Boolean(currentAgentId)}
                         />
                       );
@@ -1273,11 +1481,13 @@ function AssistantDetails({
   payload,
   onApplyPatch,
   canApplyPatch,
+  appliedKeys,
 }: {
   text: (typeof copy)[Language];
   payload?: CopilotRespondResult;
-  onApplyPatch: (patch?: Record<string, unknown>) => void;
+  onApplyPatch: (patch?: Record<string, unknown>, key?: string) => void;
   canApplyPatch: boolean;
+  appliedKeys: Set<string>;
 }) {
   if (!payload) return null;
   const questions = payload.questions ?? [];
@@ -1300,11 +1510,11 @@ function AssistantDetails({
             <strong>{text.applyPatch}</strong>
             <button
               type="button"
-              onClick={() => onApplyPatch(changes)}
-              disabled={!canApplyPatch}
+              onClick={() => onApplyPatch(changes, "assist-patch")}
+              disabled={!canApplyPatch || appliedKeys.has("assist-patch")}
             >
               <Icon name="edit" size={14} />
-              {text.applyPatch}
+              {appliedKeys.has("assist-patch") ? text.applied : text.applyPatch}
             </button>
           </div>
           <pre>{JSON.stringify(changes, null, 2)}</pre>
@@ -1382,6 +1592,10 @@ function ValidationView({
   onSelectAll,
   onClearSelection,
   onApplyPatch,
+  appliedPatchSummary,
+  appliedPatchKeys,
+  resourceLabels,
+  onDismissAppliedPatch,
 }: {
   text: (typeof copy)[Language];
   language: Language;
@@ -1398,7 +1612,14 @@ function ValidationView({
   onToggleCase: (index: number) => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
-  onApplyPatch: (patch?: Record<string, unknown>) => void;
+  onApplyPatch: (patch?: Record<string, unknown>, key?: string) => void;
+  appliedPatchSummary?: {
+    patch: Record<string, unknown>;
+    before: Record<string, unknown>;
+  };
+  appliedPatchKeys: Set<string>;
+  resourceLabels?: Record<string, string>;
+  onDismissAppliedPatch: () => void;
 }) {
   if (!agentId) {
     return <p className="copilot-empty">{text.noCurrentAgent}</p>;
@@ -1410,6 +1631,18 @@ function ValidationView({
         <strong>{agentName || agentId}</strong>
         <code>{agentId}</code>
       </div>
+
+      {appliedPatchSummary && (
+        <AppliedPatchSummary
+          text={text}
+          language={language}
+          patch={appliedPatchSummary.patch}
+          before={appliedPatchSummary.before}
+          labels={resourceLabels}
+          onDismiss={onDismissAppliedPatch}
+        />
+      )}
+
       <div className="copilot-validation-actions">
         <button
           type="button"
@@ -1460,15 +1693,22 @@ function ValidationView({
                   <strong>{issue.title}</strong>
                 </div>
                 <p>{issue.detail}</p>
-                {issue.patch && Object.keys(issue.patch).length > 0 && (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => onApplyPatch(issue.patch)}
-                  >
-                    {text.applyIssuePatch}
-                  </button>
-                )}
+                {issue.patch &&
+                  Object.keys(issue.patch).length > 0 &&
+                  (() => {
+                    const issueKey = `static-${issue.code}-${index}`;
+                    const issueApplied = appliedPatchKeys.has(issueKey);
+                    return (
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => onApplyPatch(issue.patch, issueKey)}
+                        disabled={issueApplied}
+                      >
+                        {issueApplied ? text.applied : text.applyIssuePatch}
+                      </button>
+                    );
+                  })()}
               </article>
             ))}
           </div>
@@ -1567,15 +1807,25 @@ function ValidationView({
                         </p>
                       )}
                       {result.suggestedPatch &&
-                        Object.keys(result.suggestedPatch).length > 0 && (
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => onApplyPatch(result.suggestedPatch)}
-                          >
-                            {text.applyIssuePatch}
-                          </button>
-                        )}
+                        Object.keys(result.suggestedPatch).length > 0 &&
+                        (() => {
+                          const caseKey = `case-${index}`;
+                          const caseApplied = appliedPatchKeys.has(caseKey);
+                          return (
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={() =>
+                                onApplyPatch(result.suggestedPatch, caseKey)
+                              }
+                              disabled={caseApplied}
+                            >
+                              {caseApplied
+                                ? text.applied
+                                : text.applyIssuePatch}
+                            </button>
+                          );
+                        })()}
                     </>
                   )}
                 </article>
