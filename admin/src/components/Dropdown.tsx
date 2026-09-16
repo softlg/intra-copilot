@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import "./Dropdown.css";
 
 export interface DropdownItem {
@@ -30,13 +38,16 @@ export function Dropdown({
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>();
 
   useEffect(() => {
     if (!open) return;
     const handler = (event: MouseEvent) => {
       if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
+        !containerRef.current?.contains(event.target as Node) &&
+        !menuRef.current?.contains(event.target as Node)
       ) {
         setOpen(false);
       }
@@ -52,9 +63,79 @@ export function Dropdown({
     };
   }, [open]);
 
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuStyle(undefined);
+      return undefined;
+    }
+
+    const updatePosition = () => {
+      const trigger = triggerRef.current?.getBoundingClientRect();
+      const menu = menuRef.current?.getBoundingClientRect();
+      if (!trigger || !menu) return;
+
+      const viewportPadding = 8;
+      const gap = 6;
+      const fitsBelow =
+        trigger.bottom + gap + menu.height <=
+        window.innerHeight - viewportPadding;
+      const top = fitsBelow
+        ? trigger.bottom + gap
+        : Math.max(viewportPadding, trigger.top - gap - menu.height);
+      const preferredLeft =
+        align === "right" ? trigger.right - menu.width : trigger.left;
+      const left = Math.min(
+        Math.max(viewportPadding, preferredLeft),
+        Math.max(
+          viewportPadding,
+          window.innerWidth - menu.width - viewportPadding,
+        ),
+      );
+
+      setMenuStyle({ top, left, visibility: "visible" });
+    };
+
+    const frame = window.requestAnimationFrame(updatePosition);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [align, open]);
+
+  const menu = open ? (
+    <ul
+      ref={menuRef}
+      className={`dropdown-menu dropdown-${align}`}
+      role="menu"
+      style={menuStyle}
+    >
+      {items.map((item) => (
+        <li key={item.key} role="none">
+          <button
+            type="button"
+            role="menuitem"
+            className={`dropdown-item${item.tone === "danger" ? " dropdown-item-danger" : ""}`}
+            onClick={() => {
+              setOpen(false);
+              if (!item.disabled) item.onSelect();
+            }}
+            disabled={item.disabled}
+          >
+            {item.icon && <span className="dropdown-icon">{item.icon}</span>}
+            <span>{item.label}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  ) : null;
+
   return (
     <div className="dropdown" ref={containerRef}>
       <button
+        ref={triggerRef}
         type="button"
         className="dropdown-trigger"
         aria-haspopup="menu"
@@ -64,29 +145,7 @@ export function Dropdown({
       >
         {trigger}
       </button>
-      {open && (
-        <ul className={`dropdown-menu dropdown-${align}`} role="menu">
-          {items.map((item) => (
-            <li key={item.key} role="none">
-              <button
-                type="button"
-                role="menuitem"
-                className={`dropdown-item${item.tone === "danger" ? " dropdown-item-danger" : ""}`}
-                onClick={() => {
-                  setOpen(false);
-                  if (!item.disabled) item.onSelect();
-                }}
-                disabled={item.disabled}
-              >
-                {item.icon && (
-                  <span className="dropdown-icon">{item.icon}</span>
-                )}
-                <span>{item.label}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {menu && createPortal(menu, document.body)}
     </div>
   );
 }

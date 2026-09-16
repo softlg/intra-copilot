@@ -15,14 +15,16 @@
   align-items: flex-start;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
   color: var(--text);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-popover);
   font-size: 13px;
   line-height: 1.45;
   pointer-events: auto;
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
   animation: toast-enter 180ms ease-out;
 }
 
@@ -87,42 +89,58 @@
 }
 
 .toast-success {
-  border-color: rgba(100, 212, 155, 0.4);
-  background: rgba(20, 59, 43, 0.95);
+  border-color: color-mix(in srgb, var(--success) 38%, var(--border));
+  background: color-mix(
+    in srgb,
+    var(--success-surface) 72%,
+    var(--surface-raised)
+  );
 }
 
 .toast-success .toast-icon {
-  background: rgba(100, 212, 155, 0.25);
+  background: color-mix(in srgb, var(--success) 20%, transparent);
   color: var(--success);
 }
 
 .toast-info {
-  border-color: rgba(147, 180, 236, 0.4);
-  background: rgba(31, 41, 71, 0.95);
+  border-color: color-mix(in srgb, var(--brand) 36%, var(--border));
+  background: color-mix(
+    in srgb,
+    var(--brand-surface) 72%,
+    var(--surface-raised)
+  );
 }
 
 .toast-info .toast-icon {
-  background: rgba(147, 180, 236, 0.25);
+  background: color-mix(in srgb, var(--brand) 20%, transparent);
   color: var(--tag-text);
 }
 
 .toast-warning {
-  border-color: rgba(233, 180, 110, 0.45);
-  background: rgba(60, 44, 20, 0.95);
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  background: color-mix(
+    in srgb,
+    var(--warning-surface) 74%,
+    var(--surface-raised)
+  );
 }
 
 .toast-warning .toast-icon {
-  background: rgba(233, 180, 110, 0.25);
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
   color: var(--warning);
 }
 
 .toast-error {
-  border-color: rgba(239, 100, 100, 0.45);
-  background: rgba(60, 20, 20, 0.95);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: color-mix(
+    in srgb,
+    var(--danger-surface) 74%,
+    var(--surface-raised)
+  );
 }
 
 .toast-error .toast-icon {
-  background: rgba(239, 100, 100, 0.25);
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
   color: var(--danger-text);
 }
 

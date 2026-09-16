@@ -22,53 +22,53 @@
 }
 
 .status-badge-ok {
-  background: rgba(20, 59, 43, 0.95);
-  border-color: rgba(100, 212, 155, 0.4);
+  background: color-mix(in srgb, var(--success) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--success) 36%, var(--border));
   color: var(--success);
 }
 
 .status-badge-ok .status-badge-icon {
-  background: rgba(100, 212, 155, 0.2);
+  background: color-mix(in srgb, var(--success) 22%, transparent);
 }
 
 .status-badge-off {
-  background: rgba(40, 50, 70, 0.6);
-  border-color: rgba(120, 140, 180, 0.35);
+  background: var(--off-surface);
+  border-color: var(--off-border);
   color: var(--muted);
 }
 
 .status-badge-off .status-badge-icon {
-  background: rgba(120, 140, 180, 0.25);
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
   color: var(--muted);
 }
 
 .status-badge-warn {
-  background: rgba(60, 44, 20, 0.95);
-  border-color: rgba(233, 180, 110, 0.45);
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
   color: var(--warning);
 }
 
 .status-badge-warn .status-badge-icon {
-  background: rgba(233, 180, 110, 0.25);
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
 }
 
 .status-badge-error {
-  background: rgba(60, 20, 20, 0.95);
-  border-color: rgba(239, 100, 100, 0.45);
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
   color: var(--danger-text);
 }
 
 .status-badge-error .status-badge-icon {
-  background: rgba(239, 100, 100, 0.25);
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
 .status-badge-neutral {
-  background: rgba(31, 41, 71, 0.6);
-  border-color: rgba(120, 140, 180, 0.25);
+  background: var(--surface-muted);
+  border-color: var(--border);
   color: var(--muted);
 }
 
 .status-badge-neutral .status-badge-icon {
-  background: rgba(120, 140, 180, 0.2);
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
   color: var(--muted);
 }

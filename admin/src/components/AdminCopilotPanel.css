@@ -1,7 +1,10 @@
 .workspace {
   display: flex;
   flex: 1 1 auto;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .copilot-scrim {
@@ -31,8 +34,10 @@
   height: 100dvh;
   overflow: hidden;
   border-left: 1px solid var(--border);
-  background: var(--surface);
-  box-shadow: var(--shadow-card-hover);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: var(--shadow-popover);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
 }
 
 .copilot-header {
@@ -954,6 +959,8 @@
 @media (max-width: 767px) {
   .workspace {
     display: block;
+    height: auto;
+    overflow: visible;
   }
 
   .admin-copilot-panel {

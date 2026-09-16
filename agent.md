@@ -4,14 +4,16 @@
 
 ## 产品定位
 
-- 产品类型：深色、专业、内容优先的 AI 管理控制台。
+- 产品类型：Apple 风格、内容优先的 AI 管理控制台。
 - 重点：信息层级、批量管理效率、明确的风险反馈和键盘可用性。
-- 视觉原则：蓝色用于主要操作，状态色只表达状态，危险操作降低视觉权重。
+- 视觉原则：使用 Apple 系统蓝、中性表面和克制的毛玻璃层次；状态色只表达状态，危险操作降低视觉权重。
 
 ## 布局与响应式
 
 - 页面主内容最大宽度 1200～1280px，桌面左右内边距 32px，区块间距 24px。
-- 侧边栏宽 240px，收缩后 72px；导航项高度 44～48px。
+- 侧边栏宽 240px，收缩后 76px；导航项高度 44～48px。
+- `>=768px` 使用固定视口骨架：侧边栏和顶部栏固定，`main` 是唯一纵向滚动容器，页面本身不得滚动。
+- `<768px` 恢复自然文档流，使用顶部导航和整页滚动，不强制固定视口。
 - 卡片间距 16px，小组件间距 8px。
 - `<480px` 单列；`480～767px` 单列或双列；`768～1199px` 双列；`>=1200px` 三列或四列。
 - 实现对应三个断点：`max-width: 479px`、`max-width: 767px`（侧边栏堆叠为顶部导航）、`768px～1199px`（平板）。不要新增其它断点。
@@ -21,15 +23,18 @@
 
 配色统一走 `admin/src/style.css` 顶部的语义 Token，`:root` 为深色、`:root[data-theme="light"]` 为浅色，两者键名完全一致。分组如下：
 
-- 表面：`--page-bg`、`--surface`、`--surface-raised`、`--surface-sunken`、`--surface-muted`、`--surface-hover`、`--control-bg`、`--control-hover`、`--input-bg`、`--pre-bg`、`--chip-bg`、`--code-block-bg`、`--off-surface`
+- 表面：`--page-bg`、`--surface`、`--surface-raised`、`--surface-sunken`、`--surface-muted`、`--surface-hover`、`--control-bg`、`--control-hover`、`--input-bg`、`--pre-bg`、`--chip-bg`、`--code-block-bg`、`--off-surface`、`--glass-bg`、`--glass-border`、`--overlay-bg`
 - 描边：`--border`、`--border-strong`、`--border-faint`、`--input-border`、`--off-border`
 - 文字：`--text`、`--text-strong`、`--text-on-brand`、`--muted`、`--muted-subtle`、`--text-muted`、`--nav-idle`、`--nav-active-bg`、`--nav-active-text`、`--focus-ring`、`--focus-shadow`、`--code-color`、`--accent-text`
 - 品牌：`--brand`、`--brand-hover`、`--accent`、`--brand-surface`、`--brand-surface-hover`、`--brand-surface-text`、`--brand-border`、`--tag-bg`、`--tag-text`
 - 状态：`--success`、`--success-strong`、`--success-surface`、`--warning`、`--warning-surface`、`--danger`、`--danger-strong`、`--danger-soft`、`--danger-text`、`--danger-surface`、`--danger-border`
 - 状态药丸（深浅同色）：`--status-*-bg` / `--status-*-border` / `--status-*-text`
-- 半透明染色与阴影：`--accent-tint*`、`--danger-tint*`、`--warning-tint*`、`--shadow-card-hover`、`--modal-actions-fade`
+- 半透明染色与阴影：`--accent-tint*`、`--danger-tint*`、`--warning-tint*`、`--shadow-card`、`--shadow-card-hover`、`--shadow-popover`、`--modal-actions-fade`
 
 组件中不得新增未命名的原始颜色；需要新颜色时先加 Token，再在深色/浅色两处都给出值。
+
+- 毛玻璃只能用于侧边栏、固定顶部栏和浮层，并保留不透明语义表面作为能力回退。
+- 主色使用 Apple 系统蓝；圆角、阴影和描边统一走 Token，不在组件中堆叠近似值。
 
 - 正文对比度至少 4.5:1。
 - 正文不低于 14px，辅助信息不低于 12px。
@@ -65,6 +70,7 @@
 - 弹窗使用 `role="dialog"` 和 `aria-modal="true"`；标签页使用正确的 tab 语义。
 - 不能依赖 hover 才能看到关键操作；不使用颜色作为唯一状态表达。
 - 支持 `prefers-reduced-motion`，动效通常为 150～240ms，避免布局抖动。
+- 页面切换只使用轻微淡入和位移动效；卡片悬浮最多上移 2px，不使用持续背景动画或高成本滤镜。
 
 ## 开发检查清单
 

@@ -361,6 +361,7 @@ function AdminApp({
     total: 0,
   });
   const [tab, setTab] = useState("agents");
+  const mainContentRef = useRef<HTMLElement>(null);
   const [agentMenuOpen, setAgentMenuOpen] = useState(
     () => localStorage.getItem("admin-agent-menu-open") !== "false",
   );
@@ -479,6 +480,10 @@ function AdminApp({
   useEffect(() => {
     localStorage.setItem("admin-agent-menu-open", String(agentMenuOpen));
   }, [agentMenuOpen]);
+
+  useEffect(() => {
+    mainContentRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [tab]);
 
   useEffect(() => {
     if (
@@ -2868,7 +2873,7 @@ function AdminApp({
       </aside>
 
       <div className="workspace">
-        <main>
+        <main ref={mainContentRef}>
           <header>
             <h2>
               {tab === "agents"

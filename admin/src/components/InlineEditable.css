@@ -84,13 +84,13 @@
 .inline-editable-editing textarea {
   width: 100%;
   border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 8px 10px;
   background: var(--control-bg);
   color: var(--text);
   font: inherit;
   outline: none;
-  box-shadow: 0 0 0 2px rgb(71 118 208 / 18%);
+  box-shadow: var(--focus-shadow);
   resize: vertical;
   min-height: 36px;
 }
@@ -103,7 +103,7 @@
 .inline-editable-error input,
 .inline-editable-error textarea {
   border-color: var(--danger-soft);
-  box-shadow: 0 0 0 2px rgb(208 69 90 / 18%);
+  box-shadow: 0 0 0 3px var(--danger-tint);
 }
 
 .inline-editable-error-text {

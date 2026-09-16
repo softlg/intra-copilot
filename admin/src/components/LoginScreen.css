@@ -28,10 +28,12 @@
 .login-panel {
   width: min(100%, 420px);
   padding: 32px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-card-hover);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  box-shadow: var(--shadow-popover);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
 }
 
 .login-brand {
@@ -50,7 +52,7 @@
   align-items: center;
   justify-content: center;
   border: 1px solid var(--brand-border);
-  border-radius: 8px;
+  border-radius: 11px;
   background: var(--brand-surface);
   color: var(--brand-surface-text);
 }

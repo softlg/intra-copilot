@@ -24,7 +24,7 @@
 .pagination-size select {
   height: 30px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 8px;
   padding: 0 8px;
   background: var(--control-bg);
   color: var(--text);
@@ -48,7 +48,7 @@
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
-  border-radius: 7px;
+  border-radius: 8px;
   cursor: pointer;
   transition:
     background 0.15s ease,

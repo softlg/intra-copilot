@@ -9,10 +9,11 @@
   padding: 0;
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: 9px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-shadow: none;
 }
 
 .dropdown-trigger:hover {
@@ -21,25 +22,31 @@
 }
 
 .dropdown-menu {
-  position: absolute;
-  top: calc(100% + 4px);
+  position: fixed;
+  z-index: 1200;
+  top: 0;
+  left: 0;
   margin: 0;
-  padding: 4px;
+  padding: 5px;
   list-style: none;
   min-width: 160px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 40;
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  visibility: hidden;
+  border: 1px solid var(--glass-border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+  box-shadow: var(--shadow-popover);
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
 }
 
 .dropdown-right {
-  right: 0;
+  right: auto;
 }
 
 .dropdown-left {
-  left: 0;
+  left: auto;
 }
 
 .dropdown-item {
@@ -50,7 +57,8 @@
   padding: 7px 10px;
   background: transparent;
   color: var(--text);
-  border-radius: 5px;
+  border-radius: 7px;
+  box-shadow: none;
   font-size: 13px;
   text-align: left;
   line-height: 1.4;
@@ -71,7 +79,7 @@
 }
 
 .dropdown-item-danger:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.12);
+  background: var(--danger-tint);
 }
 
 .dropdown-icon {

@@ -7,9 +7,10 @@
   text-align: center;
   border: 1px dashed var(--border);
   border-radius: 12px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
   color: var(--muted);
   gap: 8px;
+  box-shadow: var(--shadow-card);
 }
 
 .empty-state-compact {
