@@ -1,4 +1,5 @@
-import { request } from "./api";
+import { apiFetch, request } from "./api";
+import { buildApiError } from "./apiError";
 
 export type CopilotMode = "ASSIST" | "BUILD";
 
@@ -223,6 +224,111 @@ export function validateAgentBehavior(
       method: "POST",
       body: JSON.stringify({ cases }),
     },
+  );
+}
+
+export type ValidationStreamHandlers = {
+  onRunStart?: (payload: { runId: string; total: number }) => void;
+  onCaseStart?: (payload: {
+    index: number;
+    total: number;
+    title: string;
+    input: string;
+  }) => void;
+  onCaseResult?: (payload: {
+    index: number;
+    total: number;
+    passed: boolean;
+    case: AgentValidationCase;
+  }) => void;
+  onDone?: (report: AgentValidationReport) => void;
+  onStreamError?: (payload: { message: string }) => void;
+};
+
+function handleValidationFrame(
+  frame: string,
+  handlers: ValidationStreamHandlers,
+) {
+  let name = "";
+  const data: string[] = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("event:")) name = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).trim());
+  }
+  if (!name || data.length === 0) return;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(data.join("\n"));
+  } catch {
+    return;
+  }
+  if (name === "run_start") {
+    handlers.onRunStart?.(payload as { runId: string; total: number });
+  } else if (name === "case_start") {
+    handlers.onCaseStart?.(
+      payload as { index: number; total: number; title: string; input: string },
+    );
+  } else if (name === "case_result") {
+    handlers.onCaseResult?.(
+      payload as {
+        index: number;
+        total: number;
+        passed: boolean;
+        case: AgentValidationCase;
+      },
+    );
+  } else if (name === "done") {
+    handlers.onDone?.(payload as AgentValidationReport);
+  } else if (name === "error") {
+    handlers.onStreamError?.(payload as { message: string });
+  }
+}
+
+/**
+ * Runs the selected scenarios over SSE so each outcome arrives as soon as it is ready
+ * instead of waiting for the whole batch.
+ */
+export async function streamValidateAgentBehavior(
+  agentId: string,
+  cases: AgentValidationCase[],
+  handlers: ValidationStreamHandlers,
+  signal?: AbortSignal,
+) {
+  const response = await apiFetch(
+    `/admin/agents/${agentId}/validations/behavior/stream`,
+    {
+      method: "POST",
+      body: JSON.stringify({ cases }),
+      headers: { Accept: "text/event-stream" },
+      signal,
+    },
+  );
+  if (!response.ok) {
+    const detail = await response.text();
+    throw buildApiError(response, detail);
+  }
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      handleValidationFrame(buffer.slice(0, boundary), handlers);
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+}
+
+export function cancelValidationStream(agentId: string, runId: string) {
+  return request<{ runId: string; canceled: boolean }>(
+    `/admin/agents/${agentId}/validations/behavior/${runId}/cancel`,
+    { method: "POST" },
   );
 }
 

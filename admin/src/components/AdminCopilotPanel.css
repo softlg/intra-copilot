@@ -798,6 +798,161 @@ body.copilot-panel-resizing * {
   grid-column: 1 / -1;
 }
 
+.copilot-run-panel {
+  margin: 10px 14px 0;
+  padding: 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: 10px;
+  background: var(--surface-sunken);
+}
+
+.copilot-run-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.copilot-run-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.copilot-run-elapsed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.copilot-run-head button {
+  flex: 0 0 auto;
+}
+
+.copilot-run-head button.secondary {
+  min-height: 26px;
+  padding: 3px 9px;
+  font-size: 11px;
+}
+
+.copilot-run-bar {
+  overflow: hidden;
+  height: 5px;
+  margin: 9px 0 0;
+  border-radius: 999px;
+  background: var(--surface-hover);
+}
+
+.copilot-run-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.copilot-run-list {
+  display: grid;
+  gap: 5px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.copilot-run-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-faint);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  font-size: 12px;
+}
+
+.copilot-run-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.copilot-run-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.copilot-run-body strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copilot-run-body small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.copilot-run-item > em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.copilot-run-item.is-running {
+  border-color: var(--brand-border);
+  background: var(--brand-surface);
+}
+
+.copilot-run-item.is-running .copilot-run-icon {
+  color: var(--brand-surface-text);
+}
+
+.copilot-run-item.is-passed .copilot-run-icon,
+.copilot-run-item.is-passed > em {
+  color: var(--success);
+}
+
+.copilot-run-item.is-failed .copilot-run-icon,
+.copilot-run-item.is-failed > em {
+  color: var(--danger-text);
+}
+
+.copilot-run-item.is-skipped strong {
+  color: var(--muted);
+}
+
+.copilot-run-summary,
+.copilot-run-note {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.copilot-run-spin {
+  animation: copilot-run-rotate 1s linear infinite;
+}
+
+@keyframes copilot-run-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .copilot-validation-section {
   padding: 14px;
   border-top: 1px solid var(--border);

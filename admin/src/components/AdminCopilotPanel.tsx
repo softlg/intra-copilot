@@ -10,6 +10,7 @@ import {
 import type { Language } from "../i18n/translations";
 import {
   applyCopilotProposal,
+  cancelValidationStream,
   createCopilotSession,
   deleteCopilotSessions,
   generateAgentValidationCases,
@@ -18,7 +19,7 @@ import {
   listCopilotSessions,
   renameCopilotSession,
   respondCopilot,
-  validateAgentBehavior,
+  streamValidateAgentBehavior,
   validateAgentStatic,
   type AgentValidationCase,
   type AgentValidationHistoryItem,
@@ -37,6 +38,27 @@ import { toast } from "./Toast";
 import "./AdminCopilotPanel.css";
 
 type PanelView = "assist" | "build" | "validate";
+
+type CaseRunState = "queued" | "running" | "passed" | "failed" | "skipped";
+
+type ValidationRunItem = {
+  key: string;
+  index: number;
+  title: string;
+  state: CaseRunState;
+  detail?: string;
+};
+
+type ValidationRunTracker = {
+  runId?: string;
+  active: boolean;
+  stopping: boolean;
+  cancelled: boolean;
+  finished: boolean;
+  startedAt: number;
+  elapsedMs: number;
+  items: ValidationRunItem[];
+};
 
 const DEFAULT_PANEL_WIDTH = 430;
 const MIN_PANEL_WIDTH = 360;
@@ -120,6 +142,17 @@ const copy = {
     generating: "生成中…",
     runSelected: "执行选中场景",
     running: "执行中…",
+    runStep: "正在执行第 {current}/{total} 个场景",
+    runFinished: "执行完成",
+    runCancelled: "已中止执行",
+    runQueued: "等待执行",
+    runRunning: "执行中",
+    runSkipped: "已跳过",
+    runStop: "中止执行",
+    runStopping: "中止中…",
+    runSummary: "通过 {passed} · 未通过 {failed} · 共 {total} 个场景",
+    runCancelHint: "剩余场景已跳过，已完成的结果仍然有效。",
+    runHint: "逐个场景调用模型验证，进度与结果实时更新，可随时中止。",
     selectedCount: "已选择 {count} 个场景",
     selectAll: "全选",
     clearSelection: "取消全选",
@@ -204,6 +237,19 @@ const copy = {
     generating: "Generating…",
     runSelected: "Run selected scenarios",
     running: "Running…",
+    runStep: "Running scenario {current}/{total}",
+    runFinished: "Run complete",
+    runCancelled: "Run cancelled",
+    runQueued: "Queued",
+    runRunning: "Running",
+    runSkipped: "Skipped",
+    runStop: "Stop",
+    runStopping: "Stopping…",
+    runSummary: "{passed} passed · {failed} failed · {total} total",
+    runCancelHint:
+      "Remaining scenarios were skipped; collected results are kept.",
+    runHint:
+      "Scenarios call the model one by one. Progress updates live and you can stop anytime.",
     selectedCount: "{count} selected",
     selectAll: "Select all",
     clearSelection: "Clear selection",
@@ -281,6 +327,43 @@ function severityLabel(
     },
   };
   return labels[language][severity];
+}
+
+function formatElapsed(ms: number) {
+  const seconds = Math.max(0, Math.round(ms / 100) / 10);
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${String(rest).padStart(2, "0")}s`;
+}
+
+function patchRunItem(
+  tracker: ValidationRunTracker,
+  position: number,
+  patch: Partial<ValidationRunItem>,
+) {
+  return {
+    ...tracker,
+    items: tracker.items.map((item, index) =>
+      index === position ? { ...item, ...patch } : item,
+    ),
+  };
+}
+
+function runStateLabel(state: CaseRunState, text: (typeof copy)[Language]) {
+  if (state === "queued") return text.runQueued;
+  if (state === "running") return text.runRunning;
+  if (state === "passed") return text.pass;
+  if (state === "failed") return text.fail;
+  return text.runSkipped;
+}
+
+function runStateIcon(state: CaseRunState) {
+  if (state === "queued") return "clock";
+  if (state === "running") return "refresh";
+  if (state === "passed") return "check";
+  if (state === "failed") return "close";
+  return "minus";
 }
 
 const FIELD_LABELS: Record<string, { zh: string; en: string }> = {
@@ -496,6 +579,8 @@ export function AdminCopilotPanel({
   const [validationBusy, setValidationBusy] = useState<
     "static" | "cases" | "behavior"
   >();
+  const [validationRunTracker, setValidationRunTracker] =
+    useState<ValidationRunTracker>();
   const [validationHistory, setValidationHistory] = useState<
     AgentValidationHistoryItem[]
   >([]);
@@ -582,12 +667,25 @@ export function AdminCopilotPanel({
   }, [resizingPanel]);
 
   useEffect(() => {
+    if (!validationRunTracker?.active) return undefined;
+    const timer = window.setInterval(() => {
+      setValidationRunTracker((current) =>
+        current && current.active
+          ? { ...current, elapsedMs: Date.now() - current.startedAt }
+          : current,
+      );
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [validationRunTracker?.active]);
+
+  useEffect(() => {
     setValidationReport(undefined);
     setValidationCases([]);
     setSelectedCases(new Set());
     setAppliedPatchSummary(undefined);
     setAppliedPatchKeys(new Set());
     setAppliedProposalSummary(undefined);
+    setValidationRunTracker(undefined);
     if (!currentAgentId) {
       setValidationHistory([]);
       return;
@@ -801,23 +899,129 @@ export function AdminCopilotPanel({
 
   const runBehaviorValidation = async () => {
     if (!currentAgentId || validationBusy) return;
-    const selected = validationCases.filter((_, index) =>
-      selectedCases.has(index),
-    );
-    if (selected.length === 0) return;
+    const order = [...selectedCases].sort((a, b) => a - b);
+    if (order.length === 0) return;
     setValidationBusy("behavior");
     setPanelError("");
+    setValidationRunTracker({
+      active: true,
+      stopping: false,
+      cancelled: false,
+      finished: false,
+      startedAt: Date.now(),
+      elapsedMs: 0,
+      items: order.map((index) => ({
+        key: `run-${index}`,
+        index,
+        title: validationCases[index]?.title || `#${index + 1}`,
+        state: "queued",
+      })),
+    });
+
+    const collected: AgentValidationCase[] = [];
+    const previousIssues = validationReport?.staticIssues ?? [];
+    const pushLiveReport = () => {
+      setValidationReport({
+        runId: "",
+        agentId: currentAgentId,
+        agentVersion: 0,
+        configHash: "",
+        status: "RUNNING",
+        staticIssues: previousIssues,
+        cases: [...collected],
+        summary: {
+          issueCount: previousIssues.length,
+          critical: 0,
+          error: 0,
+          warning: 0,
+          info: 0,
+          testsRun: collected.length,
+          testsPassed: collected.filter((item) => item.passed).length,
+          testsFailed: collected.filter((item) => !item.passed).length,
+        },
+        createdAt: new Date().toISOString(),
+      });
+    };
+
     try {
-      setValidationReport(
-        await validateAgentBehavior(currentAgentId, selected),
+      await streamValidateAgentBehavior(
+        currentAgentId,
+        order.map((index) => validationCases[index]),
+        {
+          onRunStart: (payload) =>
+            setValidationRunTracker((current) =>
+              current ? { ...current, runId: payload.runId } : current,
+            ),
+          onCaseStart: (payload) =>
+            setValidationRunTracker((current) =>
+              current
+                ? patchRunItem(current, payload.index, { state: "running" })
+                : current,
+            ),
+          onCaseResult: (payload) => {
+            collected[payload.index] = payload.case;
+            pushLiveReport();
+            setValidationRunTracker((current) =>
+              current
+                ? patchRunItem(current, payload.index, {
+                    state: payload.passed ? "passed" : "failed",
+                    detail: payload.case.reason,
+                  })
+                : current,
+            );
+          },
+          onDone: (report) => setValidationReport(report),
+          onStreamError: (payload) =>
+            setPanelError(payload.message || text.error),
+        },
       );
       await loadValidationHistory(currentAgentId);
     } catch (error) {
       setPanelError(errorMessage(error, text.error));
     } finally {
+      setValidationRunTracker((current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((item) =>
+                item.state === "queued" || item.state === "running"
+                  ? { ...item, state: "skipped" }
+                  : item,
+              ),
+              active: false,
+              finished: true,
+              stopping: false,
+              elapsedMs: Date.now() - current.startedAt,
+            }
+          : current,
+      );
       setValidationBusy(undefined);
     }
   };
+
+  const cancelBehaviorRun = async () => {
+    const runId = validationRunTracker?.runId;
+    if (!currentAgentId || !runId || validationRunTracker?.stopping) return;
+    setValidationRunTracker((current) =>
+      current
+        ? {
+            ...current,
+            stopping: true,
+            cancelled: true,
+            items: current.items.map((item) =>
+              item.state === "queued" ? { ...item, state: "skipped" } : item,
+            ),
+          }
+        : current,
+    );
+    try {
+      await cancelValidationStream(currentAgentId, runId);
+    } catch (error) {
+      setPanelError(errorMessage(error, text.error));
+    }
+  };
+
+  const dismissRunTracker = () => setValidationRunTracker(undefined);
 
   const loadValidationHistory = async (agentId: string) => {
     try {
@@ -1020,9 +1224,12 @@ export function AdminCopilotPanel({
             selectedCases={selectedCases}
             busy={validationBusy}
             history={validationHistory}
+            runTracker={validationRunTracker}
             onStatic={() => void runStaticValidation()}
             onGenerate={() => void generateCases()}
             onRun={() => void runBehaviorValidation()}
+            onCancelRun={() => void cancelBehaviorRun()}
+            onDismissRun={dismissRunTracker}
             onToggleCase={toggleCase}
             onSelectAll={selectAllCases}
             onClearSelection={clearSelectedCases}
@@ -1636,6 +1843,120 @@ function ProposalPreview({
   );
 }
 
+function RunProgressPanel({
+  text,
+  tracker,
+  onCancel,
+  onDismiss,
+}: {
+  text: (typeof copy)[Language];
+  tracker: ValidationRunTracker;
+  onCancel: () => void;
+  onDismiss: () => void;
+}) {
+  const total = tracker.items.length;
+  const settled = tracker.items.filter(
+    (item) => item.state !== "queued" && item.state !== "running",
+  ).length;
+  const passed = tracker.items.filter((item) => item.state === "passed").length;
+  const failed = tracker.items.filter((item) => item.state === "failed").length;
+  const running = tracker.items.find((item) => item.state === "running");
+  const percent = total === 0 ? 0 : Math.round((settled / total) * 100);
+  const heading = tracker.finished
+    ? tracker.cancelled
+      ? text.runCancelled
+      : text.runFinished
+    : text.runStep
+        .replace(
+          "{current}",
+          String(Math.min(settled + (running ? 1 : 0), total)),
+        )
+        .replace("{total}", String(total));
+
+  return (
+    <section className="copilot-run-panel" aria-live="polite">
+      <div className="copilot-run-head">
+        <span className="copilot-run-title">
+          {tracker.finished ? (
+            <Icon name={failed > 0 ? "alert" : "check"} size={14} />
+          ) : (
+            <Icon name="refresh" size={14} className="copilot-run-spin" />
+          )}
+          {heading}
+        </span>
+        <span className="copilot-run-elapsed">
+          <Icon name="clock" size={12} />
+          {formatElapsed(tracker.elapsedMs)}
+        </span>
+        {tracker.active ? (
+          <button
+            type="button"
+            className="secondary"
+            onClick={onCancel}
+            disabled={tracker.stopping}
+          >
+            {tracker.stopping ? text.runStopping : text.runStop}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="copilot-applied-dismiss"
+            onClick={onDismiss}
+            title={text.close}
+          >
+            <Icon name="close" size={14} />
+          </button>
+        )}
+      </div>
+
+      <div
+        className="copilot-run-bar"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={settled}
+      >
+        <i style={{ width: `${percent}%` }} />
+      </div>
+
+      <ul className="copilot-run-list">
+        {tracker.items.map((item) => (
+          <li key={item.key} className={`copilot-run-item is-${item.state}`}>
+            <span className="copilot-run-icon">
+              <Icon
+                name={runStateIcon(item.state)}
+                size={12}
+                className={
+                  item.state === "running" ? "copilot-run-spin" : undefined
+                }
+              />
+            </span>
+            <span className="copilot-run-body">
+              <strong>{item.title}</strong>
+              {item.state === "failed" && item.detail ? (
+                <small>{item.detail}</small>
+              ) : null}
+            </span>
+            <em>{runStateLabel(item.state, text)}</em>
+          </li>
+        ))}
+      </ul>
+
+      {tracker.finished ? (
+        <p className="copilot-run-summary">
+          {text.runSummary
+            .replace("{passed}", String(passed))
+            .replace("{failed}", String(failed))
+            .replace("{total}", String(total))}
+          {tracker.cancelled ? ` ${text.runCancelHint}` : ""}
+        </p>
+      ) : (
+        <p className="copilot-run-note">{text.runHint}</p>
+      )}
+    </section>
+  );
+}
+
 function ValidationView({
   text,
   language,
@@ -1646,9 +1967,12 @@ function ValidationView({
   selectedCases,
   busy,
   history,
+  runTracker,
   onStatic,
   onGenerate,
   onRun,
+  onCancelRun,
+  onDismissRun,
   onToggleCase,
   onSelectAll,
   onClearSelection,
@@ -1667,9 +1991,12 @@ function ValidationView({
   selectedCases: Set<number>;
   busy?: "static" | "cases" | "behavior";
   history: AgentValidationHistoryItem[];
+  runTracker?: ValidationRunTracker;
   onStatic: () => void;
   onGenerate: () => void;
   onRun: () => void;
+  onCancelRun: () => void;
+  onDismissRun: () => void;
   onToggleCase: (index: number) => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
@@ -1732,6 +2059,15 @@ function ValidationView({
           {busy === "behavior" ? text.running : text.runSelected}
         </button>
       </div>
+
+      {runTracker && (
+        <RunProgressPanel
+          text={text}
+          tracker={runTracker}
+          onCancel={onCancelRun}
+          onDismiss={onDismissRun}
+        />
+      )}
 
       {report && (
         <section className="copilot-validation-section">
