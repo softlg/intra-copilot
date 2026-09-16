@@ -94,8 +94,8 @@ export function RouterPage({
             {attachments.map((attachment) => (
               <div className="router-attachment" key={attachment.id}>
                 {attachment.isImage ? (
-                  <img
-                    src={`${API}${attachment.url}`}
+                  <AuthAttachmentImage
+                    url={attachment.url}
                     alt={attachment.filename}
                   />
                 ) : (

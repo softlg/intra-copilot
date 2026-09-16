@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import Pagination from "../components/Pagination";
 import { TruncatedId } from "../components/TruncatedId";
-import { API } from "../lib/api";
+import {
+  AuthAttachmentImage,
+  downloadAuthAttachment,
+} from "../components/AuthAttachmentImage";
+import { toast } from "../components/Toast";
 import { formatDateTime, formatFileSize } from "../lib/format";
 import type { Translations } from "../i18n/translations";
 import type {
@@ -1142,19 +1146,13 @@ export function ConversationLogsPage({
                                         >
                                           {attachment.isImage &&
                                             attachment.url && (
-                                              <a
-                                                className="conversation-log-attachment-preview"
-                                                href={`${API}${attachment.url}`}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                aria-label={`${t.imageAttachment}: ${attachment.filename}`}
-                                              >
-                                                <img
-                                                  src={`${API}${attachment.url}`}
-                                                  alt={attachment.filename}
-                                                  loading="lazy"
-                                                />
-                                              </a>
+                                              <AuthAttachmentImage
+                                                asLink
+                                                url={attachment.url}
+                                                alt={`${t.imageAttachment}: ${attachment.filename}`}
+                                                filename={attachment.filename}
+                                                linkClassName="conversation-log-attachment-preview"
+                                              />
                                             )}
                                           <span className="conversation-log-attachment-kind">
                                             {attachment.isImage

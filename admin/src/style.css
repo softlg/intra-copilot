@@ -3529,6 +3529,19 @@ article p {
   white-space: nowrap;
 }
 
+button.conversation-log-attachment-download {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+button.conversation-log-attachment-download:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
 .conversation-log-attachment small {
   min-width: 0;
   overflow: hidden;
