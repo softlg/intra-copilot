@@ -199,6 +199,15 @@
   margin-bottom: 20px;
 }
 
+.skill-editor-tab-panels {
+  min-height: 360px;
+  max-height: calc(var(--admin-viewport-height) - 400px);
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  animation: tab-fade-in 0.18s ease-out;
+}
+
 .skill-editor-modal .field input,
 .skill-editor-modal .field textarea,
 .skill-editor-modal .field select,

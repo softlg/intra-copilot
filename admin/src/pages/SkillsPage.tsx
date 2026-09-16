@@ -727,6 +727,7 @@ export function SkillsPage({
                 ))}
               </div>
 
+              <div className="skill-editor-tab-panels" key={editorTab}>
               {editorTab === "basic" && (
                 <section className="skill-form-section">
                   <div className="skill-section-heading">
@@ -1074,6 +1075,7 @@ export function SkillsPage({
                   </div>
                 </section>
               )}
+              </div>
 
               {dialogError && (
                 <p className="error" role="alert">
