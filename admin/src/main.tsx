@@ -236,6 +236,7 @@ function AdminApp({
   const [toolSearch, setToolSearch] = useState("");
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [mcpServersLoading, setMcpServersLoading] = useState(true);
+  const [mcpError, setMcpError] = useState("");
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [editingMcpId, setEditingMcpId] = useState<string>();
   const [mcpName, setMcpName] = useState("");
@@ -246,6 +247,10 @@ function AdminApp({
   const [mcpEnabled, setMcpEnabled] = useState(true);
   const [mcpSubmitting, setMcpSubmitting] = useState(false);
   const [mcpActionId, setMcpActionId] = useState<string>();
+  const [mcpSearch, setMcpSearch] = useState("");
+  const [mcpStatusFilter, setMcpStatusFilter] = useState<
+    "all" | "enabled" | "disabled"
+  >("all");
   const [mcpDetails, setMcpDetails] = useState<McpServer>();
   const [mcpErrorDetail, setMcpErrorDetail] = useState<McpServer | null>(null);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
@@ -640,9 +645,12 @@ function AdminApp({
 
   const loadMcpServers = () => {
     setMcpServersLoading(true);
+    setMcpError("");
     request<McpServer[]>("/admin/mcp-servers")
       .then(setMcpServers)
-      .catch(() => setMcpServers([]))
+      .catch((error) =>
+        setMcpError(error instanceof Error ? error.message : t.mcpLoadFailed),
+      )
       .finally(() => setMcpServersLoading(false));
   };
 
@@ -2729,7 +2737,24 @@ function AdminApp({
       ].some((value) => value.toLowerCase().includes(query));
     return matchesStatus && matchesQuery;
   });
-  const filteredMcpServers = mcpServers;
+  const filteredMcpServers = mcpServers.filter((server) => {
+    const query = mcpSearch.trim().toLowerCase();
+    const matchesQuery =
+      !query ||
+      [
+        server.name,
+        server.description ?? "",
+        server.serverUrl,
+        server.id,
+        server.transport,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    const matchesStatus =
+      mcpStatusFilter === "all" ||
+      (mcpStatusFilter === "enabled" ? server.enabled : !server.enabled);
+    return matchesQuery && matchesStatus;
+  });
   const filteredHooks = hooks.filter((hook) => {
     const query = hookSearch.trim().toLowerCase();
     const matchesQuery =
@@ -3392,8 +3417,14 @@ function AdminApp({
               servers={mcpServers}
               filtered={filteredMcpServers}
               loading={mcpServersLoading}
+              error={mcpError}
               actionId={mcpActionId}
+              search={mcpSearch}
+              statusFilter={mcpStatusFilter}
+              onSearchChange={setMcpSearch}
+              onStatusFilterChange={setMcpStatusFilter}
               onNew={() => openMcpDialog()}
+              onRefresh={loadMcpServers}
               onEdit={(server) => openMcpDialog(server)}
               onToggle={toggleMcpServer}
               onDelete={deleteMcpServer}
@@ -4537,6 +4568,7 @@ function AdminApp({
                   >
                     <option value="STREAMABLE_HTTP">Streamable HTTP</option>
                     <option value="SSE">SSE</option>
+                    <option value="STDIO">{t.mcpTransportStdio}</option>
                   </select>
                 </label>
                 <label className="field">
@@ -4549,6 +4581,15 @@ function AdminApp({
                   <small className="field-hint">{t.mcpAuthEnvHint}</small>
                 </label>
               </div>
+              <label className="field checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={mcpEnabled}
+                  onChange={(event) => setMcpEnabled(event.target.checked)}
+                />
+                <span>{t.mcpEnabled}</span>
+              </label>
+              <small className="field-hint">{t.mcpEnabledHint}</small>
               {resourceError && (
                 <p className="error" role="alert">
                   {resourceError}

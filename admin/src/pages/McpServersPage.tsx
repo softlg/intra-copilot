@@ -2,7 +2,7 @@ import { Icon } from "../components/Icon";
 import { Dropdown } from "../components/Dropdown";
 import { EmptyState } from "../components/EmptyState";
 import { Skeleton } from "../components/Skeleton";
-import { mcpStatusLabel, truncateError } from "../lib/mcp";
+import { mcpStatusLabel } from "../lib/mcp";
 import type { Translations } from "../i18n/translations";
 import type { McpServer } from "../types";
 
@@ -11,8 +11,14 @@ export interface McpServersPageProps {
   servers: McpServer[];
   filtered: McpServer[];
   loading: boolean;
+  error: string;
   actionId?: string;
+  search: string;
+  statusFilter: "all" | "enabled" | "disabled";
+  onSearchChange: (value: string) => void;
+  onStatusFilterChange: (value: "all" | "enabled" | "disabled") => void;
   onNew: () => void;
+  onRefresh: () => void;
   onEdit: (server: McpServer) => void;
   onToggle: (server: McpServer) => void;
   onDelete: (server: McpServer) => void;
@@ -21,14 +27,20 @@ export interface McpServersPageProps {
   onShowError: (server: McpServer) => void;
 }
 
-/** MCP server registry with health checks and a detail drawer. */
+/** MCP server registry with health checks, a detail drawer and list controls. */
 export function McpServersPage({
   t,
   servers,
   filtered,
   loading,
+  error,
   actionId,
+  search,
+  statusFilter,
+  onSearchChange,
+  onStatusFilterChange,
   onNew,
+  onRefresh,
   onEdit,
   onToggle,
   onDelete,
@@ -42,16 +54,75 @@ export function McpServersPage({
         <div>
           <p className="muted">{t.mcpServersSubtitle}</p>
         </div>
-        <button onClick={() => onNew()}>{t.newMcpServer}</button>
+        <div className="resource-toolbar-actions">
+          <label className="resource-search">
+            <Icon name="search" size={15} />
+            <span className="sr-only">{t.search}</span>
+            <input
+              value={search}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder={t.mcpSearchPlaceholder}
+              type="search"
+            />
+          </label>
+          <select
+            className="resource-filter"
+            value={statusFilter}
+            onChange={(event) =>
+              onStatusFilterChange(
+                event.target.value as "all" | "enabled" | "disabled",
+              )
+            }
+            aria-label={t.statusFilter}
+          >
+            <option value="all">{t.allStatuses}</option>
+            <option value="enabled">{t.enabled}</option>
+            <option value="disabled">{t.disabled}</option>
+          </select>
+          <button
+            className="secondary"
+            onClick={onRefresh}
+            aria-label={t.mcpRefresh}
+          >
+            <Icon name="refresh" size={15} /> {t.mcpRefresh}
+          </button>
+          <button onClick={() => onNew()}>{t.newMcpServer}</button>
+        </div>
       </div>
+      {error && servers.length > 0 && (
+        <div className="resource-error-banner" role="alert">
+          <span>{error}</span>
+          <button className="secondary" type="button" onClick={onRefresh}>
+            {t.retry}
+          </button>
+        </div>
+      )}
       {loading && servers.length === 0 ? (
         <Skeleton.CardList count={3} />
+      ) : error && servers.length === 0 ? (
+        <EmptyState
+          icon={<Icon name="alert" size={22} />}
+          title={t.resourceLoadFailed}
+          hint={error}
+          action={
+            <button type="button" onClick={onRefresh}>
+              {t.retry}
+            </button>
+          }
+        />
       ) : servers.length === 0 ? (
         <EmptyState
           icon={<Icon name="plug" size={22} />}
           title={t.noResources}
           hint={t.noMcpServerHint}
           action={<button onClick={() => onNew()}>{t.newMcpServer}</button>}
+        />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          compact
+          icon={<Icon name="search" size={22} />}
+          title={t.noSearchResults}
+          hint={t.noSearchResultsHint}
         />
       ) : (
         <div className="mcp-list" role="list" aria-label={t.mcpServersTitle}>
