@@ -797,6 +797,9 @@ function SessionHistoryPicker({
   const activeSession = orderedSessions.find(
     (session) => session.id === activeSessionId,
   );
+  const allSessionsSelected =
+    orderedSessions.length > 0 &&
+    orderedSessions.every((session) => selectedIds.has(session.id));
 
   useEffect(() => {
     if (!open) return;
@@ -838,6 +841,14 @@ function SessionHistoryPicker({
       else next.add(id);
       return next;
     });
+  };
+
+  const toggleAllSessions = () => {
+    setSelectedIds(
+      allSessionsSelected
+        ? new Set()
+        : new Set(orderedSessions.map((session) => session.id)),
+    );
   };
 
   const beginRename = (session: CopilotSessionSummary) => {
@@ -930,18 +941,31 @@ function SessionHistoryPicker({
               <>
                 <div className="copilot-history-toolbar">
                   <strong>{text.history}</strong>
-                  <button
-                    type="button"
-                    className="copilot-history-delete-selected danger"
-                    onClick={() => setPendingDeleteIds([...selectedIds])}
-                    disabled={busy || selectedIds.size === 0}
-                  >
-                    <Icon name="trash" size={13} />
-                    {text.deleteSelected.replace(
-                      "{count}",
-                      String(selectedIds.size),
-                    )}
-                  </button>
+                  <div className="copilot-history-toolbar-actions">
+                    <button
+                      type="button"
+                      className="copilot-history-select-all secondary"
+                      onClick={toggleAllSessions}
+                      aria-pressed={allSessionsSelected}
+                      disabled={busy || orderedSessions.length === 0}
+                    >
+                      {allSessionsSelected
+                        ? text.clearSelection
+                        : text.selectAll}
+                    </button>
+                    <button
+                      type="button"
+                      className="copilot-history-delete-selected danger"
+                      onClick={() => setPendingDeleteIds([...selectedIds])}
+                      disabled={busy || selectedIds.size === 0}
+                    >
+                      <Icon name="trash" size={13} />
+                      {text.deleteSelected.replace(
+                        "{count}",
+                        String(selectedIds.size),
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {visibleSessions.length === 0 ? (

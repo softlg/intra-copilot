@@ -240,6 +240,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 10px 11px;
   border-bottom: 1px solid var(--border-faint);
@@ -250,13 +251,24 @@
   font-weight: 650;
 }
 
+.copilot-history-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.copilot-history-toolbar-actions button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .copilot-history-delete-selected {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-height: 30px;
-  padding: 5px 8px;
-  font-size: 11px;
 }
 
 .copilot-history-list {
