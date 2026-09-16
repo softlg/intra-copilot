@@ -154,6 +154,23 @@ export function getCopilotSession(id: string) {
   return request<CopilotSession>(`/admin/copilot/sessions/${id}`);
 }
 
+export function renameCopilotSession(id: string, title: string) {
+  return request<CopilotSession>(`/admin/copilot/sessions/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export function deleteCopilotSessions(ids: string[]) {
+  return request<{ requested: number; deleted: number }>(
+    "/admin/copilot/sessions/delete",
+    {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    },
+  );
+}
+
 export function respondCopilot(
   id: string,
   message: string,

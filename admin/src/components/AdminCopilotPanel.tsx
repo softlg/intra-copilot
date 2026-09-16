@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Language } from "../i18n/translations";
 import {
   applyCopilotProposal,
   createCopilotSession,
+  deleteCopilotSessions,
   generateAgentValidationCases,
   getCopilotSession,
   listAgentValidationHistory,
   listCopilotSessions,
+  renameCopilotSession,
   respondCopilot,
   validateAgentBehavior,
   validateAgentStatic,
@@ -50,6 +52,19 @@ const copy = {
     history: "会话历史",
     newSession: "新会话",
     noSessions: "暂无会话，发送消息时会自动创建。",
+    renameSession: "重命名",
+    renameSave: "保存名称",
+    renameCancel: "取消重命名",
+    deleteSession: "删除会话",
+    deleteSelected: "删除选中 ({count})",
+    confirmDeleteOne: "确认删除这个会话？",
+    confirmDeleteMany: "确认删除选中的 {count} 个会话？",
+    cancel: "取消",
+    delete: "删除",
+    expandSessions: "… 展开其余 {count} 条",
+    collapseSessions: "收起",
+    sessionRenamed: "会话已重命名。",
+    sessionsDeleted: "已删除 {count} 个会话。",
     inputPlaceholder: "描述你想修改的内容，或直接粘贴报错信息…",
     send: "发送",
     sending: "分析中…",
@@ -108,6 +123,19 @@ const copy = {
     history: "Session history",
     newSession: "New session",
     noSessions: "No session yet. One is created when you send a message.",
+    renameSession: "Rename",
+    renameSave: "Save name",
+    renameCancel: "Cancel rename",
+    deleteSession: "Delete session",
+    deleteSelected: "Delete selected ({count})",
+    confirmDeleteOne: "Delete this session?",
+    confirmDeleteMany: "Delete the {count} selected sessions?",
+    cancel: "Cancel",
+    delete: "Delete",
+    expandSessions: "… Show {count} more",
+    collapseSessions: "Collapse",
+    sessionRenamed: "Session renamed.",
+    sessionsDeleted: "{count} sessions deleted.",
     inputPlaceholder:
       "Describe the change, paste an error, or explain what the Agent should do…",
     send: "Send",
@@ -219,6 +247,7 @@ export function AdminCopilotPanel({
   const [view, setView] = useState<PanelView>("assist");
   const [sessions, setSessions] = useState<CopilotSessionSummary[]>([]);
   const [activeSession, setActiveSession] = useState<CopilotSession>();
+  const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [applyingProposalId, setApplyingProposalId] = useState<string>();
@@ -272,9 +301,12 @@ export function AdminCopilotPanel({
 
   const loadSessions = async () => {
     try {
-      setSessions(await listCopilotSessions());
+      const values = await listCopilotSessions();
+      setSessions(values);
+      return values;
     } catch (error) {
       setPanelError(errorMessage(error, text.loadFailed));
+      return [] as CopilotSessionSummary[];
     }
   };
 
@@ -300,6 +332,64 @@ export function AdminCopilotPanel({
     } catch (error) {
       setPanelError(errorMessage(error, text.loadFailed));
       return undefined;
+    }
+  };
+
+  const renameSession = async (id: string, title: string) => {
+    setSessionActionBusy(true);
+    setPanelError("");
+    try {
+      const updated = await renameCopilotSession(id, title);
+      setSessions((current) =>
+        current.map((session) =>
+          session.id === id
+            ? {
+                ...session,
+                title: updated.title,
+                updatedAt: updated.updatedAt,
+              }
+            : session,
+        ),
+      );
+      setActiveSession((current) =>
+        current?.id === id
+          ? { ...current, title: updated.title, updatedAt: updated.updatedAt }
+          : current,
+      );
+      toast.success(text.sessionRenamed);
+      return true;
+    } catch (error) {
+      setPanelError(errorMessage(error, text.error));
+      return false;
+    } finally {
+      setSessionActionBusy(false);
+    }
+  };
+
+  const deleteSessions = async (ids: string[]) => {
+    if (ids.length === 0) return false;
+    const uniqueIds = [...new Set(ids)];
+    setSessionActionBusy(true);
+    setPanelError("");
+    try {
+      const result = await deleteCopilotSessions(uniqueIds);
+      const remaining = await loadSessions();
+      if (activeSession && uniqueIds.includes(activeSession.id)) {
+        const replacement = remaining.find(
+          (session) => session.mode === activeSession.mode,
+        );
+        if (replacement) await loadSession(replacement.id);
+        else setActiveSession(undefined);
+      }
+      toast.success(
+        text.sessionsDeleted.replace("{count}", String(result.deleted)),
+      );
+      return true;
+    } catch (error) {
+      setPanelError(errorMessage(error, text.error));
+      return false;
+    } finally {
+      setSessionActionBusy(false);
     }
   };
 
@@ -537,35 +627,16 @@ export function AdminCopilotPanel({
           />
         ) : (
           <div className="copilot-chat">
-            <div className="copilot-session-bar">
-              <label>
-                <span className="sr-only">{text.history}</span>
-                <select
-                  value={activeSession?.id ?? ""}
-                  onChange={(event) => {
-                    if (event.target.value)
-                      void loadSession(event.target.value);
-                    else setActiveSession(undefined);
-                  }}
-                >
-                  <option value="">{text.history}</option>
-                  {visibleSessions.map((session) => (
-                    <option value={session.id} key={session.id}>
-                      {session.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => void startSession()}
-                aria-label={text.newSession}
-                title={text.newSession}
-              >
-                <Icon name="plus" size={15} />
-              </button>
-            </div>
+            <SessionHistoryPicker
+              text={text}
+              sessions={visibleSessions}
+              activeSessionId={activeSession?.id}
+              busy={sessionActionBusy || sending}
+              onSelect={(id) => void loadSession(id)}
+              onNew={() => void startSession()}
+              onRename={renameSession}
+              onDelete={deleteSessions}
+            />
 
             <div className="copilot-messages" aria-live="polite">
               {!activeSession && visibleSessions.length === 0 && (
@@ -676,6 +747,339 @@ export function AdminCopilotPanel({
         )}
       </section>
     </>
+  );
+}
+
+const RECENT_SESSION_LIMIT = 5;
+
+function SessionHistoryPicker({
+  text,
+  sessions,
+  activeSessionId,
+  busy,
+  onSelect,
+  onNew,
+  onRename,
+  onDelete,
+}: {
+  text: (typeof copy)[Language];
+  sessions: CopilotSessionSummary[];
+  activeSessionId?: string;
+  busy: boolean;
+  onSelect: (id: string) => void;
+  onNew: () => void;
+  onRename: (id: string, title: string) => Promise<boolean>;
+  onDelete: (ids: string[]) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [renamingId, setRenamingId] = useState<string>();
+  const [renameValue, setRenameValue] = useState("");
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  const orderedSessions = useMemo(
+    () =>
+      [...sessions].sort(
+        (left, right) =>
+          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+      ),
+    [sessions],
+  );
+  const visibleSessions = expanded
+    ? orderedSessions
+    : orderedSessions.slice(0, RECENT_SESSION_LIMIT);
+  const hiddenSessionCount = Math.max(
+    0,
+    orderedSessions.length - RECENT_SESSION_LIMIT,
+  );
+  const activeSession = orderedSessions.find(
+    (session) => session.id === activeSessionId,
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !pickerRef.current?.contains(event.target)
+      ) {
+        setOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    const currentIds = new Set(sessions.map((session) => session.id));
+    setSelectedIds((current) => {
+      const next = new Set([...current].filter((id) => currentIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+    if (renamingId && !currentIds.has(renamingId)) {
+      setRenamingId(undefined);
+      setRenameValue("");
+    }
+  }, [renamingId, sessions]);
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const beginRename = (session: CopilotSessionSummary) => {
+    setRenamingId(session.id);
+    setRenameValue(session.title);
+    setPendingDeleteIds([]);
+  };
+
+  const submitRename = async () => {
+    const title = renameValue.trim();
+    if (!renamingId || !title || busy) return;
+    const saved = await onRename(renamingId, title);
+    if (saved) {
+      setRenamingId(undefined);
+      setRenameValue("");
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (pendingDeleteIds.length === 0 || busy) return;
+    const deleted = await onDelete(pendingDeleteIds);
+    if (deleted) {
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        pendingDeleteIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      setPendingDeleteIds([]);
+    }
+  };
+
+  return (
+    <div className="copilot-session-bar">
+      <div className="copilot-history-picker" ref={pickerRef}>
+        <button
+          type="button"
+          className="copilot-history-trigger"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <span className="copilot-history-trigger-label">
+            <Icon name="clock" size={15} />
+            <span>{activeSession?.title || text.history}</span>
+          </span>
+          <Icon
+            name="chevron-down"
+            size={15}
+            className={open ? "is-open" : undefined}
+          />
+        </button>
+
+        {open && (
+          <div
+            className="copilot-history-popover"
+            role="dialog"
+            aria-label={text.history}
+          >
+            {pendingDeleteIds.length > 0 ? (
+              <div className="copilot-history-confirm">
+                <p>
+                  {pendingDeleteIds.length === 1
+                    ? text.confirmDeleteOne
+                    : text.confirmDeleteMany.replace(
+                        "{count}",
+                        String(pendingDeleteIds.length),
+                      )}
+                </p>
+                <div>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setPendingDeleteIds([])}
+                    disabled={busy}
+                  >
+                    {text.cancel}
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => void confirmDelete()}
+                    disabled={busy}
+                  >
+                    <Icon name="trash" size={14} />
+                    {text.delete}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="copilot-history-toolbar">
+                  <strong>{text.history}</strong>
+                  <button
+                    type="button"
+                    className="copilot-history-delete-selected danger"
+                    onClick={() => setPendingDeleteIds([...selectedIds])}
+                    disabled={busy || selectedIds.size === 0}
+                  >
+                    <Icon name="trash" size={13} />
+                    {text.deleteSelected.replace(
+                      "{count}",
+                      String(selectedIds.size),
+                    )}
+                  </button>
+                </div>
+
+                {visibleSessions.length === 0 ? (
+                  <p className="copilot-history-empty">{text.noSessions}</p>
+                ) : (
+                  <div className="copilot-history-list">
+                    {visibleSessions.map((session) => (
+                      <div
+                        className={
+                          session.id === activeSessionId
+                            ? "copilot-history-item is-active"
+                            : "copilot-history-item"
+                        }
+                        key={session.id}
+                      >
+                        {renamingId === session.id ? (
+                          <form
+                            className="copilot-history-rename"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              void submitRename();
+                            }}
+                          >
+                            <input
+                              autoFocus
+                              value={renameValue}
+                              maxLength={200}
+                              aria-label={text.renameSession}
+                              onChange={(event) =>
+                                setRenameValue(event.target.value)
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") {
+                                  setRenamingId(undefined);
+                                  setRenameValue("");
+                                }
+                              }}
+                            />
+                            <button
+                              type="submit"
+                              aria-label={text.renameSave}
+                              title={text.renameSave}
+                              disabled={busy || !renameValue.trim()}
+                            >
+                              <Icon name="check" size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={text.renameCancel}
+                              title={text.renameCancel}
+                              onClick={() => {
+                                setRenamingId(undefined);
+                                setRenameValue("");
+                              }}
+                              disabled={busy}
+                            >
+                              <Icon name="close" size={14} />
+                            </button>
+                          </form>
+                        ) : (
+                          <>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(session.id)}
+                              aria-label={`${text.deleteSession}: ${session.title}`}
+                              onChange={() => toggleSelected(session.id)}
+                              disabled={busy}
+                            />
+                            <button
+                              type="button"
+                              className="copilot-history-open"
+                              onClick={() => {
+                                onSelect(session.id);
+                                setOpen(false);
+                              }}
+                              disabled={busy}
+                            >
+                              <span title={session.title}>{session.title}</span>
+                              <time>{formatDateTime(session.updatedAt)}</time>
+                            </button>
+                            <button
+                              type="button"
+                              className="copilot-history-icon"
+                              onClick={() => beginRename(session)}
+                              aria-label={text.renameSession}
+                              title={text.renameSession}
+                              disabled={busy}
+                            >
+                              <Icon name="edit" size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="copilot-history-icon danger"
+                              onClick={() => setPendingDeleteIds([session.id])}
+                              aria-label={text.deleteSession}
+                              title={text.deleteSession}
+                              disabled={busy}
+                            >
+                              <Icon name="trash" size={14} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {hiddenSessionCount > 0 && (
+                  <button
+                    type="button"
+                    className="copilot-history-expand"
+                    onClick={() => setExpanded((current) => !current)}
+                  >
+                    {expanded
+                      ? text.collapseSessions
+                      : text.expandSessions.replace(
+                          "{count}",
+                          String(hiddenSessionCount),
+                        )}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      <button
+        type="button"
+        className="secondary copilot-new-session"
+        onClick={onNew}
+        aria-label={text.newSession}
+        title={text.newSession}
+        disabled={busy}
+      >
+        <Icon name="plus" size={15} />
+      </button>
+    </div>
   );
 }
 

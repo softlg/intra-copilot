@@ -47,10 +47,25 @@ public class AdminCopilotController {
         return copilot.cancel(id);
     }
 
+    @PatchMapping("/sessions/{id}")
+    public Map<String, Object> rename(
+            @PathVariable String id, @RequestBody RenameSessionRequest request) {
+        return copilot.renameSession(id, request == null ? null : request.title());
+    }
+
+    @PostMapping("/sessions/delete")
+    public Map<String, Object> delete(@RequestBody DeleteSessionsRequest request) {
+        return copilot.deleteSessions(request == null ? List.of() : request.ids());
+    }
+
     @PostMapping("/proposals/{id}/apply")
     public Map<String, Object> apply(@PathVariable String id) {
         return copilot.applyProposal(id);
     }
 
     public record CreateSessionRequest(String mode, String title, String currentAgentId) {}
+
+    public record RenameSessionRequest(String title) {}
+
+    public record DeleteSessionsRequest(List<String> ids) {}
 }

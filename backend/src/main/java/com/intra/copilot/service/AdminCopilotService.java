@@ -213,6 +213,53 @@ public class AdminCopilotService {
     }
 
     @Transactional
+    public Map<String, Object> renameSession(String sessionId, String title) {
+        AdminCopilotSession session = requireSession(sessionId);
+        String normalized = title == null ? "" : title.trim();
+        if (normalized.isBlank()) throw new IllegalArgumentException("会话名称不能为空");
+        if (normalized.length() > 200) {
+            throw new IllegalArgumentException("会话名称不能超过 200 个字符");
+        }
+        session.setTitle(normalized);
+        session.touch();
+        sessions.save(session);
+        return sessionView(session);
+    }
+
+    @Transactional
+    public Map<String, Object> deleteSessions(List<String> sessionIds) {
+        AdminUser actor = users.requireCurrent();
+        List<String> normalizedIds =
+                sessionIds == null
+                        ? List.of()
+                        : sessionIds.stream()
+                                .filter(Objects::nonNull)
+                                .map(String::trim)
+                                .filter(value -> !value.isBlank())
+                                .distinct()
+                                .limit(100)
+                                .toList();
+        if (normalizedIds.isEmpty()) throw new IllegalArgumentException("请选择要删除的会话");
+
+        int deleted = 0;
+        for (String sessionId : normalizedIds) {
+            Optional<AdminCopilotSession> owned =
+                    sessions.findOwned(sessionId, actor.getId());
+            if (owned.isEmpty()) continue;
+            sessions.deleteById(sessionId);
+            deleted++;
+            audits.record(
+                    "DELETE_SESSION",
+                    "COPILOT_SESSION",
+                    sessionId,
+                    "COPILOT",
+                    null,
+                    Map.of("title", Objects.toString(owned.get().getTitle(), "")));
+        }
+        return Map.of("requested", normalizedIds.size(), "deleted", deleted);
+    }
+
+    @Transactional
     public Map<String, Object> applyProposal(String proposalId) {
         AdminUser actor = users.requireCurrent();
         AdminCopilotProposal proposal =
