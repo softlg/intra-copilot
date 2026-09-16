@@ -194,6 +194,11 @@
   width: min(100%, 920px);
 }
 
+.skill-editor-tabs {
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
 .skill-editor-modal .field input,
 .skill-editor-modal .field textarea,
 .skill-editor-modal .field select,
