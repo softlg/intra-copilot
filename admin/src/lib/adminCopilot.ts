@@ -299,7 +299,10 @@ export async function streamValidateAgentBehavior(
     {
       method: "POST",
       body: JSON.stringify({ cases }),
-      headers: { Accept: "text/event-stream" },
+      headers: {
+        Accept: "text/event-stream",
+        "Content-Type": "application/json",
+      },
       signal,
     },
   );
