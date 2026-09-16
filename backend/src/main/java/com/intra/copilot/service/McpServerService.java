@@ -2,7 +2,9 @@ package com.intra.copilot.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.model.McpServer;
+import com.intra.copilot.model.SkillToolBinding;
 import com.intra.copilot.model.ToolDefinition;
 import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.repo.McpServerRepository;
@@ -94,6 +96,8 @@ public class McpServerService {
     private final long sessionIdleMs;
     /** Per-server cached transport session (live STDIO process or HTTP session id). */
     private final ConcurrentHashMap<String, McpSession> sessions = new ConcurrentHashMap<>();
+    /** In-flight health checks keyed by server id, to skip concurrent duplicate discovery. */
+    private final ConcurrentHashMap<String, Boolean> healthRunning = new ConcurrentHashMap<>();
 
     public McpServerService(
             McpServerRepository repository,
@@ -146,13 +150,23 @@ public class McpServerService {
         server.setLastError(null);
         server.setLastCheckedAt(null);
         server.setLastLatencyMs(null);
-        return repository.save(server);
+        McpServer saved = repository.save(server);
+        // 保存后立即发现一次，使镜像 Tool 立即可用，无需手动点"检查健康"。
+        try {
+            return checkHealth(saved.getId());
+        } catch (Exception error) {
+            // 发现失败不影响创建；状态已由 checkHealth 内部持久化（UNHEALTHY）。
+            return repository.findById(saved.getId()).orElse(saved);
+        }
     }
 
     public McpServer update(String id, McpServer value) {
         McpServer current = get(id);
         validate(value);
         ensureNameAvailable(value.getName(), id);
+        // 先快照旧配置，再覆盖字段；否则比较恒等，逐出逻辑永不触发。
+        String oldTransport = current.getTransport();
+        String oldServerUrl = current.getServerUrl();
         current.setUpdatedBy(
                 com.intra.copilot.service.auth.RequestContext.currentOrAnonymous().actorLabel());
         current.setName(value.getName().trim());
@@ -162,8 +176,8 @@ public class McpServerService {
         current.setAuthEnv(value.getAuthEnv());
         current.setEnabled(value.isEnabled());
         boolean configChanged =
-                !Objects.equals(current.getTransport(), value.getTransport().toUpperCase())
-                        || !Objects.equals(current.getServerUrl(), value.getServerUrl().trim());
+                !Objects.equals(oldTransport, current.getTransport())
+                        || !Objects.equals(oldServerUrl, current.getServerUrl());
         current.touch();
         McpServer saved = repository.save(current);
         syncToolEnabledState(saved);
@@ -188,8 +202,10 @@ public class McpServerService {
                                         "MCP".equalsIgnoreCase(t.getType())
                                                 && server.getId().equals(t.getMcpServerId()))
                         .toList();
+        // 一次性加载引用关系，避免在循环内反复查询全表。
+        List<AgentDefinition> allAgents = agents.findAll();
         for (ToolDefinition tool : mirroredTools) {
-            ensureToolNotReferenced(tool.getId());
+            ensureToolNotReferenced(tool.getId(), allAgents);
         }
         evictSession(id);
         mirroredTools.forEach(t -> toolRepository.deleteById(t.getId()));
@@ -197,45 +213,63 @@ public class McpServerService {
     }
 
     public McpServer checkHealth(String id) {
-        McpServer server = get(id);
-        // Re-validate the resolved address at request time to mitigate DNS rebinding.
-        // STDIO 传输以命令启动本地进程，不涉及网络地址，跳过校验。
-        if (!"STDIO".equals(server.getTransport())) {
-            enforceSsrf(server.getServerUrl());
+        // 同一服务同时进行手动检查与定时检查时，跳过重复发现，避免并发写与重复同步。
+        if (healthRunning.putIfAbsent(id, Boolean.TRUE) != null) {
+            return get(id);
         }
-        Instant started = Instant.now();
-        server.setLastCheckedAt(started);
-        List<Map<String, Object>> discoveredInterfaces = List.of();
         try {
-            Discovery discovery = discover(server);
-            discoveredInterfaces = discovery.interfaces();
-            server.setStatus(discovery.interfaces().isEmpty() ? "DEGRADED" : "HEALTHY");
-            server.setInterfaceCount(discovery.interfaces().size());
-            server.setInterfacesJson(mapper.writeValueAsString(discovery.interfaces()));
-            server.setCapabilitiesJson(discovery.capabilitiesJson());
-            server.setLastError(discovery.interfaces().isEmpty() ? "服务已连接，但未返回可用接口" : null);
-        } catch (Exception error) {
-            server.setStatus("UNHEALTHY");
-            server.setInterfaceCount(0);
-            server.setLastError(safeMessage(error));
+            McpServer server = get(id);
+            // Re-validate the resolved address at request time to mitigate DNS rebinding.
+            // STDIO 传输以命令启动本地进程，不涉及网络地址，跳过校验。
+            if (!"STDIO".equals(server.getTransport())) {
+                enforceSsrf(server.getServerUrl());
+            }
+            Instant started = Instant.now();
+            server.setLastCheckedAt(started);
+            List<Map<String, Object>> discoveredInterfaces = List.of();
+            boolean discovered = false;
+            try {
+                Discovery discovery = discover(server);
+                discoveredInterfaces = discovery.interfaces();
+                server.setStatus(discoveredInterfaces.isEmpty() ? "DEGRADED" : "HEALTHY");
+                server.setInterfaceCount(discoveredInterfaces.size());
+                server.setInterfacesJson(mapper.writeValueAsString(discoveredInterfaces));
+                server.setCapabilitiesJson(discovery.capabilitiesJson());
+                server.setLastError(
+                        discoveredInterfaces.isEmpty() ? "服务已连接，但未返回可用接口" : null);
+                discovered = true;
+            } catch (Exception error) {
+                server.setStatus("UNHEALTHY");
+                server.setInterfaceCount(0);
+                // 失败时同步清空旧快照，避免详情页"0 个接口"却仍列出上次发现的接口。
+                server.setInterfacesJson("[]");
+                server.setCapabilitiesJson("{}");
+                server.setLastError(safeMessage(error));
+            }
+            server.setLastLatencyMs(
+                    (int)
+                            Math.min(
+                                    Integer.MAX_VALUE,
+                                    Duration.between(started, Instant.now()).toMillis()));
+            server.touch();
+            McpServer saved = repository.save(server);
+            // 仅当发现成功时才同步镜像 Tool：发现失败若仍执行同步，会把"远端无接口"误判为"应删除全部 Tool"。
+            if (discovered) {
+                syncTools(saved, discoveredInterfaces);
+            }
+            return saved;
+        } finally {
+            healthRunning.remove(id);
         }
-        server.setLastLatencyMs(
-                (int)
-                        Math.min(
-                                Integer.MAX_VALUE,
-                                Duration.between(started, Instant.now()).toMillis()));
-        server.touch();
-        McpServer saved = repository.save(server);
-        // Keep the agent-callable tool catalogue in sync with the discovered interface list.
-        syncTools(server, discoveredInterfaces);
-        return saved;
     }
 
     /**
      * 周期性重新发现每个已启用的 MCP 服务，使镜像到 tool_definition 的 Tool 目录与服务端保持一致 （新增/移除 Tool、能力漂移）。单个服务的失败由
      * checkHealth 记录在其自身的行上，循环不会整体中断。
      */
-    @Scheduled(fixedDelayString = "${mcp.health-check-interval-ms:300000}")
+    @Scheduled(
+            fixedDelayString = "${mcp.health-check-interval-ms:300000}",
+            initialDelayString = "${mcp.health-check-initial-delay-ms:60000}")
     public void scheduledHealthCheck() {
         for (McpServer server : repository.findAll()) {
             if (!server.isEnabled()) continue;
@@ -286,10 +320,11 @@ public class McpServerService {
      * disappeared from the server are removed; stale rows from other servers are left untouched.
      */
     private void syncTools(McpServer server, List<Map<String, Object>> interfaces) {
+        // 一次性加载，避免在循环内反复查询全表（O(n²) 的 findAll）。
+        List<ToolDefinition> allTools = toolRepository.findAll();
+        List<AgentDefinition> allAgents = agents.findAll();
         List<ToolDefinition> existing =
-                toolRepository
-                        .findAll()
-                        .stream()
+                allTools.stream()
                         .filter(
                                 t ->
                                         "MCP".equalsIgnoreCase(t.getType())
@@ -315,7 +350,7 @@ public class McpServerService {
                             ? t.getName()
                             : t.getRemoteName();
             if (!incomingNames.contains(remoteName)) {
-                if (isToolReferenced(t.getId())) {
+                if (isToolReferenced(t.getId(), allAgents)) {
                     t.setEnabled(false);
                     t.touch();
                     toolRepository.save(t);
@@ -343,7 +378,7 @@ public class McpServerService {
                 def = new ToolDefinition();
                 def.setId(EntityIdGenerator.next("TL"));
             }
-            String functionName = uniqueFunctionName(remoteName, def.getId());
+            String functionName = uniqueFunctionName(remoteName, def.getId(), allTools);
             def.setName(functionName);
             def.setRemoteName(remoteName);
             def.setType("MCP");
@@ -360,11 +395,15 @@ public class McpServerService {
             def.touch();
             toolRepository.save(def);
         }
-        syncToolEnabledState(server);
+        syncToolEnabledState(server, allTools);
     }
 
     private void syncToolEnabledState(McpServer server) {
-        for (ToolDefinition tool : toolRepository.findAll()) {
+        syncToolEnabledState(server, toolRepository.findAll());
+    }
+
+    private void syncToolEnabledState(McpServer server, List<ToolDefinition> allTools) {
+        for (ToolDefinition tool : allTools) {
             if ("MCP".equalsIgnoreCase(tool.getType())
                     && server.getId().equals(tool.getMcpServerId())
                     && tool.isEnabled() != server.isEnabled()) {
@@ -376,11 +415,13 @@ public class McpServerService {
     }
 
     private String uniqueFunctionName(String remoteName, String toolId) {
+        return uniqueFunctionName(remoteName, toolId, toolRepository.findAll());
+    }
+
+    private String uniqueFunctionName(String remoteName, String toolId, List<ToolDefinition> allTools) {
         String base = sanitizeFunctionName(remoteName);
         boolean conflict =
-                toolRepository
-                        .findAll()
-                        .stream()
+                allTools.stream()
                         .anyMatch(
                                 tool ->
                                         !tool.getId().equals(toolId)
@@ -416,17 +457,18 @@ public class McpServerService {
         }
     }
 
-    private boolean isToolReferenced(String toolId) {
-        return agents.findAll()
-                        .stream()
-                        .anyMatch(agent -> containsToolId(agent.getToolIds(), toolId))
+    private boolean isToolReferenced(String toolId, List<AgentDefinition> allAgents) {
+        return allAgents.stream().anyMatch(agent -> containsToolId(agent.getToolIds(), toolId))
                 || !skillToolBindings.findByToolId(toolId).isEmpty();
     }
 
-    private void ensureToolNotReferenced(String toolId) {
+    private boolean isToolReferenced(String toolId) {
+        return isToolReferenced(toolId, agents.findAll());
+    }
+
+    private void ensureToolNotReferenced(String toolId, List<AgentDefinition> allAgents) {
         List<String> agentNames =
-                agents.findAll()
-                        .stream()
+                allAgents.stream()
                         .filter(agent -> containsToolId(agent.getToolIds(), toolId))
                         .map(
                                 agent ->
@@ -438,7 +480,7 @@ public class McpServerService {
                 skillToolBindings
                         .findByToolId(toolId)
                         .stream()
-                        .map(binding -> binding.getSkillId())
+                        .map(SkillToolBinding::getSkillId)
                         .distinct()
                         .toList();
         if (agentNames.isEmpty() && skillIds.isEmpty()) return;
@@ -448,6 +490,10 @@ public class McpServerService {
         if (!skillIds.isEmpty())
             message.append(" Skill[").append(String.join("、", skillIds)).append("]");
         throw new IllegalArgumentException(message.toString());
+    }
+
+    private void ensureToolNotReferenced(String toolId) {
+        ensureToolNotReferenced(toolId, agents.findAll());
     }
 
     private boolean containsToolId(String toolIdsJson, String toolId) {
@@ -735,12 +781,48 @@ public class McpServerService {
         }
     }
 
+    /**
+     * 解析本地启动命令，支持单/双引号包裹、含空格的路径（如 {@code "C:\Program Files\foo.exe" --port 8080}）。
+     * 不进行 shell 展开，仅做空白分隔与引号剥离，结果用于 {@link ProcessBuilder} 的参数数组。
+     */
+    private List<String> parseCommandLine(String commandLine) {
+        List<String> args = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inSingle = false;
+        boolean inDouble = false;
+        boolean hasToken = false;
+        for (int index = 0; index < commandLine.length(); index++) {
+            char c = commandLine.charAt(index);
+            if (inSingle) {
+                if (c == '\'') inSingle = false;
+                else current.append(c);
+            } else if (inDouble) {
+                if (c == '"') inDouble = false;
+                else current.append(c);
+            } else if (c == '\'') {
+                inSingle = true;
+                hasToken = true;
+            } else if (c == '"') {
+                inDouble = true;
+                hasToken = true;
+            } else if (Character.isWhitespace(c)) {
+                if (hasToken) {
+                    args.add(current.toString());
+                    current.setLength(0);
+                    hasToken = false;
+                }
+            } else {
+                current.append(c);
+                hasToken = true;
+            }
+        }
+        if (hasToken) args.add(current.toString());
+        return args;
+    }
+
     private StdioChannel openStdio(McpServer server) throws Exception {
         String commandLine = server.getServerUrl().trim();
-        List<String> args =
-                Arrays.stream(commandLine.split("\\s+"))
-                        .filter(s -> !s.isBlank())
-                        .collect(Collectors.toList());
+        List<String> args = parseCommandLine(commandLine);
         if (args.isEmpty()) {
             throw new McpProtocolException("STDIO 启动命令为空");
         }
