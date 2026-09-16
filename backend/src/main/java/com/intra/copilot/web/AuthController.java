@@ -107,7 +107,9 @@ public class AuthController {
         AdminAuthService.Session value = session.get();
         return ResponseEntity.ok(
                 new AdminLoginResponse(
-                        value.token(), value.expiresAt(), Map.of("username", value.username())));
+                        value.token(),
+                        value.expiresAt(),
+                        Map.of("id", value.userId(), "username", value.username())));
     }
 
     @GetMapping("/admin/session")
@@ -116,6 +118,6 @@ public class AuthController {
         if (!"admin".equals(identity.source())) {
             throw new IllegalStateException("Not an admin session");
         }
-        return Map.of("username", identity.userId());
+        return Map.of("username", identity.actorLabel());
     }
 }

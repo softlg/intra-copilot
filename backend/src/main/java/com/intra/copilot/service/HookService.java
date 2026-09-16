@@ -122,6 +122,7 @@ public class HookService {
     hook.setVersion(1);
     hook.setCreatedAt(Instant.now());
     hook.setUpdatedAt(Instant.now());
+    hook.setCreatedBy(actor);
     hook.setUpdatedBy(actor);
     validate(hook);
     ensureNameAvailable(hook.getName(), null);
@@ -145,6 +146,7 @@ public class HookService {
     HookDefinition hook = normalizeDefinition(input);
     hook.setId(id);
     hook.setCreatedAt(existing.getCreatedAt());
+    hook.setCreatedBy(existing.getCreatedBy());
     hook.setVersion(existing.getVersion() + 1);
     hook.setUpdatedAt(Instant.now());
     hook.setUpdatedBy(actor);

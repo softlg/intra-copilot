@@ -42,6 +42,8 @@ public class ToolDefinition {
     private String authScheme;
 
     private boolean enabled = true;
+    private String createdBy = "system";
+    private String updatedBy = "system";
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
 
@@ -155,6 +157,22 @@ public class ToolDefinition {
 
     public void setEnabled(boolean value) {
         enabled = value;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String value) {
+        createdBy = value;
+    }
+
+    public String getUpdatedBy() {
+        return updatedBy;
+    }
+
+    public void setUpdatedBy(String value) {
+        updatedBy = value;
     }
 
     public Instant getCreatedAt() {

@@ -129,6 +129,10 @@ public class McpServerService {
     public McpServer create(McpServer server) {
         validate(server);
         ensureNameAvailable(server.getName(), null);
+        String actor =
+                com.intra.copilot.service.auth.RequestContext.currentOrAnonymous().actorLabel();
+        server.setCreatedBy(actor);
+        server.setUpdatedBy(actor);
         server.setName(server.getName().trim());
         server.setServerUrl(server.getServerUrl().trim());
         if (server.getTransport() != null) {
@@ -149,6 +153,8 @@ public class McpServerService {
         McpServer current = get(id);
         validate(value);
         ensureNameAvailable(value.getName(), id);
+        current.setUpdatedBy(
+                com.intra.copilot.service.auth.RequestContext.currentOrAnonymous().actorLabel());
         current.setName(value.getName().trim());
         current.setDescription(value.getDescription());
         current.setServerUrl(value.getServerUrl().trim());
@@ -157,7 +163,7 @@ public class McpServerService {
         current.setEnabled(value.isEnabled());
         boolean configChanged =
                 !Objects.equals(current.getTransport(), value.getTransport().toUpperCase())
-                || !Objects.equals(current.getServerUrl(), value.getServerUrl().trim());
+                        || !Objects.equals(current.getServerUrl(), value.getServerUrl().trim());
         current.touch();
         McpServer saved = repository.save(current);
         syncToolEnabledState(saved);
@@ -180,7 +186,7 @@ public class McpServerService {
                         .filter(
                                 t ->
                                         "MCP".equalsIgnoreCase(t.getType())
-                        && server.getId().equals(t.getMcpServerId()))
+                                                && server.getId().equals(t.getMcpServerId()))
                         .toList();
         for (ToolDefinition tool : mirroredTools) {
             ensureToolNotReferenced(tool.getId());
@@ -226,8 +232,8 @@ public class McpServerService {
     }
 
     /**
-     * 周期性重新发现每个已启用的 MCP 服务，使镜像到 tool_definition 的 Tool 目录与服务端保持一致 （新增/移除 Tool、能力漂移）。单个服务的失败由 checkHealth
-     * 记录在其自身的行上，循环不会整体中断。
+     * 周期性重新发现每个已启用的 MCP 服务，使镜像到 tool_definition 的 Tool 目录与服务端保持一致 （新增/移除 Tool、能力漂移）。单个服务的失败由
+     * checkHealth 记录在其自身的行上，循环不会整体中断。
      */
     @Scheduled(fixedDelayString = "${mcp.health-check-interval-ms:300000}")
     public void scheduledHealthCheck() {
@@ -287,8 +293,8 @@ public class McpServerService {
                         .filter(
                                 t ->
                                         "MCP".equalsIgnoreCase(t.getType())
-                        && server.getId().equals(t.getMcpServerId()))
-                .collect(Collectors.toList());
+                                                && server.getId().equals(t.getMcpServerId()))
+                        .collect(Collectors.toList());
         Map<String, ToolDefinition> byRemoteName =
                 existing.stream()
                         .filter(t -> t.getRemoteName() != null && !t.getRemoteName().isBlank())
@@ -300,8 +306,8 @@ public class McpServerService {
         Set<String> incomingNames =
                 interfaces
                         .stream()
-                .map(t -> String.valueOf(t.get("name")))
-                .collect(Collectors.toCollection(HashSet::new));
+                        .map(t -> String.valueOf(t.get("name")))
+                        .collect(Collectors.toCollection(HashSet::new));
 
         for (ToolDefinition t : existing) {
             String remoteName =
@@ -314,9 +320,9 @@ public class McpServerService {
                     t.touch();
                     toolRepository.save(t);
                 } else {
-                toolRepository.deleteById(t.getId());
+                    toolRepository.deleteById(t.getId());
+                }
             }
-        }
         }
 
         Set<String> claimedRemoteNames = new HashSet<>();
@@ -612,15 +618,15 @@ public class McpServerService {
     private RestClient buildClient() {
         SimpleClientHttpRequestFactory factory =
                 new SimpleClientHttpRequestFactory() {
-            @Override
+                    @Override
                     protected void prepareConnection(
                             HttpURLConnection connection, String httpMethod) throws IOException {
-                super.prepareConnection(connection, httpMethod);
+                        super.prepareConnection(connection, httpMethod);
                         // Disable redirect following to prevent SSRF via 302 to cloud metadata /
                         // internal hosts.
-                connection.setInstanceFollowRedirects(false);
-            }
-        };
+                        connection.setInstanceFollowRedirects(false);
+                    }
+                };
         factory.setConnectTimeout(timeoutMs);
         factory.setReadTimeout(timeoutMs);
         return restClientBuilder.clone().requestFactory(factory).build();
@@ -636,9 +642,9 @@ public class McpServerService {
         var req =
                 client.post()
                         .uri(server.getServerUrl())
-                .contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM)
-                .header("MCP-Protocol-Version", PROTOCOL_VERSION);
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM)
+                        .header("MCP-Protocol-Version", PROTOCOL_VERSION);
         if (sessionId != null && !sessionId.isBlank()) {
             req.header("Mcp-Session-Id", sessionId);
         }
@@ -648,10 +654,10 @@ public class McpServerService {
         }
         return req.body(
                         Map.of(
-                        "jsonrpc", "2.0",
-                        "id", id,
-                        "method", method,
-                        "params", params))
+                                "jsonrpc", "2.0",
+                                "id", id,
+                                "method", method,
+                                "params", params))
                 .retrieve()
                 .toEntity(String.class);
     }
@@ -661,9 +667,9 @@ public class McpServerService {
             var req =
                     client.post()
                             .uri(server.getServerUrl())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .accept(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM)
-                    .header("MCP-Protocol-Version", PROTOCOL_VERSION);
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .accept(MediaType.APPLICATION_JSON, MediaType.TEXT_EVENT_STREAM)
+                            .header("MCP-Protocol-Version", PROTOCOL_VERSION);
             if (sessionId != null && !sessionId.isBlank()) {
                 req.header("Mcp-Session-Id", sessionId);
             }
@@ -673,9 +679,9 @@ public class McpServerService {
             }
             req.body(
                             Map.of(
-                            "jsonrpc", "2.0",
-                            "method", "notifications/initialized",
-                            "params", Map.of()))
+                                    "jsonrpc", "2.0",
+                                    "method", "notifications/initialized",
+                                    "params", Map.of()))
                     .retrieve()
                     .toBodilessEntity();
         } catch (Exception ignored) {
@@ -733,8 +739,8 @@ public class McpServerService {
         String commandLine = server.getServerUrl().trim();
         List<String> args =
                 Arrays.stream(commandLine.split("\\s+"))
-                .filter(s -> !s.isBlank())
-                .collect(Collectors.toList());
+                        .filter(s -> !s.isBlank())
+                        .collect(Collectors.toList());
         if (args.isEmpty()) {
             throw new McpProtocolException("STDIO 启动命令为空");
         }
@@ -752,7 +758,7 @@ public class McpServerService {
         AtomicBoolean closed = new AtomicBoolean(false);
         BufferedWriter writer =
                 new BufferedWriter(
-                new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+                        new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
         ExecutorService reader = Executors.newSingleThreadExecutor();
         reader.submit(
                 () -> {
@@ -760,16 +766,16 @@ public class McpServerService {
                             new BufferedReader(
                                     new InputStreamReader(
                                             process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while (!closed.get() && (line = br.readLine()) != null) {
-                    if (!line.isBlank()) queue.add(line);
-                }
-            } catch (Exception ignored) {
-                // 子进程退出或流关闭，discover/call 会在超时后抛出。
-            } finally {
-                closed.set(true);
-            }
-        });
+                        String line;
+                        while (!closed.get() && (line = br.readLine()) != null) {
+                            if (!line.isBlank()) queue.add(line);
+                        }
+                    } catch (Exception ignored) {
+                        // 子进程退出或流关闭，discover/call 会在超时后抛出。
+                    } finally {
+                        closed.set(true);
+                    }
+                });
         ExecutorService errReader = Executors.newSingleThreadExecutor();
         errReader.submit(
                 () -> {
@@ -777,13 +783,13 @@ public class McpServerService {
                             new BufferedReader(
                                     new InputStreamReader(
                                             process.getErrorStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = br.readLine()) != null) {
-                    log.debug("[mcp-stderr] {}: {}", server.getName(), line);
-                }
-            } catch (Exception ignored) {
-            }
-        });
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            log.debug("[mcp-stderr] {}: {}", server.getName(), line);
+                        }
+                    } catch (Exception ignored) {
+                    }
+                });
         return new StdioChannel(process, writer, queue, buffer, closed, reader, errReader);
     }
 
@@ -826,12 +832,12 @@ public class McpServerService {
                             ch.events,
                             ch.buffer,
                             e -> {
-                try {
-                    JsonNode n = parseEvent(e);
-                    return n.path("id").asInt(-1) == 2 && n.has("result");
-                } catch (Exception ex) {
-                    return false;
-                }
+                                try {
+                                    JsonNode n = parseEvent(e);
+                                    return n.path("id").asInt(-1) == 2 && n.has("result");
+                                } catch (Exception ex) {
+                                    return false;
+                                }
                             },
                             timeoutMs);
 
@@ -859,12 +865,12 @@ public class McpServerService {
                             ch.events,
                             ch.buffer,
                             e -> {
-                try {
-                    JsonNode n = parseEvent(e);
-                    return n.path("id").asInt(-1) == 3 && n.has("result");
-                } catch (Exception ex) {
-                    return false;
-                }
+                                try {
+                                    JsonNode n = parseEvent(e);
+                                    return n.path("id").asInt(-1) == 3 && n.has("result");
+                                } catch (Exception ex) {
+                                    return false;
+                                }
                             },
                             timeoutMs);
             JsonNode callJson = parseEvent(callEvent);
@@ -900,28 +906,28 @@ public class McpServerService {
                             new BufferedReader(
                                     new InputStreamReader(
                                             conn.getInputStream(), StandardCharsets.UTF_8))) {
-                StringBuilder block = new StringBuilder();
-                String line;
-                while (!closed.get() && (line = br.readLine()) != null) {
-                    if (line.isEmpty()) {
-                        if (block.length() > 0) {
-                            events.put(block.toString());
-                            block.setLength(0);
-                        }
-                    } else if (line.startsWith("event:")) {
+                        StringBuilder block = new StringBuilder();
+                        String line;
+                        while (!closed.get() && (line = br.readLine()) != null) {
+                            if (line.isEmpty()) {
+                                if (block.length() > 0) {
+                                    events.put(block.toString());
+                                    block.setLength(0);
+                                }
+                            } else if (line.startsWith("event:")) {
                                 block.append("event:")
                                         .append(line.substring(6).trim())
                                         .append("\n");
-                    } else if (line.startsWith("data:")) {
-                        block.append("data:").append(line.substring(5).trim()).append("\n");
+                            } else if (line.startsWith("data:")) {
+                                block.append("data:").append(line.substring(5).trim()).append("\n");
+                            }
+                        }
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    } catch (Exception ignored) {
+                        // Stream closed or read interrupted; discovery will time out.
                     }
-                }
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-            } catch (Exception ignored) {
-                // Stream closed or read interrupted; discovery will time out.
-            }
-        });
+                });
 
         String endpointEvent =
                 waitFor(events, buffer, e -> e.contains("event:endpoint"), timeoutMs);

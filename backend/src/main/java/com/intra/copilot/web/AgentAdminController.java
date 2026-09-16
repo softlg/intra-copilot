@@ -142,7 +142,7 @@ public class AgentAdminController {
         }
 
         private String actor() {
-                return RequestContext.currentOrAnonymous().userId();
+                return RequestContext.currentOrAnonymous().actorLabel();
         }
 
         private String describe(Throwable error) {

@@ -92,7 +92,7 @@ public class SkillAdminController {
     }
 
     private String actor() {
-        return RequestContext.currentOrAnonymous().userId();
+        return RequestContext.currentOrAnonymous().actorLabel();
     }
 
     public record EnabledRequest(boolean enabled, long expectedVersion) {}

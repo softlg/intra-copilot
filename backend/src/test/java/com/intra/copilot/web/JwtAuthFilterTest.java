@@ -54,7 +54,8 @@ class JwtAuthFilterTest {
     @Test
     void validAdminTokenBindsAdminIdentity() throws Exception {
         AdminAuthService adminAuth = mock(AdminAuthService.class);
-        when(adminAuth.verify("admin-token")).thenReturn(new AdminAuthService.Verified("operator"));
+        when(adminAuth.verify("admin-token"))
+                .thenReturn(new AdminAuthService.Verified("admin-user-id", "operator"));
         JwtAuthFilter filter = new JwtAuthFilter(mock(JwtVerifier.class), adminAuth);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/admin/agents");
         request.addHeader("Authorization", "Bearer admin-token");
@@ -62,6 +63,6 @@ class JwtAuthFilterTest {
 
         assertTrue(filter.preHandle(request, response, new Object()));
         assertEquals("admin", RequestContext.current().source());
-        assertEquals("operator", RequestContext.current().userId());
+        assertEquals("admin-user-id", RequestContext.current().userId());
     }
 }

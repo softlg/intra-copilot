@@ -22,6 +22,7 @@ public class HookDefinition {
     private boolean enabled = true;
     private long version = 1;
     private String failMode = "BLOCK";
+    private String createdBy;
     private String updatedBy;
 
     @TableField(updateStrategy = FieldStrategy.NEVER)
@@ -118,6 +119,14 @@ public class HookDefinition {
 
     public void setFailMode(String value) {
         failMode = value;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String value) {
+        createdBy = value;
     }
 
     public String getUpdatedBy() {

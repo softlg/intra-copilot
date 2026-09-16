@@ -11,7 +11,11 @@ public final class RequestContext {
     private RequestContext() {}
 
     public static void set(String source, String userId) {
-        CURRENT.set(new Identity(source, userId));
+        CURRENT.set(new Identity(source, userId, userId));
+    }
+
+    public static void set(String source, String userId, String actorName) {
+        CURRENT.set(new Identity(source, userId, actorName));
     }
 
     /** 绑定已有身份；传 null 表示清空（例如匿名线程）。 */
@@ -54,8 +58,16 @@ public final class RequestContext {
 
     public static Identity currentOrAnonymous() {
         Identity value = CURRENT.get();
-        return value != null ? value : new Identity("anonymous", "anonymous");
+        return value != null ? value : new Identity("anonymous", "anonymous", "anonymous");
     }
 
-    public record Identity(String source, String userId) {}
+    public record Identity(String source, String userId, String actorName) {
+        public Identity(String source, String userId) {
+            this(source, userId, userId);
+        }
+
+        public String actorLabel() {
+            return actorName == null || actorName.isBlank() ? userId : actorName;
+        }
+    }
 }

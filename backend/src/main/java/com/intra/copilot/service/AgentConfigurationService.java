@@ -8,6 +8,7 @@ import com.intra.copilot.repo.AgentChildBindingRepository;
 import com.intra.copilot.repo.AgentConfigVersionRepository;
 import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.repo.AgentSkillBindingRepository;
+import com.intra.copilot.service.auth.RequestContext;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.util.HashSet;
 import java.util.List;
@@ -47,8 +48,13 @@ public class AgentConfigurationService {
     public AgentDefinition saveDraft(AgentDefinition definition) {
         validate(definition);
         AgentDefinition existing = definitions.findById(definition.getId()).orElse(null);
+        String actor = RequestContext.currentOrAnonymous().actorLabel();
         if (existing != null) {
             definition.setSystemAgent(existing.isSystemAgent());
+            definition.setCreatedBy(
+                    existing.getCreatedBy() == null || existing.getCreatedBy().isBlank()
+                            ? actor
+                            : existing.getCreatedBy());
             // Editing an already published definition creates a draft.  The
             // running registry must continue to use the last published
             // snapshot until the administrator explicitly publishes it.
@@ -56,10 +62,12 @@ public class AgentConfigurationService {
             definition.setPublishedVersion(existing.getPublishedVersion());
             definition.setVersion(existing.getVersion() + 1);
         } else {
+            definition.setCreatedBy(actor);
             definition.setPublished(false);
             definition.setPublishedVersion(0);
             definition.setVersion(1);
         }
+        definition.setUpdatedBy(actor);
         AgentDefinition saved = definitions.save(definition);
         synchronizeChildBinding(saved);
         attachParent(saved);

@@ -10,6 +10,7 @@ import com.intra.copilot.repo.DocumentChunkRepository;
 import com.intra.copilot.repo.KnowledgeBaseRepository;
 import com.intra.copilot.repo.KnowledgeDocumentRepository;
 import com.intra.copilot.repo.KnowledgeDocumentStorageRepository;
+import com.intra.copilot.service.auth.RequestContext;
 import com.intra.copilot.service.parser.DocumentParserRegistry;
 import com.intra.copilot.storage.DocumentStorage;
 import com.intra.copilot.util.EntityIdGenerator;
@@ -105,6 +106,9 @@ public class KnowledgeService implements KnowledgeRetriever {
     public KnowledgeBase createBase(KnowledgeBase base) {
         String name = normalizeName(base.getName());
         ensureNameAvailable(name, null);
+        String actor = RequestContext.currentOrAnonymous().actorLabel();
+        base.setCreatedBy(actor);
+        base.setUpdatedBy(actor);
         base.setName(name);
         if (base.getId() == null || base.getId().isBlank()) base.setId(EntityIdGenerator.next("KB"));
         if (base.getStatus() == null || base.getStatus().isBlank()) base.setStatus(KnowledgeBase.STATUS_READY);
@@ -121,6 +125,7 @@ public class KnowledgeService implements KnowledgeRetriever {
         base.setName(name);
         base.setDescription(value.getDescription());
         base.setEnabled(value.isEnabled());
+        base.setUpdatedBy(RequestContext.currentOrAnonymous().actorLabel());
         if (value.getChunkStrategy() != null && !value.getChunkStrategy().isBlank()) {
             base.setChunkStrategy(value.getChunkStrategy());
         }

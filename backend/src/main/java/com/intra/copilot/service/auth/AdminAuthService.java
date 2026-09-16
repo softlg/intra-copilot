@@ -1,46 +1,79 @@
 package com.intra.copilot.service.auth;
 
+import com.intra.copilot.model.AdminUser;
+import com.intra.copilot.repo.AdminUserRepository;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.spec.InvalidKeySpecException;
 import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 import java.util.Optional;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * Authenticates the single management-console account and issues short-lived, stateless session
- * tokens. Roles and fine-grained permissions are intentionally out of scope for this MVP.
+ * Authenticates management-console accounts and issues short-lived, stateless session tokens.
+ *
+ * <p>The first account is bootstrapped from the configured environment credentials. Additional
+ * accounts are managed in the database. Resources remain global; the account id is used for audit
+ * and private Copilot-session ownership.
  */
 @Service
 public class AdminAuthService {
 
     private static final String ISSUER = "intra-copilot-admin";
     private static final String SCOPE = "admin";
+    private static final int PASSWORD_ITERATIONS = 120_000;
+    private static final int PASSWORD_KEY_BITS = 256;
 
-    private final String username;
-    private final String password;
+    private final AdminUserRepository users;
+    private final String bootstrapUsername;
+    private final String bootstrapPassword;
     private final Duration sessionTtl;
     private final MACSigner signer;
     private final MACVerifier verifier;
 
+    @Autowired
     public AdminAuthService(
+            AdminUserRepository users,
             @Value("${admin.username:admin}") String username,
             @Value("${admin.password:}") String password,
             @Value("${admin.session-ttl-minutes:480}") long sessionTtlMinutes,
             @Value("${admin.session-secret:}") String sessionSecret) {
-        this.username = username == null ? "" : username.trim();
-        this.password = password == null ? "" : password;
+        this(users, username, password, sessionTtlMinutes, sessionSecret, true);
+    }
+
+    /** Constructor used by focused unit tests that do not need a database. */
+    AdminAuthService(
+            String username, String password, long sessionTtlMinutes, String sessionSecret) {
+        this(null, username, password, sessionTtlMinutes, sessionSecret, false);
+    }
+
+    private AdminAuthService(
+            AdminUserRepository users,
+            String username,
+            String password,
+            long sessionTtlMinutes,
+            String sessionSecret,
+            boolean ignoredSpringOnlyMarker) {
+        this.users = users;
+        this.bootstrapUsername = username == null ? "" : username.trim();
+        this.bootstrapPassword = password == null ? "" : password;
         this.sessionTtl = Duration.ofMinutes(Math.max(1, sessionTtlMinutes));
         byte[] key = buildSigningKey(sessionSecret);
         try {
@@ -51,39 +84,51 @@ public class AdminAuthService {
         }
     }
 
+    @PostConstruct
+    void bootstrapOwner() {
+        if (users == null
+                || bootstrapUsername.isBlank()
+                || bootstrapPassword.isBlank()
+                || users.findByUsername(bootstrapUsername).isPresent()) {
+            return;
+        }
+        AdminUser user = new AdminUser();
+        user.setUsername(bootstrapUsername);
+        user.setDisplayName(bootstrapUsername);
+        user.setPasswordHash(hashPassword(bootstrapPassword));
+        user.setEnabled(true);
+        users.save(user);
+    }
+
     public boolean isConfigured() {
-        return !username.isBlank() && !password.isBlank();
+        if (!bootstrapUsername.isBlank() && !bootstrapPassword.isBlank()) return true;
+        return users != null && !users.findAllOrdered().isEmpty();
     }
 
     public Optional<Session> authenticate(String candidateUsername, String candidatePassword) {
-        if (!isConfigured()) {
-            return Optional.empty();
-        }
         String normalizedUsername = candidateUsername == null ? "" : candidateUsername.trim();
         String normalizedPassword = candidatePassword == null ? "" : candidatePassword;
-        if (!secureEquals(username, normalizedUsername)
-                || !secureEquals(password, normalizedPassword)) {
+        if (normalizedUsername.isBlank() || normalizedPassword.isEmpty() || users == null) {
+            return legacyAuthenticate(normalizedUsername, normalizedPassword);
+        }
+
+        AdminUser user = users.findByUsername(normalizedUsername).orElse(null);
+        if (user == null
+                && secureEquals(bootstrapUsername, normalizedUsername)
+                && secureEquals(bootstrapPassword, normalizedPassword)) {
+            bootstrapOwner();
+            user = users.findByUsername(normalizedUsername).orElse(null);
+        }
+        if (user == null || !user.isEnabled() || !verifyPassword(user, normalizedPassword)) {
             return Optional.empty();
         }
 
         Instant issuedAt = Instant.now();
         Instant expiresAt = issuedAt.plus(sessionTtl);
-        JWTClaimsSet claims =
-                new JWTClaimsSet.Builder()
-                        .issuer(ISSUER)
-                        .subject(username)
-                        .issueTime(Date.from(issuedAt))
-                        .expirationTime(Date.from(expiresAt))
-                        .claim("scope", SCOPE)
-                        .build();
-        SignedJWT token =
-                new SignedJWT(new com.nimbusds.jose.JWSHeader(JWSAlgorithm.HS256), claims);
-        try {
-            token.sign(signer);
-        } catch (JOSEException e) {
-            throw new IllegalStateException("Unable to sign admin session", e);
-        }
-        return Optional.of(new Session(token.serialize(), username, expiresAt));
+        user.setLastLoginAt(issuedAt);
+        user.touch();
+        users.save(user);
+        return Optional.of(issueSession(user.getId(), user.getUsername(), expiresAt));
     }
 
     /** Verifies an admin session token or throws {@link IllegalArgumentException}. */
@@ -103,18 +148,105 @@ public class AdminAuthService {
                 throw new IllegalArgumentException("Admin token signature invalid");
             }
             JWTClaimsSet claims = jwt.getJWTClaimsSet();
-            String subject = claims.getSubject();
+            String userId = claims.getSubject();
+            String username = claims.getStringClaim("username");
             Date expiresAt = claims.getExpirationTime();
             if (!ISSUER.equals(claims.getIssuer())
-                    || !secureEquals(username, subject)
+                    || userId == null
+                    || userId.isBlank()
+                    || username == null
+                    || username.isBlank()
                     || !SCOPE.equals(claims.getStringClaim("scope"))
                     || expiresAt == null
                     || !expiresAt.toInstant().isAfter(Instant.now())) {
                 throw new IllegalArgumentException("Admin token expired or invalid");
             }
-            return new Verified(subject);
+            if (users != null) {
+                AdminUser current = users.selectById(userId);
+                if (current == null
+                        || !current.isEnabled()
+                        || !current.getUsername().equals(username)) {
+                    throw new IllegalArgumentException("Admin account disabled or changed");
+                }
+            }
+            return new Verified(userId, username);
         } catch (ParseException | JOSEException e) {
             throw new IllegalArgumentException("Malformed admin token", e);
+        }
+    }
+
+    public static String hashPassword(String password) {
+        byte[] salt = new byte[16];
+        new SecureRandom().nextBytes(salt);
+        byte[] hash = pbkdf2(password.toCharArray(), salt, PASSWORD_ITERATIONS, PASSWORD_KEY_BITS);
+        return "pbkdf2$"
+                + PASSWORD_ITERATIONS
+                + "$"
+                + Base64.getEncoder().encodeToString(salt)
+                + "$"
+                + Base64.getEncoder().encodeToString(hash);
+    }
+
+    private Optional<Session> legacyAuthenticate(String username, String password) {
+        if (bootstrapPassword.isBlank()) {
+            return Optional.empty();
+        }
+        if (!secureEquals(bootstrapUsername, username)
+                || !secureEquals(bootstrapPassword, password)) {
+            return Optional.empty();
+        }
+        Instant expiresAt = Instant.now().plus(sessionTtl);
+        return Optional.of(issueSession("legacy-admin", bootstrapUsername, expiresAt));
+    }
+
+    private Session issueSession(String userId, String username, Instant expiresAt) {
+        Instant issuedAt = Instant.now();
+        JWTClaimsSet claims =
+                new JWTClaimsSet.Builder()
+                        .issuer(ISSUER)
+                        .subject(userId)
+                        .claim("username", username)
+                        .issueTime(Date.from(issuedAt))
+                        .expirationTime(Date.from(expiresAt))
+                        .claim("scope", SCOPE)
+                        .build();
+        SignedJWT token =
+                new SignedJWT(new com.nimbusds.jose.JWSHeader(JWSAlgorithm.HS256), claims);
+        try {
+            token.sign(signer);
+        } catch (JOSEException e) {
+            throw new IllegalStateException("Unable to sign admin session", e);
+        }
+        return new Session(token.serialize(), userId, username, expiresAt);
+    }
+
+    private static boolean verifyPassword(AdminUser user, String candidate) {
+        String encoded = user.getPasswordHash();
+        if (encoded == null || encoded.isBlank()) return false;
+        if (!encoded.startsWith("pbkdf2$")) {
+            return secureEquals(encoded, candidate);
+        }
+        String[] parts = encoded.split("\\$");
+        if (parts.length != 4) return false;
+        try {
+            int iterations = Integer.parseInt(parts[1]);
+            byte[] salt = Base64.getDecoder().decode(parts[2]);
+            byte[] expected = Base64.getDecoder().decode(parts[3]);
+            byte[] actual = pbkdf2(candidate.toCharArray(), salt, iterations, expected.length * 8);
+            return MessageDigest.isEqual(expected, actual);
+        } catch (RuntimeException error) {
+            return false;
+        }
+    }
+
+    private static byte[] pbkdf2(char[] password, byte[] salt, int iterations, int bits) {
+        try {
+            PBEKeySpec spec = new PBEKeySpec(password, salt, iterations, bits);
+            return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                    .generateSecret(spec)
+                    .getEncoded();
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+            throw new IllegalStateException("PBKDF2 is unavailable", e);
         }
     }
 
@@ -147,7 +279,7 @@ public class AdminAuthService {
         }
     }
 
-    public record Session(String token, String username, Instant expiresAt) {}
+    public record Session(String token, String userId, String username, Instant expiresAt) {}
 
-    public record Verified(String username) {}
+    public record Verified(String userId, String username) {}
 }

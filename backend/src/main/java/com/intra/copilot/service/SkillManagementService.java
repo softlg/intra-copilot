@@ -106,6 +106,7 @@ public class SkillManagementService {
         skill.setLockVersion(0);
         skill.setCreatedAt(Instant.now());
         skill.setUpdatedAt(Instant.now());
+        skill.setCreatedBy(actor);
         skill.setUpdatedBy(actor);
         validate(skill);
         ensureNameAvailable(skill.getName(), null);
@@ -128,6 +129,7 @@ public class SkillManagementService {
         SkillDefinition updated = normalize(input);
         updated.setId(id);
         updated.setCreatedAt(existing.getCreatedAt());
+        updated.setCreatedBy(existing.getCreatedBy());
         updated.setPublishedVersion(existing.getPublishedVersion());
         updated.setInvocationCount(existing.getInvocationCount());
         updated.setLastUsedAt(existing.getLastUsedAt());
@@ -394,7 +396,8 @@ public class SkillManagementService {
             if (!unique.add(toolId.trim())) continue;
             ToolDefinition tool =
                     tools.findById(toolId.trim())
-                            .orElseThrow(() -> new IllegalArgumentException("绑定 Tool 不存在：" + toolId));
+                            .orElseThrow(
+                                    () -> new IllegalArgumentException("绑定 Tool 不存在：" + toolId));
             if ("MCP".equalsIgnoreCase(tool.getType())) {
                 throw new IllegalArgumentException("MCP Tool 请在 MCP 服务中绑定，Skill 仅支持普通 Tool");
             }

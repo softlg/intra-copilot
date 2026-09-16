@@ -98,7 +98,7 @@ public class HookAdminController {
   }
 
   private static String actor() {
-    return RequestContext.currentOrAnonymous().userId();
+    return RequestContext.currentOrAnonymous().actorLabel();
   }
 
   public record HookEnabledRequest(boolean enabled, long version) {}

@@ -30,6 +30,7 @@ public class SkillDefinition {
     private long invocationCount;
     private Instant lastUsedAt;
     private long lockVersion;
+    private String createdBy;
     private String updatedBy;
 
     @TableField(updateStrategy = FieldStrategy.NEVER)
@@ -196,6 +197,14 @@ public class SkillDefinition {
 
     public void setLockVersion(long value) {
         lockVersion = value;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String value) {
+        createdBy = value;
     }
 
     public String getUpdatedBy() {

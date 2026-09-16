@@ -35,6 +35,8 @@ public class AgentDefinition {
     private int maxPlanSteps = 6;
     private long version = 1;
     private long publishedVersion = 0;
+    private String createdBy = "system";
+    private String updatedBy = "system";
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
 
@@ -237,6 +239,22 @@ public class AgentDefinition {
 
     public void setPublishedVersion(long publishedVersion) {
         this.publishedVersion = publishedVersion;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String createdBy) {
+        this.createdBy = createdBy;
+    }
+
+    public String getUpdatedBy() {
+        return updatedBy;
+    }
+
+    public void setUpdatedBy(String updatedBy) {
+        this.updatedBy = updatedBy;
     }
 
     public Instant getCreatedAt() {

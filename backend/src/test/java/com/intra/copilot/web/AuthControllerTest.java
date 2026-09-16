@@ -7,7 +7,9 @@ import static org.mockito.Mockito.when;
 
 import com.intra.copilot.repo.DeviceKeyRepository;
 import com.intra.copilot.service.auth.AdminAuthService;
+import com.intra.copilot.service.auth.RequestContext;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -23,7 +25,8 @@ class AuthControllerTest {
         when(adminAuth.authenticate("admin", "secret"))
                 .thenReturn(
                         Optional.of(
-                                new AdminAuthService.Session("signed-token", "admin", expiresAt)));
+                                new AdminAuthService.Session(
+                                        "signed-token", "admin-id", "admin", expiresAt)));
         AuthController controller = new AuthController(mock(DeviceKeyRepository.class), adminAuth);
 
         ResponseEntity<?> response =
@@ -34,6 +37,7 @@ class AuthControllerTest {
                 assertInstanceOf(AuthController.AdminLoginResponse.class, response.getBody());
         assertEquals("signed-token", body.token());
         assertEquals(expiresAt, body.expiresAt());
+        assertEquals("admin-id", body.user().get("id"));
         assertEquals("admin", body.user().get("username"));
     }
 
@@ -48,5 +52,19 @@ class AuthControllerTest {
                 controller.adminLogin(new AuthController.AdminLoginRequest("admin", "wrong"));
 
         assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
+    }
+
+    @Test
+    void adminSessionReturnsDisplayNameInsteadOfUserId() {
+        AuthController controller =
+                new AuthController(mock(DeviceKeyRepository.class), mock(AdminAuthService.class));
+        RequestContext.set("admin", "admin-1", "operator");
+        try {
+            Map<String, String> session = controller.adminSession();
+
+            assertEquals(Map.of("username", "operator"), session);
+        } finally {
+            RequestContext.clear();
+        }
     }
 }

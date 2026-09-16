@@ -50,7 +50,7 @@ public class JwtAuthFilter implements HandlerInterceptor {
         try {
             if (mode == AuthMode.ADMIN) {
                 AdminAuthService.Verified verified = adminAuth.verify(token);
-                RequestContext.set("admin", verified.username());
+                RequestContext.set("admin", verified.userId(), verified.username());
             } else {
                 JwtVerifier.Verified v = verifier.verify(token);
                 RequestContext.set(v.source(), v.userId());
