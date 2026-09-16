@@ -70,26 +70,38 @@ export function Dropdown({
     }
 
     const updatePosition = () => {
-      const trigger = triggerRef.current?.getBoundingClientRect();
-      const menu = menuRef.current?.getBoundingClientRect();
-      if (!trigger || !menu) return;
+      const triggerElement = triggerRef.current;
+      const menuElement = menuRef.current;
+      if (!triggerElement || !menuElement) return;
+
+      const zoom =
+        Number.parseFloat(
+          window.getComputedStyle(document.documentElement).zoom || "1",
+        ) || 1;
+      const triggerRect = triggerElement.getBoundingClientRect();
+      const trigger = {
+        top: triggerRect.top / zoom,
+        right: triggerRect.right / zoom,
+        bottom: triggerRect.bottom / zoom,
+        left: triggerRect.left / zoom,
+      };
+      const menuWidth = menuElement.offsetWidth;
+      const menuHeight = menuElement.offsetHeight;
+      const viewportWidth = document.documentElement.clientWidth;
+      const viewportHeight = document.documentElement.clientHeight;
 
       const viewportPadding = 8;
       const gap = 6;
       const fitsBelow =
-        trigger.bottom + gap + menu.height <=
-        window.innerHeight - viewportPadding;
+        trigger.bottom + gap + menuHeight <= viewportHeight - viewportPadding;
       const top = fitsBelow
         ? trigger.bottom + gap
-        : Math.max(viewportPadding, trigger.top - gap - menu.height);
+        : Math.max(viewportPadding, trigger.top - gap - menuHeight);
       const preferredLeft =
-        align === "right" ? trigger.right - menu.width : trigger.left;
+        align === "right" ? trigger.right - menuWidth : trigger.left;
       const left = Math.min(
         Math.max(viewportPadding, preferredLeft),
-        Math.max(
-          viewportPadding,
-          window.innerWidth - menu.width - viewportPadding,
-        ),
+        Math.max(viewportPadding, viewportWidth - menuWidth - viewportPadding),
       );
 
       setMenuStyle({ top, left, visibility: "visible" });

@@ -10,6 +10,7 @@ export type IconName =
   | "trash"
   | "search"
   | "plus"
+  | "minus"
   | "chevron-down"
   | "chevron-right"
   | "chevron-left"
@@ -53,6 +54,7 @@ const PATHS: Record<IconName, string> = {
     "M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12",
   search: "M11 4a7 7 0 1 0 4.95 11.95L21 21M11 4a7 7 0 0 1 7 7",
   plus: "M12 5v14M5 12h14",
+  minus: "M5 12h14",
   "chevron-down": "M6 9l6 6 6-6",
   "chevron-right": "M9 6l6 6-6 6",
   "chevron-left": "M15 6l-6 6 6 6",

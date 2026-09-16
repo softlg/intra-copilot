@@ -31,13 +31,56 @@
   display: flex;
   flex-direction: column;
   width: min(440px, 100vw);
-  height: 100dvh;
+  height: var(--admin-viewport-height);
   overflow: hidden;
   border-left: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: var(--shadow-popover);
   backdrop-filter: blur(28px) saturate(170%);
   -webkit-backdrop-filter: blur(28px) saturate(170%);
+}
+
+.copilot-resize-handle {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: none;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.copilot-resize-handle::after {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 2px;
+  height: 52px;
+  border-radius: 0 3px 3px 0;
+  background: var(--border-strong);
+  content: "";
+  opacity: 0;
+  transform: translateY(-50%);
+  transition:
+    height 160ms ease,
+    background-color 160ms ease,
+    opacity 160ms ease;
+}
+
+.copilot-resize-handle:hover::after,
+.copilot-resize-handle:focus-visible::after,
+.admin-copilot-panel.is-resizing .copilot-resize-handle::after {
+  height: 84px;
+  background: var(--brand);
+  opacity: 1;
+}
+
+body.copilot-panel-resizing,
+body.copilot-panel-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .copilot-header {
@@ -228,7 +271,7 @@
   left: 0;
   display: flex;
   flex-direction: column;
-  max-height: min(460px, calc(100dvh - 190px));
+  max-height: min(460px, calc(var(--admin-viewport-height) - 190px));
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 9px;
@@ -961,10 +1004,14 @@
   .admin-copilot-panel {
     position: sticky;
     inset: auto;
-    flex: 0 0 430px;
-    width: 430px;
-    height: 100vh;
+    flex: 0 0 var(--copilot-panel-width, 430px);
+    width: var(--copilot-panel-width, 430px);
+    height: var(--admin-viewport-height);
     box-shadow: none;
+  }
+
+  .copilot-resize-handle {
+    display: block;
   }
 }
 

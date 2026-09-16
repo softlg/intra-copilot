@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { Language } from "../i18n/translations";
 import {
   applyCopilotProposal,
@@ -30,6 +38,27 @@ import "./AdminCopilotPanel.css";
 
 type PanelView = "assist" | "build" | "validate";
 
+const DEFAULT_PANEL_WIDTH = 430;
+const MIN_PANEL_WIDTH = 360;
+const MAX_PANEL_WIDTH = 900;
+const MIN_MAIN_CONTENT_WIDTH = 420;
+const PANEL_WIDTH_STORAGE_KEY = "admin-copilot-width";
+
+function panelWidthLimit(workspaceWidth?: number) {
+  if (!workspaceWidth || workspaceWidth <= 0) return MAX_PANEL_WIDTH;
+  return Math.max(
+    MIN_PANEL_WIDTH,
+    Math.min(MAX_PANEL_WIDTH, workspaceWidth - MIN_MAIN_CONTENT_WIDTH),
+  );
+}
+
+function clampPanelWidth(width: number, workspaceWidth?: number) {
+  return Math.min(
+    Math.max(MIN_PANEL_WIDTH, width),
+    panelWidthLimit(workspaceWidth),
+  );
+}
+
 export type AdminCopilotPanelProps = {
   language: Language;
   currentAgentId?: string;
@@ -49,6 +78,7 @@ const copy = {
     build: "生成 Agent",
     validate: "验证 Agent",
     close: "关闭",
+    resizePanel: "拖动调整 AI 工作台宽度，双击恢复默认",
     history: "会话历史",
     newSession: "新会话",
     noSessions: "暂无会话，发送消息时会自动创建。",
@@ -120,6 +150,7 @@ const copy = {
     build: "Build Agent",
     validate: "Validate",
     close: "Close",
+    resizePanel: "Drag to resize the AI workspace; double-click to reset",
     history: "Session history",
     newSession: "New session",
     noSessions: "No session yet. One is created when you send a message.",
@@ -264,6 +295,15 @@ export function AdminCopilotPanel({
   const [validationHistory, setValidationHistory] = useState<
     AgentValidationHistoryItem[]
   >([]);
+  const [panelWidth, setPanelWidth] = useState(() =>
+    clampPanelWidth(
+      Number(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY)) ||
+        DEFAULT_PANEL_WIDTH,
+    ),
+  );
+  const [resizingPanel, setResizingPanel] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+  const resizeStateRef = useRef({ active: false, pointerId: -1 });
 
   const mode: CopilotMode = view === "build" ? "BUILD" : "ASSIST";
   const visibleSessions = useMemo(
@@ -287,6 +327,44 @@ export function AdminCopilotPanel({
   useEffect(() => {
     void loadSessions();
   }, []);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    const workspace = panel?.parentElement;
+    if (!panel || !workspace) return undefined;
+
+    const syncWidth = () => {
+      setPanelWidth((current) =>
+        clampPanelWidth(current, workspace.clientWidth),
+      );
+    };
+    const frame = window.requestAnimationFrame(syncWidth);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(syncWidth);
+    observer?.observe(workspace);
+    window.addEventListener("resize", syncWidth);
+    window.addEventListener("admin:page-zoom-change", syncWidth);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", syncWidth);
+      window.removeEventListener("admin:page-zoom-change", syncWidth);
+    };
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      PANEL_WIDTH_STORAGE_KEY,
+      String(Math.round(panelWidth)),
+    );
+  }, [panelWidth]);
+
+  useEffect(() => {
+    document.body.classList.toggle("copilot-panel-resizing", resizingPanel);
+    return () => document.body.classList.remove("copilot-panel-resizing");
+  }, [resizingPanel]);
 
   useEffect(() => {
     setValidationReport(undefined);
@@ -544,6 +622,60 @@ export function AdminCopilotPanel({
     toast.success(text.patchApplied);
   };
 
+  const resizePanelTo = (width: number) => {
+    const workspaceWidth = panelRef.current?.parentElement?.clientWidth;
+    setPanelWidth(clampPanelWidth(width, workspaceWidth));
+  };
+
+  const beginPanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    resizeStateRef.current = { active: true, pointerId: event.pointerId };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setResizingPanel(true);
+  };
+
+  const movePanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (
+      !resizeStateRef.current.active ||
+      resizeStateRef.current.pointerId !== event.pointerId
+    ) {
+      return;
+    }
+    const zoom =
+      Number.parseFloat(
+        window.getComputedStyle(document.documentElement).zoom || "1",
+      ) || 1;
+    resizePanelTo(document.documentElement.clientWidth - event.clientX / zoom);
+  };
+
+  const endPanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (resizeStateRef.current.pointerId !== event.pointerId) return;
+    resizeStateRef.current = { active: false, pointerId: -1 };
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setResizingPanel(false);
+  };
+
+  const resizePanelWithKeyboard = (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+  ) => {
+    const workspaceWidth = panelRef.current?.parentElement?.clientWidth;
+    const limit = panelWidthLimit(workspaceWidth);
+    let nextWidth: number | undefined;
+    if (event.key === "ArrowLeft") nextWidth = panelWidth + 20;
+    if (event.key === "ArrowRight") nextWidth = panelWidth - 20;
+    if (event.key === "Home") nextWidth = MIN_PANEL_WIDTH;
+    if (event.key === "End") nextWidth = limit;
+    if (event.key === "Enter" || event.key === " ") {
+      nextWidth = DEFAULT_PANEL_WIDTH;
+    }
+    if (nextWidth === undefined) return;
+    event.preventDefault();
+    resizePanelTo(nextWidth);
+  };
+
   return (
     <>
       <button
@@ -553,10 +685,39 @@ export function AdminCopilotPanel({
         onClick={onClose}
       />
       <section
-        className="admin-copilot-panel"
+        ref={panelRef}
+        className={
+          resizingPanel
+            ? "admin-copilot-panel is-resizing"
+            : "admin-copilot-panel"
+        }
+        style={
+          {
+            "--copilot-panel-width": `${panelWidth}px`,
+          } as CSSProperties
+        }
         role="complementary"
         aria-labelledby="admin-copilot-title"
       >
+        <div
+          className="copilot-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={text.resizePanel}
+          aria-valuemin={MIN_PANEL_WIDTH}
+          aria-valuemax={Math.round(
+            panelWidthLimit(panelRef.current?.parentElement?.clientWidth),
+          )}
+          aria-valuenow={Math.round(panelWidth)}
+          tabIndex={0}
+          title={text.resizePanel}
+          onPointerDown={beginPanelResize}
+          onPointerMove={movePanelResize}
+          onPointerUp={endPanelResize}
+          onPointerCancel={endPanelResize}
+          onDoubleClick={() => resizePanelTo(DEFAULT_PANEL_WIDTH)}
+          onKeyDown={resizePanelWithKeyboard}
+        />
         <header className="copilot-header">
           <div className="copilot-heading">
             <span className="copilot-mark" aria-hidden="true">
