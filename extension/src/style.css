@@ -24,7 +24,9 @@ html {
   --code-border: #d7e0ec;
   --code-text: #1e293b;
   --accent: #2563eb;
-  --mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", monospace;
+  --mono:
+    ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono",
+    monospace;
 }
 :root[data-theme="dark"] {
   --page-bg: #111827;
@@ -39,7 +41,9 @@ html {
   --code-border: #334155;
   --code-text: #e2e8f0;
   --accent: #3b82f6;
-  --mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", monospace;
+  --mono:
+    ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono",
+    monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"] {
@@ -55,7 +59,9 @@ html {
     --code-border: #334155;
     --code-text: #e2e8f0;
     --accent: #3b82f6;
-    --mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", monospace;
+    --mono:
+      ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono",
+      monospace;
   }
 }
 body {

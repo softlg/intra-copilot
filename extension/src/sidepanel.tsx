@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import rehypeHighlight from "rehype-highlight";
 import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { bootstrapAuth, type AuthedFetch } from "./auth";
 import "./style.css";
@@ -264,8 +265,6 @@ type Msg = {
   stage?: string;
   /** 由 SSE agent_selected 事件填充：实际处理该消息的 Agent 展示名。 */
   agentName?: string;
-  /** 由 SSE delegation_decided 事件填充：领域 Agent 委派给了哪个子 Agent。 */
-  delegatedTo?: string;
   /** 工具调用过程（由 tool_invoked/tool_result 事件填充），独立渲染、不污染正文。 */
   toolTrace?: ToolTraceStep[];
   /** 生成终态：ok=正常完成；stopped=用户停止；failed=出错。用于渲染独立状态徽标。 */
@@ -369,7 +368,6 @@ const translations = {
     toolFail: "失败",
     generationFailed: "生成失败",
     handledBy: "处理 Agent",
-    delegatedTo: "委派子 Agent",
     expandComposer: "展开输入框",
     collapseComposer: "收起输入框",
     send: "发送",
@@ -521,7 +519,6 @@ const translations = {
     toolFail: "Failed",
     generationFailed: "Generation failed",
     handledBy: "Handled by",
-    delegatedTo: "Delegated to",
     expandComposer: "Expand input",
     collapseComposer: "Collapse input",
     send: "Send",
@@ -640,13 +637,31 @@ function decodeAssistantEscapes(value: string): string {
 }
 
 function normalizeAssistantMarkdown(value: string): string {
-  // 纯兜底：SSE 通道现已保真、system prompt 已要求模型输出规范 Markdown，
-  // 重度的文本后处理不再需要。仅保留两类仍可能破坏渲染的安全修正——
-  // 提供方双重转义、以及 Markdown 标题缺少 `#` 后的空格。
+  // 模型偶尔会输出 `1.内容`、`-内容` 这类缺少空格的列表，或把加粗小标题
+  // 紧贴在正文段落里。这里只规整围栏代码之外的块结构，保留原始换行和内容。
   return decodeAssistantEscapes(value)
     .replace(/\r\n?/g, "\n")
-    .replace(/(^|\n)([ \t]*#{1,6})(?=\S)/g, "$1$2 ")
-    .replace(/([^\n])\s+(#{1,6})(?=\S)/g, "$1\n$2 ");
+    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g)
+    .map((part) => {
+      if (/^(```|~~~)/.test(part)) return part;
+      return part
+        .replace(/(^|\n)([ \t]*#{1,6})(?=\S)/g, "$1$2 ")
+        .replace(/([^\n])\s+(#{1,6})(?=\S)/g, "$1\n\n$2 ")
+        .replace(/(^|\n)([ \t]*)(?:-(?!-)|[+•])(?=\S)/g, "$1$2- ")
+        .replace(/(^|\n)([ \t]*)(\d{1,2})[.)、][ \t]*(?=\S)/g, "$1$2$3. ")
+        .replace(
+          /([^\n])\n([ \t]*\*\*[^*\n]{1,80}\*\*)[ \t]*(?=\n|$)/g,
+          "$1\n\n$2",
+        )
+        .replace(/(^|\n)([ \t]*\*\*[^*\n]{1,80}\*\*)[ \t]*(?=\n)/g, "$1$2\n")
+        .replace(
+          /([。！？.!?：:])\s+(?=(?:\d{1,2}[.)、]|[-+•])\s*\S)/g,
+          "$1\n\n",
+        )
+        .replace(/([。！？.!?：:])\s+(\*\*[^*\n]{1,80}\*\*)/g, "$1\n\n$2")
+        .replace(/\n{3,}/g, "\n\n");
+    })
+    .join("\n");
 }
 
 function isSafeAssistantUrl(value?: string): boolean {
@@ -671,7 +686,7 @@ function AssistantMarkdown({
   return (
     <ReactMarkdown
       skipHtml
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkBreaks]}
       rehypePlugins={[rehypeHighlight]}
       components={{
         code({ className, children, ...props }) {
@@ -1958,7 +1973,6 @@ function App() {
                 stopped: false,
                 stage: undefined,
                 agentName: undefined,
-                delegatedTo: undefined,
                 status: undefined,
                 errorMessage: undefined,
                 toolTrace: [],
@@ -2152,16 +2166,6 @@ function App() {
               patchAssistantMsg(() => ({
                 agentId: selected.agentId,
                 agentName: selected.displayName || selected.agentId,
-              }));
-            } catch {
-              /* 忽略无法解析的事件 */
-            }
-          }
-          if (name === "delegation_decided" && data) {
-            try {
-              const delegation = JSON.parse(data);
-              patchAssistantMsg(() => ({
-                delegatedTo: delegation.childAgentId,
               }));
             } catch {
               /* 忽略无法解析的事件 */
@@ -2568,24 +2572,14 @@ function App() {
                 </div>
                 <div className="message-stack">
                   <div className="bubble">
-                    {assistant && (message.agentName || message.delegatedTo) ? (
+                    {assistant && message.agentName ? (
                       <div className="agent-badges">
-                        {message.agentName ? (
-                          <span
-                            className="agent-badge"
-                            title={`${t.handledBy}: ${message.agentName}`}
-                          >
-                            {message.agentName}
-                          </span>
-                        ) : null}
-                        {message.delegatedTo ? (
-                          <span
-                            className="agent-badge delegated"
-                            title={`${t.delegatedTo}: ${message.delegatedTo}`}
-                          >
-                            → {message.delegatedTo}
-                          </span>
-                        ) : null}
+                        <span
+                          className="agent-badge"
+                          title={`${t.handledBy}: ${message.agentName}`}
+                        >
+                          {message.agentName}
+                        </span>
                       </div>
                     ) : null}
                     {!assistant && message.attachments?.length ? (
