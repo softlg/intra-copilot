@@ -24,11 +24,7 @@ public interface ConversationRepository extends BaseMapper<Conversation> {
     }
 
     default List<Conversation> findAllByOrderByUpdatedAtDesc() {
-        // sort_order 优先（拖拽排序），NULL 兜底到 updated_at 倒序。
-        return selectList(
-                Wrappers.<Conversation>query()
-                        .orderByAsc("sort_order")
-                        .orderByDesc("updated_at"));
+        return selectList(Wrappers.<Conversation>query().orderByDesc("updated_at"));
     }
 
     default List<Conversation> findBySessionId(String sessionId) {
@@ -38,7 +34,6 @@ public interface ConversationRepository extends BaseMapper<Conversation> {
         return selectList(
                 Wrappers.<Conversation>query()
                         .like("id", sessionId.trim())
-                        .orderByAsc("sort_order")
                         .orderByDesc("updated_at"));
     }
 

@@ -189,6 +189,12 @@ public class ChatService {
                 return conversations.save(conversation);
         }
 
+        void persistMessage(Conversation conversation, Message message) {
+                messages.save(message);
+                conversation.touch();
+                conversations.save(conversation);
+        }
+
         public List<Conversation> list(String source, String userId) {
                 return conversations.findBySourceAndUserId(source, userId);
         }
@@ -633,7 +639,7 @@ public class ChatService {
                                         text,
                                         routeAgent == null ? "router" : routeAgent.id(),
                                         readPage ? pageContext : null);
-                        messages.save(userMessage);
+                        persistMessage(c, userMessage);
                         attachments.linkToMessage(attachmentIds, userMessage.getId());
                 }
                 try {
@@ -1447,7 +1453,14 @@ public class ChatService {
                         long completedMs = (System.nanoTime() - routeStarted) / 1_000_000L;
                         String finalAgentId = delegatedSummary && routeAgent != null ? routeAgent.id() : agent.id();
                         invocation.setResponseContent(currentAnswer);
-                        messages.save(new Message(conversation.getId(), "assistant", currentAnswer, finalAgentId, null));
+                        persistMessage(
+                                        conversation,
+                                        new Message(
+                                                        conversation.getId(),
+                                                        "assistant",
+                                                        currentAnswer,
+                                                        finalAgentId,
+                                                        null));
                         if (replacedAssistantId != null) {
                                 messages.deleteById(replacedAssistantId);
                         }
