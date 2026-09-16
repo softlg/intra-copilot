@@ -522,6 +522,46 @@ body.copilot-panel-resizing * {
   font-weight: 650;
 }
 
+.copilot-message.is-pending {
+  opacity: 0.85;
+}
+
+.copilot-thinking {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.copilot-thinking span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-text);
+  animation: copilot-thinking-pulse 1.2s ease-in-out infinite;
+}
+
+.copilot-thinking span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.copilot-thinking span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes copilot-thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
 .copilot-assistant-details {
   display: grid;
   gap: 10px;

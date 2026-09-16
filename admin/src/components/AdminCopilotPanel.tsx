@@ -120,7 +120,7 @@ const copy = {
     sessionsDeleted: "已删除 {count} 个会话。",
     inputPlaceholder: "描述你想修改的内容，或直接粘贴报错信息…",
     send: "发送",
-    sending: "分析中…",
+    thinking: "正在思考…",
     createSession: "新建会话",
     applyPatch: "应用到当前表单",
     patchApplied: "建议已应用到当前表单，请检查后保存。",
@@ -212,7 +212,7 @@ const copy = {
     inputPlaceholder:
       "Describe the change, paste an error, or explain what the Agent should do…",
     send: "Send",
-    sending: "Analyzing…",
+    thinking: "Thinking…",
     createSession: "Create session",
     applyPatch: "Apply to current form",
     patchApplied: "Suggestion applied to the form. Review and save it.",
@@ -568,6 +568,8 @@ export function AdminCopilotPanel({
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [pendingUserMessage, setPendingUserMessage] = useState<string>();
+  const pendingMessageRef = useRef<HTMLDivElement>(null);
   const [applyingProposalId, setApplyingProposalId] = useState<string>();
   const [panelError, setPanelError] = useState("");
   const [validationReport, setValidationReport] =
@@ -693,6 +695,11 @@ export function AdminCopilotPanel({
     void loadValidationHistory(currentAgentId);
   }, [currentAgentId]);
 
+  useEffect(() => {
+    if (!pendingUserMessage) return;
+    pendingMessageRef.current?.scrollIntoView({ block: "nearest" });
+  }, [pendingUserMessage, activeSession?.messages.length]);
+
   const loadSessions = async () => {
     try {
       const values = await listCopilotSessions();
@@ -814,23 +821,31 @@ export function AdminCopilotPanel({
     if (!content || sending) return;
     setSending(true);
     setPanelError("");
+    setMessage("");
+    setPendingUserMessage(content);
     try {
       let session = activeSession;
       if (!session || session.mode !== mode) {
         session = await startSession();
       }
-      if (!session) return;
+      if (!session) {
+        setMessage(content);
+        setPendingUserMessage(undefined);
+        return;
+      }
       await respondCopilot(
         session.id,
         content,
         currentAgentId,
         currentAgentContext,
       );
-      setMessage("");
+      setPendingUserMessage(undefined);
       await loadSession(session.id);
       await loadSessions();
     } catch (error) {
       setPanelError(errorMessage(error, text.error));
+      setMessage(content);
+      setPendingUserMessage(undefined);
     } finally {
       setSending(false);
     }
@@ -1296,6 +1311,26 @@ export function AdminCopilotPanel({
                     })()}
                 </article>
               ))}
+              {pendingUserMessage && (
+                <div ref={pendingMessageRef}>
+                  <article className="copilot-message is-user">
+                    <span className="copilot-message-role">Admin</span>
+                    <p>{pendingUserMessage}</p>
+                  </article>
+                  <article
+                    aria-busy="true"
+                    className="copilot-message is-assistant is-pending"
+                  >
+                    <span className="copilot-message-role">{text.title}</span>
+                    <p className="copilot-thinking">
+                      <span aria-hidden="true" />
+                      <span aria-hidden="true" />
+                      <span aria-hidden="true" />
+                      {text.thinking}
+                    </p>
+                  </article>
+                </div>
+              )}
             </div>
 
             {view === "build" && latestAssistantPayload && (
@@ -1365,7 +1400,11 @@ export function AdminCopilotPanel({
                 onKeyDown={(event) => {
                   if (
                     event.key === "Enter" &&
-                    (event.ctrlKey || event.metaKey)
+                    !event.shiftKey &&
+                    !event.altKey &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.nativeEvent.isComposing
                   ) {
                     event.preventDefault();
                     void send();
@@ -1377,7 +1416,7 @@ export function AdminCopilotPanel({
                 onClick={() => void send()}
                 disabled={sending || !message.trim()}
               >
-                {sending ? text.sending : text.send}
+                {text.send}
               </button>
             </div>
           </div>
