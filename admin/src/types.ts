@@ -402,8 +402,21 @@ export type ConversationAttachment = {
 
 export type ConversationInvocation = {
   id: string;
+  conversationId?: string;
+  correlationId?: string;
+  traceId?: string;
+  turnId?: string;
+  attemptNo?: number;
+  requestId?: string;
+  parentInvocationId?: string;
+  parentSpanId?: string;
+  spanType?: string;
+  sequence?: number;
+  depth?: number;
+  agentRole?: string;
   requestedAgentId?: string;
   selectedAgentId?: string;
+  decisionMode?: string;
   routeReason?: string;
   confidence?: number;
   routeSource?: string;
@@ -411,7 +424,13 @@ export type ConversationInvocation = {
   contextSent?: string;
   responseContent?: string;
   clientIp?: string;
+  status?: string;
+  errorCode?: string;
+  inputTokens?: number;
+  outputTokens?: number;
   agentVersion?: number;
+  startedAt?: string;
+  completedAt?: string;
   durationMs?: number;
   error?: string;
   createdAt?: string;
@@ -420,6 +439,13 @@ export type ConversationInvocation = {
 export type ConversationInvocationEvent = {
   id: string;
   invocationId?: string;
+  correlationId?: string;
+  traceId?: string;
+  turnId?: string;
+  attemptNo?: number;
+  spanId?: string;
+  parentEventId?: string;
+  causationEventId?: string;
   planId?: string;
   planStepId?: string;
   eventType: string;
@@ -428,12 +454,53 @@ export type ConversationInvocationEvent = {
   payload?: Record<string, unknown> | null;
   durationMs?: number;
   sequence?: number;
+  sequenceGlobal?: number;
   createdAt?: string;
 };
 
 export type ConversationInvocationTrace = {
   invocation: ConversationInvocation;
   events: ConversationInvocationEvent[];
+};
+
+export type ConversationPlanDecision = {
+  eventId: string;
+  status?: string;
+  name?: string;
+  durationMs?: number;
+  createdAt?: string;
+  mode?: string;
+  reason?: string;
+  required?: boolean;
+  repaired?: boolean;
+  inputTokens?: number;
+  outputTokens?: number;
+};
+
+export type ConversationInvocationNode = {
+  invocation: ConversationInvocation;
+  events: ConversationInvocationEvent[];
+  children: ConversationInvocationNode[];
+  durationMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+};
+
+export type ConversationTraceTree = {
+  traceId: string;
+  turnId?: string;
+  attemptNo?: number;
+  requestId?: string;
+  status: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs: number;
+  agentCount: number;
+  eventCount: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  roots: ConversationInvocationNode[];
+  planDecisions: ConversationPlanDecision[];
 };
 
 export type ConversationPlanStep = {
@@ -492,6 +559,9 @@ export type ConversationLog = {
   }[];
   invocations: ConversationInvocation[];
   invocationTraces?: ConversationInvocationTrace[];
+  traces?: ConversationTraceTree[];
+  events?: ConversationInvocationEvent[];
+  totalDurationMs?: number;
   plans?: ConversationPlan[];
   actions: {
     actionId: string;

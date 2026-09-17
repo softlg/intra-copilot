@@ -550,6 +550,8 @@ public class RouterAdminController {
             details.put("modelOutput", preview.plannerRawOutput());
             details.put("durationMs", preview.plannerDurationMs());
             details.put("repaired", preview.repaired());
+            details.put("inputTokens", preview.inputTokens());
+            details.put("outputTokens", preview.outputTokens());
         }
         return details;
     }

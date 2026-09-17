@@ -4173,6 +4173,161 @@ button.conversation-log-attachment-download:hover {
   background: var(--brand-surface);
 }
 
+.conversation-timeline-entry.trace .conversation-timeline-marker {
+  border-color: var(--accent);
+  background: var(--brand-surface);
+  color: var(--brand-surface-text);
+}
+
+.conversation-trace-card {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.conversation-trace-identity {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.conversation-trace-identity code {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: var(--control-bg);
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-trace-plan {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.conversation-trace-plan > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.conversation-trace-plan > small {
+  color: var(--muted);
+}
+
+.conversation-trace-plan-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.conversation-trace-plan-item strong {
+  color: var(--accent);
+}
+
+.conversation-trace-plan-item small {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.conversation-trace-tree {
+  display: grid;
+  gap: 8px;
+}
+
+.conversation-trace-node {
+  min-width: 0;
+}
+
+.conversation-trace-node-card {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-trace-node-card:hover,
+.conversation-trace-node-card.selected {
+  border-color: var(--accent);
+  background: var(--brand-surface);
+}
+
+.conversation-trace-node-card.status-completed {
+  border-left-color: var(--success);
+}
+
+.conversation-trace-node-card.status-running {
+  border-left-color: var(--accent);
+}
+
+.conversation-trace-node-card.status-failed {
+  border-left-color: var(--danger-soft);
+}
+
+.conversation-trace-node-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.conversation-trace-node-meta > strong {
+  overflow-wrap: anywhere;
+}
+
+.conversation-trace-node-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.conversation-trace-children {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0 16px;
+  padding-left: 14px;
+  border-left: 1px dashed var(--border-strong);
+}
+
+.conversation-chip.trace-status-completed {
+  color: var(--success);
+}
+
+.conversation-chip.trace-status-running {
+  color: var(--accent);
+}
+
+.conversation-chip.trace-status-failed,
+.conversation-chip.trace-status-rejected {
+  color: var(--danger-soft);
+}
+
 .conversation-timeline-entry.plan .conversation-timeline-marker {
   border-color: var(--success);
   color: var(--success);
@@ -4613,6 +4768,96 @@ button.conversation-log-attachment-download:hover {
 .conversation-inspector-section.error h5,
 .conversation-inspector-section.error p {
   color: var(--danger-soft);
+}
+
+.conversation-event-list {
+  display: grid;
+  gap: 7px;
+}
+
+.conversation-event-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.conversation-event-card > summary {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  padding: 9px;
+  cursor: pointer;
+}
+
+.conversation-event-type {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.conversation-event-type strong {
+  overflow-wrap: anywhere;
+}
+
+.conversation-event-meta,
+.conversation-event-links {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.conversation-event-links {
+  padding: 0 9px 8px;
+}
+
+.conversation-event-links code {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-event-card > pre {
+  max-height: 280px;
+  margin: 0 9px 9px;
+  padding: 9px;
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .conversation-trace-identity {
+    display: grid;
+  }
+
+  .conversation-trace-identity code {
+    width: 100%;
+  }
+
+  .conversation-trace-children {
+    margin-left: 6px;
+    padding-left: 9px;
+  }
+
+  .conversation-trace-node-card {
+    padding: 9px;
+  }
+
+  .conversation-event-card > summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .conversation-route-trail {

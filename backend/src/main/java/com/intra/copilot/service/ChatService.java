@@ -153,18 +153,57 @@ public class ChatService {
                                 new ArrayList<>(all.subList(0, lastUserIndex)), true, replacedAssistantId);
         }
 
+        private TraceAttempt resolveTraceAttempt(String conversationId, boolean retry) {
+                AgentInvocation previous =
+                                retry ? invocations.findLatestByConversationId(conversationId) : null;
+                if (previous != null
+                                && previous.getTurnId() != null
+                                && !previous.getTurnId().isBlank()) {
+                        int previousAttempt =
+                                        previous.getAttemptNo() == null ? 1 : previous.getAttemptNo();
+                        return new TraceAttempt(
+                                        EntityIdGenerator.next("TR"),
+                                        previous.getTurnId(),
+                                        previousAttempt + 1);
+                }
+                return new TraceAttempt(EntityIdGenerator.next("TR"), EntityIdGenerator.next("TN"), 1);
+        }
+
         record RetryContext(List<Message> history, boolean reuseUserMessage, String replacedAssistantId) {}
+
+        record TraceAttempt(String traceId, String turnId, int attemptNo) {}
 
         record LoopError(String code, String userMessage) {}
 
-        record ModelReply(String content, boolean streamed) {}
+        record ModelReply(
+                String content,
+                boolean streamed,
+                Integer inputTokens,
+                Integer outputTokens,
+                String model) {}
 
         /** 一轮带原生 function calling 的模型回复：聚合文本 + 模型下发的 tool_calls（若有）。 */
-        record ToolAwareReply(String content, List<AssistantMessage.ToolCall> toolCalls, boolean streamed) {}
+        record ToolAwareReply(
+                String content,
+                List<AssistantMessage.ToolCall> toolCalls,
+                boolean streamed,
+                Integer inputTokens,
+                Integer outputTokens,
+                String model) {}
 
-        record ReActResult(String content, String lastReply, boolean streamed) {}
+        record ReActResult(
+                String content,
+                String lastReply,
+                boolean streamed,
+                Integer inputTokens,
+                Integer outputTokens) {}
 
-        record PlanRunResult(String content, String lastReply, boolean streamed) {}
+        record PlanRunResult(
+                String content,
+                String lastReply,
+                boolean streamed,
+                Integer inputTokens,
+                Integer outputTokens) {}
 
         /** Classify model failures for both persistence and the user-facing SSE event. */
         static LoopError classifyLoopError(Throwable error) {
@@ -370,10 +409,40 @@ public class ChatService {
                         List<String> attachmentIds,
                         boolean retry,
                         String clientIp) {
+                return chat(
+                                callerSource,
+                                callerUserId,
+                                sessionId,
+                                text,
+                                requestedAgent,
+                                pageContext,
+                                permissions,
+                                attachmentIds,
+                                retry,
+                                clientIp,
+                                null);
+        }
+
+        public SseEmitter chat(
+                        String callerSource,
+                        String callerUserId,
+                        String sessionId,
+                        String text,
+                        String requestedAgent,
+                        String pageContext,
+                        Map<String, Boolean> permissions,
+                        List<String> attachmentIds,
+                        boolean retry,
+                        String clientIp,
+                        String requestId) {
                 SseEmitter out = new SseEmitter(sseTimeoutMs);
                 AtomicBoolean finished = new AtomicBoolean(false);
                 out.onCompletion(() -> finished.set(true));
                 out.onTimeout(() -> finished.set(true));
+                String effectiveRequestId =
+                                requestId == null || requestId.isBlank()
+                                                ? EntityIdGenerator.next("RQ")
+                                                : requestId.strip();
 
                 ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(r -> {
                         Thread t = new Thread(r, "sse-hb-" + Integer.toHexString(System.identityHashCode(out)));
@@ -408,7 +477,8 @@ public class ChatService {
                                                                                 permissions,
                                                                                 attachmentIds,
                                                                                 retry,
-                                                                                clientIp);
+                                                                                clientIp,
+                                                                                effectiveRequestId);
                                                         } catch (Throwable error) {
                                                                 handleUnhandledStreamError(out, finished, error);
                                                         } finally {
@@ -421,6 +491,7 @@ public class ChatService {
                                                                         heartbeat.shutdownNow();
                                                                 } catch (Exception ignored) {
                                                                 }
+                                                                TraceContext.clear();
                                                         }
                                                 }),
                                 "chat-" + Integer.toHexString(System.identityHashCode(out)));
@@ -441,7 +512,8 @@ public class ChatService {
                         Map<String, Boolean> permissions,
                         List<String> attachmentIds,
                         boolean retry,
-                        String clientIp) {
+                        String clientIp,
+                        String requestId) {
                 Conversation c;
                 if (sessionId == null || sessionId.isBlank()) {
                         c = create(callerSource, callerUserId);
@@ -451,6 +523,14 @@ public class ChatService {
                 boolean readPage =
                                 Boolean.TRUE.equals(permissions == null ? null : permissions.get("readPage"));
                 boolean autoRoute = requestedAgent == null || requestedAgent.isBlank();
+                TraceAttempt traceAttempt = resolveTraceAttempt(c.getId(), retry);
+                TraceContext.open(
+                                traceAttempt.traceId(),
+                                traceAttempt.turnId(),
+                                traceAttempt.attemptNo(),
+                                requestId,
+                                null);
+                emitStage(out, finished, "analyzing", "正在分析问题…");
                 List<Message> fullHistory = history(callerSource, callerUserId, c.getId());
                 RetryContext retryContext =
                                 retry
@@ -472,6 +552,8 @@ public class ChatService {
                                                                 })
                                                 .toList();
                 final List<String> images = sanitizeImages(attachments.imageDataUrls(attachmentIds));
+                long turnStarted = System.nanoTime();
+                Instant turnStartedAt = Instant.now();
                 long routeStarted = System.nanoTime();
                 // 路由与委派阶段的追踪回调：把中间状态写入 agent_invocation_event。
                 RouteTrace routeTrace = new RouteTrace();
@@ -583,9 +665,15 @@ public class ChatService {
                                                 : null;
                 AgentInvocation invocation = new AgentInvocation();
                 invocation.setConversationId(c.getId());
-                invocation.setCorrelationId(EntityIdGenerator.next("TR"));
+                invocation.setCorrelationId(traceAttempt.traceId());
+                invocation.setTraceId(traceAttempt.traceId());
+                invocation.setTurnId(traceAttempt.turnId());
+                invocation.setAttemptNo(traceAttempt.attemptNo());
+                invocation.setRequestId(requestId);
+                invocation.setSpanType("AGENT");
                 invocation.setSequence(1);
                 invocation.setDepth(1);
+                invocation.setStartedAt(turnStartedAt);
                 invocation.setAgentRole(routeAgent instanceof ConfigurableAgent configurable
                                 ? configurable.definition().getRole() : "MAIN");
                 invocation.setDecisionMode(delegation.mode());
@@ -605,15 +693,41 @@ public class ChatService {
                 invocations.save(invocation);
                 String correlationId = invocation.getCorrelationId();
                 String invocationId = invocation.getId();
+                TraceContext.setSpanId(invocationId);
+                trace.event(invocationId, correlationId, TraceRecorder.Type.AGENT_START)
+                                .name("Agent 开始执行")
+                                .status("RUNNING")
+                                .put("agentId", routeAgent.id())
+                                .put("agentRole", invocation.getAgentRole())
+                                .put("decisionMode", invocation.getDecisionMode())
+                                .save();
                 recordRouteEvents(invocationId, correlationId, routing, routeTrace, routeDuration, requestedAgent, text, permissions);
+                recordDelegationEvents(
+                                invocationId,
+                                correlationId,
+                                delegation,
+                                delegationTrace,
+                                readPage,
+                                pageContext);
                 AgentInvocation childInvocation = null;
+                long childStarted = 0L;
+                Instant childStartedAt = null;
                 if (delegation.delegated() && agent != routeAgent) {
+                        childStarted = System.nanoTime();
+                        childStartedAt = Instant.now();
                         childInvocation = new AgentInvocation();
                         childInvocation.setConversationId(c.getId());
                         childInvocation.setCorrelationId(correlationId);
+                        childInvocation.setTraceId(traceAttempt.traceId());
+                        childInvocation.setTurnId(traceAttempt.turnId());
+                        childInvocation.setAttemptNo(traceAttempt.attemptNo());
+                        childInvocation.setRequestId(requestId);
                         childInvocation.setParentInvocationId(invocationId);
+                        childInvocation.setParentSpanId(invocationId);
+                        childInvocation.setSpanType("AGENT");
                         childInvocation.setSequence(2);
                         childInvocation.setDepth(2);
+                        childInvocation.setStartedAt(childStartedAt);
                         childInvocation.setAgentRole(agent instanceof ConfigurableAgent configurable
                                         ? configurable.definition().getRole() : "SUB");
                         childInvocation.setDecisionMode("DIRECT");
@@ -630,7 +744,13 @@ public class ChatService {
                         childInvocation.setAttachments(safeJson(attachmentIds));
                         applyResourceSnapshot(childInvocation, executeDefinition);
                         invocations.save(childInvocation);
-                        recordDelegationEvents(childInvocation.getId(), correlationId, delegation, delegationTrace, readPage, pageContext);
+                        trace.event(childInvocation.getId(), correlationId, TraceRecorder.Type.AGENT_START)
+                                        .name("子 Agent 开始执行")
+                                        .status("RUNNING")
+                                        .put("agentId", agent.id())
+                                        .put("agentRole", childInvocation.getAgentRole())
+                                        .put("parentAgentId", routeAgent.id())
+                                        .save();
                 }
                 if (!retryContext.reuseUserMessage()) {
                         Message userMessage = new Message(
@@ -647,24 +767,29 @@ public class ChatService {
                                         SseEmitter.event()
                                                         .name("agent_selected")
                                                         .data(
-                                                                        Map.of(
+                                                                        TraceContext.eventData(
+                                                                                        Map.of(
                                                                                         "agentId", routing.selectedAgentId(),
                                                                                         "displayName", agent.displayName(),
                                                                                         "needsClarification", routing.needsClarification(),
                                                                                         "confidence", routing.confidence(),
                                                                                         "reason", routing.reason(),
-                                                                                        "routeSource", routing.routeSource())));
+                                                                                        "routeSource", routing.routeSource()))));
                         if (delegation.delegated()) {
-                                out.send(SseEmitter.event().name("delegation_decided").data(Map.of(
+                                out.send(SseEmitter.event().name("delegation_decided").data(
+                                                TraceContext.eventData(
+                                                                Map.of(
                                                 "parentAgentId", routeAgent.id(),
                                                 "childAgentId", agent.id(),
                                                 "mode", delegation.mode(),
                                                 "reason", delegation.reason(),
-                                                "confidence", delegation.confidence())));
-                                out.send(SseEmitter.event().name("context_forwarded").data(Map.of(
+                                                "confidence", delegation.confidence()))));
+                                out.send(SseEmitter.event().name("context_forwarded").data(
+                                                TraceContext.eventData(
+                                                                Map.of(
                                                 "parentAgentId", routeAgent.id(),
                                                 "childAgentId", agent.id(),
-                                                "contextIncluded", readPage && pageContext != null && !pageContext.isBlank())));
+                                                "contextIncluded", readPage && pageContext != null && !pageContext.isBlank()))));
                         }
                 } catch (IOException ignored) {
                 }
@@ -709,7 +834,15 @@ public class ChatService {
                         invocation.setStatus("REJECTED");
                         invocation.setErrorCode("HOOK_REJECTED");
                         invocation.setDurationMs((System.nanoTime() - routeStarted) / 1_000_000L);
+                        invocation.setCompletedAt(Instant.now());
                         invocations.save(invocation);
+                        trace.event(invocationId, correlationId, TraceRecorder.Type.AGENT_END)
+                                        .name("Agent 被 Hook 拦截")
+                                        .status("REJECTED")
+                                        .duration(invocation.getDurationMs())
+                                        .put("errorCode", "HOOK_REJECTED")
+                                        .put("message", hookResult.message())
+                                        .save();
                         trace.event(invocationId, correlationId, TraceRecorder.Type.REJECTED)
                                         .name("Hook 拦截，请求被拒绝")
                                         .status("REJECTED")
@@ -720,18 +853,39 @@ public class ChatService {
                         if (childInvocation != null) {
                                 childInvocation.setStatus("REJECTED");
                                 childInvocation.setErrorCode("HOOK_REJECTED");
+                                childInvocation.setDurationMs((System.nanoTime() - childStarted) / 1_000_000L);
+                                childInvocation.setCompletedAt(Instant.now());
                                 invocations.save(childInvocation);
+                                AgentInvocationEvent childRejected =
+                                                trace.event(
+                                                                                childInvocation.getId(),
+                                                                                correlationId,
+                                                                                TraceRecorder.Type.AGENT_END)
+                                                        .name("子 Agent 被 Hook 拦截")
+                                                        .status("REJECTED")
+                                                        .duration(childInvocation.getDurationMs())
+                                                        .put("errorCode", "HOOK_REJECTED")
+                                                        .put("message", hookResult.message())
+                                                        .save();
+                                trace.event(invocationId, correlationId, TraceRecorder.Type.CHILD_RETURN)
+                                                .name("子 Agent 返回拒绝")
+                                                .status("REJECTED")
+                                                .causedBy(childRejected.getId())
+                                                .put("childInvocationId", childInvocation.getId())
+                                                .put("message", hookResult.message())
+                                                .save();
                         }
                         try {
                                 out.send(
                                                 SseEmitter.event()
                                                                 .name("error")
                                                                 .data(
-                                                                                Map.of(
+                                                                                TraceContext.eventData(
+                                                                                        Map.of(
                                                                                                 "code", "HOOK_REJECTED",
                                                                                                 "hookId", hookResult.hookId() == null ? "" : hookResult.hookId(),
                                                                                                 "hookName", hookResult.hookName() == null ? "" : hookResult.hookName(),
-                                                                                                "message", hookResult.message())));
+                                                                                                "message", hookResult.message()))));
                                 out.complete();
                         } catch (IOException error) {
                                 out.completeWithError(error);
@@ -756,10 +910,10 @@ public class ChatService {
                                         trace.event(targetInvocationId, correlationId, TraceRecorder.Type.RAG_RETRIEVE)
                                                         .name("知识库检索")
                                                         .status("OK")
+                                                        .duration(ragDuration)
                                                         .put("knowledgeBaseIds", kbIds)
                                                         .put("query", text)
                                                         .put("topK", ragTopK)
-                                                        .put("durationMs", ragDuration)
                                                         .put("hitCount", sources.size())
                                                         .put("hits", sources.stream()
                                                                         .map(source -> Map.of(
@@ -790,27 +944,14 @@ public class ChatService {
                                                 .save();
                         }
                 }
-                // 记录即将发送给模型的最终请求内容（含浏览器上下文与检索片段）。
-                trace.event(targetInvocationId, correlationId, TraceRecorder.Type.LLM_REQUEST)
-                                .name("模型调用请求")
-                                .status("OK")
-                                .put("agentId", agent.id())
-                                .put("agentVersion", agentVersion(agent))
-                                .put("systemPrompt", agent.systemPrompt())
-                                .put("systemPromptLength", agent.systemPrompt() == null ? 0 : agent.systemPrompt().length())
-                                .put("historySize", h.size())
-                                .put("finalInput", enriched)
-                                .put("finalInputLength", enriched.length())
-                                .put("pageContextIncluded", readPage && pageContext != null && !pageContext.isBlank())
-                                .put("imageCount", images.size())
-                                .save();
         // 历史长度预算（P2）：粗略按字符数估算 token，超过预算则丢弃最旧的若干条，至少保留最近 4 条。
         List<Map<String, String>> baseHistory = new ArrayList<>(budgetHistory(h, maxHistoryTokens * 4));
 
         runReActLoop(out, finished, c, invocation, childInvocation,
                         correlationId, invocationId, agent, routeAgent,
                         delegation, baseHistory, text, enriched, images,
-                        targetInvocationId, retryContext.replacedAssistantId(), routeStarted);
+                        targetInvocationId, retryContext.replacedAssistantId(),
+                        turnStarted, childStarted);
         }
 
         /** 收集路由阶段的中间状态，稍后一次性落库为事件。 */
@@ -887,6 +1028,13 @@ public class ChatService {
         private String preview(String content) {
                 if (content == null) return "";
                 return content.length() <= 200 ? content : content.substring(0, 200) + "...";
+        }
+
+        private String traceText(String content, int maxLength) {
+                if (content == null) return "";
+                return content.length() <= maxLength
+                                ? content
+                                : content.substring(0, maxLength) + "\n...[truncated]";
         }
 
         private String safeJson(List<String> attachmentIds) {
@@ -1028,15 +1176,19 @@ public class ChatService {
                         List<Map<String, String>> history,
                         String user,
                         List<String> images) {
-                if (finished.get()) return new ModelReply("", false);
+                if (finished.get()) return new ModelReply("", false, null, null, null);
                 StringBuilder full = new StringBuilder();
                 AtomicBoolean streamed = new AtomicBoolean(false);
+                AtomicReference<ChatResponse> lastResponse = new AtomicReference<>();
                 StreamingReplyEmitter emitter =
                                 streamToUser ? new StreamingReplyEmitter(out, finished) : null;
                 try {
-                        llm.stream(system, history, user, images)
+                        llm.streamResponses(system, history, user, images)
                                         .doOnNext(
-                                                        chunk -> {
+                                                        response -> {
+                                                                if (response == null) return;
+                                                                lastResponse.set(response);
+                                                                String chunk = textOf(response);
                                                                 if (chunk == null || chunk.isEmpty()) return;
                                                                 full.append(chunk);
                                                                 if (emitter != null && emitter.accept(chunk)) {
@@ -1048,10 +1200,17 @@ public class ChatService {
                                         .orElse(List.of());
                 } finally {
                         if (emitter != null && emitter.finish()) {
-                                streamed.set(true);
+                                        streamed.set(true);
                         }
                 }
-                return new ModelReply(full.toString(), streamed.get());
+                ChatResponse response = lastResponse.get();
+                var usage = LlmClient.usageOf(response);
+                return new ModelReply(
+                                full.toString(),
+                                streamed.get(),
+                                usage == null ? null : usage.getPromptTokens(),
+                                usage == null ? null : usage.getCompletionTokens(),
+                                LlmClient.modelOf(response));
         }
 
         /**
@@ -1069,10 +1228,11 @@ public class ChatService {
                         String user,
                         List<String> images,
                         ToolCallback... callbacks) {
-                if (finished.get()) return new ToolAwareReply("", List.of(), false);
+                if (finished.get()) return new ToolAwareReply("", List.of(), false, null, null, null);
                 StringBuilder full = new StringBuilder();
                 List<AssistantMessage.ToolCall> toolCalls = new ArrayList<>();
                 AtomicBoolean streamed = new AtomicBoolean(false);
+                AtomicReference<ChatResponse> lastResponse = new AtomicReference<>();
                 StreamingReplyEmitter emitter =
                                 streamToUser ? new StreamingReplyEmitter(out, finished) : null;
                 try {
@@ -1080,6 +1240,7 @@ public class ChatService {
                                 .doOnNext(
                                                 response -> {
                                                         if (response == null) return;
+                                                        lastResponse.set(response);
                                                         String text = textOf(response);
                                                         if (text != null && !text.isBlank()) {
                                                                 full.append(text);
@@ -1101,10 +1262,18 @@ public class ChatService {
                                 .orElse(List.of());
                 } finally {
                         if (emitter != null && emitter.finish()) {
-                                streamed.set(true);
+                                        streamed.set(true);
                         }
                 }
-                return new ToolAwareReply(full.toString(), List.copyOf(toolCalls), streamed.get());
+                ChatResponse response = lastResponse.get();
+                var usage = LlmClient.usageOf(response);
+                return new ToolAwareReply(
+                                full.toString(),
+                                List.copyOf(toolCalls),
+                                streamed.get(),
+                                usage == null ? null : usage.getPromptTokens(),
+                                usage == null ? null : usage.getCompletionTokens(),
+                                LlmClient.modelOf(response));
         }
 
         private String textOf(ChatResponse response) {
@@ -1123,7 +1292,10 @@ public class ChatService {
                         // 用 JSON 信封包裹正文增量：Jackson 会把换行/空格/引号等正确转义为
                         // 合法单行 JSON，从根本上避免裸文本塞进 data: 时破坏 SSE 帧（换行被当
                         // 成事件分隔符、行首空格被前端正则吞掉），保证前端拼接回的内容逐字符一致。
-                        out.send(SseEmitter.event().name("token").data(Map.of("text", chunk)));
+                        out.send(
+                                SseEmitter.event()
+                                        .name("token")
+                                        .data(TraceContext.eventData(Map.of("text", chunk))));
                         return true;
                 } catch (IOException error) {
                         finished.set(true);
@@ -1138,7 +1310,9 @@ public class ChatService {
                         out.send(
                                         SseEmitter.event()
                                                 .name("stage")
-                                                .data(Map.of("key", key, "message", message)));
+                                                .data(
+                                                        TraceContext.eventData(
+                                                                Map.of("key", key, "message", message))));
                         return true;
                 } catch (IOException error) {
                         finished.set(true);
@@ -1162,7 +1336,11 @@ public class ChatService {
                         out.send(
                                         SseEmitter.event()
                                                 .name("error")
-                                                .data(Map.of("code", loopError.code(), "message", loopError.userMessage())));
+                                                .data(
+                                                        TraceContext.eventData(
+                                                                Map.of(
+                                                                        "code", loopError.code(),
+                                                                        "message", loopError.userMessage()))));
                 } catch (IOException ignored) {
                 } finally {
                         out.complete();
@@ -1214,7 +1392,8 @@ public class ChatService {
                         List<String> images,
                         String targetInvocationId,
                         String replacedAssistantId,
-                        long routeStarted) {
+                        long turnStarted,
+                        long childStarted) {
                 try {
                         // 1) 从已发布版本构建有效 system prompt；编辑中的草稿不会影响线上会话。
                         String baseSystemPrompt =
@@ -1305,46 +1484,60 @@ public class ChatService {
                                                         .map(toolExecutor::resolveById)
                                                         .filter(Objects::nonNull)
                                                         .toList();
-                        PlanningService.PlanExecution planExecution = null;
-                        boolean planningRequested =
-                                        planningDefinition != null
-                                                        && planningService.shouldPlan(
-                                                                        planningDefinition,
-                                                                        planningUserInput,
-                                                                        availableTools);
-                        if (planningRequested && !finished.get()) {
-                                emitStage(out, finished, "planning", "正在制定执行计划…");
-                                long planningStarted = System.nanoTime();
-                                planExecution =
-                                                planningService
-                                                        .createPlan(
-                                                                planningDefinition,
-                                                                conversation.getId(),
-                                                                targetInvocationId,
-                                                                correlationId,
-                                                                routeAgent.id(),
-                                                                planningUserInput,
-                                                                userInput,
-                                                                baseHistory,
-                                                                availableTools)
-                                                        .orElse(null);
-                                if (planExecution == null) {
-                                        long planningDurationMs =
-                                                        (System.nanoTime() - planningStarted) / 1_000_000L;
+                        PlanningService.PlanOutcome planOutcome =
+                                        planningService.createPlanOutcome(
+                                                planningDefinition,
+                                                conversation.getId(),
+                                                targetInvocationId,
+                                                correlationId,
+                                                routeAgent.id(),
+                                                planningUserInput,
+                                                userInput,
+                                                baseHistory,
+                                                availableTools);
+                        PlanningService.PlanExecution planExecution =
+                                        planOutcome.execution().orElse(null);
+                        String planDecisionStatus =
+                                        planExecution != null
+                                                        ? "TRIGGERED"
+                                                        : planOutcome.execution().isEmpty()
+                                                                        && planOutcome.plannerDurationMs() > 0
+                                                                                ? "FAILED"
+                                                                                : "SKIPPED";
+                        var planDecisionEvent =
                                         trace.event(
+                                                                        targetInvocationId,
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.PLAN_DECISION)
+                                                        .name("规划决策")
+                                                        .status(planDecisionStatus)
+                                                        .duration(planOutcome.plannerDurationMs())
+                                                        .put("required", planExecution != null)
+                                                        .put("mode", planOutcome.mode())
+                                                        .put("reason", planOutcome.reason())
+                                                        .put("repaired", planOutcome.repaired())
+                                                        .put("plannerRequest", planOutcome.plannerRequest())
+                                                        .put("plannerRawOutput", planOutcome.plannerRawOutput())
+                                                        .put("inputTokens", planOutcome.inputTokens())
+                                                        .put("outputTokens", planOutcome.outputTokens())
+                                                        .save();
+                        if (planExecution != null) {
+                                emitStage(out, finished, "planning", "正在制定执行计划…");
+                        } else if ("FAILED".equals(planDecisionStatus)) {
+                                trace.event(
                                                                         targetInvocationId,
                                                                         correlationId,
                                                                         TraceRecorder.Type.PLAN_FAILED)
                                                 .name("执行计划生成失败，已降级为 ReAct")
                                                 .status("DEGRADED")
-                                                .duration(planningDurationMs)
+                                                .duration(planOutcome.plannerDurationMs())
+                                                .causedBy(planDecisionEvent.getId())
                                                 .put("stage", "PLANNING")
                                                 .put("fallback", "REACT")
-                                                .put(
-                                                        "message",
-                                                        "规划模型未返回符合约束的计划，系统已继续执行普通推理")
+                                                .put("message", planOutcome.reason())
+                                                .put("inputTokens", planOutcome.inputTokens())
+                                                .put("outputTokens", planOutcome.outputTokens())
                                                 .save();
-                                }
                         }
                         PlanRunResult planRun;
                         if (planExecution != null) {
@@ -1382,11 +1575,32 @@ public class ChatService {
                                                         null,
                                                         null,
                                                         !delegatedSummary);
-                                planRun = new PlanRunResult(direct.content(), direct.lastReply(), direct.streamed());
+                                planRun =
+                                                new PlanRunResult(
+                                                                direct.content(),
+                                                                direct.lastReply(),
+                                                                direct.streamed(),
+                                                                direct.inputTokens(),
+                                                                direct.outputTokens());
+                        }
+                        if (planExecution != null) {
+                                planRun =
+                                                new PlanRunResult(
+                                                                planRun.content(),
+                                                                planRun.lastReply(),
+                                                                planRun.streamed(),
+                                                                sumTokens(
+                                                                                planRun.inputTokens(),
+                                                                                planOutcome.inputTokens()),
+                                                                sumTokens(
+                                                                                planRun.outputTokens(),
+                                                                                planOutcome.outputTokens()));
                         }
                         String currentAnswer = planRun.content();
                         String lastReply = planRun.lastReply();
                         boolean answerStreamed = planRun.streamed();
+                        Integer childInputTokens = planRun.inputTokens();
+                        Integer childOutputTokens = planRun.outputTokens();
 
                         // 3) DOMAIN_SUMMARY：领域 Agent 对子 Agent 结果做二次总结（原本被吞掉，这里补上追踪与流式）。
                         if (delegatedSummary) {
@@ -1394,14 +1608,37 @@ public class ChatService {
                                 long summaryStarted = System.nanoTime();
                                 String summary = null;
                                 String summaryError = null;
+                                LlmClient.Completion summaryCompletion = null;
+                                String summaryPrompt = routeAgent.systemPrompt();
+                                String summaryInput =
+                                                "子 Agent 返回结果（仅供参考，不可直接暴露内部调用链）：\n"
+                                                                + currentAnswer
+                                                                + "\n请根据领域边界整理最终答复，使用中文，不要透露内部调用链或 Tool 细节。";
+                                String summarySpan = EntityIdGenerator.next("SP");
+                                AgentInvocationEvent summaryRequest =
+                                                trace.event(
+                                                                        invocationId,
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.LLM_REQUEST)
+                                                                .name("领域 Agent 二次总结请求")
+                                                                .status("RUNNING")
+                                                                .span(summarySpan)
+                                                                .put("returnMode", "DOMAIN_SUMMARY")
+                                                                .put("systemPrompt", summaryPrompt)
+                                                                .put("input", summaryInput)
+                                                                .save();
                                 try {
-                                        summary = llm.complete(
-                                                        routeAgent.systemPrompt(),
-                                                        List.of(),
-                                                        "子 Agent 返回结果（仅供参考，不可直接暴露内部调用链）：\n" + currentAnswer
-                                                                        + "\n请根据领域边界整理最终答复，使用中文，不要透露内部调用链或 Tool 细节。")
-                                                        .blockOptional(Duration.ofSeconds(30))
-                                                        .orElse(null);
+                                        summaryCompletion =
+                                                        llm.completeWithUsage(
+                                                                        summaryPrompt,
+                                                                        List.of(),
+                                                                        summaryInput,
+                                                                        List.of())
+                                                                .blockOptional(Duration.ofSeconds(30))
+                                                                .orElse(null);
+                                        summary = summaryCompletion == null
+                                                        ? null
+                                                        : summaryCompletion.content();
                                 } catch (Exception summaryFailure) {
                                         // 二次总结失败不应拖垮整轮应答：降级为直接透传子 Agent 答案。
                                         summaryError = summaryFailure.getMessage();
@@ -1411,37 +1648,91 @@ public class ChatService {
                                 trace.event(invocationId, correlationId, TraceRecorder.Type.LLM_RESPONSE)
                                                 .name("领域 Agent 二次总结")
                                                 .status(summaryOk ? "OK" : "DEGRADED")
+                                                .duration(summaryMs)
+                                                .span(summarySpan)
+                                                .parentEvent(summaryRequest.getId())
+                                                .causedBy(summaryRequest.getId())
                                                 .put("returnMode", "DOMAIN_SUMMARY")
                                                 .put("summaryOutput", summaryOk ? summary : currentAnswer)
-                                                .put("durationMs", summaryMs)
                                                 .put("fallback", !summaryOk)
                                                 .put("message", summaryError == null ? "" : summaryError)
+                                                .put(
+                                                        "inputTokens",
+                                                        summaryCompletion == null
+                                                                        ? null
+                                                                        : summaryCompletion.inputTokens())
+                                                .put(
+                                                        "outputTokens",
+                                                        summaryCompletion == null
+                                                                        ? null
+                                                                        : summaryCompletion.outputTokens())
                                                 .save();
                                 if (summaryOk) {
                                         currentAnswer = summary;
                                         answerStreamed = false;
                                 }
+                                // 二次总结属于父领域 Agent 自身的模型消耗，不能归到子 Agent 节点。
+                                planRun =
+                                                new PlanRunResult(
+                                                                summaryOk ? summary : planRun.content(),
+                                                                summaryOk ? summary : planRun.lastReply(),
+                                                                summaryOk ? false : planRun.streamed(),
+                                                                summaryCompletion == null
+                                                                                ? null
+                                                                                : summaryCompletion.inputTokens(),
+                                                                summaryCompletion == null
+                                                                                ? null
+                                                                                : summaryCompletion.outputTokens());
                         }
 
                         // 4) 落库子 Agent 结果
                         if (childInvocation != null) {
-                                childInvocation.setResponseContent(lastReply == null ? currentAnswer : lastReply);
+                                String childAnswer = lastReply == null ? currentAnswer : lastReply;
+                                childInvocation.setResponseContent(childAnswer);
                                 childInvocation.setStatus("COMPLETED");
-                                childInvocation.setDurationMs((System.nanoTime() - routeStarted) / 1_000_000L);
+                                childInvocation.setCompletedAt(Instant.now());
+                                long childDuration =
+                                                childStarted > 0
+                                                                ? (System.nanoTime() - childStarted) / 1_000_000L
+                                                                : (System.nanoTime() - turnStarted)
+                                                                                / 1_000_000L;
+                                childInvocation.setDurationMs(childDuration);
+                                childInvocation.setInputTokens(childInputTokens);
+                                childInvocation.setOutputTokens(childOutputTokens);
                                 invocations.save(childInvocation);
-                                trace.event(childInvocation.getId(), correlationId, TraceRecorder.Type.LLM_RESPONSE)
-                                                .name("子 Agent 模型响应")
-                                                .status("OK")
-                                                .put("agentId", agent.id())
-                                                .put("agentVersion", agentVersion(agent))
-                                                .put("content", lastReply == null ? currentAnswer : lastReply)
-                                                .put("contentLength", (lastReply == null ? currentAnswer : lastReply).length())
-                                                .put("durationMs", childInvocation.getDurationMs())
-                                                .save();
-                                trace.event(childInvocation.getId(), correlationId, TraceRecorder.Type.COMPLETED)
-                                                .name("子 Agent 执行完成")
+                                AgentInvocationEvent childReturn =
+                                                trace.event(
+                                                                        childInvocation.getId(),
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.CHILD_RETURN)
+                                                                .name("子 Agent 返回处理结果")
+                                                                .status("COMPLETED")
+                                                                .duration(childDuration)
+                                                                .put("agentId", agent.id())
+                                                                .put("agentVersion", agentVersion(agent))
+                                                                .put("content", childAnswer)
+                                                                .put("contentLength", childAnswer.length())
+                                                                .put("inputTokens", childInputTokens)
+                                                                .put("outputTokens", childOutputTokens)
+                                                                .save();
+                                trace.event(
+                                                                        childInvocation.getId(),
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.AGENT_END)
+                                                                .name("子 Agent 执行完成")
+                                                                .status("COMPLETED")
+                                                                .duration(childDuration)
+                                                                .causedBy(childReturn.getId())
+                                                                .put("inputTokens", childInputTokens)
+                                                                .put("outputTokens", childOutputTokens)
+                                                                .save();
+                                trace.event(invocationId, correlationId, TraceRecorder.Type.CHILD_RETURN)
+                                                .name("接收子 Agent 返回")
                                                 .status("COMPLETED")
-                                                .put("durationMs", childInvocation.getDurationMs())
+                                                .causedBy(childReturn.getId())
+                                                .put("childInvocationId", childInvocation.getId())
+                                                .put("childAgentId", agent.id())
+                                                .put("contentPreview", preview(childAnswer))
                                                 .save();
                         }
 
@@ -1450,7 +1741,7 @@ public class ChatService {
                         }
 
                         // 5) 先落库主 invocation + 消息，避免客户端中途断开导致回复丢失。
-                        long completedMs = (System.nanoTime() - routeStarted) / 1_000_000L;
+                        long completedMs = (System.nanoTime() - turnStarted) / 1_000_000L;
                         String finalAgentId = delegatedSummary && routeAgent != null ? routeAgent.id() : agent.id();
                         invocation.setResponseContent(currentAnswer);
                         persistMessage(
@@ -1466,21 +1757,25 @@ public class ChatService {
                         }
                         invocation.setDurationMs(completedMs);
                         invocation.setStatus("COMPLETED");
+                        invocation.setCompletedAt(Instant.now());
+                        invocation.setInputTokens(planRun.inputTokens());
+                        invocation.setOutputTokens(planRun.outputTokens());
                         invocations.save(invocation);
-                        trace.event(invocationId, correlationId, TraceRecorder.Type.LLM_RESPONSE)
-                                        .name("模型响应")
-                                        .status("OK")
-                                        .put("agentId", finalAgentId)
-                                        .put("agentVersion", agentVersion(agent))
-                                        .put("content", currentAnswer)
-                                        .put("contentLength", currentAnswer.length())
-                                        .put("durationMs", completedMs)
+                        trace.event(invocationId, correlationId, TraceRecorder.Type.AGENT_END)
+                                        .name("Agent 执行完成")
+                                        .status("COMPLETED")
+                                        .duration(completedMs)
+                                        .put("finalAgentId", finalAgentId)
+                                        .put("inputTokens", planRun.inputTokens())
+                                        .put("outputTokens", planRun.outputTokens())
                                         .save();
                         trace.event(invocationId, correlationId, TraceRecorder.Type.COMPLETED)
-                                        .name("执行完成")
+                                        .name("整轮对话完成")
                                         .status("COMPLETED")
-                                        .put("durationMs", completedMs)
+                                        .duration(completedMs)
                                         .put("finalAgentId", finalAgentId)
+                                        .put("inputTokens", planRun.inputTokens())
+                                        .put("outputTokens", planRun.outputTokens())
                                         .save();
 
                         // 6) 流式写出最终答复（DOMAIN_SUMMARY 时为总结后内容；其余为子 Agent 答案）。
@@ -1488,7 +1783,12 @@ public class ChatService {
                                 for (String chunk : splitForStreaming(currentAnswer)) {
                                         if (finished.get()) return;
                                         try {
-                                                out.send(SseEmitter.event().name("token").data(Map.of("text", chunk)));
+                                                out.send(
+                                                                SseEmitter.event()
+                                                                        .name("token")
+                                                                        .data(
+                                                                                TraceContext.eventData(
+                                                                                        Map.of("text", chunk))));
                                         } catch (IOException e) {
                                                 finished.set(true);
                                                 return;
@@ -1497,16 +1797,37 @@ public class ChatService {
                         }
 
                         // 7) 兼容旧的游离式 action 提案（模型在正文里直接输出 {"type":...}）。
-                        emitFreeformProposal(out, finished, conversation.getId(), currentAnswer, correlationId, invocationId);
+                        emitFreeformProposal(
+                                        out,
+                                        finished,
+                                        conversation.getId(),
+                                        currentAnswer,
+                                        correlationId,
+                                        invocationId,
+                                        TraceContext.traceId());
 
                         try {
-                                out.send(SseEmitter.event().name("message_completed").data(Map.of("content", currentAnswer)));
+                                out.send(
+                                                SseEmitter.event()
+                                                        .name("message_completed")
+                                                        .data(
+                                                                TraceContext.eventData(
+                                                                        Map.of("content", currentAnswer))));
                                 out.complete();
                         } catch (IOException e) {
                                 finished.set(true);
                         }
                 } catch (Throwable t) {
-                        handleLoopError(out, finished, invocation, childInvocation, correlationId, invocationId, t, routeStarted);
+                        handleLoopError(
+                                        out,
+                                        finished,
+                                        invocation,
+                                        childInvocation,
+                                        correlationId,
+                                        invocationId,
+                                        t,
+                                        turnStarted,
+                                        childStarted);
                 }
         }
 
@@ -1533,19 +1854,42 @@ public class ChatService {
                 String currentAnswer = null;
                 String lastReply = null;
                 boolean answerStreamed = false;
+                Integer inputTokens = null;
+                Integer outputTokens = null;
                 iteration:
                 for (int iter = 0; iter < maxToolIterations; iter++) {
                         if (finished.get()) {
                                 return new ReActResult(
                                                 currentAnswer == null ? "" : currentAnswer,
                                                 lastReply == null ? "" : lastReply,
-                                                answerStreamed);
+                                                answerStreamed,
+                                                inputTokens,
+                                                outputTokens);
                         }
                         emitStage(
                                         out,
                                         finished,
                                         iter == 0 ? "generating" : "processing",
                                         iter == 0 ? "正在生成回答…" : "正在整理处理结果…");
+                        String llmSpan = EntityIdGenerator.next("SP");
+                        AgentInvocationEvent requestEvent =
+                                        trace.event(
+                                                                        targetInvocationId,
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.LLM_REQUEST)
+                                                                .name("模型请求 · 第 " + (iter + 1) + " 轮")
+                                                                .status("RUNNING")
+                                                                .span(llmSpan)
+                                                                .plan(planId, planStepId)
+                                                                .put("iteration", iter)
+                                                                .put("systemPrompt", system)
+                                                                .put("historySize", turns.size())
+                                                                .put("history", turns)
+                                                                .put("userInput", iter == 0 ? initialUser : "")
+                                                                .put("imageCount", iter == 0 ? images.size() : 0)
+                                                                .put("toolEnabled", hasTools)
+                                                                .save();
+                        long llmStarted = System.nanoTime();
                         ToolAwareReply modelReply;
                         if (hasTools) {
                                 modelReply =
@@ -1569,13 +1913,43 @@ public class ChatService {
                                                                 iter == 0 ? initialUser : "",
                                                                 iter == 0 ? images : List.of());
                                 modelReply =
-                                                new ToolAwareReply(plain.content(), List.of(), plain.streamed());
+                                                new ToolAwareReply(
+                                                                plain.content(),
+                                                                List.of(),
+                                                                plain.streamed(),
+                                                                plain.inputTokens(),
+                                                                plain.outputTokens(),
+                                                                plain.model());
                         }
+                        long llmDuration = (System.nanoTime() - llmStarted) / 1_000_000L;
+                        inputTokens = sumTokens(inputTokens, modelReply.inputTokens());
+                        outputTokens = sumTokens(outputTokens, modelReply.outputTokens());
+                        trace.event(
+                                                                        targetInvocationId,
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.LLM_RESPONSE)
+                                                                .name("模型响应 · 第 " + (iter + 1) + " 轮")
+                                                                .status("OK")
+                                                                .duration(llmDuration)
+                                                                .span(llmSpan)
+                                                                .parentEvent(requestEvent.getId())
+                                                                .causedBy(requestEvent.getId())
+                                                                .plan(planId, planStepId)
+                                                                .put("iteration", iter)
+                                                                .put("model", modelReply.model())
+                                                                .put("content", modelReply.content())
+                                                                .put("contentLength", modelReply.content().length())
+                                                                .put("toolCallCount", modelReply.toolCalls().size())
+                                                                .put("inputTokens", modelReply.inputTokens())
+                                                                .put("outputTokens", modelReply.outputTokens())
+                                                                .save();
                         if (finished.get()) {
                                 return new ReActResult(
                                                 currentAnswer == null ? "" : currentAnswer,
                                                 lastReply == null ? "" : lastReply,
-                                                answerStreamed);
+                                                answerStreamed,
+                                                inputTokens,
+                                                outputTokens);
                         }
                         String reply = modelReply.content();
                         lastReply = reply;
@@ -1590,6 +1964,32 @@ public class ChatService {
                                 ToolDefinition toolDef =
                                                 toolExecutor.resolveWithin(agentToolIds, call.name());
                                 if (toolDef == null) {
+                                        long missingStarted = System.nanoTime();
+                                        AgentInvocationEvent missingCall =
+                                                        trace.event(
+                                                                                        targetInvocationId,
+                                                                                        correlationId,
+                                                                                        TraceRecorder.Type.TOOL_CALL)
+                                                                .name("Tool 调用：" + call.name())
+                                                                .status("FAILED")
+                                                                .plan(planId, planStepId)
+                                                                .put("toolName", call.name())
+                                                                .put("iteration", iter)
+                                                                .put("message", "Tool 未在允许列表中找到")
+                                                                .save();
+                                        trace.event(
+                                                                        targetInvocationId,
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.TOOL_RESULT)
+                                                                .name("Tool 返回：" + call.name())
+                                                                .status("FAILED")
+                                                                .duration((System.nanoTime() - missingStarted) / 1_000_000L)
+                                                                .causedBy(missingCall.getId())
+                                                                .plan(planId, planStepId)
+                                                                .put("toolName", call.name())
+                                                                .put("success", false)
+                                                                .put("message", "未找到已启用的 Tool")
+                                                                .save();
                                         emitToolResult(
                                                         out,
                                                         finished,
@@ -1614,18 +2014,38 @@ public class ChatService {
                                                 finished,
                                                 toolDef.getName(),
                                                 redactedArguments);
+                                long toolStarted = System.nanoTime();
+                                AgentInvocationEvent toolCallEvent =
+                                                trace.event(
+                                                                        targetInvocationId,
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.TOOL_CALL)
+                                                        .name("Tool 调用：" + toolDef.getName())
+                                                        .status("RUNNING")
+                                                        .span(EntityIdGenerator.next("SP"))
+                                                        .plan(planId, planStepId)
+                                                        .put("toolName", toolDef.getName())
+                                                        .put("arguments", redactedArguments)
+                                                        .put("iteration", iter)
+                                                        .save();
                                 ToolExecutor.ToolExecutionResult execution =
                                                 toolExecutor.executeDetailed(toolDef, call.arguments());
                                 String result = execution.output();
+                                long toolDuration = (System.nanoTime() - toolStarted) / 1_000_000L;
                                 trace.event(
                                                 targetInvocationId,
                                                 correlationId,
-                                                TraceRecorder.Type.TOOL_CALL)
+                                                TraceRecorder.Type.TOOL_RESULT)
                                         .name("Tool 调用：" + toolDef.getName())
                                         .status(execution.success() ? "OK" : "FAILED")
+                                        .duration(toolDuration)
+                                        .parentEvent(toolCallEvent.getId())
+                                        .causedBy(toolCallEvent.getId())
                                         .plan(planId, planStepId)
                                         .put("toolName", toolDef.getName())
-                                        .put("arguments", redactedArguments)
+                                        .put("success", execution.success())
+                                        .put("result", traceText(result, 16000))
+                                        .put("resultTruncated", result.length() > 16000)
                                         .put(
                                                 "resultPreview",
                                                 result.length() > 500
@@ -1637,8 +2057,27 @@ public class ChatService {
                                         String proposalJson =
                                                 result.substring("BROWSER_PROPOSAL:".length());
                                         ActionProposal proposal =
-                                                buildProposal(conversation.getId(), proposalJson);
+                                                buildProposal(
+                                                                conversation.getId(),
+                                                                proposalJson,
+                                                                targetInvocationId,
+                                                                TraceContext.traceId());
                                         if (proposal != null) {
+                                                trace.event(
+                                                                                targetInvocationId,
+                                                                                correlationId,
+                                                                                TraceRecorder.Type.ACTION_PROPOSED)
+                                                                .name("页面操作提案：" + proposal.getType())
+                                                                .status("PENDING")
+                                                                .causedBy(toolCallEvent.getId())
+                                                                .put("actionId", proposal.getActionId())
+                                                                .put("type", proposal.getType())
+                                                                .put("target", proposal.getTarget())
+                                                                .put("arguments", proposal.getArguments())
+                                                                .put("reason", proposal.getReason())
+                                                                .put("risk", proposal.getRisk())
+                                                                .put("expiresAt", proposal.getExpiresAt().toString())
+                                                                .save();
                                                 emitActionProposed(out, finished, proposal);
                                         }
                                         currentAnswer =
@@ -1647,22 +2086,6 @@ public class ChatService {
                                                         : reply;
                                         break iteration;
                                 }
-                                trace.event(
-                                                targetInvocationId,
-                                                correlationId,
-                                                TraceRecorder.Type.TOOL_RESULT)
-                                        .name("Tool 返回：" + toolDef.getName())
-                                        .status(execution.success() ? "OK" : "FAILED")
-                                        .plan(planId, planStepId)
-                                        .put("toolName", toolDef.getName())
-                                        .put("success", execution.success())
-                                        .put(
-                                                "result",
-                                                result.length() > 4000
-                                                        ? result.substring(0, 4000)
-                                                        : result)
-                                        .put("iteration", iter)
-                                        .save();
                                 emitToolResult(
                                                 out,
                                                 finished,
@@ -1687,7 +2110,9 @@ public class ChatService {
                 return new ReActResult(
                                 currentAnswer,
                                 lastReply == null ? currentAnswer : lastReply,
-                                answerStreamed);
+                                answerStreamed,
+                                inputTokens,
+                                outputTokens);
         }
 
         /** Runs a persisted plan, updating every step and recording the complete execution trail. */
@@ -1713,6 +2138,8 @@ public class ChatService {
                 AgentPlanStep failedStep = null;
                 String failure = "";
                 boolean userInTurns = false;
+                Integer inputTokens = null;
+                Integer outputTokens = null;
 
                 for (int revisionAttempt = 0; revisionAttempt < 2; revisionAttempt++) {
                         AgentPlan plan = execution.plan();
@@ -1750,7 +2177,8 @@ public class ChatService {
                         for (AgentPlanStep step : planSteps) {
                                 if (finished.get()) {
                                         cancelPlan(plan, targetInvocationId, correlationId);
-                                        return new PlanRunResult("", lastReply, false);
+                                        return new PlanRunResult(
+                                                        "", lastReply, false, inputTokens, outputTokens);
                                 }
                                 step.setStatus("RUNNING");
                                 step.setStartedAt(Instant.now());
@@ -1789,17 +2217,6 @@ public class ChatService {
                                                 stepTools.stream().map(ToolDefinition::getId).toList();
                                         boolean includeUserInput =
                                                 step.getStepIndex() == 1 && !userInTurns;
-                                        trace.event(
-                                                        targetInvocationId,
-                                                        correlationId,
-                                                        TraceRecorder.Type.LLM_REQUEST)
-                                                .name("计划步骤模型请求")
-                                                .status("OK")
-                                                .plan(plan.getId(), step.getId())
-                                                .put("stepIndex", step.getStepIndex())
-                                                .put("prompt", stepSystem)
-                                                .put("userInput", userInput)
-                                                .save();
                                         ReActResult stepResult =
                                                 executeReAct(
                                                         out,
@@ -1818,8 +2235,11 @@ public class ChatService {
                                                         false);
                                         if (finished.get()) {
                                                 cancelPlan(plan, targetInvocationId, correlationId);
-                                                return new PlanRunResult("", lastReply, false);
+                                                return new PlanRunResult(
+                                                                "", lastReply, false, inputTokens, outputTokens);
                                         }
+                                        inputTokens = sumTokens(inputTokens, stepResult.inputTokens());
+                                        outputTokens = sumTokens(outputTokens, stepResult.outputTokens());
                                         if (stepResult.content() == null
                                                 || stepResult.content().isBlank()) {
                                                 throw new IllegalStateException("步骤未返回有效结果");
@@ -1894,18 +2314,39 @@ public class ChatService {
                         }
 
                         if (!revisionFailed) {
-                                String finalAnswer =
-                                                completedResults.size() <= 1
-                                                        ? completedResults.stream()
+                                LlmClient.Completion summaryCompletion = null;
+                                String finalAnswer;
+                                if (completedResults.size() <= 1) {
+                                        finalAnswer =
+                                                        completedResults.stream()
                                                                 .findFirst()
                                                                 .map(value -> value.substring(value.indexOf('\n') + 1))
-                                                                .orElse(lastReply)
-                                                        : summarizePlan(
+                                                                .orElse(lastReply);
+                                } else {
+                                        summaryCompletion =
+                                                        summarizePlan(
                                                                 baseSystemPrompt,
                                                                 plan,
                                                                 completedResults,
                                                                 correlationId,
                                                                 targetInvocationId);
+                                        finalAnswer =
+                                                        summaryCompletion == null
+                                                                        ? visibleStepResult(
+                                                                                        completedResults.get(
+                                                                                                        completedResults.size() - 1))
+                                                                        : summaryCompletion.content();
+                                        if (summaryCompletion != null) {
+                                                inputTokens =
+                                                                sumTokens(
+                                                                                inputTokens,
+                                                                                summaryCompletion.inputTokens());
+                                                outputTokens =
+                                                                sumTokens(
+                                                                                outputTokens,
+                                                                                summaryCompletion.outputTokens());
+                                        }
+                                }
                                 plan.setStatus("COMPLETED");
                                 plan.setCompletedAt(Instant.now());
                                 plan.touch();
@@ -1922,7 +2363,12 @@ public class ChatService {
                                         .put("finalAnswer", finalAnswer)
                                         .save();
                                 emitPlanEvent(out, finished, "plan_updated", plan, null);
-                                return new PlanRunResult(finalAnswer, finalAnswer, false);
+                                return new PlanRunResult(
+                                                finalAnswer,
+                                                finalAnswer,
+                                                false,
+                                                inputTokens,
+                                                outputTokens);
                         }
 
                         AgentDefinition definition =
@@ -1965,12 +2411,14 @@ public class ChatService {
                                                         : visibleStepResult(
                                                                 completedResults.get(
                                                                         completedResults.size() - 1));
-                                return new PlanRunResult(fallback, fallback, false);
+                                return new PlanRunResult(
+                                                fallback, fallback, false, inputTokens, outputTokens);
                         }
                         execution = revised.get();
                         emitPlanEvent(out, finished, "plan_updated", execution.plan(), null);
                 }
-                return new PlanRunResult(lastReply, lastReply, false);
+                return new PlanRunResult(
+                                lastReply, lastReply, false, inputTokens, outputTokens);
         }
 
         private List<ToolDefinition> planStepTools(
@@ -2002,51 +2450,89 @@ public class ChatService {
                         + "\n请只完成当前步骤，返回清晰的执行结果；不要声称完成后续步骤。";
         }
 
-        private String summarizePlan(
+        private LlmClient.Completion summarizePlan(
                         String baseSystemPrompt,
                         AgentPlan plan,
                         List<String> completedResults,
                         String correlationId,
                         String targetInvocationId) {
                 long started = System.nanoTime();
-                String result = null;
+                String spanId = EntityIdGenerator.next("SP");
+                String systemPrompt =
+                                baseSystemPrompt
+                                        + "\n\n[最终汇总] 根据已执行步骤给出面向用户的最终答复，不要透露内部调用链。";
+                String input =
+                                "计划目标："
+                                        + plan.getGoal()
+                                        + "\n\n步骤结果：\n"
+                                        + String.join("\n\n", completedResults);
+                AgentInvocationEvent requestEvent =
+                                trace.event(
+                                                targetInvocationId,
+                                                correlationId,
+                                                TraceRecorder.Type.LLM_REQUEST)
+                                        .name("计划结果汇总请求")
+                                        .status("RUNNING")
+                                        .span(spanId)
+                                        .plan(plan.getId(), null)
+                                        .put("systemPrompt", systemPrompt)
+                                        .put("input", input)
+                                        .save();
+                LlmClient.Completion completion = null;
+                String errorMessage = null;
                 try {
-                        result =
-                                llm.complete(
-                                                baseSystemPrompt
-                                                        + "\n\n[最终汇总] 根据已执行步骤给出面向用户的最终答复，不要透露内部调用链。",
-                                                List.of(),
-                                                "计划目标："
-                                                        + plan.getGoal()
-                                                        + "\n\n步骤结果：\n"
-                                                        + String.join("\n\n", completedResults))
+                        completion =
+                                llm.completeWithUsage(systemPrompt, List.of(), input, List.of())
                                         .blockOptional(llmTimeout)
                                         .orElse(null);
                 } catch (Exception error) {
+                        errorMessage = safeErrorMessage(error);
+                }
+                long duration = (System.nanoTime() - started) / 1_000_000L;
+                String result = completion == null ? null : completion.content();
+                boolean summaryOk = result != null && !result.isBlank();
+                trace.event(
+                                targetInvocationId,
+                                correlationId,
+                                TraceRecorder.Type.LLM_RESPONSE)
+                        .name("计划结果汇总")
+                        .status(summaryOk ? "OK" : "DEGRADED")
+                        .duration(duration)
+                        .span(spanId)
+                        .parentEvent(requestEvent.getId())
+                        .causedBy(requestEvent.getId())
+                        .plan(plan.getId(), null)
+                        .put("model", completion == null ? null : completion.model())
+                        .put("output", summaryOk ? result : "")
+                        .put(
+                                "inputTokens",
+                                completion == null ? null : completion.inputTokens())
+                        .put(
+                                "outputTokens",
+                                completion == null ? null : completion.outputTokens())
+                        .put("message", errorMessage == null ? "" : errorMessage)
+                        .save();
+                if (!summaryOk && errorMessage != null) {
                         trace.event(
                                         targetInvocationId,
                                         correlationId,
                                         TraceRecorder.Type.ERROR)
                                 .name("计划结果汇总失败")
                                 .status("DEGRADED")
+                                .span(spanId)
+                                .causedBy(requestEvent.getId())
                                 .plan(plan.getId(), null)
-                                .put("message", safeErrorMessage(error))
+                                .put("message", errorMessage)
                                 .save();
                 }
-                long duration = (System.nanoTime() - started) / 1_000_000L;
-                trace.event(
-                                targetInvocationId,
-                                correlationId,
-                                TraceRecorder.Type.LLM_RESPONSE)
-                        .name("计划结果汇总")
-                        .status(result == null || result.isBlank() ? "DEGRADED" : "OK")
-                        .duration(duration)
-                        .plan(plan.getId(), null)
-                        .put("summary", result == null ? "" : result)
-                        .save();
-                return result == null || result.isBlank()
-                        ? visibleStepResult(completedResults.get(completedResults.size() - 1))
-                        : result;
+                return summaryOk
+                        ? completion
+                        : new LlmClient.Completion(
+                                visibleStepResult(
+                                        completedResults.get(completedResults.size() - 1)),
+                                null,
+                                null,
+                                null);
         }
 
         private void cancelPlan(AgentPlan plan, String invocationId, String correlationId) {
@@ -2093,7 +2579,10 @@ public class ChatService {
                         data.put("stepStatus", step.getStatus());
                 }
                 try {
-                        out.send(SseEmitter.event().name(eventName).data(data));
+                        out.send(
+                                SseEmitter.event()
+                                        .name(eventName)
+                                        .data(TraceContext.eventData(data)));
                 } catch (IOException ignored) {
                         finished.set(true);
                 }
@@ -2111,6 +2600,12 @@ public class ChatService {
                 if (value == null || value.isBlank()) return "";
                 int separator = value.indexOf('\n');
                 return separator < 0 ? value : value.substring(separator + 1);
+        }
+
+        private static Integer sumTokens(Integer left, Integer right) {
+                if (left == null) return right;
+                if (right == null) return left;
+                return left + right;
         }
 
         private String safeErrorMessage(Throwable error) {
@@ -2134,8 +2629,9 @@ public class ChatService {
                         String correlationId,
                         String invocationId,
                         Throwable error,
-                        long routeStarted) {
-                long failedMs = (System.nanoTime() - routeStarted) / 1_000_000L;
+                        long turnStarted,
+                        long childStarted) {
+                long failedMs = (System.nanoTime() - turnStarted) / 1_000_000L;
                 String diagnosticMessage =
                                 error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
                 LoopError loopError = classifyLoopError(error);
@@ -2143,19 +2639,51 @@ public class ChatService {
                 invocation.setStatus("FAILED");
                 invocation.setErrorCode(loopError.code());
                 invocation.setDurationMs(failedMs);
+                invocation.setCompletedAt(Instant.now());
                 invocations.save(invocation);
                 trace.event(invocationId, correlationId, TraceRecorder.Type.ERROR)
                                 .name("执行失败").status("FAILED")
                                 .put("stage", "AGENT_LOOP").put("message", diagnosticMessage)
                                 .put("exception", error.getClass().getName()).save();
+                trace.event(invocationId, correlationId, TraceRecorder.Type.AGENT_END)
+                                .name("Agent 执行失败")
+                                .status("FAILED")
+                                .duration(failedMs)
+                                .put("errorCode", loopError.code())
+                                .put("message", diagnosticMessage)
+                                .save();
                 trace.event(invocationId, correlationId, TraceRecorder.Type.FAILED)
                                 .name("执行失败").status("FAILED").put("errorCode", loopError.code()).put("durationMs", failedMs).save();
                 if (childInvocation != null) {
+                        long childDuration =
+                                        childStarted > 0
+                                                        ? (System.nanoTime() - childStarted) / 1_000_000L
+                                                        : failedMs;
                         childInvocation.setError(diagnosticMessage);
                         childInvocation.setStatus("FAILED");
                         childInvocation.setErrorCode(loopError.code());
-                        childInvocation.setDurationMs(failedMs);
+                        childInvocation.setDurationMs(childDuration);
+                        childInvocation.setCompletedAt(Instant.now());
                         invocations.save(childInvocation);
+                        AgentInvocationEvent childFailed =
+                                        trace.event(
+                                                                        childInvocation.getId(),
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.AGENT_END)
+                                                                .name("子 Agent 执行失败")
+                                                                .status("FAILED")
+                                                                .duration(childDuration)
+                                                                .put("errorCode", loopError.code())
+                                                                .put("message", diagnosticMessage)
+                                                                .save();
+                        trace.event(invocationId, correlationId, TraceRecorder.Type.CHILD_RETURN)
+                                        .name("子 Agent 返回失败")
+                                        .status("FAILED")
+                                        .causedBy(childFailed.getId())
+                                        .put("childInvocationId", childInvocation.getId())
+                                        .put("errorCode", loopError.code())
+                                        .put("message", diagnosticMessage)
+                                        .save();
                 }
                 if ("MODEL_TIMEOUT".equals(loopError.code())) {
                         log.warn("Agent model call timed out [invocation={}]: {}", invocationId, diagnosticMessage);
@@ -2167,7 +2695,11 @@ public class ChatService {
                         out.send(
                                         SseEmitter.event()
                                                 .name("error")
-                                                .data(Map.of("code", loopError.code(), "message", loopError.userMessage())));
+                                                .data(
+                                                        TraceContext.eventData(
+                                                                Map.of(
+                                                                        "code", loopError.code(),
+                                                                        "message", loopError.userMessage()))));
                 } catch (IOException ignored) {
                 } finally {
                         out.complete();
@@ -2177,7 +2709,12 @@ public class ChatService {
         private void emitToolInvoked(SseEmitter out, AtomicBoolean finished, String name, String argumentsJson) {
                 if (finished.get()) return;
                 try {
-                        out.send(SseEmitter.event().name("tool_invoked").data(Map.of("tool", name, "arguments", argumentsJson)));
+                        out.send(
+                                SseEmitter.event()
+                                        .name("tool_invoked")
+                                        .data(
+                                                TraceContext.eventData(
+                                                        Map.of("tool", name, "arguments", argumentsJson))));
                 } catch (IOException ignored) { }
         }
 
@@ -2190,32 +2727,42 @@ public class ChatService {
                 if (finished.get()) return;
                 String preview = result.length() > 2000 ? result.substring(0, 2000) + "\n...[truncated]" : result;
                 try {
-                        out.send(SseEmitter.event().name("tool_result").data(Map.of(
-                                        "tool", name,
-                                        "result", preview,
-                                        "success", success)));
+                        out.send(
+                                SseEmitter.event()
+                                        .name("tool_result")
+                                        .data(
+                                                TraceContext.eventData(
+                                                        Map.of(
+                                                                "tool", name,
+                                                                "result", preview,
+                                                                "success", success))));
                 } catch (IOException ignored) { }
         }
 
         private void emitActionProposed(SseEmitter out, AtomicBoolean finished, ActionProposal proposal) {
                 if (finished.get()) return;
                 try {
-                        out.send(SseEmitter.event().name("action_proposed").data(Map.of(
-                                        "actionId", proposal.getActionId(),
-                                        "type", proposal.getType(),
-                                        "target", proposal.getTarget(),
-                                        "arguments", proposal.getArguments(),
-                                        "reason", proposal.getReason(),
-                                        "risk", proposal.getRisk(),
-                                        "expiresAt", proposal.getExpiresAt().toString())));
+                        out.send(
+                                SseEmitter.event()
+                                        .name("action_proposed")
+                                        .data(
+                                                TraceContext.eventData(
+                                                        Map.of(
+                                                                "actionId", proposal.getActionId(),
+                                                                "type", proposal.getType(),
+                                                                "target", proposal.getTarget(),
+                                                                "arguments", proposal.getArguments(),
+                                                                "reason", proposal.getReason(),
+                                                                "risk", proposal.getRisk(),
+                                                                "expiresAt", proposal.getExpiresAt().toString()))));
                 } catch (IOException ignored) { }
         }
 
         private void emitFreeformProposal(
                         SseEmitter out, AtomicBoolean finished, String conversationId,
-                        String text, String correlationId, String invocationId) {
+                        String text, String correlationId, String invocationId, String traceId) {
                 if (finished.get()) return;
-                ActionProposal proposal = buildProposal(conversationId, text);
+                ActionProposal proposal = buildProposal(conversationId, text, invocationId, traceId);
                 if (proposal == null) return;
                 trace.event(invocationId, correlationId, TraceRecorder.Type.ACTION_PROPOSED)
                                 .name("页面操作提案：" + proposal.getType())
@@ -2232,7 +2779,8 @@ public class ChatService {
         }
 
         /** 将 Tool/模型返回的 JSON 提案解析为 ActionProposal 实体（复用原 parseProposal 逻辑）。 */
-        private ActionProposal buildProposal(String conversationId, String text) {
+        private ActionProposal buildProposal(
+                        String conversationId, String text, String invocationId, String traceId) {
                 try {
                         int s = text.indexOf("{\"type\"");
                         if (s < 0) return null;
@@ -2259,6 +2807,8 @@ public class ChatService {
                         if (!List.of("CLICK", "FILL", "NAVIGATE").contains(type)) return null;
                         ActionProposal a = new ActionProposal();
                         a.setConversationId(conversationId);
+                        a.setInvocationId(invocationId);
+                        a.setTraceId(traceId);
                         a.setType(type);
                         a.setTarget(n.path("target").asText(""));
                         a.setArguments(n.path("arguments").toString());
@@ -2330,22 +2880,35 @@ public class ChatService {
                 }
                 ActionProposal saved = actions.save(a);
                 // 记录操作提案的最终处置结果（用户确认 / 拒绝 / 执行结果），补齐动作闭环。
-                invocations.findByConversationIdOrderByCreatedAtAsc(a.getConversationId()).stream()
-                                .filter(item -> item.getCorrelationId() != null)
-                                .reduce((first, second) -> second)
-                                .ifPresent(
-                                                invocation ->
-                                                                trace.event(
-                                                                                        invocation.getId(),
-                                                                                        invocation.getCorrelationId(),
-                                                                                        TraceRecorder.Type.ACTION_RESOLVED)
-                                                                                .name("页面操作提案处置：" + saved.getStatus())
-                                                                                .status(saved.getStatus())
-                                                                                .put("actionId", saved.getActionId())
-                                                                                .put("type", saved.getType())
-                                                                                .put("target", saved.getTarget())
-                                                                                .put("result", saved.getResult())
-                                                                                .save());
+                AgentInvocation owner =
+                                saved.getInvocationId() == null || saved.getInvocationId().isBlank()
+                                                ? null
+                                                : invocations.findById(saved.getInvocationId()).orElse(null);
+                if (owner == null) {
+                        owner =
+                                invocations.findByConversationIdOrderByCreatedAtAsc(
+                                                saved.getConversationId()).stream()
+                                        .filter(item -> item.getCorrelationId() != null)
+                                        .reduce((first, second) -> second)
+                                        .orElse(null);
+                }
+                if (owner != null) {
+                        String traceId =
+                                        saved.getTraceId() == null || saved.getTraceId().isBlank()
+                                                        ? owner.getTraceId()
+                                                        : saved.getTraceId();
+                        trace.event(
+                                        owner.getId(),
+                                        traceId == null ? owner.getCorrelationId() : traceId,
+                                        TraceRecorder.Type.ACTION_RESOLVED)
+                                .name("页面操作提案处置：" + saved.getStatus())
+                                .status(saved.getStatus())
+                                .put("actionId", saved.getActionId())
+                                .put("type", saved.getType())
+                                .put("target", saved.getTarget())
+                                .put("result", saved.getResult())
+                                .save();
+                }
                 return saved;
         }
 }

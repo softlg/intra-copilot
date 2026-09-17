@@ -307,7 +307,9 @@ class RouterAdminControllerTest {
                                         "planner request",
                                         "{\"goal\":\"完成报销\"}",
                                         18,
-                                        false)));
+                                        false,
+                                        120,
+                                        80)));
         when(hooks.checks(any())).thenReturn(List.of());
         when(registry.enabledDefinitions()).thenReturn(List.of());
 

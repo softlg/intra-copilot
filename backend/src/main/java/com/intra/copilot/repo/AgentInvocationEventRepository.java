@@ -3,6 +3,7 @@ package com.intra.copilot.repo;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.intra.copilot.model.AgentInvocationEvent;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;
@@ -32,6 +33,32 @@ public interface AgentInvocationEventRepository extends BaseMapper<AgentInvocati
                 Wrappers.<AgentInvocationEvent>query()
                         .eq("correlation_id", correlationId)
                         .orderByAsc("created_at"));
+    }
+
+    default List<AgentInvocationEvent> findByTraceIdOrderBySequenceGlobalAsc(String traceId) {
+        return selectList(
+                Wrappers.<AgentInvocationEvent>query()
+                        .eq("trace_id", traceId)
+                        .orderByAsc("sequence_global")
+                        .orderByAsc("created_at"));
+    }
+
+    default long nextGlobalSequence(String traceId) {
+        return selectList(
+                                Wrappers.<AgentInvocationEvent>query()
+                                        .eq("trace_id", traceId)
+                                        .orderByDesc("sequence_global")
+                                        .last("LIMIT 1"))
+                        .stream()
+                        .findFirst()
+                        .map(AgentInvocationEvent::getSequenceGlobal)
+                        .filter(value -> value != null)
+                        .orElse(0L)
+                + 1L;
+    }
+
+    default int deleteOlderThan(Instant cutoff) {
+        return delete(Wrappers.<AgentInvocationEvent>query().lt("created_at", cutoff));
     }
 
     default int nextSequence(String invocationId) {

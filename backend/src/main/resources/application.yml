@@ -41,6 +41,13 @@ mybatis-plus:
   configuration.map-underscore-to-camel-case: true
 management:
   endpoints.web.exposure.include: health,info
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [trace=%X{traceId:-} turn=%X{turnId:-} span=%X{spanId:-} request=%X{requestId:-}] %logger{36} - %msg%n"
+trace:
+  # Invocation summaries are retained with the conversation; high-volume child events expire first.
+  retention-days: ${TRACE_RETENTION_DAYS:30}
+  cleanup-cron: ${TRACE_CLEANUP_CRON:0 20 3 * * *}
 embedding:
   default-provider: ${EMBEDDING_PROVIDER:openai}
   dimension: ${EMBEDDING_DIMENSION:1024}

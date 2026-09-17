@@ -48,20 +48,41 @@ public class PlanningService {
 
     public boolean shouldPlan(
             AgentDefinition definition, String userInput, List<ToolDefinition> availableTools) {
-        if (definition == null) return false;
+        return decide(definition, userInput, availableTools).required();
+    }
+
+    public PlanningDecision decide(
+            AgentDefinition definition, String userInput, List<ToolDefinition> availableTools) {
+        if (definition == null) {
+            return new PlanningDecision(false, "UNAVAILABLE", "当前执行节点没有可规划配置");
+        }
         String mode = normalizeMode(definition.getPlanningMode());
-        if ("OFF".equals(mode)) return false;
-        if ("ALWAYS".equals(mode)) return true;
+        if ("OFF".equals(mode)) {
+            return new PlanningDecision(false, mode, "Agent 配置为关闭规划");
+        }
+        if ("ALWAYS".equals(mode)) {
+            return new PlanningDecision(true, mode, "Agent 配置为始终规划");
+        }
         String text = userInput == null ? "" : userInput.strip();
         boolean multiStepLanguage =
                 List.of("先", "然后", "接着", "第一步", "第二步", "批量", "流程", "逐步", "最后", "依次", "分别")
                         .stream()
                         .anyMatch(text::contains);
-        boolean taskLike =
-                text.length() >= 120
-                        || multiStepLanguage
-                        || (availableTools != null && !availableTools.isEmpty() && text.length() >= 60);
-        return taskLike;
+        boolean longTask = text.length() >= 120;
+        boolean toolHeavyTask =
+                availableTools != null && !availableTools.isEmpty() && text.length() >= 60;
+        boolean taskLike = longTask || multiStepLanguage || toolHeavyTask;
+        String reason;
+        if (multiStepLanguage) {
+            reason = "AUTO 模式检测到多步任务语言";
+        } else if (longTask) {
+            reason = "AUTO 模式检测到长任务输入（" + text.length() + " 字符）";
+        } else if (toolHeavyTask) {
+            reason = "AUTO 模式检测到 Tool 密集型任务（" + text.length() + " 字符）";
+        } else {
+            reason = "AUTO 模式判断当前请求为简单单步请求";
+        }
+        return new PlanningDecision(taskLike, mode, reason);
     }
 
     @Transactional
@@ -75,7 +96,35 @@ public class PlanningService {
             String pageContext,
             List<Map<String, String>> history,
             List<ToolDefinition> availableTools) {
-        if (!shouldPlan(definition, userInput, availableTools)) return Optional.empty();
+        return createPlanOutcome(
+                        definition,
+                        conversationId,
+                        invocationId,
+                        correlationId,
+                        routeAgentId,
+                        userInput,
+                        pageContext,
+                        history,
+                        availableTools)
+                .execution();
+    }
+
+    @Transactional
+    public PlanOutcome createPlanOutcome(
+            AgentDefinition definition,
+            String conversationId,
+            String invocationId,
+            String correlationId,
+            String routeAgentId,
+            String userInput,
+            String pageContext,
+            List<Map<String, String>> history,
+            List<ToolDefinition> availableTools) {
+        PlanningDecision decision = decide(definition, userInput, availableTools);
+        if (!decision.required()) {
+            return new PlanOutcome(
+                    Optional.empty(), decision.mode(), decision.reason(), "", "", 0L, false, null, null);
+        }
         int maxSteps = Math.max(1, Math.min(12, definition.getMaxPlanSteps()));
         String system = planningPrompt(definition, availableTools, maxSteps);
         String input =
@@ -92,9 +141,15 @@ public class PlanningService {
         String raw = "";
         String repairedRaw = "";
         boolean repaired = false;
+        Integer inputTokens = null;
+        Integer outputTokens = null;
         PlanDraft draft;
+        String plannerRequest = limit(system + "\n\n" + input, 16000);
         try {
-            raw = complete(system, history, input);
+            LlmClient.Completion first = completeResult(system, history, input);
+            raw = first.content();
+            inputTokens = first.inputTokens();
+            outputTokens = first.outputTokens();
             draft = parsePlan(raw, availableTools, definition.getId(), maxSteps);
             if (draft == null) {
                 String repair =
@@ -106,14 +161,37 @@ public class PlanningService {
                         """
                                 .formatted(limit(raw, 4000))
                                 .strip();
-                repairedRaw = complete(system, history, input + "\n\n" + repair);
+                LlmClient.Completion second = completeResult(system, history, input + "\n\n" + repair);
+                repairedRaw = second.content();
+                inputTokens = sum(inputTokens, second.inputTokens());
+                outputTokens = sum(outputTokens, second.outputTokens());
                 repaired = true;
                 draft = parsePlan(repairedRaw, availableTools, definition.getId(), maxSteps);
             }
         } catch (Exception error) {
-            return Optional.empty();
+            return new PlanOutcome(
+                    Optional.empty(),
+                    decision.mode(),
+                    "规划模型调用失败：" + safeMessage(error),
+                    plannerRequest,
+                    limit(raw, 16000),
+                    (System.nanoTime() - planningStarted) / 1_000_000L,
+                    repaired,
+                    inputTokens,
+                    outputTokens);
         }
-        if (draft == null) return Optional.empty();
+        if (draft == null) {
+            return new PlanOutcome(
+                    Optional.empty(),
+                    decision.mode(),
+                    "规划模型未返回符合约束的 JSON 计划",
+                    plannerRequest,
+                    limit(repaired ? repairedRaw : raw, 16000),
+                    (System.nanoTime() - planningStarted) / 1_000_000L,
+                    repaired,
+                    inputTokens,
+                    outputTokens);
+        }
         long planningDurationMs = (System.nanoTime() - planningStarted) / 1_000_000L;
 
         AgentPlan plan = new AgentPlan();
@@ -145,14 +223,26 @@ public class PlanningService {
             step.setStatus("PENDING");
             savedSteps.add(steps.save(step));
         }
-        return Optional.of(
+        PlanExecution execution =
                 new PlanExecution(
                         savedPlan,
                         List.copyOf(savedSteps),
-                        limit(system + "\n\n" + input, 16000),
+                        plannerRequest,
                         limit(repaired ? repairedRaw : raw, 16000),
                         planningDurationMs,
-                        repaired));
+                        repaired,
+                        inputTokens,
+                        outputTokens);
+        return new PlanOutcome(
+                Optional.of(execution),
+                decision.mode(),
+                "规划已生成",
+                plannerRequest,
+                execution.plannerRawOutput(),
+                planningDurationMs,
+                repaired,
+                inputTokens,
+                outputTokens);
     }
 
     /**
@@ -182,9 +272,14 @@ public class PlanningService {
         String raw = "";
         String repairedRaw = "";
         boolean repaired = false;
+        Integer inputTokens = null;
+        Integer outputTokens = null;
         PlanDraft draft;
         try {
-            raw = complete(system, history, input);
+            LlmClient.Completion first = completeResult(system, history, input);
+            raw = first.content();
+            inputTokens = first.inputTokens();
+            outputTokens = first.outputTokens();
             draft = parsePlan(raw, availableTools, definition.getId(), maxSteps);
             if (draft == null) {
                 String repair =
@@ -196,7 +291,11 @@ public class PlanningService {
                         """
                                 .formatted(limit(raw, 4000))
                                 .strip();
-                repairedRaw = complete(system, history, input + "\n\n" + repair);
+                LlmClient.Completion second =
+                        completeResult(system, history, input + "\n\n" + repair);
+                repairedRaw = second.content();
+                inputTokens = sum(inputTokens, second.inputTokens());
+                outputTokens = sum(outputTokens, second.outputTokens());
                 repaired = true;
                 draft = parsePlan(repairedRaw, availableTools, definition.getId(), maxSteps);
             }
@@ -213,7 +312,9 @@ public class PlanningService {
                         limit(system + "\n\n" + input, 16000),
                         limit(repaired ? repairedRaw : raw, 16000),
                         (System.nanoTime() - planningStarted) / 1_000_000L,
-                        repaired));
+                        repaired,
+                        inputTokens,
+                        outputTokens));
     }
 
     @Transactional
@@ -269,8 +370,13 @@ public class PlanningService {
         long planningStarted = System.nanoTime();
         String raw = "";
         PlanDraft draft;
+        Integer inputTokens = null;
+        Integer outputTokens = null;
         try {
-            raw = complete(system, history, input);
+            LlmClient.Completion completion = completeResult(system, history, input);
+            raw = completion.content();
+            inputTokens = completion.inputTokens();
+            outputTokens = completion.outputTokens();
             draft = parsePlan(raw, availableTools, definition.getId(), maxSteps);
         } catch (Exception error) {
             return Optional.empty();
@@ -318,7 +424,9 @@ public class PlanningService {
                         limit(system + "\n\n" + input, 16000),
                         limit(raw, 16000),
                         planningDurationMs,
-                        false));
+                        false,
+                        inputTokens,
+                        outputTokens));
     }
 
     static PlanDraft parsePlan(
@@ -373,10 +481,25 @@ public class PlanningService {
         }
     }
 
-    private String complete(String system, List<Map<String, String>> history, String input) {
-        return llm.complete(system, history, input)
+    private LlmClient.Completion completeResult(
+            String system, List<Map<String, String>> history, String input) {
+        return llm.completeWithUsage(system, history, input)
                 .blockOptional(timeout)
-                .orElse("");
+                .orElse(new LlmClient.Completion("", null, null, null));
+    }
+
+    private static Integer sum(Integer left, Integer right) {
+        if (left == null) return right;
+        if (right == null) return left;
+        return left + right;
+    }
+
+    private static String safeMessage(Throwable error) {
+        if (error == null) return "未知错误";
+        String message = error.getMessage();
+        return message == null || message.isBlank()
+                ? error.getClass().getSimpleName()
+                : message;
     }
 
     private String planningPrompt(
@@ -451,7 +574,9 @@ public class PlanningService {
             String plannerRequest,
             String plannerRawOutput,
             long plannerDurationMs,
-            boolean repaired) {}
+            boolean repaired,
+            Integer inputTokens,
+            Integer outputTokens) {}
 
     public record PlanPreview(
             String planningMode,
@@ -461,5 +586,20 @@ public class PlanningService {
             String plannerRequest,
             String plannerRawOutput,
             long plannerDurationMs,
-            boolean repaired) {}
+            boolean repaired,
+            Integer inputTokens,
+            Integer outputTokens) {}
+
+    public record PlanningDecision(boolean required, String mode, String reason) {}
+
+    public record PlanOutcome(
+            Optional<PlanExecution> execution,
+            String mode,
+            String reason,
+            String plannerRequest,
+            String plannerRawOutput,
+            long plannerDurationMs,
+            boolean repaired,
+            Integer inputTokens,
+            Integer outputTokens) {}
 }

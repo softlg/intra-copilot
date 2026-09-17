@@ -138,4 +138,79 @@ class ConversationLogAdminControllerTest {
         assertEquals("screen.png", response.getHeaders().getContentDisposition().getFilename());
         assertEquals(bytes.length, response.getBody().contentLength());
     }
+
+    @Test
+    void detailBuildsParentChildTraceWithWallClockDuration() {
+        ConversationRepository conversations = mock(ConversationRepository.class);
+        MessageRepository messages = mock(MessageRepository.class);
+        AgentInvocationRepository invocations = mock(AgentInvocationRepository.class);
+        ActionProposalRepository actions = mock(ActionProposalRepository.class);
+        AgentPlanRepository plans = mock(AgentPlanRepository.class);
+        AgentPlanStepRepository planSteps = mock(AgentPlanStepRepository.class);
+        AttachmentService attachments = mock(AttachmentService.class);
+        TraceRecorder trace = mock(TraceRecorder.class);
+        ConversationLogAdminController controller =
+                new ConversationLogAdminController(
+                        conversations,
+                        messages,
+                        invocations,
+                        actions,
+                        plans,
+                        planSteps,
+                        attachments,
+                        trace,
+                        new ObjectMapper());
+
+        Conversation conversation = mock(Conversation.class);
+        when(conversation.getId()).thenReturn("conversation-2");
+        when(conversations.findById("conversation-2")).thenReturn(Optional.of(conversation));
+        when(messages.findByConversationIdOrderByCreatedAtAsc("conversation-2"))
+                .thenReturn(List.of());
+        when(actions.findByConversationIdOrderByExpiresAtAsc("conversation-2"))
+                .thenReturn(List.of());
+        when(plans.findByConversationIdOrderByCreatedAtAsc("conversation-2")).thenReturn(List.of());
+
+        AgentInvocation parent = new AgentInvocation();
+        parent.setConversationId("conversation-2");
+        parent.setTraceId("TR-1");
+        parent.setTurnId("TN-1");
+        parent.setAttemptNo(1);
+        parent.setSequence(1);
+        parent.setDepth(1);
+        parent.setStatus("COMPLETED");
+        parent.setStartedAt(Instant.parse("2026-09-10T00:00:00Z"));
+        parent.setCompletedAt(Instant.parse("2026-09-10T00:00:01Z"));
+        AgentInvocation child = new AgentInvocation();
+        child.setConversationId("conversation-2");
+        child.setTraceId("TR-1");
+        child.setTurnId("TN-1");
+        child.setAttemptNo(1);
+        child.setParentInvocationId(parent.getId());
+        child.setParentSpanId(parent.getId());
+        child.setSequence(2);
+        child.setDepth(2);
+        child.setStatus("COMPLETED");
+        child.setStartedAt(Instant.parse("2026-09-10T00:00:00.100Z"));
+        child.setCompletedAt(Instant.parse("2026-09-10T00:00:00.900Z"));
+        when(invocations.findByConversationIdOrderByCreatedAtAsc("conversation-2"))
+                .thenReturn(List.of(parent, child));
+        AgentInvocationEvent planDecision = new AgentInvocationEvent();
+        planDecision.setInvocationId(child.getId());
+        planDecision.setEventType("PLAN_DECISION");
+        planDecision.setStatus("TRIGGERED");
+        planDecision.setPayload(
+                new ObjectMapper().createObjectNode().put("mode", "ALWAYS").put("reason", "强制规划"));
+        when(trace.listByInvocation(parent.getId())).thenReturn(List.of());
+        when(trace.listByInvocation(child.getId())).thenReturn(List.of(planDecision));
+
+        ConversationLogAdminController.ConversationLog detail = controller.detail("conversation-2");
+
+        assertEquals(1, detail.traces().size());
+        assertEquals(1, detail.traces().get(0).roots().size());
+        assertEquals(1, detail.traces().get(0).roots().get(0).children().size());
+        assertEquals(1000, detail.traces().get(0).durationMs());
+        assertEquals(1000, detail.totalDurationMs());
+        assertEquals(1, detail.traces().get(0).planDecisions().size());
+        assertEquals("TRIGGERED", detail.traces().get(0).planDecisions().get(0).status());
+    }
 }

@@ -25,4 +25,23 @@ public interface AgentInvocationRepository extends BaseMapper<AgentInvocation> {
                         .eq("conversation_id", conversationId)
                         .orderByAsc("created_at"));
     }
+
+    default List<AgentInvocation> findByTraceIdOrderBySequenceAsc(String traceId) {
+        return selectList(
+                Wrappers.<AgentInvocation>query()
+                        .eq("trace_id", traceId)
+                        .orderByAsc("sequence")
+                        .orderByAsc("created_at"));
+    }
+
+    default AgentInvocation findLatestByConversationId(String conversationId) {
+        return selectList(
+                        Wrappers.<AgentInvocation>query()
+                                .eq("conversation_id", conversationId)
+                                .orderByDesc("created_at")
+                                .last("LIMIT 1"))
+                .stream()
+                .findFirst()
+                .orElse(null);
+    }
 }

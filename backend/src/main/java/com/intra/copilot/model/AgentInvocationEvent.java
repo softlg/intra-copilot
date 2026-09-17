@@ -12,111 +12,174 @@ import org.apache.ibatis.type.JdbcType;
 /** Agent 执行链路中的一个事件节点，用于在管理后台还原完整交互流程。 */
 @TableName(value = "agent_invocation_event", autoResultMap = true)
 public class AgentInvocationEvent {
-  @TableId private String id = EntityIdGenerator.next("EV");
-  private String invocationId;
-  private String correlationId;
-  private String planId;
-  private String planStepId;
-  private String eventType;
-  private String eventName;
-  private String status;
+    @TableId private String id = EntityIdGenerator.next("EV");
+    private String invocationId;
+    private String correlationId;
+    private String traceId;
+    private String turnId;
+    private Integer attemptNo;
+    private String spanId;
+    private String parentEventId;
+    private String causationEventId;
+    private String planId;
+    private String planStepId;
+    private String eventType;
+    private String eventName;
+    private String status;
 
-  @TableField(typeHandler = PostgresJsonNodeTypeHandler.class, jdbcType = JdbcType.OTHER)
-  private JsonNode payload;
+    @TableField(typeHandler = PostgresJsonNodeTypeHandler.class, jdbcType = JdbcType.OTHER)
+    private JsonNode payload;
 
-  private Long durationMs;
-  private Integer sequence;
-  private Instant createdAt = Instant.now();
+    private Long durationMs;
+    private Integer sequence;
+    private Long sequenceGlobal;
+    private Instant createdAt = Instant.now();
 
-  public String getId() {
-    return id;
-  }
+    public String getId() {
+        return id;
+    }
 
-  public String getInvocationId() {
-    return invocationId;
-  }
+    public String getInvocationId() {
+        return invocationId;
+    }
 
-  public void setInvocationId(String invocationId) {
-    this.invocationId = invocationId;
-  }
+    public void setInvocationId(String invocationId) {
+        this.invocationId = invocationId;
+    }
 
-  public String getCorrelationId() {
-    return correlationId;
-  }
+    public String getCorrelationId() {
+        return correlationId;
+    }
 
-  public void setCorrelationId(String correlationId) {
-    this.correlationId = correlationId;
-  }
+    public void setCorrelationId(String correlationId) {
+        this.correlationId = correlationId;
+    }
 
-  public String getPlanId() {
-    return planId;
-  }
+    public String getTraceId() {
+        return traceId;
+    }
 
-  public void setPlanId(String planId) {
-    this.planId = planId;
-  }
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
+    }
 
-  public String getPlanStepId() {
-    return planStepId;
-  }
+    public String getTurnId() {
+        return turnId;
+    }
 
-  public void setPlanStepId(String planStepId) {
-    this.planStepId = planStepId;
-  }
+    public void setTurnId(String turnId) {
+        this.turnId = turnId;
+    }
 
-  public String getEventType() {
-    return eventType;
-  }
+    public Integer getAttemptNo() {
+        return attemptNo;
+    }
 
-  public void setEventType(String eventType) {
-    this.eventType = eventType;
-  }
+    public void setAttemptNo(Integer attemptNo) {
+        this.attemptNo = attemptNo;
+    }
 
-  public String getEventName() {
-    return eventName;
-  }
+    public String getSpanId() {
+        return spanId;
+    }
 
-  public void setEventName(String eventName) {
-    this.eventName = eventName;
-  }
+    public void setSpanId(String spanId) {
+        this.spanId = spanId;
+    }
 
-  public String getStatus() {
-    return status;
-  }
+    public String getParentEventId() {
+        return parentEventId;
+    }
 
-  public void setStatus(String status) {
-    this.status = status;
-  }
+    public void setParentEventId(String parentEventId) {
+        this.parentEventId = parentEventId;
+    }
 
-  public JsonNode getPayload() {
-    return payload;
-  }
+    public String getCausationEventId() {
+        return causationEventId;
+    }
 
-  public void setPayload(JsonNode payload) {
-    this.payload = payload;
-  }
+    public void setCausationEventId(String causationEventId) {
+        this.causationEventId = causationEventId;
+    }
 
-  public Long getDurationMs() {
-    return durationMs;
-  }
+    public String getPlanId() {
+        return planId;
+    }
 
-  public void setDurationMs(Long durationMs) {
-    this.durationMs = durationMs;
-  }
+    public void setPlanId(String planId) {
+        this.planId = planId;
+    }
 
-  public Integer getSequence() {
-    return sequence;
-  }
+    public String getPlanStepId() {
+        return planStepId;
+    }
 
-  public void setSequence(Integer sequence) {
-    this.sequence = sequence;
-  }
+    public void setPlanStepId(String planStepId) {
+        this.planStepId = planStepId;
+    }
 
-  public Instant getCreatedAt() {
-    return createdAt;
-  }
+    public String getEventType() {
+        return eventType;
+    }
 
-  public void setCreatedAt(Instant createdAt) {
-    this.createdAt = createdAt;
-  }
+    public void setEventType(String eventType) {
+        this.eventType = eventType;
+    }
+
+    public String getEventName() {
+        return eventName;
+    }
+
+    public void setEventName(String eventName) {
+        this.eventName = eventName;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public JsonNode getPayload() {
+        return payload;
+    }
+
+    public void setPayload(JsonNode payload) {
+        this.payload = payload;
+    }
+
+    public Long getDurationMs() {
+        return durationMs;
+    }
+
+    public void setDurationMs(Long durationMs) {
+        this.durationMs = durationMs;
+    }
+
+    public Integer getSequence() {
+        return sequence;
+    }
+
+    public void setSequence(Integer sequence) {
+        this.sequence = sequence;
+    }
+
+    public Long getSequenceGlobal() {
+        return sequenceGlobal;
+    }
+
+    public void setSequenceGlobal(Long sequenceGlobal) {
+        this.sequenceGlobal = sequenceGlobal;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
+    }
 }

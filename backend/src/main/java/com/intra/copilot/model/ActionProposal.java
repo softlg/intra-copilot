@@ -11,6 +11,8 @@ public class ActionProposal {
     private String actionId = EntityIdGenerator.next("AP");
 
     private String conversationId;
+    private String invocationId;
+    private String traceId;
     private String type;
     private String target;
     private String arguments;
@@ -30,6 +32,22 @@ public class ActionProposal {
 
     public void setConversationId(String v) {
         conversationId = v;
+    }
+
+    public String getInvocationId() {
+        return invocationId;
+    }
+
+    public void setInvocationId(String v) {
+        invocationId = v;
+    }
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String v) {
+        traceId = v;
     }
 
     public String getType() {

@@ -10,7 +10,13 @@ public class AgentInvocation {
     @TableId private String id = EntityIdGenerator.next("IV");
     private String conversationId;
     private String correlationId;
+    private String traceId;
+    private String turnId;
+    private Integer attemptNo = 1;
+    private String requestId;
     private String parentInvocationId;
+    private String parentSpanId;
+    private String spanType = "AGENT";
     private Integer sequence;
     private Integer depth;
     private String agentRole;
@@ -43,6 +49,8 @@ public class AgentInvocation {
     private String attachments;
 
     private Instant createdAt = Instant.now();
+    private Instant startedAt = Instant.now();
+    private Instant completedAt;
 
     public String getId() {
         return id;
@@ -60,12 +68,60 @@ public class AgentInvocation {
         correlationId = value;
     }
 
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String value) {
+        traceId = value;
+    }
+
+    public String getTurnId() {
+        return turnId;
+    }
+
+    public void setTurnId(String value) {
+        turnId = value;
+    }
+
+    public Integer getAttemptNo() {
+        return attemptNo;
+    }
+
+    public void setAttemptNo(Integer value) {
+        attemptNo = value;
+    }
+
+    public String getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(String value) {
+        requestId = value;
+    }
+
     public String getParentInvocationId() {
         return parentInvocationId;
     }
 
     public void setParentInvocationId(String value) {
         parentInvocationId = value;
+    }
+
+    public String getParentSpanId() {
+        return parentSpanId;
+    }
+
+    public void setParentSpanId(String value) {
+        parentSpanId = value;
+    }
+
+    public String getSpanType() {
+        return spanType;
+    }
+
+    public void setSpanType(String value) {
+        spanType = value;
     }
 
     public Integer getSequence() {
@@ -298,5 +354,21 @@ public class AgentInvocation {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getStartedAt() {
+        return startedAt;
+    }
+
+    public void setStartedAt(Instant value) {
+        startedAt = value;
+    }
+
+    public Instant getCompletedAt() {
+        return completedAt;
+    }
+
+    public void setCompletedAt(Instant value) {
+        completedAt = value;
     }
 }

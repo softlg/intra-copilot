@@ -2,6 +2,7 @@ package com.intra.copilot.web;
 
 import com.intra.copilot.model.ActionProposal;
 import com.intra.copilot.model.AgentInvocation;
+import com.intra.copilot.model.AgentInvocationEvent;
 import com.intra.copilot.model.AgentPlan;
 import com.intra.copilot.model.AgentPlanStep;
 import com.intra.copilot.model.AttachmentView;
@@ -16,9 +17,15 @@ import com.intra.copilot.service.AttachmentService;
 import com.intra.copilot.service.TraceRecorder;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -97,11 +104,19 @@ public class ConversationLogAdminController {
         public Trace trace(@PathVariable String id) {
                 Conversation conversation = conversations.findById(id)
                                 .orElseThrow(() -> new NoSuchElementException("会话不存在"));
-                List<InvocationTrace> values = sortedInvocations(id).stream()
+                List<AgentInvocation> invocationValues = sortedInvocations(id);
+                List<InvocationTrace> values = invocationValues.stream()
                                 .map(item -> new InvocationTrace(
                                                 item, trace.listByInvocation(item.getId())))
                                 .toList();
-                return new Trace(conversation.getId(), values, loadPlans(conversation.getId()));
+                List<TraceTree> trees = buildTraceTrees(values);
+                return new Trace(
+                                conversation.getId(),
+                                values,
+                                trees,
+                                globalEvents(values),
+                                totalDuration(trees),
+                                loadPlans(conversation.getId()));
         }
 
         /** 后台日志图片取回入口，避免依赖需要 JWT 的插件附件接口。 */
@@ -172,13 +187,245 @@ public class ConversationLogAdminController {
                 List<InvocationTrace> invocationTraces = invocationViews.stream()
                                 .map(item -> new InvocationTrace(item, trace.listByInvocation(item.getId())))
                                 .toList();
+                List<TraceTree> trees = buildTraceTrees(invocationTraces);
                 return new ConversationLog(
                                 conversation,
                                 messageViews,
                                 invocationViews,
                                 invocationTraces,
+                                trees,
+                                globalEvents(invocationTraces),
+                                totalDuration(trees),
                                 loadPlans(conversation.getId()),
                                 actions.findByConversationIdOrderByExpiresAtAsc(conversation.getId()));
+        }
+
+        private List<TraceTree> buildTraceTrees(List<InvocationTrace> traces) {
+                Map<String, InvocationTrace> byId = new LinkedHashMap<>();
+                traces.stream()
+                        .sorted(
+                                Comparator.comparing(
+                                                (InvocationTrace value) ->
+                                                        value.invocation().getSequence(),
+                                                Comparator.nullsLast(Integer::compareTo))
+                                        .thenComparing(
+                                                value ->
+                                                        value.invocation().getCreatedAt(),
+                                                Comparator.nullsLast(Instant::compareTo)))
+                        .forEach(value -> byId.put(value.invocation().getId(), value));
+                Map<String, List<InvocationTrace>> children = new LinkedHashMap<>();
+                List<InvocationTrace> roots = new ArrayList<>();
+                for (InvocationTrace value : byId.values()) {
+                        String parentId = value.invocation().getParentInvocationId();
+                        if (parentId == null || parentId.isBlank() || !byId.containsKey(parentId)) {
+                                roots.add(value);
+                        } else {
+                                children.computeIfAbsent(parentId, ignored -> new ArrayList<>()).add(value);
+                        }
+                }
+
+                Map<String, List<InvocationTrace>> grouped = new LinkedHashMap<>();
+                for (InvocationTrace root : roots) {
+                        grouped.computeIfAbsent(traceKey(root.invocation()), ignored -> new ArrayList<>())
+                                .add(root);
+                }
+                return grouped.entrySet().stream()
+                        .map(entry -> toTraceTree(entry.getKey(), entry.getValue(), children))
+                        .toList();
+        }
+
+        private TraceTree toTraceTree(
+                String traceId,
+                List<InvocationTrace> roots,
+                Map<String, List<InvocationTrace>> children) {
+                List<InvocationNode> nodes = roots.stream()
+                        .map(value -> toInvocationNode(value, children))
+                        .toList();
+                List<AgentInvocationEvent> events = globalEvents(flattenInvocationTraces(roots, children));
+                List<AgentInvocation> invocations =
+                        flattenInvocations(roots, children);
+                AgentInvocation first =
+                        invocations.stream()
+                                .min(
+                                        Comparator.comparing(
+                                                AgentInvocation::getStartedAt,
+                                                Comparator.nullsLast(Instant::compareTo)))
+                                .orElse(null);
+                AgentInvocation last =
+                        invocations.stream()
+                                .max(
+                                        Comparator.comparing(
+                                                AgentInvocation::getCompletedAt,
+                                                Comparator.nullsLast(Instant::compareTo)))
+                                .orElse(first);
+                long durationMs =
+                        nodes.stream()
+                                .mapToLong(InvocationNode::durationMs)
+                                .max()
+                                .orElseGet(
+                                        () ->
+                                                first == null || first.getDurationMs() == null
+                                                        ? 0L
+                                                        : first.getDurationMs());
+                return new TraceTree(
+                                traceId,
+                                first == null ? null : first.getTurnId(),
+                                first == null ? null : first.getAttemptNo(),
+                                first == null ? null : first.getRequestId(),
+                                treeStatus(invocations),
+                                first == null ? null : first.getStartedAt(),
+                                last == null ? null : last.getCompletedAt(),
+                                durationMs,
+                                invocations.size(),
+                                events.size(),
+                                first == null ? null : first.getInputTokens(),
+                                first == null ? null : first.getOutputTokens(),
+                                nodes,
+                                planDecisions(events));
+        }
+
+        private InvocationNode toInvocationNode(
+                InvocationTrace value, Map<String, List<InvocationTrace>> children) {
+                AgentInvocation invocation = value.invocation();
+                List<InvocationNode> childNodes =
+                        children.getOrDefault(invocation.getId(), List.of()).stream()
+                                .map(child -> toInvocationNode(child, children))
+                                .toList();
+                return new InvocationNode(
+                                invocation,
+                                value.events(),
+                                childNodes,
+                                invocationDuration(invocation),
+                                invocation.getInputTokens(),
+                                invocation.getOutputTokens());
+        }
+
+        private List<InvocationTrace> flattenInvocationTraces(
+                List<InvocationTrace> roots,
+                Map<String, List<InvocationTrace>> children) {
+                List<InvocationTrace> values = new ArrayList<>();
+                for (InvocationTrace root : roots) {
+                        values.add(root);
+                        values.addAll(
+                                flattenInvocationTraces(
+                                        children.getOrDefault(root.invocation().getId(), List.of()),
+                                        children));
+                }
+                return values;
+        }
+
+        private List<AgentInvocation> flattenInvocations(
+                List<InvocationTrace> roots,
+                Map<String, List<InvocationTrace>> children) {
+                return flattenInvocationTraces(roots, children).stream()
+                        .map(InvocationTrace::invocation)
+                        .toList();
+        }
+
+        private List<AgentInvocationEvent> globalEvents(List<InvocationTrace> traces) {
+                return traces.stream()
+                        .flatMap(value -> value.events().stream())
+                        .distinct()
+                        .sorted(
+                                Comparator.comparing(
+                                                AgentInvocationEvent::getSequenceGlobal,
+                                                Comparator.nullsLast(Long::compareTo))
+                                        .thenComparing(
+                                                AgentInvocationEvent::getCreatedAt,
+                                                Comparator.nullsLast(Instant::compareTo)))
+                        .toList();
+        }
+
+        private List<PlanDecisionView> planDecisions(List<AgentInvocationEvent> events) {
+                return events.stream()
+                        .filter(event -> "PLAN_DECISION".equals(event.getEventType()))
+                        .map(
+                                event ->
+                                        new PlanDecisionView(
+                                                event.getId(),
+                                                event.getStatus(),
+                                                event.getEventName(),
+                                                event.getDurationMs(),
+                                                event.getCreatedAt(),
+                                                stringValue(event, "mode"),
+                                                stringValue(event, "reason"),
+                                                booleanValue(event, "required"),
+                                                booleanValue(event, "repaired"),
+                                                integerValue(event, "inputTokens"),
+                                                integerValue(event, "outputTokens")))
+                        .toList();
+        }
+
+        private String stringValue(AgentInvocationEvent event, String key) {
+                if (event.getPayload() == null || !event.getPayload().isObject()) return null;
+                var value = event.getPayload().path(key);
+                return value.isMissingNode() || value.isNull() ? null : value.asText();
+        }
+
+        private Boolean booleanValue(AgentInvocationEvent event, String key) {
+                if (event.getPayload() == null || !event.getPayload().isObject()) return null;
+                var value = event.getPayload().path(key);
+                return value.isBoolean() ? value.asBoolean() : null;
+        }
+
+        private Integer integerValue(AgentInvocationEvent event, String key) {
+                if (event.getPayload() == null || !event.getPayload().isObject()) return null;
+                var value = event.getPayload().path(key);
+                return value.isNumber() ? value.asInt() : null;
+        }
+
+        private long totalDuration(List<TraceTree> traces) {
+                Map<String, Long> perTurn = new LinkedHashMap<>();
+                for (TraceTree value : traces) {
+                        String key =
+                                value.turnId() == null || value.turnId().isBlank()
+                                        ? value.traceId()
+                                        : value.turnId();
+                        perTurn.merge(key, value.durationMs(), Math::max);
+                }
+                return perTurn.values().stream().mapToLong(Long::longValue).sum();
+        }
+
+        private static String traceKey(AgentInvocation invocation) {
+                if (invocation == null) return "unknown";
+                if (invocation.getTraceId() != null && !invocation.getTraceId().isBlank()) {
+                        return invocation.getTraceId();
+                }
+                if (invocation.getCorrelationId() != null
+                        && !invocation.getCorrelationId().isBlank()) {
+                        return invocation.getCorrelationId();
+                }
+                return invocation.getId();
+        }
+
+        private static long invocationDuration(AgentInvocation invocation) {
+                if (invocation.getStartedAt() != null && invocation.getCompletedAt() != null) {
+                        return Math.max(
+                                0L,
+                                Duration.between(
+                                                invocation.getStartedAt(),
+                                                invocation.getCompletedAt())
+                                        .toMillis());
+                }
+                return invocation.getDurationMs() == null ? 0L : invocation.getDurationMs();
+        }
+
+        private static String treeStatus(List<AgentInvocation> invocations) {
+                if (invocations.isEmpty()) return "UNKNOWN";
+                if (invocations.stream().anyMatch(value -> "FAILED".equals(value.getStatus()))) {
+                        return "FAILED";
+                }
+                if (invocations.stream().anyMatch(value -> "REJECTED".equals(value.getStatus()))) {
+                        return "REJECTED";
+                }
+                if (invocations.stream().anyMatch(value -> "RUNNING".equals(value.getStatus()))) {
+                        return "RUNNING";
+                }
+                return invocations.stream()
+                        .map(AgentInvocation::getStatus)
+                        .filter(Objects::nonNull)
+                        .findFirst()
+                        .orElse("UNKNOWN");
         }
 
         private List<PlanTrace> loadPlans(String conversationId) {
@@ -221,7 +468,48 @@ public class ConversationLogAdminController {
         public record Trace(
                         String conversationId,
                         List<InvocationTrace> invocations,
+                        List<TraceTree> traces,
+                        List<AgentInvocationEvent> events,
+                        long totalDurationMs,
                         List<PlanTrace> plans) {}
+
+        /** One chat attempt, retaining the parent-child Agent tree and its global event stream. */
+        public record TraceTree(
+                        String traceId,
+                        String turnId,
+                        Integer attemptNo,
+                        String requestId,
+                        String status,
+                        Instant startedAt,
+                        Instant completedAt,
+                        long durationMs,
+                        int agentCount,
+                        int eventCount,
+                        Integer inputTokens,
+                        Integer outputTokens,
+                        List<InvocationNode> roots,
+                        List<PlanDecisionView> planDecisions) {}
+
+        public record InvocationNode(
+                        AgentInvocation invocation,
+                        List<AgentInvocationEvent> events,
+                        List<InvocationNode> children,
+                        long durationMs,
+                        Integer inputTokens,
+                        Integer outputTokens) {}
+
+        public record PlanDecisionView(
+                        String eventId,
+                        String status,
+                        String name,
+                        Long durationMs,
+                        Instant createdAt,
+                        String mode,
+                        String reason,
+                        Boolean required,
+                        Boolean repaired,
+                        Integer inputTokens,
+                        Integer outputTokens) {}
 
         /** A persisted plan plus its ordered steps. */
         public record PlanTrace(AgentPlan plan, List<PlanStepView> steps) {}
@@ -245,7 +533,7 @@ public class ConversationLogAdminController {
         /** 单次 Agent 调用 + 其事件明细，用于在后台还原完整执行流程。 */
         public record InvocationTrace(
                         AgentInvocation invocation,
-                        List<com.intra.copilot.model.AgentInvocationEvent> events) {}
+                        List<AgentInvocationEvent> events) {}
 
         public record ConversationSummary(
                         String id,
@@ -289,6 +577,9 @@ public class ConversationLogAdminController {
                         List<ConversationMessage> messages,
                         List<AgentInvocation> invocations,
                         List<InvocationTrace> invocationTraces,
+                        List<TraceTree> traces,
+                        List<AgentInvocationEvent> events,
+                        long totalDurationMs,
                         List<PlanTrace> plans,
                         List<ActionProposal> actions) {
                 ConversationLog(
@@ -296,6 +587,9 @@ public class ConversationLogAdminController {
                                 List<ConversationMessage> messages,
                                 List<AgentInvocation> invocations,
                                 List<InvocationTrace> invocationTraces,
+                                List<TraceTree> traces,
+                                List<AgentInvocationEvent> events,
+                                long totalDurationMs,
                                 List<PlanTrace> plans,
                                 List<ActionProposal> actions) {
                         this(
@@ -306,6 +600,9 @@ public class ConversationLogAdminController {
                                         messages,
                                         invocations,
                                         invocationTraces,
+                                        traces,
+                                        events,
+                                        totalDurationMs,
                                         plans,
                                         actions);
                 }

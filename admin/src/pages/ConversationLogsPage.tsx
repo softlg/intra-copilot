@@ -12,11 +12,13 @@ import type { Translations } from "../i18n/translations";
 import type {
   ConversationInvocation,
   ConversationInvocationEvent,
+  ConversationInvocationNode,
   ConversationInvocationTrace,
   ConversationLog,
   ConversationLogSummary,
   ConversationPlan,
   ConversationPlanStep,
+  ConversationTraceTree,
 } from "../types";
 
 export interface ConversationLogsPageProps {
@@ -64,6 +66,13 @@ type TimelineEntry =
       createdAt?: string;
       turn: number;
       plan: ConversationPlan;
+    }
+  | {
+      kind: "trace";
+      id: string;
+      createdAt?: string;
+      turn: number;
+      trace: ConversationTraceTree;
     };
 
 function timestamp(value?: string) {
@@ -134,29 +143,47 @@ function buildTimeline(detail?: ConversationLog): TimelineEntry[] {
       message,
     };
   });
-  const invocationEntries: TimelineEntry[] = detail.invocations.map(
-    (invocation) => {
-      const invocationTime = timestamp(invocation.createdAt);
-      const turn = Number.isFinite(invocationTime)
-        ? Math.max(
-            1,
-            userMessageTimes.filter(
-              (messageTime) => messageTime <= invocationTime,
-            ).length,
-          )
-        : Math.max(1, currentTurn);
-      return {
-        kind: "invocation",
-        id: invocation.id,
-        createdAt: invocation.createdAt,
-        turn,
-        invocation,
-        trace: detail.invocationTraces?.find(
-          (trace) => trace.invocation.id === invocation.id,
-        ),
-      };
-    },
-  );
+  const traceEntries: TimelineEntry[] = (detail.traces ?? []).map((trace) => {
+    const traceTime = timestamp(trace.startedAt);
+    const turn = Number.isFinite(traceTime)
+      ? Math.max(
+          1,
+          userMessageTimes.filter((messageTime) => messageTime <= traceTime)
+            .length,
+        )
+      : Math.max(1, currentTurn);
+    return {
+      kind: "trace",
+      id: trace.traceId,
+      createdAt: trace.startedAt,
+      turn,
+      trace,
+    };
+  });
+  const invocationEntries: TimelineEntry[] =
+    traceEntries.length > 0
+      ? []
+      : detail.invocations.map((invocation) => {
+          const invocationTime = timestamp(invocation.createdAt);
+          const turn = Number.isFinite(invocationTime)
+            ? Math.max(
+                1,
+                userMessageTimes.filter(
+                  (messageTime) => messageTime <= invocationTime,
+                ).length,
+              )
+            : Math.max(1, currentTurn);
+          return {
+            kind: "invocation",
+            id: invocation.id,
+            createdAt: invocation.createdAt,
+            turn,
+            invocation,
+            trace: detail.invocationTraces?.find(
+              (trace) => trace.invocation.id === invocation.id,
+            ),
+          };
+        });
   const planEntries: TimelineEntry[] = (detail.plans ?? []).map((plan) => {
     const planTime = timestamp(plan.plan.createdAt);
     const turn = Number.isFinite(planTime)
@@ -174,19 +201,23 @@ function buildTimeline(detail?: ConversationLog): TimelineEntry[] {
       plan,
     };
   });
-  return [...messageEntries, ...invocationEntries, ...planEntries].sort(
-    (left, right) => {
-      const timeDifference =
-        timestamp(left.createdAt) - timestamp(right.createdAt);
-      if (timeDifference !== 0) return timeDifference;
-      const rank = (entry: TimelineEntry) => {
-        if (entry.kind === "plan") return 1;
-        if (entry.kind === "invocation") return 1;
-        return entry.message.role === "user" ? 0 : 2;
-      };
-      return rank(left) - rank(right);
-    },
-  );
+  return [
+    ...messageEntries,
+    ...traceEntries,
+    ...invocationEntries,
+    ...planEntries,
+  ].sort((left, right) => {
+    const timeDifference =
+      timestamp(left.createdAt) - timestamp(right.createdAt);
+    if (timeDifference !== 0) return timeDifference;
+    const rank = (entry: TimelineEntry) => {
+      if (entry.kind === "plan") return 1;
+      if (entry.kind === "trace") return 1;
+      if (entry.kind === "invocation") return 1;
+      return entry.message.role === "user" ? 0 : 2;
+    };
+    return rank(left) - rank(right);
+  });
 }
 
 function timelineEntryMatches(
@@ -196,6 +227,11 @@ function timelineEntryMatches(
 ) {
   if (errorsOnly) {
     if (entry.kind === "invocation") return Boolean(entry.invocation.error);
+    if (entry.kind === "trace") {
+      return (
+        entry.trace.status !== "COMPLETED" && entry.trace.status !== "RUNNING"
+      );
+    }
     if (entry.kind === "plan") {
       return (
         entry.plan.plan.status === "FAILED" ||
@@ -226,6 +262,25 @@ function timelineEntryMatches(
       ]),
     ].some((value) => value?.toLowerCase().includes(query));
   }
+  if (entry.kind === "trace") {
+    return [
+      entry.trace.traceId,
+      entry.trace.turnId,
+      entry.trace.status,
+      ...entry.trace.planDecisions.flatMap((decision) => [
+        decision.status,
+        decision.reason,
+        decision.mode,
+      ]),
+      ...flattenTraceNodes(entry.trace.roots).flatMap((node) => [
+        node.invocation.selectedAgentId,
+        node.invocation.agentRole,
+        node.invocation.intent,
+        node.invocation.responseContent,
+        node.invocation.error,
+      ]),
+    ].some((value) => value?.toLowerCase().includes(query));
+  }
   return [
     entry.invocation.selectedAgentId,
     entry.invocation.requestedAgentId,
@@ -237,6 +292,191 @@ function timelineEntryMatches(
     entry.invocation.responseContent,
     entry.invocation.error,
   ].some((value) => value?.toLowerCase().includes(query));
+}
+
+function flattenTraceNodes(
+  nodes: ConversationInvocationNode[],
+): ConversationInvocationNode[] {
+  return nodes.flatMap((node) => [node, ...flattenTraceNodes(node.children)]);
+}
+
+function traceNodeStatus(node: ConversationInvocationNode) {
+  const status = node.invocation.status || "RUNNING";
+  if (status === "COMPLETED" || status === "SUCCEEDED") return "completed";
+  if (status === "FAILED" || status === "REJECTED") return "failed";
+  return "running";
+}
+
+function TraceNodeRow({
+  node,
+  selectedInvocationId,
+  onSelectInvocation,
+  t,
+}: {
+  node: ConversationInvocationNode;
+  selectedInvocationId?: string;
+  onSelectInvocation: (invocationId: string) => void;
+  t: Translations;
+}) {
+  const invocation = node.invocation;
+  const status = invocation.status || "RUNNING";
+  const tokenTotal =
+    (invocation.inputTokens ?? 0) + (invocation.outputTokens ?? 0);
+  return (
+    <div className="conversation-trace-node">
+      <button
+        type="button"
+        className={`conversation-trace-node-card status-${traceNodeStatus(node)} ${
+          selectedInvocationId === invocation.id ? "selected" : ""
+        }`}
+        aria-pressed={selectedInvocationId === invocation.id}
+        onClick={() => onSelectInvocation(invocation.id)}
+      >
+        <span className="conversation-trace-node-meta">
+          <span className="conversation-trace-node-icon">
+            <Icon
+              name={node.children.length > 0 ? "router" : "bot"}
+              size={14}
+            />
+          </span>
+          <span className="conversation-step-label">
+            {invocation.agentRole || invocation.spanType || "AGENT"}
+          </span>
+          <strong>{invocation.selectedAgentId || "-"}</strong>
+          <span
+            className={`conversation-chip trace-status-${traceNodeStatus(node)}`}
+          >
+            {status}
+          </span>
+          <span className="conversation-chip">
+            {formatDuration(node.durationMs)}
+          </span>
+          {tokenTotal > 0 && (
+            <span className="conversation-chip">
+              {t.conversationTokens} {tokenTotal}
+            </span>
+          )}
+          {node.children.length > 0 && (
+            <span className="conversation-chip">
+              {t.conversationChildAgents(node.children.length)}
+            </span>
+          )}
+        </span>
+        <span className="conversation-invocation-summary">
+          {invocation.intent ||
+            invocation.routeReason ||
+            invocation.error ||
+            "-"}
+        </span>
+        {invocation.error && (
+          <span className="conversation-inline-error">
+            <Icon name="alert" size={13} />
+            {invocation.error}
+          </span>
+        )}
+      </button>
+      {node.children.length > 0 && (
+        <div className="conversation-trace-children">
+          {node.children.map((child) => (
+            <TraceNodeRow
+              key={child.invocation.id}
+              node={child}
+              selectedInvocationId={selectedInvocationId}
+              onSelectInvocation={onSelectInvocation}
+              t={t}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TraceTreeCard({
+  trace,
+  selectedInvocationId,
+  onSelectInvocation,
+  t,
+}: {
+  trace: ConversationTraceTree;
+  selectedInvocationId?: string;
+  onSelectInvocation: (invocationId: string) => void;
+  t: Translations;
+}) {
+  return (
+    <article className="conversation-timeline-entry trace">
+      <span className="conversation-timeline-marker">
+        <Icon name="agents" size={15} />
+      </span>
+      <div className="conversation-timeline-card conversation-trace-card">
+        <div className="conversation-timeline-meta">
+          <span className="conversation-step-label">{t.conversationTrace}</span>
+          {trace.attemptNo != null && (
+            <span className="conversation-chip">
+              {t.conversationAttempt(trace.attemptNo)}
+            </span>
+          )}
+          <span className="conversation-chip">
+            {t.conversationAgentCount(trace.agentCount)}
+          </span>
+          <span className="conversation-chip">
+            {t.conversationEventCount(trace.eventCount)}
+          </span>
+          <span
+            className={`conversation-chip trace-status-${trace.status.toLowerCase()}`}
+          >
+            {trace.status}
+          </span>
+          <span className="conversation-chip">
+            {formatDuration(trace.durationMs)}
+          </span>
+          {trace.startedAt && (
+            <time>{new Date(trace.startedAt).toLocaleString()}</time>
+          )}
+        </div>
+        <div className="conversation-trace-identity">
+          <code title={trace.traceId}>{trace.traceId}</code>
+          {trace.requestId && (
+            <code title={trace.requestId}>{trace.requestId}</code>
+          )}
+        </div>
+        <div className="conversation-trace-plan">
+          <span>
+            <Icon name="sparkle" size={14} />
+            {t.conversationPlanningDecision}
+          </span>
+          {trace.planDecisions.length === 0 ? (
+            <small>{t.conversationPlanningSkipped}</small>
+          ) : (
+            trace.planDecisions.map((decision) => (
+              <div
+                className="conversation-trace-plan-item"
+                key={decision.eventId}
+              >
+                <strong>{decision.status || "-"}</strong>
+                <span>{decision.mode || "-"}</span>
+                <small>{decision.reason || "-"}</small>
+                {decision.durationMs != null && (
+                  <span>{formatDuration(decision.durationMs)}</span>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+        <div className="conversation-trace-tree">
+          {trace.roots.map((root) => (
+            <TraceNodeRow
+              key={root.invocation.id}
+              node={root}
+              selectedInvocationId={selectedInvocationId}
+              onSelectInvocation={onSelectInvocation}
+              t={t}
+            />
+          ))}
+        </div>
+      </div>
+    </article>
+  );
 }
 
 function PlanTimelineCard({
@@ -569,6 +809,78 @@ function PlanInspector({
   );
 }
 
+function ExecutionEventList({
+  events,
+  t,
+}: {
+  events: ConversationInvocationEvent[];
+  t: Translations;
+}) {
+  if (events.length === 0) {
+    return (
+      <p className="conversation-inspector-empty">{t.conversationNoEvents}</p>
+    );
+  }
+  return (
+    <div className="conversation-event-list">
+      {events
+        .slice()
+        .sort(compareConversationEvents)
+        .map((event) => (
+          <details className="conversation-event-card" key={event.id}>
+            <summary>
+              <span className="conversation-event-type">
+                <Icon
+                  name={
+                    event.eventType.startsWith("TOOL")
+                      ? "tool"
+                      : event.eventType.startsWith("LLM")
+                        ? "sparkle"
+                        : event.eventType.startsWith("AGENT") ||
+                            event.eventType.startsWith("CHILD")
+                          ? "agents"
+                          : "list"
+                  }
+                  size={13}
+                />
+                <strong>{event.eventName || event.eventType}</strong>
+              </span>
+              <span className="conversation-event-meta">
+                <span className="conversation-chip">{event.eventType}</span>
+                {event.status && (
+                  <span className="conversation-chip">{event.status}</span>
+                )}
+                {event.durationMs != null && (
+                  <span className="conversation-chip">
+                    {formatDuration(event.durationMs)}
+                  </span>
+                )}
+                {event.sequenceGlobal != null && (
+                  <span className="conversation-chip">
+                    #{event.sequenceGlobal}
+                  </span>
+                )}
+              </span>
+            </summary>
+            <div className="conversation-event-links">
+              {event.spanId && (
+                <code title={event.spanId}>
+                  {t.conversationSpan}: {event.spanId}
+                </code>
+              )}
+              {event.parentEventId && (
+                <code title={event.parentEventId}>
+                  parent: {event.parentEventId}
+                </code>
+              )}
+            </div>
+            <pre>{formatJson(event.payload)}</pre>
+          </details>
+        ))}
+    </div>
+  );
+}
+
 function ConversationInspector({
   invocation,
   trace,
@@ -611,6 +923,12 @@ function ConversationInspector({
     );
   }
   const copyKey = `step-${invocation.id}`;
+  const events = (trace?.events ?? []).slice().sort(compareConversationEvents);
+  const planningEvents = events.filter((event) =>
+    event.eventType.startsWith("PLAN"),
+  );
+  const tokenTotal =
+    (invocation.inputTokens ?? 0) + (invocation.outputTokens ?? 0);
   return (
     <aside className="conversation-detail-inspector">
       <div className="conversation-inspector-head">
@@ -657,6 +975,28 @@ function ConversationInspector({
           <span>{t.clientIp}</span>
           <strong>{invocation.clientIp || "-"}</strong>
         </div>
+        <div>
+          <span>{t.conversationRole}</span>
+          <strong>{invocation.agentRole || invocation.spanType || "-"}</strong>
+        </div>
+        <div>
+          <span>{t.status}</span>
+          <strong>{invocation.status || "-"}</strong>
+        </div>
+        <div>
+          <span>{t.conversationTokens}</span>
+          <strong>
+            {tokenTotal > 0
+              ? `${invocation.inputTokens ?? 0} / ${invocation.outputTokens ?? 0}`
+              : "-"}
+          </strong>
+        </div>
+        <div>
+          <span>{t.conversationTraceId}</span>
+          <strong title={invocation.traceId || "-"}>
+            {invocation.traceId || "-"}
+          </strong>
+        </div>
       </div>
       <section className="conversation-inspector-section">
         <h5>{t.intentResult}</h5>
@@ -665,12 +1005,36 @@ function ConversationInspector({
       <section className="conversation-inspector-section">
         <h5>{t.routeTrail}</h5>
         <div className="conversation-route-trail">
-          <span>{invocation.requestedAgentId || "auto"}</span>
-          <Icon name="chevron-right" size={14} />
+          {invocation.parentInvocationId && (
+            <>
+              <span>{invocation.parentInvocationId}</span>
+              <Icon name="chevron-right" size={14} />
+            </>
+          )}
+          {!invocation.parentInvocationId && (
+            <>
+              <span>{invocation.requestedAgentId || "auto"}</span>
+              <Icon name="chevron-right" size={14} />
+            </>
+          )}
           <strong>{invocation.selectedAgentId || "-"}</strong>
         </div>
       </section>
       <RouteCopilotTrace trace={trace} t={t} />
+      <section className="conversation-inspector-section">
+        <h5>{t.conversationPlanningDecision}</h5>
+        {planningEvents.length === 0 ? (
+          <p className="conversation-inspector-empty">
+            {t.conversationPlanningSkipped}
+          </p>
+        ) : (
+          <ExecutionEventList events={planningEvents} t={t} />
+        )}
+      </section>
+      <section className="conversation-inspector-section">
+        <h5>{t.conversationExecutionEvents}</h5>
+        <ExecutionEventList events={events} t={t} />
+      </section>
       <section className="conversation-inspector-section">
         <h5>{t.contextTransfer}</h5>
         <pre>{formatJson(invocation.contextSent)}</pre>
@@ -786,10 +1150,9 @@ export function ConversationLogsPage({
     (plan) => plan.plan.id === selectedPlanId,
   );
   const totalDuration =
-    detail?.invocations.reduce(
-      (sum, invocation) => sum + (invocation.durationMs ?? 0),
-      0,
-    ) ?? 0;
+    detail?.totalDurationMs ??
+    detail?.traces?.reduce((sum, trace) => sum + trace.durationMs, 0) ??
+    0;
   const errorCount =
     (detail?.invocations.filter((invocation) => Boolean(invocation.error))
       .length ?? 0) +
@@ -1089,6 +1452,18 @@ export function ConversationLogsPage({
                                 setSelectedPlanId(planId);
                                 setSelectedPlanStepId(stepId);
                                 setSelectedInvocationId(undefined);
+                              }}
+                            />
+                          ) : entry.kind === "trace" ? (
+                            <TraceTreeCard
+                              key={entry.id}
+                              trace={entry.trace}
+                              selectedInvocationId={selectedInvocationId}
+                              t={t}
+                              onSelectInvocation={(invocationId) => {
+                                setSelectedInvocationId(invocationId);
+                                setSelectedPlanId(undefined);
+                                setSelectedPlanStepId(undefined);
                               }}
                             />
                           ) : entry.kind === "message" ? (
