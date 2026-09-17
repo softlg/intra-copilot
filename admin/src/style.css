@@ -918,15 +918,29 @@ article p {
   opacity: 0.45;
 }
 
-.agent-card > p:not(.agent-parent) {
-  display: -webkit-box;
+.agent-card-description {
   flex: 1 1 auto;
   min-height: 0;
   margin: 12px 0 0;
   overflow: hidden;
+}
+
+.agent-card-description > p {
+  display: -webkit-box;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   overflow-wrap: anywhere;
+}
+
+.agent-card-description.is-empty > p {
+  color: var(--muted-subtle);
+  font-style: italic;
 }
 
 .agent-card-footer {

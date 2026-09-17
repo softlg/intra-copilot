@@ -3313,7 +3313,15 @@ function AdminApp({
                               {t.parentAgent}：{parent.displayName}
                             </p>
                           )}
-                          <p>{agent.description || t.noDescription}</p>
+                          <div
+                            className={`agent-card-description${
+                              agent.description ? "" : " is-empty"
+                            }`}
+                          >
+                            <p title={agent.description || undefined}>
+                              {agent.description || t.noDescription}
+                            </p>
+                          </div>
                           <div className="agent-card-footer">
                             <button
                               onClick={() => openAgentSettings(agent)}
