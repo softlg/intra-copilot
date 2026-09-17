@@ -403,8 +403,11 @@ function AdminApp({
   const [routeUploading, setRouteUploading] = useState(false);
   const [routeReadPage, setRouteReadPage] = useState(true);
   const [route, setRoute] = useState<Record<string, unknown>>();
+  const [routeTesting, setRouteTesting] = useState(false);
+  const [routeError, setRouteError] = useState("");
   const [routeAnalysis, setRouteAnalysis] = useState("");
   const [routeAnalyzing, setRouteAnalyzing] = useState(false);
+  const routeAbortRef = useRef<AbortController | undefined>(undefined);
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
   const [editingAgentId, setEditingAgentId] = useState<string>();
   const [agentConfigId, setAgentConfigId] = useState<string>();
@@ -2611,18 +2614,46 @@ function AdminApp({
 
   const testRoute = async () => {
     if (!message.trim() && !routeAttachments.length) return;
+    routeAbortRef.current?.abort();
+    const controller = new AbortController();
+    routeAbortRef.current = controller;
+    setRouteTesting(true);
+    setRouteError("");
     setRouteAnalysis("");
-    setRoute(
-      await request<Record<string, unknown>>("/admin/router/test", {
-        method: "POST",
-        body: JSON.stringify({
-          message: message.trim(),
-          pageContext: routePageContext.trim(),
-          attachmentIds: routeAttachments.map((attachment) => attachment.id),
-          permissions: { readPage: routeReadPage },
-        }),
-      }),
-    );
+    try {
+      const result = await request<Record<string, unknown>>(
+        "/admin/router/test",
+        {
+          method: "POST",
+          signal: controller.signal,
+          body: JSON.stringify({
+            message: message.trim(),
+            pageContext: routePageContext.trim(),
+            attachmentIds: routeAttachments.map((attachment) => attachment.id),
+            permissions: { readPage: routeReadPage },
+          }),
+        },
+      );
+      setRoute(result);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const message =
+        error instanceof Error ? error.message : t.routerTestFailed;
+      setRouteError(message);
+      toast.error(message);
+    } finally {
+      if (routeAbortRef.current === controller) {
+        routeAbortRef.current = undefined;
+        setRouteTesting(false);
+      }
+    }
+  };
+
+  const cancelRouteTest = () => {
+    routeAbortRef.current?.abort();
+    routeAbortRef.current = undefined;
+    setRouteTesting(false);
+    setRouteError("");
   };
 
   const analyzeRoute = async () => {
@@ -3593,6 +3624,9 @@ function AdminApp({
               onPastePageContext={pasteRoutePageContext}
               onOpenPageContext={openRoutePage}
               route={route}
+              testing={routeTesting}
+              error={routeError}
+              onCancelTest={cancelRouteTest}
               analyzing={routeAnalyzing}
               onAnalyze={analyzeRoute}
               analysis={routeAnalysis}
