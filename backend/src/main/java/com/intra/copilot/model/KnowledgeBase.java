@@ -2,6 +2,7 @@ package com.intra.copilot.model;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
 
@@ -17,7 +18,9 @@ public class KnowledgeBase {
     private String embeddingProfileId;
     private Boolean useSystemEmbedding = true;
     private String embeddingProvider;
+    private String embeddingBaseUrl;
     private String embeddingModel;
+    private String embeddingApiKey;
     private Integer embeddingDimension;
     private String createdBy;
     private String updatedBy;
@@ -89,12 +92,29 @@ public class KnowledgeBase {
         embeddingProvider = value;
     }
 
+    public String getEmbeddingBaseUrl() {
+        return embeddingBaseUrl;
+    }
+
+    public void setEmbeddingBaseUrl(String value) {
+        embeddingBaseUrl = value;
+    }
+
     public String getEmbeddingModel() {
         return embeddingModel;
     }
 
     public void setEmbeddingModel(String value) {
         embeddingModel = value;
+    }
+
+    @JsonIgnore
+    public String getEmbeddingApiKey() {
+        return embeddingApiKey;
+    }
+
+    public void setEmbeddingApiKey(String value) {
+        embeddingApiKey = value;
     }
 
     public Integer getEmbeddingDimension() {

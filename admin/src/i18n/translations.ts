@@ -350,7 +350,13 @@ export const translations = {
     systemModelActive: "当前继承系统默认模型",
     customModel: "自定义模型",
     provider: "提供方",
+    baseUrl: "Base URL",
+    baseUrlHint:
+      "OpenAI 兼容接口地址，通常包含 /v1；系统会调用其 /embeddings 路径。",
     modelName: "模型名称",
+    apiKey: "API Key",
+    apiKeyConfiguredHint: "已保存密钥，留空表示不修改。",
+    apiKeyRequiredHint: "密钥仅保存在服务端，不会在页面回显。",
     dimension: "向量维度",
     saveModelConfig: "保存模型配置",
     modelSwitchRiskTitle: "切换模型的风险提示",
@@ -359,7 +365,7 @@ export const translations = {
     modelSwitchRisk2:
       "保存后必须对已上传文档执行「重建索引 / 重新 Embedding」，否则回答质量下降甚至检索不到内容。",
     modelSwitchRisk3:
-      "自定义模型的 API 密钥使用服务端环境变量中对应提供方的凭证，请确认该提供方已在服务端配置且可用。",
+      "自定义模型使用此处单独保存的 Base URL 和 API Key；请确认地址、密钥和模型权限可用。",
     modelSwitchRisk4:
       "向量维度必须与所选模型实际输出维度一致，否则会报维度不匹配错误。",
     documentCount: (count: number) => `${count} 个文档`,
@@ -1194,7 +1200,14 @@ export const translations = {
     systemModelActive: "Currently inheriting the system default model",
     customModel: "Custom model",
     provider: "Provider",
+    baseUrl: "Base URL",
+    baseUrlHint:
+      "OpenAI-compatible endpoint, usually including /v1. The system calls its /embeddings path.",
     modelName: "Model name",
+    apiKey: "API Key",
+    apiKeyConfiguredHint: "A key is saved. Leave blank to keep it unchanged.",
+    apiKeyRequiredHint:
+      "The key is stored server-side and is never returned to the page.",
     dimension: "Vector dimension",
     saveModelConfig: "Save model config",
     modelSwitchRiskTitle: "Risks of switching the model",
@@ -1203,7 +1216,7 @@ export const translations = {
     modelSwitchRisk2:
       "After saving you must rebuild / re-embed the uploaded documents, otherwise answer quality drops or nothing is retrieved.",
     modelSwitchRisk3:
-      "Custom models use the provider credentials from server environment variables; ensure the provider is configured and reachable on the server.",
+      "Custom models use the Base URL and API Key saved here. Ensure the endpoint, key, and model access are valid.",
     modelSwitchRisk4:
       "The vector dimension must match the model's actual output dimension, otherwise a dimension-mismatch error is raised.",
     documentCount: (count: number) =>

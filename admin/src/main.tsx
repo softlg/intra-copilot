@@ -750,8 +750,8 @@ function AdminApp({
   }, [tab, conversationPage, conversationPageSize, conversationSessionId]);
 
   useEffect(() => {
+    setEmbeddingConfig(undefined);
     if (!activeBaseId) {
-      setEmbeddingConfig(undefined);
       return;
     }
     request<EmbeddingConfig>(
@@ -1718,6 +1718,10 @@ function AdminApp({
                 useSystemEmbedding: config.useSystemEmbedding ?? false,
                 embeddingProfileId: config.profileId || undefined,
                 embeddingProvider: config.provider || undefined,
+                embeddingBaseUrl:
+                  config.useSystemEmbedding === true
+                    ? undefined
+                    : config.baseUrl || item.embeddingBaseUrl,
                 embeddingModel: config.model || undefined,
                 embeddingDimension: config.dimension,
               }

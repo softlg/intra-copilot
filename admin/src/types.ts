@@ -303,6 +303,7 @@ export type Base = {
   embeddingProfileId?: string;
   useSystemEmbedding?: boolean;
   embeddingProvider?: string;
+  embeddingBaseUrl?: string;
   embeddingModel?: string;
   embeddingDimension?: number;
   retrievalTopK?: number;
@@ -315,6 +316,7 @@ export type EmbeddingProfile = {
   id: string;
   name: string;
   provider: string;
+  baseUrl?: string;
   model: string;
   dimension: number;
   enabled: boolean;
@@ -324,11 +326,14 @@ export type EmbeddingProfile = {
 export type EmbeddingConfig = {
   profile: EmbeddingProfile;
   inheritedOrResolved: boolean;
+  apiKeyConfigured: boolean;
 };
 export type EmbeddingConfigRequest = {
   useSystemEmbedding?: boolean;
   provider?: string;
+  baseUrl?: string;
   model?: string;
+  apiKey?: string;
   dimension?: number;
   profileId?: string;
 };

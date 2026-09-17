@@ -129,9 +129,13 @@ export function KnowledgePage({
   const [customProvider, setCustomProvider] = useState<string>(
     activeBase?.embeddingProvider ?? "",
   );
+  const [customBaseUrl, setCustomBaseUrl] = useState<string>(
+    activeBase?.embeddingBaseUrl ?? "",
+  );
   const [customModel, setCustomModel] = useState<string>(
     activeBase?.embeddingModel ?? "",
   );
+  const [customApiKey, setCustomApiKey] = useState("");
   const [customDimension, setCustomDimension] = useState<string>(
     activeBase?.embeddingDimension != null
       ? String(activeBase.embeddingDimension)
@@ -143,7 +147,9 @@ export function KnowledgePage({
     if (!activeBase) return;
     setUseSystemModel(activeBase.useSystemEmbedding ?? true);
     setCustomProvider(activeBase.embeddingProvider ?? "");
+    setCustomBaseUrl(activeBase.embeddingBaseUrl ?? "");
     setCustomModel(activeBase.embeddingModel ?? "");
+    setCustomApiKey("");
     setCustomDimension(
       activeBase.embeddingDimension != null
         ? String(activeBase.embeddingDimension)
@@ -154,14 +160,19 @@ export function KnowledgePage({
   const customValid =
     !useSystemModel &&
     customProvider.trim() !== "" &&
+    customBaseUrl.trim() !== "" &&
     customModel.trim() !== "" &&
+    (customApiKey.trim() !== "" ||
+      embeddingConfig?.apiKeyConfigured === true) &&
     Number(customDimension) > 0;
 
   const handleSaveEmbedding = () => {
     saveEmbeddingConfig({
       useSystemEmbedding: useSystemModel,
       provider: useSystemModel ? undefined : customProvider.trim() || undefined,
+      baseUrl: useSystemModel ? undefined : customBaseUrl.trim() || undefined,
       model: useSystemModel ? undefined : customModel.trim() || undefined,
+      apiKey: useSystemModel ? undefined : customApiKey.trim() || undefined,
       dimension: useSystemModel
         ? undefined
         : Number(customDimension) > 0
@@ -461,6 +472,20 @@ export function KnowledgePage({
                         />
                       </label>
                       <label className="field">
+                        <span>{t.baseUrl}</span>
+                        <input
+                          type="url"
+                          value={customBaseUrl}
+                          disabled={embeddingSaving}
+                          placeholder="https://api.openai.com/v1"
+                          autoComplete="url"
+                          onChange={(event) =>
+                            setCustomBaseUrl(event.target.value)
+                          }
+                        />
+                        <small className="field-hint">{t.baseUrlHint}</small>
+                      </label>
+                      <label className="field">
                         <span>{t.modelName}</span>
                         <input
                           type="text"
@@ -475,6 +500,28 @@ export function KnowledgePage({
                             setCustomModel(event.target.value)
                           }
                         />
+                      </label>
+                      <label className="field">
+                        <span>{t.apiKey}</span>
+                        <input
+                          type="password"
+                          value={customApiKey}
+                          disabled={embeddingSaving}
+                          placeholder={
+                            embeddingConfig?.apiKeyConfigured
+                              ? "••••••••••••"
+                              : "sk-..."
+                          }
+                          autoComplete="new-password"
+                          onChange={(event) =>
+                            setCustomApiKey(event.target.value)
+                          }
+                        />
+                        <small className="field-hint">
+                          {embeddingConfig?.apiKeyConfigured
+                            ? t.apiKeyConfiguredHint
+                            : t.apiKeyRequiredHint}
+                        </small>
                       </label>
                       <label className="field">
                         <span>{t.dimension}</span>
