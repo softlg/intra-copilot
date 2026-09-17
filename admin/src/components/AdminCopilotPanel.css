@@ -1172,13 +1172,54 @@ body.copilot-panel-resizing * {
 }
 
 .copilot-history li {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 9px;
+  overflow: hidden;
   border: 1px solid var(--border-faint);
   border-radius: 7px;
+}
+
+.copilot-history-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.copilot-history-row:hover {
+  background: var(--surface-hover);
+}
+
+.copilot-history li.is-open .copilot-history-row {
+  background: var(--surface-sunken);
+}
+
+.copilot-history-row > svg {
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.copilot-history li.is-open .copilot-history-row > svg {
+  transform: rotate(180deg);
+}
+
+.copilot-history-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copilot-history-row-meta {
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+  text-align: right;
 }
 
 .copilot-history span,
@@ -1189,6 +1230,162 @@ body.copilot-panel-resizing * {
 
 .copilot-history strong {
   font-size: 12px;
+}
+
+.copilot-history-detail {
+  padding: 10px;
+  border-top: 1px solid var(--border-faint);
+  background: var(--surface-raised);
+}
+
+.copilot-history-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.copilot-history-summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.copilot-history-summary-main {
+  color: var(--text-strong) !important;
+  font-weight: 650;
+}
+
+.copilot-history-readonly,
+.copilot-history-unavailable {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.copilot-history-block {
+  margin-top: 12px;
+}
+
+.copilot-history-block > strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.copilot-history-block > ul,
+.copilot-history-cases {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.copilot-history-block > ul > li,
+.copilot-history-case {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-faint);
+}
+
+.copilot-history-block > ul > li:first-child,
+.copilot-history-case:first-child {
+  border-top: 0;
+}
+
+.copilot-history-block > ul > li > span {
+  align-self: start;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--text-strong);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.copilot-history-block b {
+  font-size: 12px;
+}
+
+.copilot-history-block p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.copilot-history-case {
+  display: block;
+}
+
+.copilot-history-case-head {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.copilot-history-case-head > svg {
+  color: var(--muted);
+}
+
+.copilot-history-case.is-pass .copilot-history-case-head > svg,
+.copilot-history-case.is-pass .copilot-history-case-head > em {
+  color: var(--success);
+}
+
+.copilot-history-case.is-fail .copilot-history-case-head > svg,
+.copilot-history-case.is-fail .copilot-history-case-head > em {
+  color: var(--danger-text);
+}
+
+.copilot-history-case-head > em {
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 650;
+}
+
+.copilot-history-case pre,
+.copilot-history-suggestion pre {
+  max-height: 180px;
+  margin: 6px 0 0;
+  padding: 7px 8px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--pre-bg);
+  color: var(--code-color);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.copilot-history-suggestion {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.copilot-history-suggestion > strong {
+  color: var(--text-strong);
+  font-size: 11px;
+}
+
+.copilot-history-suggestion > div {
+  margin-top: 6px;
+}
+
+.copilot-history-suggestion > div > span {
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .copilot-applied-patch {

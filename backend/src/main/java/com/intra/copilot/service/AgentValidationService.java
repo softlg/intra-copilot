@@ -588,6 +588,40 @@ public class AgentValidationService {
         return patch;
     }
 
+    private Map<String, Object> prepareCaseSuggestedPatch(
+            AgentDefinition agent,
+            ValidationCaseRequest testCase,
+            Map<String, Object> candidate) {
+        Map<String, Object> prepared = new LinkedHashMap<>(candidate);
+        String current = normalizedValue(agent.getSystemPrompt());
+        String suggested =
+                normalizedValue(Objects.toString(candidate.get("systemPrompt"), ""));
+        if (suggested.isBlank()) return prepared;
+        if (current.isBlank()) {
+            prepared.put("systemPrompt", suggested);
+            return prepared;
+        }
+        String compactCurrent = compactText(current);
+        String compactSuggested = compactText(suggested);
+        if (compactCurrent.contains(compactSuggested)) {
+            prepared.put("systemPrompt", current);
+            return prepared;
+        }
+        if (compactSuggested.contains(compactCurrent)) {
+            prepared.put("systemPrompt", suggested);
+            return prepared;
+        }
+        String scenario = limit(testCase.title(), 200, "当前验证场景");
+        prepared.put(
+                "systemPrompt",
+                current
+                        + "\n\n补充验证要求（场景："
+                        + scenario
+                        + "）：\n"
+                        + suggested);
+        return prepared;
+    }
+
     private Map<String, Object> fallbackRemediationPatch(
             String current, List<RemediationCaseRequest> failedCases) {
         StringBuilder completed = new StringBuilder(current);
@@ -644,6 +678,10 @@ public class AgentValidationService {
         return value == null ? "" : value.trim();
     }
 
+    private static String compactText(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", "");
+    }
+
     private Map<String, Object> executeCase(
             AgentDefinition agent, ValidationCaseRequest testCase) {
         String input = testCase.input() == null ? "" : testCase.input().trim();
@@ -664,6 +702,7 @@ public class AgentValidationService {
                 你是 Agent 验证评估器。只根据输入、预期标准和 Agent 实际回答评估，不补充隐藏事实。
                 只输出 JSON：{"passed":true,"reason":"...","suggestedPatch":{}}
                 suggestedPatch 只允许 systemPrompt、description、routingRules 三个字段，没有建议时输出空对象。
+                systemPrompt 字段只写需要追加的补充规则，不要复述、重写或替换原提示词。
                 """;
         String judgeInput =
                 "Agent 配置：\n"
@@ -684,7 +723,10 @@ public class AgentValidationService {
         judged.put(
                 "suggestedPatch",
                 sanitizeRemediationPatch(
-                        asMap(judged.get("suggestedPatch")),
+                        prepareCaseSuggestedPatch(
+                                agent,
+                                testCase,
+                                asMap(judged.get("suggestedPatch"))),
                         configuredRemediationValues(agent)));
         judged.put("response", response);
         return judged;

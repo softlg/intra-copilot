@@ -152,6 +152,68 @@ class AgentValidationServiceTest {
     }
 
     @Test
+    void behaviorSuggestionAppendsPromptAdditionInsteadOfReplacingTheOriginal() {
+        AgentConfigurationService agentConfigurations = mock(AgentConfigurationService.class);
+        AgentValidationRunRepository runs = mock(AgentValidationRunRepository.class);
+        AgentValidationCaseRepository cases = mock(AgentValidationCaseRepository.class);
+        AdminUserService users = mock(AdminUserService.class);
+        LlmClient llm = mock(LlmClient.class);
+        AgentDefinition agent = agent();
+        AdminUser user = new AdminUser();
+        user.setId("admin-1");
+        when(agentConfigurations.get("agent-1")).thenReturn(agent);
+        when(runs.save(any(AgentValidationRun.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(users.requireCurrent()).thenReturn(user);
+        when(llm.complete(any(), any(), any()))
+                .thenReturn(
+                        Mono.just("实际回答"),
+                        Mono.just(
+                                """
+                                {
+                                  "passed":false,
+                                  "reason":"缺少成功承诺边界",
+                                  "suggestedPatch":{
+                                    "systemPrompt":"补充规则：不得承诺操作一定成功。"
+                                  }
+                                }
+                                """));
+        AgentValidationService service =
+                new AgentValidationService(
+                        agentConfigurations,
+                        runs,
+                        cases,
+                        mock(KnowledgeBaseRepository.class),
+                        mock(ToolDefinitionRepository.class),
+                        mock(SkillDefinitionRepository.class),
+                        llm,
+                        new ObjectMapper(),
+                        users,
+                        mock(AdminAuditService.class));
+
+        Map<String, Object> report =
+                service.validateBehavior(
+                        "agent-1",
+                        new AgentValidationService.BehaviorRequest(
+                                List.of(
+                                        new AgentValidationService.ValidationCaseRequest(
+                                                "成功承诺",
+                                                "你能保证一定成功吗？",
+                                                "",
+                                                "不得承诺一定成功"))));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result =
+                (Map<String, Object>) ((List<?>) report.get("cases")).get(0);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> patch = (Map<String, Object>) result.get("suggestedPatch");
+        String systemPrompt = String.valueOf(patch.get("systemPrompt"));
+        assertTrue(systemPrompt.startsWith(agent.getSystemPrompt()));
+        assertTrue(systemPrompt.contains("补充验证要求（场景：成功承诺）"));
+        assertTrue(systemPrompt.contains("不得承诺操作一定成功"));
+    }
+
+    @Test
     void staticValidationPersistsAReport() {
         AgentConfigurationService agentConfigurations = mock(AgentConfigurationService.class);
         AgentValidationRunRepository runs = mock(AgentValidationRunRepository.class);

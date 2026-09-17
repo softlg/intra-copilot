@@ -190,6 +190,17 @@ const copy = {
     historyTitle: "最近验证",
     status: "状态",
     emptyHistory: "暂无验证记录。",
+    historyShow: "查看详情",
+    historyHide: "收起详情",
+    historyUnavailable: "历史报告内容不可用，可能由旧版本生成。",
+    historyReadOnlyHint:
+      "历史建议仅用于追溯；如需修改，请重新运行验证后再应用。",
+    historyStaticIssues: "静态检查记录",
+    historyCases: "场景结果",
+    statusStaticComplete: "静态检查完成",
+    statusComplete: "已完成",
+    statusCanceled: "已中止",
+    statusRunning: "执行中",
     role: "角色",
     input: "输入",
     expected: "预期标准",
@@ -314,6 +325,18 @@ const copy = {
     historyTitle: "Recent validations",
     status: "Status",
     emptyHistory: "No validation history.",
+    historyShow: "View details",
+    historyHide: "Hide details",
+    historyUnavailable:
+      "The stored report is unavailable, possibly from an older version.",
+    historyReadOnlyHint:
+      "Historical suggestions are read-only. Re-run validation before applying changes.",
+    historyStaticIssues: "Static-check record",
+    historyCases: "Scenario results",
+    statusStaticComplete: "Static check complete",
+    statusComplete: "Complete",
+    statusCanceled: "Cancelled",
+    statusRunning: "Running",
     role: "Role",
     input: "Input",
     expected: "Expected",
@@ -438,6 +461,120 @@ function runStateIcon(state: CaseRunState) {
   if (state === "passed") return "check";
   if (state === "failed") return "close";
   return "minus";
+}
+
+function historyStatusLabel(status: string, text: (typeof copy)[Language]) {
+  if (status === "STATIC_COMPLETE") return text.statusStaticComplete;
+  if (status === "COMPLETE") return text.statusComplete;
+  if (status === "CANCELED") return text.statusCanceled;
+  if (status === "RUNNING") return text.statusRunning;
+  return status;
+}
+
+function ValidationHistoryDetails({
+  text,
+  language,
+  item,
+}: {
+  text: (typeof copy)[Language];
+  language: Language;
+  item: AgentValidationHistoryItem;
+}) {
+  const report = parseJson<AgentValidationReport>(item.reportJson);
+  if (!report) {
+    return (
+      <p className="copilot-history-unavailable">{text.historyUnavailable}</p>
+    );
+  }
+  const summary = report.summary;
+  return (
+    <div className="copilot-history-detail">
+      <div className="copilot-history-summary">
+        <span className="copilot-history-summary-main">
+          <Icon name={summary.testsFailed > 0 ? "alert" : "check"} size={14} />
+          {text.runSummary
+            .replace("{passed}", String(summary.testsPassed))
+            .replace("{failed}", String(summary.testsFailed))
+            .replace("{total}", String(summary.testsRun))}
+        </span>
+        {summary.issueCount > 0 && (
+          <span>
+            {text.staticCheck}: {summary.issueCount}
+          </span>
+        )}
+      </div>
+      <p className="copilot-history-readonly">{text.historyReadOnlyHint}</p>
+
+      {report.staticIssues.length > 0 && (
+        <section className="copilot-history-block">
+          <strong>{text.historyStaticIssues}</strong>
+          <ul>
+            {report.staticIssues.map((issue, index) => (
+              <li key={`${issue.code}-${index}`}>
+                <span>{severityLabel(issue.severity, language)}</span>
+                <div>
+                  <b>{issue.title}</b>
+                  <p>{issue.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {report.cases.length > 0 && (
+        <section className="copilot-history-block">
+          <strong>{text.historyCases}</strong>
+          <div className="copilot-history-cases">
+            {report.cases.map((item, index) => (
+              <article
+                className={
+                  item.passed
+                    ? "copilot-history-case is-pass"
+                    : "copilot-history-case is-fail"
+                }
+                key={`${item.title}-${index}`}
+              >
+                <div className="copilot-history-case-head">
+                  <Icon name={item.passed ? "check" : "close"} size={14} />
+                  <strong>{item.title}</strong>
+                  <em>{item.passed ? text.pass : text.fail}</em>
+                </div>
+                <p>
+                  <b>{text.input}:</b> {item.input}
+                </p>
+                <p>
+                  <b>{text.expected}:</b> {item.expected}
+                </p>
+                {item.reason && (
+                  <p>
+                    <b>{text.reason}:</b> {item.reason}
+                  </p>
+                )}
+                {item.actualResponse && <pre>{item.actualResponse}</pre>}
+                {item.suggestedPatch &&
+                  Object.keys(item.suggestedPatch).length > 0 && (
+                    <div className="copilot-history-suggestion">
+                      <strong>{text.scenarioSuggestion}</strong>
+                      {Object.entries(item.suggestedPatch).map(
+                        ([field, value]) => (
+                          <div key={field}>
+                            <span>
+                              {FIELD_LABELS[field]?.[language] ?? field}
+                            </span>
+                            <pre>{formatPatchValue(value, field)}</pre>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  )}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
 }
 
 const FIELD_LABELS: Record<string, { zh: string; en: string }> = {
@@ -2527,6 +2664,7 @@ function ValidationView({
   onDismissAppliedPatch: () => void;
   onSaveDraft?: () => void;
 }) {
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string>();
   if (!agentId) {
     return <p className="copilot-empty">{text.validateNoAgent}</p>;
   }
@@ -2854,13 +2992,39 @@ function ValidationView({
           <p className="copilot-empty">{text.emptyHistory}</p>
         ) : (
           <ul className="copilot-history">
-            {history.map((item) => (
-              <li key={item.id}>
-                <span>{text.status}</span>
-                <strong>{item.status}</strong>
-                <time>{formatDateTime(item.createdAt)}</time>
-              </li>
-            ))}
+            {history.map((item) => {
+              const expanded = expandedHistoryId === item.id;
+              const report = parseJson<AgentValidationReport>(item.reportJson);
+              return (
+                <li className={expanded ? "is-open" : undefined} key={item.id}>
+                  <button
+                    type="button"
+                    className="copilot-history-row"
+                    aria-expanded={expanded}
+                    onClick={() =>
+                      setExpandedHistoryId(expanded ? undefined : item.id)
+                    }
+                    title={expanded ? text.historyHide : text.historyShow}
+                  >
+                    <span>{text.status}</span>
+                    <strong>{historyStatusLabel(item.status, text)}</strong>
+                    <span className="copilot-history-row-meta">
+                      {report &&
+                        `${report.summary.testsPassed}/${report.summary.testsRun}`}
+                      <time>{formatDateTime(item.createdAt)}</time>
+                    </span>
+                    <Icon name="chevron-down" size={15} />
+                  </button>
+                  {expanded && (
+                    <ValidationHistoryDetails
+                      text={text}
+                      language={language}
+                      item={item}
+                    />
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
