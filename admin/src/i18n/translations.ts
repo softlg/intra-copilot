@@ -166,6 +166,13 @@ export const translations = {
     customAgent: "自定义 Agent",
     systemAgentHint: "系统 Agent 由页面助手内置提供，不允许删除",
     customAgentHint: "自定义 Agent 可按需停用后删除",
+    systemAgentGlobalEntry: "全局请求入口",
+    systemAgentRouteExits: "路由出口",
+    systemAgentRouteTargets: (count: number) => `${count} 类能力`,
+    systemAgentGeneralShort: "通用",
+    systemAgentDomainShort: "领域",
+    systemAgentSubShort: "子 Agent",
+    systemAgentFallback: "未匹配请求转交通用 Agent",
     systemAgentPageHint:
       "请求入口：识别用户意图，分派给通用或领域 Agent，全局唯一。",
     generalAgentPage: "通用 Agent",
@@ -1007,6 +1014,13 @@ export const translations = {
     systemAgentHint:
       "System Agents are built into the page assistant and cannot be deleted",
     customAgentHint: "Domain agents can be deleted after they are disabled",
+    systemAgentGlobalEntry: "Global request entry",
+    systemAgentRouteExits: "Routing destinations",
+    systemAgentRouteTargets: (count: number) => `${count} destination types`,
+    systemAgentGeneralShort: "General",
+    systemAgentDomainShort: "Domain",
+    systemAgentSubShort: "Sub-agent",
+    systemAgentFallback: "Unmatched requests go to a General Agent",
     systemAgentPageHint:
       "Entry point: identifies user intent and routes to a general or domain Agent. Only one instance exists.",
     generalAgentPage: "General Agent",

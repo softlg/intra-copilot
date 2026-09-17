@@ -93,6 +93,7 @@ import { AgentSettingsPage } from "./pages/AgentSettingsPage";
 import { KnowledgePage } from "./pages/KnowledgePage";
 import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { AdminCopilotPanel } from "./components/AdminCopilotPanel";
+import { SystemAgentHeroCard } from "./components/SystemAgentHeroCard";
 
 type AgentConfigSnapshot = {
   id: string;
@@ -2302,6 +2303,16 @@ function AdminApp({
   const agentRoleOf = (agent: Agent) =>
     agent.role ?? (agent.systemAgent ? "MAIN" : "DOMAIN");
 
+  const agentRoleCounts = useMemo(
+    () => ({
+      general: agents.filter((agent) => agentRoleOf(agent) === "GENERAL")
+        .length,
+      domain: agents.filter((agent) => agentRoleOf(agent) === "DOMAIN").length,
+      sub: agents.filter((agent) => agentRoleOf(agent) === "SUB").length,
+    }),
+    [agents],
+  );
+
   const toggleBase = async (base: Base) => {
     const enabled = !base.enabled;
     try {
@@ -3255,86 +3266,114 @@ function AdminApp({
                 {agentsLoading && !agentListTab.items.length ? (
                   <Skeleton.CardList count={4} />
                 ) : (
-                  <div className="grid">
+                  <div
+                    className={
+                      agentListTab.role === "MAIN"
+                        ? "system-agent-list"
+                        : "grid"
+                    }
+                  >
                     {agentListTab.items.map((agent) => {
                       const parent = agent.parentAgentId
                         ? agents.find((item) => item.id === agent.parentAgentId)
                         : undefined;
+                      const isMainCard = agentListTab.role === "MAIN";
                       return (
                         <article
                           key={agent.id}
-                          className={`agent-card ${agent.enabled ? "is-enabled" : "is-disabled"}`}
+                          className={`agent-card ${
+                            isMainCard ? "system-agent-card" : ""
+                          } ${agent.enabled ? "is-enabled" : "is-disabled"}`}
                           aria-busy={agentActionId === agent.id}
                         >
-                          <div className="agent-card-header">
-                            <div className="agent-card-title">
-                              <strong>{agent.displayName}</strong>
-                              <span className={agent.enabled ? "ok" : "off"}>
-                                {agent.enabled ? t.enabled : t.disabled}
-                              </span>
-                            </div>
-                            <div className="agent-card-controls">
-                              <label
-                                className="switch agent-card-switch"
-                                title={agent.enabled ? t.stop : t.enable}
-                              >
-                                <input
-                                  type="checkbox"
-                                  role="switch"
-                                  checked={agent.enabled}
-                                  aria-label={agent.enabled ? t.stop : t.enable}
-                                  disabled={agentActionId === agent.id}
-                                  onChange={() => void toggle(agent)}
-                                />
-                                <span
-                                  className="switch-track"
-                                  aria-hidden="true"
-                                />
-                              </label>
-                              {!isSystemAgent(agent) && (
-                                <button
-                                  type="button"
-                                  className="agent-card-delete"
-                                  aria-label={t.deleteAgent}
-                                  title={
-                                    agent.enabled
-                                      ? t.deleteAgentDisabledHint
-                                      : t.deleteAgent
-                                  }
-                                  disabled={
-                                    agent.enabled || agentActionId === agent.id
-                                  }
-                                  onClick={() => deleteAgent(agent)}
-                                >
-                                  <Icon name="trash" size={16} />
-                                </button>
+                          {isMainCard ? (
+                            <SystemAgentHeroCard
+                              agent={agent}
+                              counts={agentRoleCounts}
+                              busy={agentActionId === agent.id}
+                              t={t}
+                              onToggle={toggle}
+                              onOpenSettings={openAgentSettings}
+                              onNavigate={setTab}
+                            />
+                          ) : (
+                            <>
+                              <div className="agent-card-header">
+                                <div className="agent-card-title">
+                                  <strong>{agent.displayName}</strong>
+                                  <span
+                                    className={agent.enabled ? "ok" : "off"}
+                                  >
+                                    {agent.enabled ? t.enabled : t.disabled}
+                                  </span>
+                                </div>
+                                <div className="agent-card-controls">
+                                  <label
+                                    className="switch agent-card-switch"
+                                    title={agent.enabled ? t.stop : t.enable}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      role="switch"
+                                      checked={agent.enabled}
+                                      aria-label={
+                                        agent.enabled ? t.stop : t.enable
+                                      }
+                                      disabled={agentActionId === agent.id}
+                                      onChange={() => void toggle(agent)}
+                                    />
+                                    <span
+                                      className="switch-track"
+                                      aria-hidden="true"
+                                    />
+                                  </label>
+                                  {!isSystemAgent(agent) && (
+                                    <button
+                                      type="button"
+                                      className="agent-card-delete"
+                                      aria-label={t.deleteAgent}
+                                      title={
+                                        agent.enabled
+                                          ? t.deleteAgentDisabledHint
+                                          : t.deleteAgent
+                                      }
+                                      disabled={
+                                        agent.enabled ||
+                                        agentActionId === agent.id
+                                      }
+                                      onClick={() => deleteAgent(agent)}
+                                    >
+                                      <Icon name="trash" size={16} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              <TruncatedId value={agent.id} label="Agent ID" />
+                              {parent && (
+                                <p className="agent-parent">
+                                  {t.parentAgent}：{parent.displayName}
+                                </p>
                               )}
-                            </div>
-                          </div>
-                          <TruncatedId value={agent.id} label="Agent ID" />
-                          {parent && (
-                            <p className="agent-parent">
-                              {t.parentAgent}：{parent.displayName}
-                            </p>
+                              <div
+                                className={`agent-card-description${
+                                  agent.description ? "" : " is-empty"
+                                }`}
+                              >
+                                <p title={agent.description || undefined}>
+                                  {agent.description || t.noDescription}
+                                </p>
+                              </div>
+                              <div className="agent-card-footer">
+                                <button
+                                  onClick={() => openAgentSettings(agent)}
+                                  className="secondary agent-settings-button"
+                                  disabled={agentActionId === agent.id}
+                                >
+                                  {t.settings}
+                                </button>
+                              </div>
+                            </>
                           )}
-                          <div
-                            className={`agent-card-description${
-                              agent.description ? "" : " is-empty"
-                            }`}
-                          >
-                            <p title={agent.description || undefined}>
-                              {agent.description || t.noDescription}
-                            </p>
-                          </div>
-                          <div className="agent-card-footer">
-                            <button
-                              onClick={() => openAgentSettings(agent)}
-                              className="secondary agent-settings-button"
-                              disabled={agentActionId === agent.id}
-                            >
-                              {t.settings}
-                            </button>
-                          </div>
                         </article>
                       );
                     })}
