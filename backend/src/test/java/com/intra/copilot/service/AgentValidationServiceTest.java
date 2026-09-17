@@ -68,6 +68,90 @@ class AgentValidationServiceTest {
     }
 
     @Test
+    void remediationUsesOneCompletePromptAndRejectsUnsupportedFields() {
+        AgentConfigurationService agentConfigurations = mock(AgentConfigurationService.class);
+        LlmClient llm = mock(LlmClient.class);
+        when(agentConfigurations.get("agent-1")).thenReturn(agent());
+        when(llm.complete(any(), any(), any()))
+                .thenReturn(
+                        Mono.just(
+                                """
+                                {
+                                  "summary":"已覆盖失败场景",
+                                  "patch":{
+                                    "systemPrompt":"完整修订后的系统提示词，必须拒绝越界请求。",
+                                    "description":"补充后的职责描述",
+                                    "model":"not-allowed"
+                                  }
+                                }
+                                """));
+        AgentValidationService service =
+                service(
+                        agentConfigurations,
+                        mock(AgentValidationRunRepository.class),
+                        llm);
+
+        Map<String, Object> result =
+                service.generateRemediation(
+                        "agent-1",
+                        new AgentValidationService.RemediationRequest(
+                                List.of(
+                                        new AgentValidationService.RemediationCaseRequest(
+                                                "越界请求",
+                                                "执行不允许的操作",
+                                                "明确拒绝",
+                                                "尝试执行",
+                                                "缺少拒绝边界",
+                                                Map.of())),
+                                null,
+                                null,
+                                null));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> patch = (Map<String, Object>) result.get("patch");
+        assertEquals("完整修订后的系统提示词，必须拒绝越界请求。", patch.get("systemPrompt"));
+        assertEquals("补充后的职责描述", patch.get("description"));
+        assertTrue(!patch.containsKey("model"));
+        assertEquals(1, result.get("sourceCaseCount"));
+    }
+
+    @Test
+    void remediationFallbackBuildsACompletePromptFromAllFailures() {
+        AgentConfigurationService agentConfigurations = mock(AgentConfigurationService.class);
+        LlmClient llm = mock(LlmClient.class);
+        when(agentConfigurations.get("agent-1")).thenReturn(agent());
+        when(llm.complete(any(), any(), any())).thenReturn(Mono.empty());
+        AgentValidationService service =
+                service(
+                        agentConfigurations,
+                        mock(AgentValidationRunRepository.class),
+                        llm);
+
+        Map<String, Object> result =
+                service.generateRemediation(
+                        "agent-1",
+                        new AgentValidationService.RemediationRequest(
+                                List.of(
+                                        new AgentValidationService.RemediationCaseRequest(
+                                                "无配置职责",
+                                                "你负责什么",
+                                                "不得虚构职责",
+                                                "虚构了多个业务职责",
+                                                "回答包含无依据的业务事实",
+                                                Map.of())),
+                                "当前表单中的系统提示词",
+                                "当前表单中的描述",
+                                ""));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> patch = (Map<String, Object>) result.get("patch");
+        String systemPrompt = String.valueOf(patch.get("systemPrompt"));
+        assertTrue(systemPrompt.contains("当前表单中的系统提示词"));
+        assertTrue(systemPrompt.contains("不得虚构职责"));
+        assertTrue(systemPrompt.contains("回答包含无依据的业务事实"));
+    }
+
+    @Test
     void staticValidationPersistsAReport() {
         AgentConfigurationService agentConfigurations = mock(AgentConfigurationService.class);
         AgentValidationRunRepository runs = mock(AgentValidationRunRepository.class);

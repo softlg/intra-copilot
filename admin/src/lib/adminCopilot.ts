@@ -133,6 +133,13 @@ export type AgentValidationHistoryItem = {
   completedAt?: string;
 };
 
+export type AgentValidationRemediation = {
+  agentId: string;
+  summary: string;
+  sourceCaseCount: number;
+  patch: Record<string, unknown>;
+};
+
 export function listCopilotSessions() {
   return request<CopilotSessionSummary[]>("/admin/copilot/sessions");
 }
@@ -223,6 +230,25 @@ export function validateAgentBehavior(
     {
       method: "POST",
       body: JSON.stringify({ cases }),
+    },
+  );
+}
+
+export function generateAgentValidationRemediation(
+  agentId: string,
+  cases: AgentValidationCase[],
+  currentAgent: Record<string, unknown>,
+) {
+  return request<AgentValidationRemediation>(
+    `/admin/agents/${agentId}/validations/remediation`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        cases,
+        currentSystemPrompt: currentAgent.systemPrompt ?? "",
+        currentDescription: currentAgent.description ?? "",
+        currentRoutingRules: currentAgent.routingRules ?? "",
+      }),
     },
   );
 }

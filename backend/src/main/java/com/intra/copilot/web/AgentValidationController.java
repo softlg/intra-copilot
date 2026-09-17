@@ -40,6 +40,14 @@ public class AgentValidationController {
         return validations.validateBehavior(agentId, request);
     }
 
+    /** Generates one complete, review-only remediation candidate for all failed scenarios. */
+    @PostMapping("/remediation")
+    public Map<String, Object> generateRemediation(
+            @PathVariable String agentId,
+            @RequestBody AgentValidationService.RemediationRequest request) {
+        return validations.generateRemediation(agentId, request);
+    }
+
     /** Streams one event per scenario so the console can show execution progress. */
     @PostMapping("/behavior/stream")
     public SseEmitter streamValidateBehavior(

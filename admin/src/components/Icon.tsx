@@ -7,6 +7,7 @@ export type IconName =
   | "close"
   | "info"
   | "edit"
+  | "undo"
   | "trash"
   | "search"
   | "plus"
@@ -50,6 +51,7 @@ const PATHS: Record<IconName, string> = {
   close: "M5 5l14 14M19 5L5 19",
   info: "M12 8h.01M11 12h1v5h1",
   edit: "M4 20h4l11-11-4-4L4 16v4Zm10-13 3 3",
+  undo: "M9 7H4v5m.5 0a8 8 0 1 0 2.1-5.3L4 9",
   trash:
     "M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12",
   search: "M11 4a7 7 0 1 0 4.95 11.95L21 21M11 4a7 7 0 0 1 7 7",

@@ -13,6 +13,7 @@ import {
   cancelValidationStream,
   createCopilotSession,
   deleteCopilotSessions,
+  generateAgentValidationRemediation,
   generateAgentValidationCases,
   getCopilotSession,
   listAgentValidationHistory,
@@ -24,6 +25,7 @@ import {
   type AgentValidationCase,
   type AgentValidationHistoryItem,
   type AgentValidationIssue,
+  type AgentValidationRemediation,
   type AgentValidationReport,
   type CopilotMode,
   type CopilotProposal,
@@ -58,6 +60,11 @@ type ValidationRunTracker = {
   startedAt: number;
   elapsedMs: number;
   items: ValidationRunItem[];
+};
+
+type AppliedPatchRecord = {
+  patch: Record<string, unknown>;
+  before: Record<string, unknown>;
 };
 
 const DEFAULT_PANEL_WIDTH = 430;
@@ -162,6 +169,20 @@ const copy = {
     noIssues: "静态检查未发现问题。",
     issue: "建议",
     applyIssuePatch: "采用建议",
+    suggestedChange: "修改建议（{count} 项）",
+    staticSuggestion: "静态检查修改建议",
+    scenarioSuggestion: "本场景修改建议",
+    reviewBeforeApply: "请先核对改前与改后内容，再决定是否应用。",
+    applyThisPatch: "应用此建议",
+    undo: "撤销",
+    patchUndone: "已撤销本次修改，表单已恢复为应用前内容。",
+    patchUndoUnavailable: "后续修改已覆盖这些字段，不能安全撤销此项。",
+    remediationTitle: "完整修订候选",
+    remediationGuide:
+      "基于全部 {count} 个未通过场景和当前系统提示词，生成一份可直接替换的完整修订。",
+    generateRemediation: "生成完整修订",
+    generatingRemediation: "生成修订中…",
+    remediationSource: "来源：{count} 个未通过场景",
     pass: "通过",
     fail: "未通过",
     actualResponse: "实际回答",
@@ -271,6 +292,21 @@ const copy = {
     noIssues: "Static check found no issues.",
     issue: "Advice",
     applyIssuePatch: "Apply advice",
+    suggestedChange: "Suggested change ({count})",
+    staticSuggestion: "Static-check suggestion",
+    scenarioSuggestion: "Scenario suggestion",
+    reviewBeforeApply: "Review the before and after values before applying.",
+    applyThisPatch: "Apply this suggestion",
+    undo: "Undo",
+    patchUndone: "The change was undone and the form was restored.",
+    patchUndoUnavailable:
+      "Later edits overlap these fields, so this change cannot be undone safely.",
+    remediationTitle: "Complete revision",
+    remediationGuide:
+      "Build one complete replacement from all {count} failed scenarios and the current system prompt.",
+    generateRemediation: "Generate complete revision",
+    generatingRemediation: "Generating revision…",
+    remediationSource: "Source: {count} failed scenarios",
     pass: "Passed",
     fail: "Failed",
     actualResponse: "Actual response",
@@ -485,6 +521,170 @@ function PatchValue({
   return <span className={className}>{display}</span>;
 }
 
+function patchValueEqual(field: string, left: unknown, right: unknown) {
+  if (ID_LIST_FIELDS.has(field)) {
+    return (
+      normalizeIdList(left).join("\u0000") ===
+      normalizeIdList(right).join("\u0000")
+    );
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return JSON.stringify(left ?? []) === JSON.stringify(right ?? []);
+  }
+  if (
+    (left !== null && typeof left === "object") ||
+    (right !== null && typeof right === "object")
+  ) {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  }
+  return String(left ?? "") === String(right ?? "");
+}
+
+function patchEntries(patch: Record<string, unknown>) {
+  return Object.entries(patch).filter(([field]) => field !== "agentId");
+}
+
+function changedPatchEntries(
+  patch: Record<string, unknown>,
+  before: Record<string, unknown>,
+) {
+  return patchEntries(patch).filter(
+    ([field, value]) => !patchValueEqual(field, value, before[field]),
+  );
+}
+
+function canUndoPatch(
+  record: AppliedPatchRecord,
+  current: Record<string, unknown>,
+) {
+  return patchEntries(record.patch).every(
+    ([field, value]) =>
+      patchValueEqual(field, current[field], value) ||
+      patchValueEqual(field, current[field], record.before[field]),
+  );
+}
+
+function PatchDiffList({
+  text,
+  language,
+  patch,
+  before,
+  labels,
+}: {
+  text: (typeof copy)[Language];
+  language: Language;
+  patch: Record<string, unknown>;
+  before: Record<string, unknown>;
+  labels?: Record<string, string>;
+}) {
+  const entries = changedPatchEntries(patch, before);
+  if (entries.length === 0) return null;
+  return (
+    <ul className="copilot-applied-list">
+      {entries.map(([field, value]) => (
+        <li key={field}>
+          <span className="copilot-applied-field">
+            {FIELD_LABELS[field]?.[language] ?? field}
+          </span>
+          <div className="copilot-applied-diff">
+            <div className="copilot-applied-side">
+              <span className="copilot-applied-tag">{text.before}</span>
+              <PatchValue field={field} value={before[field]} labels={labels} />
+            </div>
+            <Icon
+              name="chevron-right"
+              size={13}
+              className="copilot-applied-arrow"
+            />
+            <div className="copilot-applied-side is-after">
+              <span className="copilot-applied-tag">{text.after}</span>
+              <PatchValue
+                field={field}
+                value={value}
+                labels={labels}
+                highlight
+              />
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SuggestedPatchPreview({
+  text,
+  language,
+  title,
+  description,
+  patch,
+  before,
+  labels,
+  applied,
+  canUndo = true,
+  canApply = true,
+  onApply,
+  onUndo,
+}: {
+  text: (typeof copy)[Language];
+  language: Language;
+  title: string;
+  description?: string;
+  patch: Record<string, unknown>;
+  before: Record<string, unknown>;
+  labels?: Record<string, string>;
+  applied: boolean;
+  canUndo?: boolean;
+  canApply?: boolean;
+  onApply: () => void;
+  onUndo: () => void;
+}) {
+  const count = changedPatchEntries(patch, before).length;
+  if (count === 0) return null;
+  return (
+    <section className="copilot-suggestion" aria-live="polite">
+      <div className="copilot-suggestion-heading">
+        <strong>{title}</strong>
+        <span>{applied ? text.applied : text.reviewBeforeApply}</span>
+      </div>
+      {description && (
+        <p className="copilot-suggestion-description">{description}</p>
+      )}
+      <PatchDiffList
+        text={text}
+        language={language}
+        patch={patch}
+        before={before}
+        labels={labels}
+      />
+      <div className="copilot-suggestion-actions">
+        {applied ? (
+          <button
+            type="button"
+            className="secondary"
+            onClick={onUndo}
+            disabled={!canUndo}
+            title={!canUndo ? text.patchUndoUnavailable : undefined}
+          >
+            <Icon name="undo" size={14} />
+            {text.undo}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="secondary"
+            onClick={onApply}
+            disabled={!canApply}
+          >
+            <Icon name="edit" size={14} />
+            {text.applyThisPatch}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function AppliedPatchSummary({
   text,
   language,
@@ -492,6 +692,8 @@ function AppliedPatchSummary({
   before,
   labels,
   onDismiss,
+  onUndo,
+  canUndo = true,
   onSaveDraft,
 }: {
   text: (typeof copy)[Language];
@@ -500,9 +702,11 @@ function AppliedPatchSummary({
   before: Record<string, unknown>;
   labels?: Record<string, string>;
   onDismiss: () => void;
+  onUndo?: () => void;
+  canUndo?: boolean;
   onSaveDraft?: () => void;
 }) {
-  const entries = Object.entries(patch).filter(([key]) => key !== "agentId");
+  const entries = changedPatchEntries(patch, before);
   if (entries.length === 0) return null;
   return (
     <section className="copilot-applied-patch" aria-live="polite">
@@ -521,46 +725,34 @@ function AppliedPatchSummary({
           <Icon name="close" size={14} />
         </button>
       </div>
-      <ul className="copilot-applied-list">
-        {entries.map(([field, value]) => (
-          <li key={field}>
-            <span className="copilot-applied-field">
-              {FIELD_LABELS[field]?.[language] ?? field}
-            </span>
-            <div className="copilot-applied-diff">
-              <div className="copilot-applied-side">
-                <span className="copilot-applied-tag">{text.before}</span>
-                <PatchValue
-                  field={field}
-                  value={before[field]}
-                  labels={labels}
-                />
-              </div>
-              <Icon
-                name="chevron-right"
-                size={13}
-                className="copilot-applied-arrow"
-              />
-              <div className="copilot-applied-side is-after">
-                <span className="copilot-applied-tag">{text.after}</span>
-                <PatchValue
-                  field={field}
-                  value={value}
-                  labels={labels}
-                  highlight
-                />
-              </div>
-            </div>
-          </li>
-        ))}
-      </ul>
+      <PatchDiffList
+        text={text}
+        language={language}
+        patch={patch}
+        before={before}
+        labels={labels}
+      />
       <p className="copilot-applied-hint">{text.appliedPatchHint}</p>
-      {onSaveDraft && (
+      {(onSaveDraft || onUndo) && (
         <div className="copilot-applied-actions">
-          <button type="button" onClick={onSaveDraft}>
-            <Icon name="edit" size={14} />
-            {text.saveForm}
-          </button>
+          {onUndo && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={onUndo}
+              disabled={!canUndo}
+              title={!canUndo ? text.patchUndoUnavailable : undefined}
+            >
+              <Icon name="undo" size={14} />
+              {text.undo}
+            </button>
+          )}
+          {onSaveDraft && (
+            <button type="button" onClick={onSaveDraft}>
+              <Icon name="edit" size={14} />
+              {text.saveForm}
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -656,13 +848,16 @@ export function AdminCopilotPanel({
   const [validationHistory, setValidationHistory] = useState<
     AgentValidationHistoryItem[]
   >([]);
+  const [remediation, setRemediation] = useState<AgentValidationRemediation>();
+  const [remediationBusy, setRemediationBusy] = useState(false);
   const [appliedPatchSummary, setAppliedPatchSummary] = useState<{
+    key?: string;
     patch: Record<string, unknown>;
     before: Record<string, unknown>;
   }>();
-  const [appliedPatchKeys, setAppliedPatchKeys] = useState<Set<string>>(
-    new Set(),
-  );
+  const [appliedPatchRecords, setAppliedPatchRecords] = useState<
+    Record<string, AppliedPatchRecord>
+  >({});
   const [appliedProposalSummary, setAppliedProposalSummary] = useState<{
     title: string;
     detail: string;
@@ -682,6 +877,10 @@ export function AdminCopilotPanel({
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   const mode: CopilotMode = view === "build" ? "BUILD" : "ASSIST";
+  const appliedPatchKeys = useMemo(
+    () => new Set(Object.keys(appliedPatchRecords)),
+    [appliedPatchRecords],
+  );
   const visibleSessions = useMemo(
     () => sessions.filter((session) => session.mode === mode),
     [mode, sessions],
@@ -775,8 +974,9 @@ export function AdminCopilotPanel({
     setValidationReport(undefined);
     setValidationCases([]);
     setSelectedCases(new Set());
+    setRemediation(undefined);
     setAppliedPatchSummary(undefined);
-    setAppliedPatchKeys(new Set());
+    setAppliedPatchRecords({});
     setAppliedProposalSummary(undefined);
     setValidationRunTracker(undefined);
     if (!currentAgentId) {
@@ -980,6 +1180,7 @@ export function AdminCopilotPanel({
       setValidationReport(await validateAgentStatic(currentAgentId));
       setValidationCases([]);
       setSelectedCases(new Set());
+      setRemediation(undefined);
       await loadValidationHistory(currentAgentId);
     } catch (error) {
       setPanelError(errorMessage(error, text.error));
@@ -996,6 +1197,7 @@ export function AdminCopilotPanel({
       const result = await generateAgentValidationCases(currentAgentId);
       setValidationCases(result.cases);
       setSelectedCases(new Set());
+      setRemediation(undefined);
     } catch (error) {
       setPanelError(errorMessage(error, text.error));
     } finally {
@@ -1008,6 +1210,7 @@ export function AdminCopilotPanel({
     const order = [...selectedCases].sort((a, b) => a - b);
     if (order.length === 0) return;
     setValidationBusy("behavior");
+    setRemediation(undefined);
     setPanelError("");
     setValidationRunTracker({
       active: true,
@@ -1158,18 +1361,74 @@ export function AdminCopilotPanel({
     patch?: Record<string, unknown>,
     key?: string,
   ) => {
-    if (!patch || Object.keys(patch).length === 0) return;
-    const before = { ...currentAgentSnapshot };
-    onApplyPatch(patch);
-    setAppliedPatchSummary({ patch, before });
-    if (key) {
-      setAppliedPatchKeys((prev) => {
-        const next = new Set(prev);
-        next.add(key);
-        return next;
-      });
-    }
+    const entries = patchEntries(patch ?? {});
+    if (!patch || entries.length === 0) return;
+    const effectivePatch = Object.fromEntries(entries);
+    const before = Object.fromEntries(
+      entries.map(([field]) => [field, currentAgentSnapshot[field]]),
+    );
+    const patchKey = key || `patch-${Date.now()}`;
+    onApplyPatch(effectivePatch);
+    setAppliedPatchRecords((current) => ({
+      ...current,
+      [patchKey]: { patch: effectivePatch, before },
+    }));
+    setAppliedPatchSummary({
+      key: patchKey,
+      patch: effectivePatch,
+      before,
+    });
     toast.success(text.patchApplied);
+  };
+
+  const undoSuggestedPatch = (key: string) => {
+    const record = appliedPatchRecords[key];
+    if (!record) return;
+    if (!canUndoPatch(record, currentAgentSnapshot)) {
+      toast.warning(text.patchUndoUnavailable);
+      return;
+    }
+    const restore: Record<string, unknown> = {};
+    patchEntries(record.patch).forEach(([field, value]) => {
+      if (patchValueEqual(field, currentAgentSnapshot[field], value)) {
+        restore[field] = record.before[field];
+      }
+    });
+    if (Object.keys(restore).length > 0) onApplyPatch(restore);
+    setAppliedPatchRecords((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setAppliedPatchSummary((current) =>
+      current?.key === key ? undefined : current,
+    );
+    toast.success(text.patchUndone);
+  };
+
+  const generateRemediation = async () => {
+    if (!currentAgentId || remediationBusy) return;
+    const failedCases =
+      validationReport?.cases.filter((item) => item.passed === false) ?? [];
+    if (failedCases.length === 0) {
+      toast.info(text.remediationSource.replace("{count}", "0"));
+      return;
+    }
+    setRemediationBusy(true);
+    setPanelError("");
+    try {
+      setRemediation(
+        await generateAgentValidationRemediation(
+          currentAgentId,
+          failedCases,
+          currentAgentSnapshot,
+        ),
+      );
+    } catch (error) {
+      setPanelError(errorMessage(error, text.error));
+    } finally {
+      setRemediationBusy(false);
+    }
   };
 
   const dismissAppliedPatch = () => setAppliedPatchSummary(undefined);
@@ -1371,8 +1630,14 @@ export function AdminCopilotPanel({
             onSelectAll={selectAllCases}
             onClearSelection={clearSelectedCases}
             onApplyPatch={applySuggestedPatch}
+            onUndoPatch={undoSuggestedPatch}
             appliedPatchSummary={appliedPatchSummary}
             appliedPatchKeys={appliedPatchKeys}
+            appliedPatchRecords={appliedPatchRecords}
+            currentAgentSnapshot={currentAgentSnapshot}
+            remediation={remediation}
+            remediationBusy={remediationBusy}
+            onGenerateRemediation={() => void generateRemediation()}
             resourceLabels={resourceLabels}
             onDismissAppliedPatch={dismissAppliedPatch}
             onSaveDraft={onSaveDraft}
@@ -1402,6 +1667,22 @@ export function AdminCopilotPanel({
                 before={appliedPatchSummary.before}
                 labels={resourceLabels}
                 onDismiss={dismissAppliedPatch}
+                onUndo={
+                  appliedPatchSummary.key
+                    ? () => undoSuggestedPatch(appliedPatchSummary.key!)
+                    : undefined
+                }
+                canUndo={
+                  appliedPatchSummary.key
+                    ? Boolean(
+                        appliedPatchRecords[appliedPatchSummary.key] &&
+                        canUndoPatch(
+                          appliedPatchRecords[appliedPatchSummary.key],
+                          currentAgentSnapshot,
+                        ),
+                      )
+                    : false
+                }
                 onSaveDraft={onSaveDraft}
               />
             )}
@@ -2199,8 +2480,14 @@ function ValidationView({
   onSelectAll,
   onClearSelection,
   onApplyPatch,
+  onUndoPatch,
   appliedPatchSummary,
   appliedPatchKeys,
+  appliedPatchRecords,
+  currentAgentSnapshot,
+  remediation,
+  remediationBusy,
+  onGenerateRemediation,
   resourceLabels,
   onDismissAppliedPatch,
   onSaveDraft,
@@ -2224,11 +2511,18 @@ function ValidationView({
   onSelectAll: () => void;
   onClearSelection: () => void;
   onApplyPatch: (patch?: Record<string, unknown>, key?: string) => void;
+  onUndoPatch: (key: string) => void;
   appliedPatchSummary?: {
+    key?: string;
     patch: Record<string, unknown>;
     before: Record<string, unknown>;
   };
   appliedPatchKeys: Set<string>;
+  appliedPatchRecords: Record<string, AppliedPatchRecord>;
+  currentAgentSnapshot: Record<string, unknown>;
+  remediation?: AgentValidationRemediation;
+  remediationBusy: boolean;
+  onGenerateRemediation: () => void;
   resourceLabels?: Record<string, string>;
   onDismissAppliedPatch: () => void;
   onSaveDraft?: () => void;
@@ -2254,6 +2548,22 @@ function ValidationView({
           before={appliedPatchSummary.before}
           labels={resourceLabels}
           onDismiss={onDismissAppliedPatch}
+          onUndo={
+            appliedPatchSummary.key
+              ? () => onUndoPatch(appliedPatchSummary.key!)
+              : undefined
+          }
+          canUndo={
+            appliedPatchSummary.key
+              ? Boolean(
+                  appliedPatchRecords[appliedPatchSummary.key] &&
+                  canUndoPatch(
+                    appliedPatchRecords[appliedPatchSummary.key],
+                    currentAgentSnapshot,
+                  ),
+                )
+              : false
+          }
           onSaveDraft={onSaveDraft}
         />
       )}
@@ -2324,16 +2634,25 @@ function ValidationView({
                   Object.keys(issue.patch).length > 0 &&
                   (() => {
                     const issueKey = `static-${issue.code}-${index}`;
-                    const issueApplied = appliedPatchKeys.has(issueKey);
+                    const issueRecord = appliedPatchRecords[issueKey];
                     return (
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => onApplyPatch(issue.patch, issueKey)}
-                        disabled={issueApplied}
-                      >
-                        {issueApplied ? text.applied : text.applyIssuePatch}
-                      </button>
+                      <SuggestedPatchPreview
+                        text={text}
+                        language={language}
+                        title={text.staticSuggestion}
+                        patch={issue.patch}
+                        before={currentAgentSnapshot}
+                        labels={resourceLabels}
+                        applied={appliedPatchKeys.has(issueKey)}
+                        canUndo={
+                          issueRecord
+                            ? canUndoPatch(issueRecord, currentAgentSnapshot)
+                            : true
+                        }
+                        canApply={Boolean(agentId)}
+                        onApply={() => onApplyPatch(issue.patch, issueKey)}
+                        onUndo={() => onUndoPatch(issueKey)}
+                      />
                     );
                   })()}
               </article>
@@ -2437,20 +2756,31 @@ function ValidationView({
                         Object.keys(result.suggestedPatch).length > 0 &&
                         (() => {
                           const caseKey = `case-${index}`;
-                          const caseApplied = appliedPatchKeys.has(caseKey);
+                          const caseRecord = appliedPatchRecords[caseKey];
                           return (
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() =>
+                            <SuggestedPatchPreview
+                              text={text}
+                              language={language}
+                              title={text.scenarioSuggestion}
+                              description={result.reason}
+                              patch={result.suggestedPatch}
+                              before={currentAgentSnapshot}
+                              labels={resourceLabels}
+                              applied={appliedPatchKeys.has(caseKey)}
+                              canUndo={
+                                caseRecord
+                                  ? canUndoPatch(
+                                      caseRecord,
+                                      currentAgentSnapshot,
+                                    )
+                                  : true
+                              }
+                              canApply={Boolean(agentId)}
+                              onApply={() =>
                                 onApplyPatch(result.suggestedPatch, caseKey)
                               }
-                              disabled={caseApplied}
-                            >
-                              {caseApplied
-                                ? text.applied
-                                : text.applyIssuePatch}
-                            </button>
+                              onUndo={() => onUndoPatch(caseKey)}
+                            />
                           );
                         })()}
                     </>
@@ -2461,6 +2791,60 @@ function ValidationView({
           </div>
         )}
       </section>
+
+      {report && report.summary.testsFailed > 0 && (
+        <section className="copilot-validation-section">
+          <div className="copilot-section-heading">
+            <h3>{text.remediationTitle}</h3>
+            <span>
+              {text.remediationSource.replace(
+                "{count}",
+                String(report.summary.testsFailed),
+              )}
+            </span>
+          </div>
+          <p className="copilot-remediation-guide">
+            {text.remediationGuide.replace(
+              "{count}",
+              String(report.summary.testsFailed),
+            )}
+          </p>
+          <button
+            type="button"
+            className="secondary"
+            onClick={onGenerateRemediation}
+            disabled={remediationBusy}
+          >
+            <Icon name="sparkle" size={14} />
+            {remediationBusy
+              ? text.generatingRemediation
+              : text.generateRemediation}
+          </button>
+          {remediation && (
+            <SuggestedPatchPreview
+              text={text}
+              language={language}
+              title={text.remediationTitle}
+              description={remediation.summary}
+              patch={remediation.patch}
+              before={currentAgentSnapshot}
+              labels={resourceLabels}
+              applied={appliedPatchKeys.has("remediation")}
+              canUndo={
+                appliedPatchRecords.remediation
+                  ? canUndoPatch(
+                      appliedPatchRecords.remediation,
+                      currentAgentSnapshot,
+                    )
+                  : true
+              }
+              canApply={Boolean(agentId)}
+              onApply={() => onApplyPatch(remediation.patch, "remediation")}
+              onUndo={() => onUndoPatch("remediation")}
+            />
+          )}
+        </section>
+      )}
 
       <section className="copilot-validation-section">
         <div className="copilot-section-heading">

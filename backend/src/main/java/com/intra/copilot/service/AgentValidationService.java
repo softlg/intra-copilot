@@ -41,6 +41,8 @@ public class AgentValidationService {
     private static final Duration MODEL_TIMEOUT = Duration.ofSeconds(45);
     private static final int MAX_CASES = 12;
     private static final long STREAM_TIMEOUT_MS = Duration.ofMinutes(20).toMillis();
+    private static final List<String> REMEDIATION_FIELDS =
+            List.of("systemPrompt", "description", "routingRules");
 
     private final AgentConfigurationService agentConfigurations;
     private final AgentValidationRunRepository runs;
@@ -86,6 +88,55 @@ public class AgentValidationService {
         AgentDefinition agent = agentConfigurations.get(agentId);
         List<ValidationCaseRequest> generated = generateCases(agent);
         return Map.of("agentId", agentId, "cases", generated.stream().map(this::caseView).toList());
+    }
+
+    /**
+     * Builds one complete remediation candidate from all failed scenarios. The returned patch is
+     * never persisted or applied here; the console shows a before/after comparison first.
+     */
+    public Map<String, Object> generateRemediation(String agentId, RemediationRequest request) {
+        AgentDefinition agent = agentConfigurations.get(agentId);
+        List<RemediationCaseRequest> failedCases = requireRemediationCases(request);
+        Map<String, Object> currentValues = configuredRemediationValues(agent);
+        applyRemediationOverride(currentValues, "systemPrompt", request.currentSystemPrompt());
+        applyRemediationOverride(currentValues, "description", request.currentDescription());
+        applyRemediationOverride(
+                currentValues, "routingRules", request.currentRoutingRules());
+        Map<String, Object> currentAgent = currentAgentView(agent, currentValues);
+        String system =
+                """
+                你是 Agent 配置修复器。根据当前 Agent 配置和所有未通过验证场景，生成一份可由管理员审阅的
+                完整修订候选。必须保留原有有效约束，并覆盖全部失败原因，不得补写配置中没有依据的业务事实。
+                只输出 JSON：{"summary":"面向管理员的简短说明","patch":{"systemPrompt":"完整的新系统提示词",
+                "description":"可选的新描述","routingRules":"可选的新路由规则"}}
+                patch 必须包含可直接整段替换的 systemPrompt，而不是补丁片段；没有依据时不要修改 description
+                或 routingRules。
+                """;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("currentAgent", currentAgent);
+        payload.put("failedCases", failedCases);
+        Map<String, Object> generated = completeJson(system, writeJson(payload));
+        Map<String, Object> patch =
+                sanitizeRemediationPatch(asMap(generated.get("patch")), currentValues);
+        String summary = Objects.toString(generated.get("summary"), "").trim();
+        if (!patch.containsKey("systemPrompt")) {
+            patch =
+                    fallbackRemediationPatch(
+                            Objects.toString(currentValues.get("systemPrompt"), ""), failedCases);
+        }
+        if (summary.isBlank()) {
+            summary =
+                    "已基于 "
+                            + failedCases.size()
+                            + " 个未通过场景生成完整修订候选，请先核对差异再应用。";
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("agentId", agentId);
+        result.put("summary", summary);
+        result.put("sourceCaseCount", failedCases.size());
+        result.put("patch", patch);
+        return result;
     }
 
     @Transactional
@@ -175,6 +226,21 @@ public class AgentValidationService {
                         .toList();
         if (selected.isEmpty()) {
             throw new IllegalArgumentException("请至少选择一个包含输入内容的验证场景");
+        }
+        return selected;
+    }
+
+    private List<RemediationCaseRequest> requireRemediationCases(RemediationRequest request) {
+        if (request == null || request.cases() == null || request.cases().isEmpty()) {
+            throw new IllegalArgumentException("请先选择至少一个未通过的验证场景");
+        }
+        List<RemediationCaseRequest> selected =
+                request.cases().stream()
+                        .filter(Objects::nonNull)
+                        .limit(MAX_CASES)
+                        .toList();
+        if (selected.isEmpty()) {
+            throw new IllegalArgumentException("请先选择至少一个未通过的验证场景");
         }
         return selected;
     }
@@ -504,6 +570,80 @@ public class AgentValidationService {
                         "Agent 应主动询问缺失信息或说明无法确定，不得编造业务事实。"));
     }
 
+    private Map<String, Object> sanitizeRemediationPatch(
+            Map<String, Object> candidate, Map<String, Object> currentValues) {
+        Map<String, Object> patch = new LinkedHashMap<>();
+        for (String field : REMEDIATION_FIELDS) {
+            if (!candidate.containsKey(field)) continue;
+            String value =
+                    candidate.get(field) == null
+                            ? ""
+                            : Objects.toString(candidate.get(field), "").trim();
+            if (field.equals("systemPrompt") && value.isBlank()) continue;
+            String current = Objects.toString(currentValues.get(field), "");
+            if (!Objects.equals(value, current)) {
+                patch.put(field, value);
+            }
+        }
+        return patch;
+    }
+
+    private Map<String, Object> fallbackRemediationPatch(
+            String current, List<RemediationCaseRequest> failedCases) {
+        StringBuilder completed = new StringBuilder(current);
+        if (!completed.isEmpty()) completed.append("\n\n");
+        completed.append("验证补充要求（必须全部满足）：");
+        for (RemediationCaseRequest failedCase : failedCases) {
+            String title = limit(failedCase.title(), 200, "未命名场景");
+            String expected =
+                    limit(failedCase.expected(), 800, "回答必须符合当前 Agent 的职责与边界");
+            completed.append("\n- ").append(title).append("：").append(expected);
+            String reason = limit(failedCase.reason(), 800, "");
+            if (!reason.isBlank()) {
+                completed.append("；需避免：").append(reason);
+            } else {
+                completed.append("。");
+            }
+        }
+        return Map.of("systemPrompt", completed.toString());
+    }
+
+    private Map<String, Object> currentAgentView(
+            AgentDefinition agent, Map<String, Object> currentValues) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("id", agent.getId());
+        value.put("displayName", agent.getDisplayName());
+        value.put("description", currentValues.get("description"));
+        value.put("systemPrompt", currentValues.get("systemPrompt"));
+        value.put("role", agent.getRole());
+        value.put("parentAgentId", agent.getParentAgentId());
+        value.put("routingRules", currentValues.get("routingRules"));
+        value.put("knowledgeBaseIds", agent.getKnowledgeBaseIds());
+        value.put("toolIds", agent.getToolIds());
+        value.put("skillIds", agent.getSkillIds());
+        value.put("planningMode", agent.getPlanningMode());
+        value.put("maxPlanSteps", agent.getMaxPlanSteps());
+        value.put("supportsBrowserActions", agent.isSupportsBrowserActions());
+        return value;
+    }
+
+    private Map<String, Object> configuredRemediationValues(AgentDefinition agent) {
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("systemPrompt", normalizedValue(agent.getSystemPrompt()));
+        values.put("description", normalizedValue(agent.getDescription()));
+        values.put("routingRules", normalizedValue(agent.getRoutingRules()));
+        return values;
+    }
+
+    private static void applyRemediationOverride(
+            Map<String, Object> values, String field, String requested) {
+        if (requested != null) values.put(field, requested.trim());
+    }
+
+    private static String normalizedValue(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     private Map<String, Object> executeCase(
             AgentDefinition agent, ValidationCaseRequest testCase) {
         String input = testCase.input() == null ? "" : testCase.input().trim();
@@ -541,6 +681,11 @@ public class AgentValidationService {
             judged.put("reason", "评估模型不可用，无法自动判定，请人工检查实际回答。");
             judged.put("suggestedPatch", Map.of());
         }
+        judged.put(
+                "suggestedPatch",
+                sanitizeRemediationPatch(
+                        asMap(judged.get("suggestedPatch")),
+                        configuredRemediationValues(agent)));
         judged.put("response", response);
         return judged;
     }
@@ -668,4 +813,18 @@ public class AgentValidationService {
     public record ValidateRequest(Boolean runBehavior, List<ValidationCaseRequest> cases) {}
 
     public record BehaviorRequest(List<ValidationCaseRequest> cases) {}
+
+    public record RemediationRequest(
+            List<RemediationCaseRequest> cases,
+            String currentSystemPrompt,
+            String currentDescription,
+            String currentRoutingRules) {}
+
+    public record RemediationCaseRequest(
+            String title,
+            String input,
+            String expected,
+            String actualResponse,
+            String reason,
+            Map<String, Object> suggestedPatch) {}
 }

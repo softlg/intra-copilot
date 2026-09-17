@@ -1503,6 +1503,12 @@ body.copilot-panel-resizing * {
   cursor: pointer;
 }
 
+.copilot-applied-actions button.secondary {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
 .copilot-applied-actions button:hover,
 .copilot-applied-banner-actions button:hover {
   filter: brightness(1.06);
@@ -1518,4 +1524,63 @@ body.copilot-panel-resizing * {
 .copilot-applied-actions button:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.copilot-suggestion {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.copilot-suggestion-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.copilot-suggestion-heading strong {
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.copilot-suggestion-heading > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+
+.copilot-suggestion-description {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.copilot-suggestion .copilot-applied-list {
+  margin-top: 8px;
+}
+
+.copilot-suggestion-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 9px;
+}
+
+.copilot-suggestion-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.copilot-remediation-guide {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
 }
