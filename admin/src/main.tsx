@@ -3562,6 +3562,8 @@ function AdminApp({
               void handleCopilotAppliedAgent(agentId);
             }}
             onResourcesChanged={refreshCopilotResources}
+            onSaveDraft={() => void saveAgentDraft()}
+            onPublishDraft={() => void saveAndPublishAgent()}
           />
         )}
       </div>

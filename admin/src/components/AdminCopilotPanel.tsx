@@ -91,6 +91,8 @@ export type AdminCopilotPanelProps = {
   onAppliedAgent: (agentId: string) => void;
   onResourcesChanged: () => void;
   resourceLabels?: Record<string, string>;
+  onSaveDraft?: () => void;
+  onPublishDraft?: () => void;
 };
 
 const copy = {
@@ -184,6 +186,18 @@ const copy = {
     applied: "已应用",
     appliedPatchHint:
       "已写入当前表单，请检查无误后保存；建议重新运行静态检查确认效果。",
+    statusReady: "待确认",
+    modeAssistDesc:
+      "助手：用自然语言改进当前 Agent 的配置（提示词、模型、工具等）。确认差异后点“应用到当前表单”，再保存即可生效。",
+    modeBuildDesc:
+      "生成 Agent：从零描述你想要的 Agent，AI 会逐步确认需求并生成未发布草案。",
+    validateNoAgent: "请先在左侧打开或选择一个 Agent，再使用验证功能。",
+    validateGuide: "步骤：① 静态检查　② 生成场景　③ 勾选并执行",
+    runDisabledHint: "请先生成场景并勾选至少一个再执行",
+    inputHint: "Enter 发送 · Shift + Enter 换行",
+    saveForm: "保存表单",
+    saveDraft: "保存草稿",
+    saveAndPublish: "保存并发布",
   },
   en: {
     title: "AI Workspace",
@@ -283,6 +297,21 @@ const copy = {
     applied: "Applied",
     appliedPatchHint:
       "Written to the form. Review and save; re-run the static check to confirm.",
+    statusReady: "Ready",
+    modeAssistDesc:
+      "Assist: improve the current Agent's config in plain language (prompts, model, tools…). Confirm the diff, then “Apply to current form” and save to take effect.",
+    modeBuildDesc:
+      "Build Agent: describe a new Agent from scratch; the AI confirms requirements step by step and drafts an unpublished Agent.",
+    validateNoAgent:
+      "Open or select an Agent on the left before using validation.",
+    validateGuide:
+      "Steps: ① Static check　② Generate scenarios　③ Select & run",
+    runDisabledHint:
+      "Generate scenarios and select at least one before running",
+    inputHint: "Enter to send · Shift + Enter for newline",
+    saveForm: "Save form",
+    saveDraft: "Save draft",
+    saveAndPublish: "Save & publish",
   },
 } as const;
 
@@ -335,6 +364,15 @@ function formatElapsed(ms: number) {
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round(seconds % 60);
   return `${minutes}m ${String(rest).padStart(2, "0")}s`;
+}
+
+function getFocusableElements(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return [];
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => element.getClientRects().length > 0);
 }
 
 function patchRunItem(
@@ -454,6 +492,7 @@ function AppliedPatchSummary({
   before,
   labels,
   onDismiss,
+  onSaveDraft,
 }: {
   text: (typeof copy)[Language];
   language: Language;
@@ -461,6 +500,7 @@ function AppliedPatchSummary({
   before: Record<string, unknown>;
   labels?: Record<string, string>;
   onDismiss: () => void;
+  onSaveDraft?: () => void;
 }) {
   const entries = Object.entries(patch).filter(([key]) => key !== "agentId");
   if (entries.length === 0) return null;
@@ -515,6 +555,14 @@ function AppliedPatchSummary({
         ))}
       </ul>
       <p className="copilot-applied-hint">{text.appliedPatchHint}</p>
+      {onSaveDraft && (
+        <div className="copilot-applied-actions">
+          <button type="button" onClick={onSaveDraft}>
+            <Icon name="edit" size={14} />
+            {text.saveForm}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -524,11 +572,15 @@ function AppliedProposalBanner({
   title,
   detail,
   onDismiss,
+  onSaveDraft,
+  onPublishDraft,
 }: {
   text: (typeof copy)[Language];
   title: string;
   detail: string;
   onDismiss: () => void;
+  onSaveDraft?: () => void;
+  onPublishDraft?: () => void;
 }) {
   return (
     <section className="copilot-applied-banner" aria-live="polite">
@@ -536,6 +588,22 @@ function AppliedProposalBanner({
       <div className="copilot-applied-banner-body">
         <strong>{title}</strong>
         <p>{detail}</p>
+        {(onSaveDraft || onPublishDraft) && (
+          <div className="copilot-applied-banner-actions">
+            {onSaveDraft && (
+              <button type="button" className="secondary" onClick={onSaveDraft}>
+                <Icon name="edit" size={14} />
+                {text.saveDraft}
+              </button>
+            )}
+            {onPublishDraft && (
+              <button type="button" onClick={onPublishDraft}>
+                <Icon name="flag" size={14} />
+                {text.saveAndPublish}
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <button
         type="button"
@@ -560,6 +628,8 @@ export function AdminCopilotPanel({
   onAppliedAgent,
   onResourcesChanged,
   resourceLabels,
+  onSaveDraft,
+  onPublishDraft,
 }: AdminCopilotPanelProps) {
   const text = copy[language];
   const [view, setView] = useState<PanelView>("assist");
@@ -606,6 +676,10 @@ export function AdminCopilotPanel({
   const [resizingPanel, setResizingPanel] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
   const resizeStateRef = useRef({ active: false, pointerId: -1 });
+  const [isModal, setIsModal] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < 1200,
+  );
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   const mode: CopilotMode = view === "build" ? "BUILD" : "ASSIST";
   const visibleSessions = useMemo(
@@ -662,6 +736,23 @@ export function AdminCopilotPanel({
       String(Math.round(panelWidth)),
     );
   }, [panelWidth]);
+
+  useEffect(() => {
+    const syncModal = () => setIsModal(window.innerWidth < 1200);
+    window.addEventListener("resize", syncModal);
+    return () => window.removeEventListener("resize", syncModal);
+  }, []);
+
+  useEffect(() => {
+    const root = panelRef.current;
+    if (!root) return undefined;
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    root.focus();
+    return () => {
+      const target = previouslyFocusedRef.current;
+      if (target && document.contains(target)) target.focus();
+    };
+  }, []);
 
   useEffect(() => {
     document.body.classList.toggle("copilot-panel-resizing", resizingPanel);
@@ -1137,6 +1228,34 @@ export function AdminCopilotPanel({
     resizePanelTo(nextWidth);
   };
 
+  const handlePanelKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".copilot-history-popover")) return;
+      const popover = panelRef.current?.querySelector(
+        ".copilot-history-popover",
+      );
+      if (popover && popover.getClientRects().length > 0) return;
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key === "Tab" && isModal) {
+      const focusables = getFocusableElements(panelRef.current);
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  };
+
   return (
     <>
       <button
@@ -1157,8 +1276,11 @@ export function AdminCopilotPanel({
             "--copilot-panel-width": `${panelWidth}px`,
           } as CSSProperties
         }
-        role="complementary"
+        role={isModal ? "dialog" : "complementary"}
+        aria-modal={isModal || undefined}
         aria-labelledby="admin-copilot-title"
+        tabIndex={-1}
+        onKeyDown={handlePanelKeyDown}
       >
         <div
           className="copilot-resize-handle"
@@ -1253,14 +1375,19 @@ export function AdminCopilotPanel({
             appliedPatchKeys={appliedPatchKeys}
             resourceLabels={resourceLabels}
             onDismissAppliedPatch={dismissAppliedPatch}
+            onSaveDraft={onSaveDraft}
           />
         ) : (
           <div className="copilot-chat">
+            <p className="copilot-mode-desc" aria-live="polite">
+              {view === "build" ? text.modeBuildDesc : text.modeAssistDesc}
+            </p>
             <SessionHistoryPicker
               text={text}
               sessions={visibleSessions}
               activeSessionId={activeSession?.id}
               busy={sessionActionBusy || sending}
+              modeLabel={view === "build" ? text.build : text.assist}
               onSelect={(id) => void loadSession(id)}
               onNew={() => void startSession()}
               onRename={renameSession}
@@ -1275,6 +1402,7 @@ export function AdminCopilotPanel({
                 before={appliedPatchSummary.before}
                 labels={resourceLabels}
                 onDismiss={dismissAppliedPatch}
+                onSaveDraft={onSaveDraft}
               />
             )}
 
@@ -1300,7 +1428,10 @@ export function AdminCopilotPanel({
                       return (
                         <AssistantDetails
                           text={text}
+                          language={language}
                           payload={payload}
+                          before={currentAgentSnapshot}
+                          resourceLabels={resourceLabels}
                           onApplyPatch={(patch) =>
                             applySuggestedPatch(patch, "assist-patch")
                           }
@@ -1383,6 +1514,8 @@ export function AdminCopilotPanel({
                 title={appliedProposalSummary.title}
                 detail={appliedProposalSummary.detail}
                 onDismiss={() => setAppliedProposalSummary(undefined)}
+                onSaveDraft={onSaveDraft}
+                onPublishDraft={onPublishDraft}
               />
             )}
 
@@ -1411,6 +1544,7 @@ export function AdminCopilotPanel({
                   }
                 }}
               />
+              <p className="copilot-input-hint">{text.inputHint}</p>
               <button
                 type="button"
                 onClick={() => void send()}
@@ -1433,6 +1567,7 @@ function SessionHistoryPicker({
   sessions,
   activeSessionId,
   busy,
+  modeLabel,
   onSelect,
   onNew,
   onRename,
@@ -1442,6 +1577,7 @@ function SessionHistoryPicker({
   sessions: CopilotSessionSummary[];
   activeSessionId?: string;
   busy: boolean;
+  modeLabel: string;
   onSelect: (id: string) => void;
   onNew: () => void;
   onRename: (id: string, title: string) => Promise<boolean>;
@@ -1569,6 +1705,7 @@ function SessionHistoryPicker({
           <span className="copilot-history-trigger-label">
             <Icon name="clock" size={15} />
             <span>{activeSession?.title || text.history}</span>
+            <em className="copilot-history-mode">{modeLabel}</em>
           </span>
           <Icon
             name="chevron-down"
@@ -1616,7 +1753,10 @@ function SessionHistoryPicker({
             ) : (
               <>
                 <div className="copilot-history-toolbar">
-                  <strong>{text.history}</strong>
+                  <strong>
+                    {text.history}
+                    <em className="copilot-history-mode">{modeLabel}</em>
+                  </strong>
                   <div className="copilot-history-toolbar-actions">
                     <button
                       type="button"
@@ -1785,13 +1925,19 @@ function SessionHistoryPicker({
 
 function AssistantDetails({
   text,
+  language,
   payload,
+  before,
+  resourceLabels,
   onApplyPatch,
   canApplyPatch,
   appliedKeys,
 }: {
   text: (typeof copy)[Language];
+  language: Language;
   payload?: CopilotRespondResult;
+  before?: Record<string, unknown>;
+  resourceLabels?: Record<string, string>;
   onApplyPatch: (patch?: Record<string, unknown>, key?: string) => void;
   canApplyPatch: boolean;
   appliedKeys: Set<string>;
@@ -1800,6 +1946,11 @@ function AssistantDetails({
   const questions = payload.questions ?? [];
   const changes = payload.patch?.changes;
   const hasChanges = changes && Object.keys(changes).length > 0;
+  const changeEntries = hasChanges
+    ? Object.entries(changes as Record<string, unknown>).filter(
+        ([field]) => field !== "agentId",
+      )
+    : [];
   return (
     <div className="copilot-assistant-details">
       {questions.length > 0 && (
@@ -1824,7 +1975,39 @@ function AssistantDetails({
               {appliedKeys.has("assist-patch") ? text.applied : text.applyPatch}
             </button>
           </div>
-          <pre>{JSON.stringify(changes, null, 2)}</pre>
+          <ul className="copilot-applied-list copilot-patch-diff">
+            {changeEntries.map(([field, value]) => (
+              <li key={field}>
+                <span className="copilot-applied-field">
+                  {FIELD_LABELS[field]?.[language] ?? field}
+                </span>
+                <div className="copilot-applied-diff">
+                  <div className="copilot-applied-side">
+                    <span className="copilot-applied-tag">{text.before}</span>
+                    <PatchValue
+                      field={field}
+                      value={before?.[field]}
+                      labels={resourceLabels}
+                    />
+                  </div>
+                  <Icon
+                    name="chevron-right"
+                    size={13}
+                    className="copilot-applied-arrow"
+                  />
+                  <div className="copilot-applied-side is-after">
+                    <span className="copilot-applied-tag">{text.after}</span>
+                    <PatchValue
+                      field={field}
+                      value={value}
+                      labels={resourceLabels}
+                      highlight
+                    />
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
           {!canApplyPatch && <p>{text.noCurrentAgent}</p>}
         </div>
       )}
@@ -1852,7 +2035,7 @@ function ProposalPreview({
           <strong>{text.proposal}</strong>
           <p>{text.proposalHint}</p>
         </div>
-        <span className="copilot-status">READY</span>
+        <span className="copilot-status">{text.statusReady}</span>
       </div>
       <div className="copilot-proposal-grid">
         <div>
@@ -2020,6 +2203,7 @@ function ValidationView({
   appliedPatchKeys,
   resourceLabels,
   onDismissAppliedPatch,
+  onSaveDraft,
 }: {
   text: (typeof copy)[Language];
   language: Language;
@@ -2047,9 +2231,10 @@ function ValidationView({
   appliedPatchKeys: Set<string>;
   resourceLabels?: Record<string, string>;
   onDismissAppliedPatch: () => void;
+  onSaveDraft?: () => void;
 }) {
   if (!agentId) {
-    return <p className="copilot-empty">{text.noCurrentAgent}</p>;
+    return <p className="copilot-empty">{text.validateNoAgent}</p>;
   }
   return (
     <div className="copilot-validation">
@@ -2059,6 +2244,8 @@ function ValidationView({
         <code>{agentId}</code>
       </div>
 
+      <p className="copilot-validation-guide">{text.validateGuide}</p>
+
       {appliedPatchSummary && (
         <AppliedPatchSummary
           text={text}
@@ -2067,6 +2254,7 @@ function ValidationView({
           before={appliedPatchSummary.before}
           labels={resourceLabels}
           onDismiss={onDismissAppliedPatch}
+          onSaveDraft={onSaveDraft}
         />
       )}
 
@@ -2093,6 +2281,9 @@ function ValidationView({
           type="button"
           onClick={onRun}
           disabled={Boolean(busy) || selectedCases.size === 0}
+          title={
+            selectedCases.size === 0 && !busy ? text.runDisabledHint : undefined
+          }
         >
           <Icon name="play" size={14} />
           {busy === "behavior" ? text.running : text.runSelected}
