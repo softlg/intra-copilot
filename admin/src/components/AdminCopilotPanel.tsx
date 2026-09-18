@@ -233,7 +233,7 @@ const copy = {
     collapseSessions: "收起",
     sessionRenamed: "会话已重命名。",
     sessionsDeleted: "已删除 {count} 个会话。",
-    inputPlaceholder: "描述要修改的内容，或粘贴报错信息…",
+    inputPlaceholder: "输入问题、操作需求或要修改的内容…",
     inputPlaceholderBuild: "描述你想创建的 Agent、目标和使用场景…",
     send: "发送",
     sendMessage: "发送消息",
@@ -241,7 +241,8 @@ const copy = {
     createSession: "新建会话",
     applyPatch: "应用到当前表单",
     patchApplied: "建议已应用到当前表单，请检查后保存。",
-    noCurrentAgent: "打开一个 Agent 配置后可使用表单修改能力。",
+    noCurrentAgent:
+      "当前未打开 Agent，仍可咨询系统和获取操作指导；涉及配置修改时请先打开对应 Agent。",
     proposal: "待确认提案",
     proposalHint: "应用后才会创建资源；Agent 会以停用、未发布草案保存。",
     resources: "新增资源",
@@ -327,7 +328,7 @@ const copy = {
     appliedPatchHint:
       "已写入当前表单，请检查无误后保存；建议重新运行静态检查确认效果。",
     statusReady: "待确认",
-    modeAssistDesc: "修改当前 Agent 的提示词、模型、工具等配置。",
+    modeAssistDesc: "默认聊天助手，可解答系统使用、辅助操作并指导配置修改。",
     modeBuildDesc: "从零描述需求，生成未发布的 Agent 草案。",
     modeValidateDesc: "检查配置风险、生成场景并运行行为验证。",
     validateNoAgent: "请先在左侧打开或选择一个 Agent，再使用验证功能。",
@@ -413,7 +414,8 @@ const copy = {
     collapseSessions: "Collapse",
     sessionRenamed: "Session renamed.",
     sessionsDeleted: "{count} sessions deleted.",
-    inputPlaceholder: "Describe the change or paste an error…",
+    inputPlaceholder:
+      "Ask a question, describe an operation, or request a change…",
     inputPlaceholderBuild:
       "Describe the Agent you want, its goal, and its use cases…",
     send: "Send",
@@ -422,7 +424,8 @@ const copy = {
     createSession: "Create session",
     applyPatch: "Apply to current form",
     patchApplied: "Suggestion applied to the form. Review and save it.",
-    noCurrentAgent: "Open an Agent configuration to apply form changes.",
+    noCurrentAgent:
+      "No Agent is open. You can still ask about the system or get guidance; open an Agent before applying configuration changes.",
     proposal: "Proposal awaiting confirmation",
     proposalHint:
       "Nothing is created until applied. Agents are saved disabled and unpublished.",
@@ -518,7 +521,7 @@ const copy = {
       "Written to the form. Review and save; re-run the static check to confirm.",
     statusReady: "Ready",
     modeAssistDesc:
-      "Change the current Agent's prompt, model, tools, and config.",
+      "Default chat assistant for system questions, guided operations, and configuration help.",
     modeBuildDesc: "Describe a new Agent and draft it from scratch.",
     modeValidateDesc:
       "Inspect risks, generate scenarios, and run behavioral checks.",
@@ -1969,8 +1972,21 @@ export function AdminCopilotPanel({
       id: currentAgentId,
       displayName:
         currentAgentName || String(currentAgentSnapshot.displayName ?? ""),
+      workspaceView: view,
+      workspaceLabel:
+        view === "build"
+          ? text.build
+          : view === "validate"
+            ? text.validate
+            : text.assist,
+      workspaceDescription:
+        view === "build"
+          ? text.modeBuildDesc
+          : view === "validate"
+            ? text.modeValidateDesc
+            : text.modeAssistDesc,
     }),
-    [currentAgentId, currentAgentName, currentAgentSnapshot],
+    [currentAgentId, currentAgentName, currentAgentSnapshot, text, view],
   );
 
   const scrollMessagesToBottom = () => {

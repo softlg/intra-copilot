@@ -166,7 +166,7 @@ export function createCopilotSession(
           ? "新建 Agent"
           : mode === "VALIDATE"
             ? "验证会话"
-            : "配置助手",
+            : "聊天助手",
       currentAgentId: currentAgentId || null,
     }),
   });
