@@ -92,8 +92,12 @@ public class ToolExecutor {
         try {
             return switch (def.getType() == null ? "" : def.getType().toUpperCase(Locale.ROOT)) {
                 case "MCP" -> executeMcp(def, argumentsJson);
-                case "BROWSER_PROPOSAL" -> success(
-                        "BROWSER_PROPOSAL:" + truncate(argumentsJson == null ? "{}" : argumentsJson));
+                case "BROWSER_PROPOSAL" -> {
+                    BrowserActionValidator.validateSchema(def.getParameterSchema());
+                    BrowserActionValidator.NormalizedAction action =
+                            BrowserActionValidator.normalize(argumentsJson);
+                    yield success("BROWSER_PROPOSAL:" + action.fullJson());
+                }
                 case "HTTP" -> executeHttp(def, argumentsJson);
                 default -> failure("不支持的 Tool 类型：" + def.getType());
             };

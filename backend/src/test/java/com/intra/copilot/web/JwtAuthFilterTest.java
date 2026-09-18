@@ -27,7 +27,11 @@ class JwtAuthFilterTest {
         JwtAuthFilter filter =
                 new JwtAuthFilter(mock(JwtVerifier.class), mock(AdminAuthService.class));
 
-        for (String path : List.of("/api/v1/attachments", "/api/v1/attachments/example-id")) {
+        for (String path :
+                List.of(
+                        "/api/v1/attachments",
+                        "/api/v1/attachments/example-id",
+                        "/api/v1/actions/AP-example/result")) {
             MockHttpServletRequest request = new MockHttpServletRequest("GET", path);
             MockHttpServletResponse response = new MockHttpServletResponse();
 

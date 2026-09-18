@@ -102,6 +102,8 @@ public class ToolManagementService {
                 throw new IllegalArgumentException("HTTP 方法无效");
             }
             validateAuth(tool);
+        } else if ("BROWSER_PROPOSAL".equals(type)) {
+            BrowserActionValidator.validateSchema(tool.getParameterSchema());
         }
     }
 

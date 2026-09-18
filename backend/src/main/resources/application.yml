@@ -74,6 +74,9 @@ agent:
   # 单次模型调用与 SSE 连接的最大等待时间。图片理解等请求可能超过原来的 60 秒。
   llm-timeout-seconds: ${AGENT_LLM_TIMEOUT_SECONDS:180}
   sse-timeout-seconds: ${AGENT_SSE_TIMEOUT_SECONDS:600}
+  # 浏览器动作等待用户确认和执行的超时时间；复杂页面任务可消耗多轮 Tool 调用。
+  browser-action-timeout-seconds: ${AGENT_BROWSER_ACTION_TIMEOUT_SECONDS:300}
+  max-tool-iterations: ${AGENT_MAX_TOOL_ITERATIONS:10}
   # 生成或修订执行计划的模型调用超时时间。
   planning-timeout-seconds: ${AGENT_PLANNING_TIMEOUT_SECONDS:15}
 kb:

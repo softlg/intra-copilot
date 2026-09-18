@@ -87,6 +87,7 @@ public class JwtAuthFilter implements HandlerInterceptor {
         }
         if (path.startsWith("/api/v1/sessions")
                 || path.startsWith("/api/v1/chat/")
+                || path.startsWith("/api/v1/actions/")
                 || path.startsWith("/api/v1/attachments")
                 || path.startsWith("/api/v1/feedback")) {
             return AuthMode.DEVICE;

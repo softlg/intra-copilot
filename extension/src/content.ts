@@ -6,6 +6,11 @@ type Ctx = {
   domSummary: string;
   timestamp: string;
 };
+type ActionElement = {
+  ref: string;
+  element: HTMLElement;
+  summary: string;
+};
 type Language = "zh" | "en";
 const root = document.createElement("div");
 root.id = "intra-copilot-root";
@@ -18,6 +23,7 @@ const mini = shadow.querySelector(".mini") as HTMLButtonElement;
 const dismiss = shadow.querySelector(".dismiss") as HTMLButtonElement;
 let language: Language = "zh";
 let pageEnabled = false;
+const actionElements = new Map<string, HTMLElement>();
 function setPageEnabled(enabled: boolean) {
   pageEnabled = enabled;
   root.style.display = enabled ? "block" : "none";
@@ -174,23 +180,196 @@ dismiss.addEventListener("click", (e) => {
   });
 });
 export function collectContext(): Ctx {
+  const elements = collectActionElements();
   return {
     url: location.href,
     title: document.title,
     selection: getSelection()?.toString().slice(0, 4000) || "",
     visibleText: (document.body?.innerText || "").slice(0, 12000),
-    domSummary: Array.from(
-      document.querySelectorAll("input,button,select,textarea,a"),
-    )
-      .slice(0, 80)
-      .map(
-        (e: any) =>
-          `${e.tagName}:${e.innerText || e.placeholder || e.name || ""}`,
-      )
-      .join("\n"),
+    domSummary: elements.map((item) => item.summary).join("\n"),
     timestamp: new Date().toISOString(),
   };
 }
+
+function collectActionElements(): ActionElement[] {
+  actionElements.clear();
+  return Array.from(
+    document.querySelectorAll(
+      "input,button,select,textarea,a,[role='button'],[contenteditable='true']",
+    ),
+  )
+    .filter((element): element is HTMLElement => element instanceof HTMLElement)
+    .filter(isVisible)
+    .slice(0, 120)
+    .map((element, index) => {
+      const ref = `ref_${index + 1}`;
+      actionElements.set(ref, element);
+      const tag = element.tagName.toLowerCase();
+      const role =
+        element.getAttribute("role") ||
+        (tag === "a" ? "link" : tag === "button" ? "button" : tag);
+      const name = compact(
+        element.getAttribute("aria-label") ||
+          element.getAttribute("title") ||
+          (element as HTMLInputElement).placeholder ||
+          element.innerText ||
+          (element as HTMLInputElement).value ||
+          element.getAttribute("name") ||
+          "",
+      );
+      const type = (element as HTMLInputElement).type;
+      const disabled =
+        "disabled" in element &&
+        Boolean((element as HTMLInputElement).disabled);
+      const value = compact((element as HTMLInputElement).value || "");
+      const details = [
+        `${ref} <${tag}>`,
+        `role="${role}"`,
+        name ? `name="${escapeAttribute(name)}"` : "",
+        type ? `type="${type}"` : "",
+        value ? `value="${escapeAttribute(value)}"` : "",
+        disabled ? "disabled=true" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return { ref, element, summary: details };
+    });
+}
+
+function isVisible(element: HTMLElement) {
+  const rect = element.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    style.visibility !== "hidden" &&
+    style.display !== "none" &&
+    style.opacity !== "0"
+  );
+}
+
+function compact(value: string) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+function escapeAttribute(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function resolveActionElement(target: string): HTMLElement | null {
+  const registered = actionElements.get(target);
+  if (registered && registered.isConnected && isVisible(registered))
+    return registered;
+  return null;
+}
+
+function fillElement(element: HTMLElement, value: string) {
+  element.focus();
+  if (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement
+  ) {
+    const prototype =
+      element instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    if (setter) setter.call(element, value);
+    else element.value = value;
+    element.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: value,
+      }),
+    );
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
+  if (element.isContentEditable) {
+    element.textContent = value;
+    element.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: value,
+      }),
+    );
+    return;
+  }
+  throw Error(
+    language === "en"
+      ? "Target is not a fillable input"
+      : "目标元素不是可填写控件",
+  );
+}
+
+function setEditorElement(element: HTMLElement, value: string) {
+  const editor = element.closest(".monaco-editor") || element;
+  const input = editor.querySelector(
+    "textarea.inputarea, textarea, [contenteditable='true']",
+  ) as HTMLElement | null;
+  const target: HTMLElement = input || (editor as HTMLElement);
+  target.focus();
+  if (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement
+  ) {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    if (setter) setter.call(target, value);
+    else target.value = value;
+    target.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: value,
+      }),
+    );
+    return;
+  }
+  if (target.isContentEditable) {
+    target.textContent = value;
+    target.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: value,
+      }),
+    );
+    return;
+  }
+  throw Error(language === "en" ? "Code editor not found" : "未找到代码编辑器");
+}
+
+async function executeBrowserAction(a: any) {
+  if (!["CLICK", "FILL", "NAVIGATE", "SET_EDITOR"].includes(a.type)) {
+    throw Error(language === "en" ? "Unsupported action" : "不支持的操作");
+  }
+  if (a.type === "NAVIGATE") {
+    location.href = a.arguments?.url;
+    return { ok: true, action: a.type, observation: null };
+  }
+  const element = resolveActionElement(a.target || "");
+  if (!element) {
+    throw Error(
+      language === "en" ? "Target element not found" : "找不到目标元素",
+    );
+  }
+  if (a.type === "CLICK") {
+    element.scrollIntoView({ block: "center", inline: "center" });
+    element.click();
+  } else if (a.type === "FILL") {
+    fillElement(element, a.arguments?.value || "");
+  } else {
+    setEditorElement(element, a.arguments?.code || "");
+  }
+  await new Promise((resolve) => window.setTimeout(resolve, 300));
+  return { ok: true, action: a.type, observation: collectContext() };
+}
+
 chrome.runtime.onMessage.addListener((msg: any, _sender: any, send: any) => {
   if (msg?.type === "REFRESH_PAGE_ENABLED") {
     refreshPageEnabled();
@@ -202,30 +381,11 @@ chrome.runtime.onMessage.addListener((msg: any, _sender: any, send: any) => {
     return true;
   }
   if (msg?.type === "EXECUTE_ACTION") {
-    try {
-      const a = msg.action;
-      if (!["CLICK", "FILL", "NAVIGATE"].includes(a.type))
-        throw Error(language === "en" ? "Unsupported action" : "不支持的操作");
-      if (a.type === "NAVIGATE") {
-        location.href = a.arguments?.url;
-      } else {
-        const el = document.querySelector(a.target) as HTMLElement | null;
-        if (!el)
-          throw Error(
-            language === "en" ? "Target element not found" : "找不到目标元素",
-          );
-        if (a.type === "CLICK") el.click();
-        else {
-          const input = el as HTMLInputElement;
-          input.focus();
-          input.value = a.arguments?.value || "";
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-        }
-      }
-      send({ ok: true });
-    } catch (e) {
-      send({ ok: false, error: (e as Error).message });
-    }
+    void executeBrowserAction(msg.action)
+      .then(send)
+      .catch((error) =>
+        send({ ok: false, error: (error as Error).message || String(error) }),
+      );
     return true;
   }
 });

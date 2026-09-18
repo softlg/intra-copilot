@@ -47,15 +47,65 @@ function collectPageContext() {
     selection: (getSelection()?.toString() || "").slice(0, 4000),
     visibleText: (document.body?.innerText || "").slice(0, 12000),
     domSummary: Array.from(
-      document.querySelectorAll("input,button,select,textarea,a"),
+      document.querySelectorAll(
+        "input,button,select,textarea,a,[role='button'],[contenteditable='true']",
+      ),
     )
-      .slice(0, 80)
-      .map(
-        (e) =>
-          `${(e as HTMLElement).tagName}:${(e as HTMLElement).innerText || (e as HTMLInputElement).placeholder || (e as HTMLInputElement).name || ""}`,
-      )
+      .filter((element) => {
+        if (!(element instanceof HTMLElement)) return false;
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.opacity !== "0"
+        );
+      })
+      .slice(0, 120)
+      .map((element, index) => {
+        const e = element as HTMLElement;
+        const name = (
+          e.getAttribute("aria-label") ||
+          e.getAttribute("title") ||
+          (e as HTMLInputElement).placeholder ||
+          e.innerText ||
+          (e as HTMLInputElement).value ||
+          e.getAttribute("name") ||
+          ""
+        )
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 160);
+        return `${index + 1 < 10 ? " " : ""}ref_${index + 1} <${e.tagName.toLowerCase()}> role="${e.getAttribute("role") || (e.tagName === "A" ? "link" : e.tagName === "BUTTON" ? "button" : e.tagName.toLowerCase())}"${name ? ` name="${name.replace(/"/g, '\\"')}"` : ""}`;
+      })
       .join("\n"),
     timestamp: new Date().toISOString(),
+  };
+}
+
+/**
+ * Runs in the page's MAIN world so it can access Monaco's JavaScript API. The function is
+ * serialized by chrome.scripting.executeScript and must not reference module-level values.
+ */
+function setEditorValueInPage(args: any) {
+  const code = typeof args?.code === "string" ? args.code : "";
+  const host = window as any;
+  const monaco = host.monaco;
+  const models = monaco?.editor?.getModels?.() || [];
+  if (Array.isArray(models) && models.length > 0) {
+    models[0].setValue(code);
+    return { ok: true, action: "SET_EDITOR", method: "monaco" };
+  }
+  const editors = monaco?.editor?.getEditors?.() || [];
+  if (Array.isArray(editors) && editors.length > 0) {
+    editors[0].setValue?.(code);
+    return { ok: true, action: "SET_EDITOR", method: "monaco-editor" };
+  }
+  return {
+    ok: false,
+    error: "Monaco editor not found in page main world",
   };
 }
 
@@ -794,6 +844,7 @@ function App() {
   // 同步版发送锁：状态更新是异步的，busyRef 能在毫秒级内拦截重复 send()（Enter 连发 /
   // 按钮重复点击），避免同一请求产生两条相同助手消息。
   const busyRef = useRef(false);
+  const actionTabIdRef = useRef<number | undefined>(undefined);
   const [error, setError] = useState("");
   const [theme, setTheme] = useState<Theme>("system");
   const [language, setLanguage] = useState<Language>("zh");
@@ -2008,6 +2059,7 @@ function App() {
           ? [tabs[0].id]
           : [];
       if (readPageEnabled && ids.length) {
+        actionTabIdRef.current = ids[0];
         const contexts = await Promise.all(
           ids.map((id) => collectContextFromTab(id)),
         );
@@ -2220,11 +2272,50 @@ function App() {
                   active: true,
                   currentWindow: true,
                 });
-                if (tabs[0]?.id) {
-                  result = await chrome.tabs.sendMessage(tabs[0].id, {
-                    type: "EXECUTE_ACTION",
-                    action,
-                  });
+                const tabId = actionTabIdRef.current ?? tabs[0]?.id;
+                if (tabId == null) {
+                  result = {
+                    status: "FAILED",
+                    result: JSON.stringify({
+                      ok: false,
+                      error: t.pageContextReadFailed,
+                    }),
+                  };
+                } else {
+                  try {
+                    const execution =
+                      action.type === "SET_EDITOR"
+                        ? (
+                            await chrome.scripting.executeScript({
+                              target: { tabId },
+                              world: "MAIN",
+                              func: setEditorValueInPage,
+                              args: [action.arguments],
+                            })
+                          )[0]?.result
+                        : await chrome.tabs.sendMessage(tabId, {
+                            type: "EXECUTE_ACTION",
+                            action,
+                          });
+                    const observation = await collectContextFromTab(tabId);
+                    result = {
+                      status:
+                        (execution as { ok?: boolean } | undefined)?.ok ===
+                        false
+                          ? "FAILED"
+                          : "EXECUTED",
+                      result: JSON.stringify({ execution, observation }),
+                    };
+                  } catch (actionError) {
+                    result = {
+                      status: "FAILED",
+                      result: JSON.stringify({
+                        ok: false,
+                        error:
+                          (actionError as Error).message || String(actionError),
+                      }),
+                    };
+                  }
                 }
               }
               await apiFetch(`/actions/${action.actionId}/result`, {

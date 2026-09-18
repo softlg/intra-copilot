@@ -135,6 +135,41 @@ class ToolExecutorTest {
     }
 
     @Test
+    void normalizesBrowserProposalArguments() {
+        ToolDefinition tool = new ToolDefinition();
+        tool.setName("browser_action");
+        tool.setType("BROWSER_PROPOSAL");
+        tool.setParameterSchema(
+                """
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {"type": "string", "enum": ["CLICK", "FILL", "NAVIGATE", "SET_EDITOR"]},
+                    "target": {"type": "string"},
+                    "arguments": {"type": "object"},
+                    "reason": {"type": "string"},
+                    "risk": {"type": "string", "enum": ["low", "medium", "high"]}
+                  },
+                  "required": ["type", "reason", "risk"]
+                }
+                """);
+        tool.setEnabled(true);
+
+        ToolExecutor.ToolExecutionResult result =
+                executor.executeDetailed(
+                        tool,
+                        """
+                        {"reason":"fill","arguments":{"value":"ok"},"target":"ref_1","risk":"low","type":"fill"}
+                        """);
+
+        assertTrue(result.success());
+        assertTrue(result.output().startsWith("BROWSER_PROPOSAL:"));
+        assertTrue(result.output().contains("\"type\":\"FILL\""));
+        assertTrue(result.output().contains("\"risk\":\"medium\""));
+    }
+
+    @Test
     void redactsNestedSensitiveArguments() {
         ToolDefinition tool = httpTool("POST", baseUrl + "/items");
 

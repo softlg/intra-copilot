@@ -9,6 +9,7 @@ import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.SkillToolBindingRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
+import com.intra.copilot.service.BrowserActionValidator;
 import com.intra.copilot.service.ToolExecutor;
 import com.intra.copilot.service.auth.RequestContext;
 import com.intra.copilot.util.EntityIdGenerator;
@@ -67,8 +68,8 @@ public class ToolSkillAdminController {
     @PostMapping("/tools")
     @ResponseStatus(HttpStatus.CREATED)
     public ToolDefinition createTool(@RequestBody ToolDefinition t) {
-        validateTool(t);
         ensureToolNameAvailable(t.getName(), null);
+        validateTool(t);
         ToolDefinition created = new ToolDefinition();
         created.setId(EntityIdGenerator.next("TL"));
         applyEditableFields(created, t);
@@ -202,6 +203,8 @@ public class ToolSkillAdminController {
                 throw new IllegalArgumentException("HTTP 方法无效");
             }
             validateAuth(t);
+        } else if ("BROWSER_PROPOSAL".equals(type)) {
+            BrowserActionValidator.validateSchema(t.getParameterSchema());
         }
     }
 

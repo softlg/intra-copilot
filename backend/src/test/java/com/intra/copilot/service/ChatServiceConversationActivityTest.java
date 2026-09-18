@@ -43,7 +43,8 @@ class ChatServiceConversationActivityTest {
                         6000,
                         40,
                         180,
-                        600);
+                        600,
+                        300);
         Conversation conversation = new Conversation();
         Instant before = conversation.getUpdatedAt();
         Message message = new Message(conversation.getId(), "user", "hello", null, null);

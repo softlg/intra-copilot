@@ -132,7 +132,8 @@ public class ApiController {
 
     @PostMapping("/actions/{id}/result")
     public ActionProposal action(@PathVariable String id, @RequestBody ActionResult req) {
-        return chat.result(id, req.status(), req.result());
+        var identity = RequestContext.current();
+        return chat.result(identity.source(), identity.userId(), id, req.status(), req.result());
     }
 
     /**
