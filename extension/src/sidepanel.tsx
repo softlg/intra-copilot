@@ -655,6 +655,8 @@ const translations = {
     chinese: "中文",
     english: "English",
     chatWindows: "聊天窗口",
+    moreSessions: "更多会话",
+    processingSession: "处理中",
     empty: "你好！我可以帮你诊断当前页面，或协助处理你的问题。",
     you: "你",
     assistant: "助手",
@@ -836,6 +838,8 @@ const translations = {
     chinese: "中文",
     english: "English",
     chatWindows: "Chat windows",
+    moreSessions: "More chats",
+    processingSession: "Processing",
     empty:
       "Hello! I can help diagnose the current page or assist with your questions.",
     you: "You",
@@ -1262,12 +1266,14 @@ function App() {
   const [previewImage, setPreviewImage] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [moreSessionsOpen, setMoreSessionsOpen] = useState(false);
+  const sessionMoreRef = useRef<HTMLDivElement>(null);
   const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
   const [editingSessionId, setEditingSessionId] = useState<string>();
   const [editingTitle, setEditingTitle] = useState("");
   // 拖拽排序：draggingId 为正在拖动的会话 id；dropTarget 为插入目标
   // { id, before } 表示「插到 id 之前」（before=true）或「之后」（before=false）。
-  const [draggingSessionId, setDraggingSessionId] = useState<string>();
+  const draggingSessionRef = useRef<string | undefined>(undefined);
   const [dropTarget, setDropTarget] = useState<{
     id: string;
     before: boolean;
@@ -1277,7 +1283,7 @@ function App() {
   >([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
-  const reorderRef = useRef<string[] | null>(null);
+  const reorderRef = useRef<any[] | null>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerToolsRef = useRef<HTMLDivElement>(null);
@@ -1389,6 +1395,18 @@ function App() {
     return () =>
       document.removeEventListener("pointerdown", closeOnOutsidePointer);
   }, [toolsOpen, permissionOpen]);
+
+  useEffect(() => {
+    if (!moreSessionsOpen) return;
+    const closeMoreSessions = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && !sessionMoreRef.current?.contains(target)) {
+        setMoreSessionsOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeMoreSessions);
+    return () => document.removeEventListener("pointerdown", closeMoreSessions);
+  }, [moreSessionsOpen]);
 
   useEffect(() => {
     chrome.storage.local.remove("tmsAuthorized");
@@ -1885,11 +1903,11 @@ function App() {
     event.dataTransfer.effectAllowed = "move";
     // Firefox 需要 setData 才会启动拖拽。
     event.dataTransfer.setData("text/plain", conversation.id);
-    setDraggingSessionId(conversation.id);
+    draggingSessionRef.current = conversation.id;
   }
 
   function endDrag() {
-    setDraggingSessionId(undefined);
+    draggingSessionRef.current = undefined;
     setDropTarget(undefined);
   }
 
@@ -1899,7 +1917,8 @@ function App() {
     event: React.DragEvent<HTMLElement>,
     axis: "x" | "y" = "y",
   ) {
-    if (!draggingSessionId || draggingSessionId === targetId) {
+    const draggedId = draggingSessionRef.current;
+    if (!draggedId || draggedId === targetId) {
       setDropTarget(undefined);
       return;
     }
@@ -1912,15 +1931,15 @@ function App() {
   }
 
   async function dropOnSession(targetId: string, before: boolean) {
-    if (!draggingSessionId || draggingSessionId === targetId) {
+    const dragged = draggingSessionRef.current;
+    if (!dragged || dragged === targetId) {
       endDrag();
       return;
     }
-    const dragged = draggingSessionId;
-    const previousOrder = sessions.map((s) => s.id);
+    const previousSessions = [...sessions];
 
     // 先记下旧顺序用于失败回滚。
-    reorderRef.current = previousOrder;
+    reorderRef.current = previousSessions;
 
     // 计算新顺序：把 dragged 移到 target 的前/后。
     const without = sessions.filter((s) => s.id !== dragged);
@@ -1947,7 +1966,7 @@ function App() {
       reorderRef.current = null;
     } catch (e) {
       // 失败回滚到拖拽前顺序。
-      if (reorderRef.current) setSessions(previousOrder);
+      if (reorderRef.current) setSessions(reorderRef.current);
       reorderRef.current = null;
       setError(t.reorderFailed);
     } finally {
@@ -3015,82 +3034,130 @@ function App() {
           )}
         </div>
       </header>
-      <nav className="session-tabs" aria-label={t.chatWindows}>
-        {visibleSessions.map((conversation) =>
-          (() => {
-            const index = sessions.findIndex(
-              (item) => item.id === conversation.id,
-            );
-            const editing = editingSessionId === conversation.id;
-            const isDropBefore =
-              dropTarget != null &&
-              dropTarget.id === conversation.id &&
-              dropTarget.before;
-            const isDropAfter =
-              dropTarget != null &&
-              dropTarget.id === conversation.id &&
-              !dropTarget.before;
-            return (
-              <button
-                key={conversation.id}
-                className={
-                  "session-tab " +
-                  (conversation.id === session?.id ? "active" : "") +
-                  (isDropBefore ? " drop-before" : "") +
-                  (isDropAfter ? " drop-after" : "")
-                }
-                onClick={() => {
-                  if (!editing) select(conversation);
-                }}
-                onDoubleClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  beginRename(conversation);
-                }}
-                draggable={!editing}
-                onDragStart={(event) => beginDrag(conversation, event)}
-                onDragEnd={endDrag}
-                onDragOver={(event) => {
-                  if (!editing) {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                    updateDropTarget(conversation.id, event, "x");
+      <div className="session-tab-bar">
+        <nav className="session-tabs" aria-label={t.chatWindows}>
+          {visibleSessions.map((conversation) =>
+            (() => {
+              const index = sessions.findIndex(
+                (item) => item.id === conversation.id,
+              );
+              const editing = editingSessionId === conversation.id;
+              const isDropBefore =
+                dropTarget != null &&
+                dropTarget.id === conversation.id &&
+                dropTarget.before;
+              const isDropAfter =
+                dropTarget != null &&
+                dropTarget.id === conversation.id &&
+                !dropTarget.before;
+              return (
+                <button
+                  key={conversation.id}
+                  className={
+                    "session-tab " +
+                    (conversation.id === session?.id ? "active " : "") +
+                    (isDropBefore ? "drop-before " : "") +
+                    (isDropAfter ? "drop-after" : "")
                   }
-                }}
-                onDragLeave={(event) => {
-                  if (dropTarget?.id === conversation.id)
-                    setDropTarget(undefined);
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  if (dropTarget != null && dropTarget.id === conversation.id)
-                    dropOnSession(conversation.id, dropTarget.before);
-                }}
-                title={t.editTitle}
-              >
-                {editing ? (
-                  <input
-                    className="session-tab-input"
-                    value={editingTitle}
-                    autoFocus
-                    maxLength={80}
-                    onChange={(event) => setEditingTitle(event.target.value)}
-                    onKeyDown={(event) => {
-                      event.stopPropagation();
-                      if (event.key === "Enter") saveRename(conversation);
-                      if (event.key === "Escape") cancelRename();
+                  onClick={() => {
+                    if (!editing) select(conversation);
+                  }}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    beginRename(conversation);
+                  }}
+                  draggable={!editing}
+                  onDragStart={(event) => beginDrag(conversation, event)}
+                  onDragEnd={endDrag}
+                  onDragOver={(event) => {
+                    if (!editing) {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      updateDropTarget(conversation.id, event, "x");
+                    }
+                  }}
+                  onDragLeave={(event) => {
+                    const next = event.relatedTarget as Node | null;
+                    if (
+                      dropTarget?.id === conversation.id &&
+                      (!next || !event.currentTarget.contains(next))
+                    ) {
+                      setDropTarget(undefined);
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const before = event.clientX < rect.left + rect.width / 2;
+                    dropOnSession(conversation.id, before);
+                  }}
+                  title={sessionTitle(conversation, index)}
+                >
+                  {editing ? (
+                    <input
+                      className="session-tab-input"
+                      value={editingTitle}
+                      autoFocus
+                      maxLength={80}
+                      onChange={(event) => setEditingTitle(event.target.value)}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === "Enter") saveRename(conversation);
+                        if (event.key === "Escape") cancelRename();
+                      }}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label={t.editTitle}
+                    />
+                  ) : (
+                    sessionTitle(conversation, index)
+                  )}
+                </button>
+              );
+            })(),
+          )}
+        </nav>
+        {sessions.length > MAX_VISIBLE_SESSION_TABS - 1 && (
+          <div className="session-more" ref={sessionMoreRef}>
+            <button
+              type="button"
+              className={
+                "session-more-button" + (moreSessionsOpen ? " active" : "")
+              }
+              onClick={() => setMoreSessionsOpen((open) => !open)}
+              title={t.moreSessions}
+              aria-label={t.moreSessions}
+              aria-expanded={moreSessionsOpen}
+            >
+              …
+            </button>
+            {moreSessionsOpen && (
+              <div className="session-more-menu">
+                <div className="session-more-title">{t.moreSessions}</div>
+                {sessions.map((conversation, index) => (
+                  <button
+                    type="button"
+                    key={conversation.id}
+                    className={
+                      "session-more-item" +
+                      (conversation.id === session?.id ? " active" : "")
+                    }
+                    onClick={() => {
+                      setMoreSessionsOpen(false);
+                      void select(conversation);
                     }}
-                    onClick={(event) => event.stopPropagation()}
-                    aria-label={t.editTitle}
-                  />
-                ) : (
-                  sessionTitle(conversation, index)
-                )}
-              </button>
-            );
-          })(),
+                  >
+                    <span>{sessionTitle(conversation, index)}</span>
+                    {busySessionIds.has(conversation.id) && (
+                      <small>{t.processingSession}</small>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
-      </nav>
+      </div>
       <div
         className={
           "content-area" +
@@ -3466,16 +3533,19 @@ function App() {
                       }
                     }}
                     onDragLeave={(event) => {
-                      if (dropTarget?.id === conversation.id)
+                      const next = event.relatedTarget as Node | null;
+                      if (
+                        dropTarget?.id === conversation.id &&
+                        (!next || !event.currentTarget.contains(next))
+                      ) {
                         setDropTarget(undefined);
+                      }
                     }}
                     onDrop={(event) => {
                       event.preventDefault();
-                      if (
-                        dropTarget != null &&
-                        dropTarget.id === conversation.id
-                      )
-                        dropOnSession(conversation.id, dropTarget.before);
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const before = event.clientY < rect.top + rect.height / 2;
+                      dropOnSession(conversation.id, before);
                     }}
                   >
                     <input
