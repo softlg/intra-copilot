@@ -195,7 +195,7 @@ function collectActionElements(): ActionElement[] {
   actionElements.clear();
   return Array.from(
     document.querySelectorAll(
-      "input,button,select,textarea,a,[role='button'],[contenteditable='true']",
+      "input,button,select,textarea,a,[role='button'],[contenteditable='true'],.monaco-editor,.cm-editor",
     ),
   )
     .filter((element): element is HTMLElement => element instanceof HTMLElement)
@@ -205,11 +205,13 @@ function collectActionElements(): ActionElement[] {
       const ref = `ref_${index + 1}`;
       actionElements.set(ref, element);
       const tag = element.tagName.toLowerCase();
+      const codeEditor = element.matches(".monaco-editor,.cm-editor");
       const role =
-        element.getAttribute("role") ||
+        (codeEditor ? "code-editor" : element.getAttribute("role")) ||
         (tag === "a" ? "link" : tag === "button" ? "button" : tag);
       const name = compact(
-        element.getAttribute("aria-label") ||
+        (codeEditor ? "代码编辑器" : "") ||
+          element.getAttribute("aria-label") ||
           element.getAttribute("title") ||
           (element as HTMLInputElement).placeholder ||
           element.innerText ||
@@ -315,6 +317,21 @@ function setEditorElement(element: HTMLElement, value: string) {
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement
   ) {
+    target.select();
+  } else if (target.isContentEditable) {
+    const selection = getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+  if (document.execCommand("insertText", false, value)) {
+    return { ok: true, action: "SET_EDITOR", method: "execCommand" };
+  }
+  if (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement
+  ) {
     const setter = Object.getOwnPropertyDescriptor(
       HTMLTextAreaElement.prototype,
       "value",
@@ -328,7 +345,7 @@ function setEditorElement(element: HTMLElement, value: string) {
         data: value,
       }),
     );
-    return;
+    return { ok: true, action: "SET_EDITOR", method: "native-setter" };
   }
   if (target.isContentEditable) {
     target.textContent = value;
@@ -339,9 +356,13 @@ function setEditorElement(element: HTMLElement, value: string) {
         data: value,
       }),
     );
-    return;
+    return { ok: true, action: "SET_EDITOR", method: "contenteditable" };
   }
-  throw Error(language === "en" ? "Code editor not found" : "未找到代码编辑器");
+  return {
+    ok: false,
+    action: "SET_EDITOR",
+    error: language === "en" ? "Code editor not found" : "未找到代码编辑器",
+  };
 }
 
 async function executeBrowserAction(a: any) {
@@ -358,16 +379,17 @@ async function executeBrowserAction(a: any) {
       language === "en" ? "Target element not found" : "找不到目标元素",
     );
   }
+  let execution: Record<string, unknown> = { ok: true, action: a.type };
   if (a.type === "CLICK") {
     element.scrollIntoView({ block: "center", inline: "center" });
     element.click();
   } else if (a.type === "FILL") {
     fillElement(element, a.arguments?.value || "");
   } else {
-    setEditorElement(element, a.arguments?.code || "");
+    execution = setEditorElement(element, a.arguments?.code || "");
   }
   await new Promise((resolve) => window.setTimeout(resolve, 300));
-  return { ok: true, action: a.type, observation: collectContext() };
+  return { ...execution, observation: collectContext() };
 }
 
 chrome.runtime.onMessage.addListener((msg: any, _sender: any, send: any) => {

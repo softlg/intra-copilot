@@ -48,7 +48,7 @@ function collectPageContext() {
     visibleText: (document.body?.innerText || "").slice(0, 12000),
     domSummary: Array.from(
       document.querySelectorAll(
-        "input,button,select,textarea,a,[role='button'],[contenteditable='true']",
+        "input,button,select,textarea,a,[role='button'],[contenteditable='true'],.monaco-editor,.cm-editor",
       ),
     )
       .filter((element) => {
@@ -66,7 +66,9 @@ function collectPageContext() {
       .slice(0, 120)
       .map((element, index) => {
         const e = element as HTMLElement;
+        const codeEditor = e.matches(".monaco-editor,.cm-editor");
         const name = (
+          (codeEditor ? "代码编辑器" : "") ||
           e.getAttribute("aria-label") ||
           e.getAttribute("title") ||
           (e as HTMLInputElement).placeholder ||
@@ -78,7 +80,7 @@ function collectPageContext() {
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, 160);
-        return `${index + 1 < 10 ? " " : ""}ref_${index + 1} <${e.tagName.toLowerCase()}> role="${e.getAttribute("role") || (e.tagName === "A" ? "link" : e.tagName === "BUTTON" ? "button" : e.tagName.toLowerCase())}"${name ? ` name="${name.replace(/"/g, '\\"')}"` : ""}`;
+        return `${index + 1 < 10 ? " " : ""}ref_${index + 1} <${e.tagName.toLowerCase()}> role="${codeEditor ? "code-editor" : e.getAttribute("role") || (e.tagName === "A" ? "link" : e.tagName === "BUTTON" ? "button" : e.tagName.toLowerCase())}"${name ? ` name="${name.replace(/"/g, '\\"')}"` : ""}`;
       })
       .join("\n"),
     timestamp: new Date().toISOString(),
@@ -91,22 +93,67 @@ function collectPageContext() {
  */
 function setEditorValueInPage(args: any) {
   const code = typeof args?.code === "string" ? args.code : "";
+  const domEditors = Array.from(
+    document.querySelectorAll(
+      ".monaco-editor textarea.inputarea, .monaco-editor [contenteditable='true'], .cm-content, .monaco-editor",
+    ),
+  ).filter((element): element is HTMLElement => element instanceof HTMLElement);
+  const domEditor = domEditors[0];
+  if (domEditor) {
+    domEditor.focus();
+    if (
+      domEditor instanceof HTMLInputElement ||
+      domEditor instanceof HTMLTextAreaElement
+    ) {
+      domEditor.select();
+    } else if (domEditor.isContentEditable) {
+      const selection = getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(domEditor);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+    if (document.execCommand("insertText", false, code)) {
+      return { ok: true, action: "SET_EDITOR", method: "dom-execCommand" };
+    }
+  }
   const host = window as any;
   const monaco = host.monaco;
   const models = monaco?.editor?.getModels?.() || [];
   if (Array.isArray(models) && models.length > 0) {
     models[0].setValue(code);
-    return { ok: true, action: "SET_EDITOR", method: "monaco" };
+    return { ok: true, action: "SET_EDITOR", method: "monaco-global" };
   }
-  const editors = monaco?.editor?.getEditors?.() || [];
-  if (Array.isArray(editors) && editors.length > 0) {
-    editors[0].setValue?.(code);
+  const monacoEditors = monaco?.editor?.getEditors?.() || [];
+  if (Array.isArray(monacoEditors) && monacoEditors.length > 0) {
+    monacoEditors[0].setValue?.(code);
     return { ok: true, action: "SET_EDITOR", method: "monaco-editor" };
   }
   return {
     ok: false,
     error: "Monaco editor not found in page main world",
   };
+}
+
+async function executeEditorAction(tabId: number, action: any) {
+  let contentResult: any;
+  try {
+    contentResult = await chrome.tabs.sendMessage(tabId, {
+      type: "EXECUTE_ACTION",
+      action,
+    });
+    if (contentResult?.ok) return contentResult;
+  } catch {
+    contentResult = { ok: false, error: "Content script unavailable" };
+  }
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: setEditorValueInPage,
+    args: [action.arguments],
+  });
+  const mainResult = results[0]?.result;
+  return mainResult ?? contentResult;
 }
 
 async function resolveAttachment(
@@ -2285,14 +2332,7 @@ function App() {
                   try {
                     const execution =
                       action.type === "SET_EDITOR"
-                        ? (
-                            await chrome.scripting.executeScript({
-                              target: { tabId },
-                              world: "MAIN",
-                              func: setEditorValueInPage,
-                              args: [action.arguments],
-                            })
-                          )[0]?.result
+                        ? await executeEditorAction(tabId, action)
                         : await chrome.tabs.sendMessage(tabId, {
                             type: "EXECUTE_ACTION",
                             action,
