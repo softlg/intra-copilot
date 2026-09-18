@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import "./components/Toast.css";
 import "./components/ConfirmDialog.css";
-import "./components/Tooltip.css";
 import "./components/TruncatedId.css";
 import "./components/FieldHint.css";
 import "./components/Dropdown.css";
@@ -15,7 +14,6 @@ import "./components/Skeleton.css";
 import Pagination from "./components/Pagination";
 import { ToastContainer, toast } from "./components/Toast";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import { Tooltip } from "./components/Tooltip";
 import { TruncatedId } from "./components/TruncatedId";
 import { FieldHint } from "./components/FieldHint";
 import { Dropdown } from "./components/Dropdown";
@@ -3056,37 +3054,26 @@ function AdminApp({
                                           : "Administrators"}
             </h2>
             <div className="header-actions">
-              <Tooltip
-                placement="bottom"
-                content={language === "zh" ? "AI 工作台" : "AI Workspace"}
+              <button
+                className={
+                  copilotOpen
+                    ? "settings-button copilot-toggle active"
+                    : "settings-button copilot-toggle"
+                }
+                onClick={() => setCopilotOpen((open) => !open)}
+                aria-label={language === "zh" ? "AI 工作台" : "AI Workspace"}
+                aria-expanded={copilotOpen}
               >
-                <button
-                  className={
-                    copilotOpen
-                      ? "settings-button copilot-toggle active"
-                      : "settings-button copilot-toggle"
-                  }
-                  onClick={() => setCopilotOpen((open) => !open)}
-                  aria-label={language === "zh" ? "AI 工作台" : "AI Workspace"}
-                  aria-expanded={copilotOpen}
-                  title={language === "zh" ? "AI 工作台" : "AI Workspace"}
-                >
-                  <Icon name="sparkle" size={18} />
-                </button>
-              </Tooltip>
-              <Tooltip placement="bottom" content={t.localModeHint}>
-                <span className="badge badge-clickable">{t.localMode}</span>
-              </Tooltip>
-              <Tooltip placement="bottom" content={t.shortcutsHint}>
-                <button
-                  className="settings-button"
-                  onClick={() => setShortcutsOpen(true)}
-                  aria-label={t.shortcuts}
-                  title={t.shortcuts}
-                >
-                  ?
-                </button>
-              </Tooltip>
+                <Icon name="sparkle" size={18} />
+              </button>
+              <span className="badge badge-clickable">{t.localMode}</span>
+              <button
+                className="settings-button"
+                onClick={() => setShortcutsOpen(true)}
+                aria-label={t.shortcuts}
+              >
+                ?
+              </button>
               <button
                 className="settings-button"
                 onClick={() => setSettingsOpen((open) => !open)}
