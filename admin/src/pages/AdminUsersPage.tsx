@@ -13,6 +13,7 @@ type AdminUser = {
   username: string;
   displayName?: string;
   enabled: boolean;
+  role?: "VIEWER" | "EDITOR" | "ADMIN" | "OWNER" | string;
   lastLoginAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -27,6 +28,7 @@ const copy = {
     username: "用户名",
     displayName: "显示名称",
     status: "状态",
+    role: "角色",
     lastLogin: "最近登录",
     updatedAt: "最近修改",
     enabled: "已启用",
@@ -61,6 +63,7 @@ const copy = {
     username: "Username",
     displayName: "Display name",
     status: "Status",
+    role: "Role",
     lastLogin: "Last login",
     updatedAt: "Last modified",
     enabled: "Enabled",
@@ -103,6 +106,7 @@ export function AdminUsersPage({ language }: { language: Language }) {
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [createRole, setCreateRole] = useState("EDITOR");
   const [saving, setSaving] = useState(false);
   const [passwordTarget, setPasswordTarget] = useState<AdminUser>();
   const [newPassword, setNewPassword] = useState("");
@@ -140,6 +144,7 @@ export function AdminUsersPage({ language }: { language: Language }) {
           displayName: displayName.trim() || null,
           password,
           enabled: true,
+          role: createRole,
         }),
       });
       setCreateOpen(false);
@@ -147,6 +152,7 @@ export function AdminUsersPage({ language }: { language: Language }) {
       setDisplayName("");
       setPassword("");
       setConfirmPassword("");
+      setCreateRole("EDITOR");
       toast.success(text.created);
       await load();
     } catch (createError) {
@@ -158,7 +164,7 @@ export function AdminUsersPage({ language }: { language: Language }) {
 
   const updateUser = async (
     user: AdminUser,
-    changes: Partial<Pick<AdminUser, "displayName" | "enabled">>,
+    changes: Partial<Pick<AdminUser, "displayName" | "enabled" | "role">>,
   ) => {
     setSaving(true);
     setError("");
@@ -172,6 +178,7 @@ export function AdminUsersPage({ language }: { language: Language }) {
               : changes.displayName,
           enabled:
             changes.enabled === undefined ? user.enabled : changes.enabled,
+          role: changes.role === undefined ? user.role : changes.role,
         }),
       });
       toast.success(text.updated);
@@ -262,6 +269,21 @@ export function AdminUsersPage({ language }: { language: Language }) {
                   {user.enabled ? text.enabled : text.disabled}
                 </strong>
               </div>
+              <label className="admin-user-field">
+                <span>{text.role}</span>
+                <select
+                  value={user.role || "EDITOR"}
+                  disabled={saving}
+                  onChange={(event) =>
+                    void updateUser(user, { role: event.target.value })
+                  }
+                >
+                  <option value="VIEWER">VIEWER</option>
+                  <option value="EDITOR">EDITOR</option>
+                  <option value="ADMIN">ADMIN</option>
+                  <option value="OWNER">OWNER</option>
+                </select>
+              </label>
               <div className="admin-user-field">
                 <span>{text.lastLogin}</span>
                 <strong>
@@ -342,6 +364,18 @@ export function AdminUsersPage({ language }: { language: Language }) {
                   onChange={(event) => setDisplayName(event.target.value)}
                   maxLength={160}
                 />
+              </label>
+              <label className="field">
+                <span>{text.role}</span>
+                <select
+                  value={createRole}
+                  onChange={(event) => setCreateRole(event.target.value)}
+                >
+                  <option value="VIEWER">VIEWER</option>
+                  <option value="EDITOR">EDITOR</option>
+                  <option value="ADMIN">ADMIN</option>
+                  <option value="OWNER">OWNER</option>
+                </select>
               </label>
               <label className="field">
                 <span>{text.password}</span>

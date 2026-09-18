@@ -17,8 +17,9 @@ import com.intra.copilot.repo.AdminCopilotSessionRepository;
 import com.intra.copilot.repo.KnowledgeBaseRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
-import java.util.List;
+import com.intra.copilot.service.stream.SseExecutionService;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -53,7 +54,8 @@ class AdminCopilotServiceTest {
                         mock(McpServerService.class),
                         mock(KnowledgeBaseRepository.class),
                         mock(ToolDefinitionRepository.class),
-                        mock(SkillDefinitionRepository.class));
+                        mock(SkillDefinitionRepository.class),
+                        mock(SseExecutionService.class));
 
         Map<String, Object> result = service.createSession("VALIDATE", null, "AG-1");
 
@@ -86,7 +88,8 @@ class AdminCopilotServiceTest {
                         mock(McpServerService.class),
                         mock(KnowledgeBaseRepository.class),
                         mock(ToolDefinitionRepository.class),
-                        mock(SkillDefinitionRepository.class));
+                        mock(SkillDefinitionRepository.class),
+                        mock(SseExecutionService.class));
 
         assertThrows(
                 IllegalArgumentException.class, () -> service.createSession("UNKNOWN", null, null));
@@ -119,7 +122,8 @@ class AdminCopilotServiceTest {
                         mock(McpServerService.class),
                         mock(KnowledgeBaseRepository.class),
                         mock(ToolDefinitionRepository.class),
-                        mock(SkillDefinitionRepository.class));
+                        mock(SkillDefinitionRepository.class),
+                        mock(SseExecutionService.class));
         AdminCopilotSession session = new AdminCopilotSession();
         session.setCurrentAgentId("browser-operator");
         Map<String, Object> result = new LinkedHashMap<>();

@@ -123,7 +123,7 @@ public class ConversationLogAdminController {
         @GetMapping("/attachments/{attachmentId}")
         public ResponseEntity<ByteArrayResource> attachment(@PathVariable String attachmentId)
                         throws Exception {
-                AttachmentService.StoredBytes stored = attachments.serve(attachmentId);
+                AttachmentService.StoredBytes stored = attachments.serveForAdmin(attachmentId);
                 byte[] bytes = stored.bytes();
                 String contentType = stored.contentType() == null
                                 ? "application/octet-stream"

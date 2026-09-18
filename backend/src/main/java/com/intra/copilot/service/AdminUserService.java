@@ -2,6 +2,7 @@ package com.intra.copilot.service;
 
 import com.intra.copilot.model.AdminUser;
 import com.intra.copilot.repo.AdminUserRepository;
+import com.intra.copilot.service.auth.AdminRole;
 import com.intra.copilot.service.auth.AdminAuthService;
 import com.intra.copilot.service.auth.RequestContext;
 import java.time.Instant;
@@ -29,6 +30,7 @@ public class AdminUserService {
             throw new IllegalStateException("No authenticated administrator");
         }
         return users.findById(identity.userId())
+                .filter(AdminUser::isEnabled)
                 .orElseThrow(() -> new IllegalStateException("当前管理员账号不存在或已停用"));
     }
 
@@ -37,7 +39,12 @@ public class AdminUserService {
     }
 
     @Transactional
-    public AdminUserView create(String username, String displayName, String password, boolean enabled) {
+    public AdminUserView create(
+            String username,
+            String displayName,
+            String password,
+            boolean enabled,
+            String role) {
         String normalized = normalizeUsername(username);
         validatePassword(password);
         if (users.findByUsername(normalized).isPresent()) {
@@ -48,18 +55,40 @@ public class AdminUserService {
         user.setDisplayName(trimToNull(displayName));
         user.setPasswordHash(AdminAuthService.hashPassword(password));
         user.setEnabled(enabled);
+        user.setRole(AdminRole.parse(role).name());
         users.save(user);
         return AdminUserView.from(user);
     }
 
     @Transactional
     public AdminUserView update(String id, String displayName, boolean enabled) {
+        AdminUser current = get(id);
+        return update(id, displayName, enabled, current.getRole());
+    }
+
+    @Transactional
+    public AdminUserView update(String id, String displayName, boolean enabled, String role) {
         AdminUser user = get(id);
-        if (!enabled && user.isEnabled() && activeCount() <= 1) {
-            throw new IllegalArgumentException("至少需要保留一个启用的管理员账号");
+        AdminRole nextRole =
+                AdminRole.parse(role == null || role.isBlank() ? user.getRole() : role);
+        boolean losesOwner =
+                user.isEnabled()
+                        && AdminRole.parse(user.getRole()) == AdminRole.OWNER
+                        && (!enabled || nextRole != AdminRole.OWNER);
+        if (losesOwner && activeOwnerCount() <= 1) {
+            throw new IllegalArgumentException("至少需要保留一个启用的 OWNER 管理员账号");
         }
+        boolean enabledChanged = user.isEnabled() != enabled;
+        boolean roleChanged = !user.getRole().equals(nextRole.name());
         user.setDisplayName(trimToNull(displayName));
         user.setEnabled(enabled);
+        if (roleChanged) {
+            user.setSessionVersion(user.getSessionVersion() + 1);
+        }
+        if (enabledChanged) {
+            user.setSessionVersion(user.getSessionVersion() + 1);
+        }
+        user.setRole(nextRole.name());
         user.touch();
         users.save(user);
         return AdminUserView.from(user);
@@ -70,12 +99,16 @@ public class AdminUserService {
         validatePassword(password);
         AdminUser user = get(id);
         user.setPasswordHash(AdminAuthService.hashPassword(password));
+        user.setSessionVersion(user.getSessionVersion() + 1);
         user.touch();
         users.save(user);
     }
 
-    private long activeCount() {
-        return users.findAllOrdered().stream().filter(AdminUser::isEnabled).count();
+    private long activeOwnerCount() {
+        return users.findAllOrdered().stream()
+                .filter(AdminUser::isEnabled)
+                .filter(user -> AdminRole.parse(user.getRole()) == AdminRole.OWNER)
+                .count();
     }
 
     private static String normalizeUsername(String username) {
@@ -103,6 +136,7 @@ public class AdminUserService {
             String username,
             String displayName,
             boolean enabled,
+            String role,
             Instant lastLoginAt,
             Instant createdAt,
             Instant updatedAt) {
@@ -112,6 +146,7 @@ public class AdminUserService {
                     user.getUsername(),
                     user.getDisplayName(),
                     user.isEnabled(),
+                    AdminRole.parse(user.getRole()).name(),
                     user.getLastLoginAt(),
                     user.getCreatedAt(),
                     user.getUpdatedAt());

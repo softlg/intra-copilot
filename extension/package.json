@@ -1,30 +1,36 @@
 {
   "name": "intra-copilot-extension",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "vitest run",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"*.{json,ts,html}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"*.{json,ts,html}\""
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "highlight.js": "^11.11.1",
-    "react": "latest",
-    "react-dom": "latest",
-    "react-markdown": "^10.1.0",
-    "rehype-highlight": "^7.0.2",
-    "remark-breaks": "^4.0.0",
-    "remark-gfm": "^4.0.1",
-    "typescript": "latest",
-    "vite": "latest"
+    "@vitejs/plugin-react": "6.1.1",
+    "highlight.js": "11.12.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "10.1.0",
+    "rehype-highlight": "7.0.2",
+    "remark-breaks": "4.0.0",
+    "remark-gfm": "4.0.1",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
   },
   "devDependencies": {
-    "@types/chrome": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "prettier": "^3.9.6"
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@types/chrome": "0.2.7",
+    "@types/node": "26.6.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "jsdom": "29.1.1",
+    "prettier": "3.9.6",
+    "vitest": "4.1.11"
   }
 }

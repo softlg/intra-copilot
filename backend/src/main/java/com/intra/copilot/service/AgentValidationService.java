@@ -14,6 +14,7 @@ import com.intra.copilot.repo.KnowledgeBaseRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
 import com.intra.copilot.service.auth.RequestContext;
+import com.intra.copilot.service.stream.SseExecutionService;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -54,6 +55,7 @@ public class AgentValidationService {
     private final ObjectMapper json;
     private final AdminUserService users;
     private final AdminAuditService audits;
+    private final SseExecutionService streams;
     private final Map<String, AtomicBoolean> streamCancellations = new ConcurrentHashMap<>();
 
     public AgentValidationService(
@@ -66,7 +68,8 @@ public class AgentValidationService {
             LlmClient llm,
             ObjectMapper json,
             AdminUserService users,
-            AdminAuditService audits) {
+            AdminAuditService audits,
+            SseExecutionService streams) {
         this.agentConfigurations = agentConfigurations;
         this.runs = runs;
         this.cases = cases;
@@ -77,6 +80,7 @@ public class AgentValidationService {
         this.json = json;
         this.users = users;
         this.audits = audits;
+        this.streams = streams;
     }
 
     @Transactional
@@ -139,7 +143,6 @@ public class AgentValidationService {
         return result;
     }
 
-    @Transactional
     public Map<String, Object> validateBehavior(String agentId, BehaviorRequest request) {
         return executeValidation(agentConfigurations.get(agentId), true, requireCases(request));
     }
@@ -165,12 +168,10 @@ public class AgentValidationService {
         out.onCompletion(cleanup);
         out.onTimeout(cleanup);
         out.onError(error -> cleanup.run());
+        java.util.concurrent.ScheduledFuture<?> heartbeat = streams.startHeartbeat(out, finished);
 
         RequestContext.Identity identity = RequestContext.currentOrNull();
-        Thread worker =
-                new Thread(
-                        () ->
-                                RequestContext.runWith(
+        streams.executeWithIdentity(
                                         identity,
                                         () -> {
                                             try {
@@ -197,13 +198,11 @@ public class AgentValidationService {
                                                         "error",
                                                         Map.of("message", safeMessage(error)));
                                             } finally {
+                                                if (heartbeat != null) heartbeat.cancel(true);
                                                 cleanup.run();
                                                 out.complete();
                                             }
-                                        }),
-                        "validate-stream-" + streamId.substring(0, 8));
-        worker.setDaemon(true);
-        worker.start();
+                                        });
         return out;
     }
 
@@ -269,7 +268,6 @@ public class AgentValidationService {
      * Legacy entry point. Static validation is the default; behavior execution now requires the
      * administrator to submit selected cases returned by {@link #generateValidationCases(String)}.
      */
-    @Transactional
     public Map<String, Object> validate(String agentId, ValidateRequest request) {
         boolean runBehavior = request != null && Boolean.TRUE.equals(request.runBehavior());
         if (runBehavior) {

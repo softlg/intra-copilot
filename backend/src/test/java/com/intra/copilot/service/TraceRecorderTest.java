@@ -16,7 +16,7 @@ class TraceRecorderTest {
     void resumesInvocationSequenceFromPersistedMaximum() {
         AgentInvocationEventRepository events = mock(AgentInvocationEventRepository.class);
         when(events.nextSequence("invocation-1")).thenReturn(8);
-        when(events.nextGlobalSequence("trace-1")).thenReturn(20L, 21L);
+        when(events.nextGlobalSequence()).thenReturn(20L, 21L);
         when(events.save(org.mockito.ArgumentMatchers.any(AgentInvocationEvent.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         TraceRecorder recorder =

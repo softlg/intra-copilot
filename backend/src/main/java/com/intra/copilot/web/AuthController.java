@@ -1,9 +1,8 @@
 package com.intra.copilot.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.intra.copilot.model.DeviceKey;
-import com.intra.copilot.repo.DeviceKeyRepository;
 import com.intra.copilot.service.auth.AdminAuthService;
+import com.intra.copilot.service.auth.DeviceRegistrationService;
 import com.intra.copilot.service.auth.RequestContext;
 import java.time.Instant;
 import java.util.Map;
@@ -32,60 +31,49 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
-    private final DeviceKeyRepository deviceKeys;
+    private final DeviceRegistrationService deviceRegistration;
     private final AdminAuthService adminAuth;
 
-    public AuthController(DeviceKeyRepository deviceKeys, AdminAuthService adminAuth) {
-        this.deviceKeys = deviceKeys;
+    public AuthController(
+            DeviceRegistrationService deviceRegistration, AdminAuthService adminAuth) {
+        this.deviceRegistration = deviceRegistration;
         this.adminAuth = adminAuth;
     }
 
-    public record DeviceRegisterRequest(String deviceId, JsonNode publicKeyJwk, String source) {}
+    public record DeviceChallengeRequest(String deviceId, JsonNode publicKeyJwk, String source) {}
+
+    public record DeviceRegisterRequest(
+            String deviceId,
+            JsonNode publicKeyJwk,
+            String source,
+            String challengeId,
+            String signature,
+            String previousKeySignature) {}
 
     public record AdminLoginRequest(String username, String password) {}
 
     public record AdminLoginResponse(String token, Instant expiresAt, Map<String, String> user) {}
 
+    @PostMapping("/devices/challenge")
+    public DeviceRegistrationService.Challenge challenge(
+            @RequestBody DeviceChallengeRequest request) {
+        if (request == null) throw new IllegalArgumentException("设备注册请求不能为空");
+        return deviceRegistration.challenge(
+                request.deviceId(), request.source(), request.publicKeyJwk());
+    }
+
     @PostMapping("/devices/register")
-    public Map<String, Object> register(@RequestBody DeviceRegisterRequest req) {
-        if (req == null
-                || req.deviceId() == null
-                || req.deviceId().isBlank()
-                || req.publicKeyJwk() == null
-                || req.source() == null
-                || req.source().isBlank()) {
-            throw new IllegalArgumentException("deviceId, publicKeyJwk, source are required");
-        }
-
-        DeviceKey existing = deviceKeys.selectById(req.deviceId());
-        if (existing != null) {
-            // 已注册：刷新公钥（如设备重装），保持 user_id
-            existing.setPublicKeyJwk(req.publicKeyJwk());
-            existing.setLastSeenAt(Instant.now());
-            existing.setEnabled(true);
-            deviceKeys.updateById(existing);
-            return Map.of(
-                    "deviceId", existing.getDeviceId(),
-                    "source", existing.getSource(),
-                    "userId", existing.getUserId(),
-                    "status", "updated");
-        }
-
-        DeviceKey device = new DeviceKey();
-        device.setDeviceId(req.deviceId());
-        device.setPublicKeyJwk(req.publicKeyJwk());
-        device.setSource(req.source());
-        device.setUserId("anon-" + req.deviceId());
-        device.setEnabled(true);
-        device.setCreatedAt(Instant.now());
-        device.setLastSeenAt(Instant.now());
-        deviceKeys.insert(device);
-
-        return Map.of(
-                "deviceId", device.getDeviceId(),
-                "source", device.getSource(),
-                "userId", device.getUserId(),
-                "status", "registered");
+    public DeviceRegistrationService.RegisteredDevice register(
+            @RequestBody DeviceRegisterRequest request) {
+        if (request == null) throw new IllegalArgumentException("设备注册请求不能为空");
+        return deviceRegistration.register(
+                new DeviceRegistrationService.RegisterRequest(
+                        request.deviceId(),
+                        request.publicKeyJwk(),
+                        request.source(),
+                        request.challengeId(),
+                        request.signature(),
+                        request.previousKeySignature()));
     }
 
     @PostMapping("/admin/login")
@@ -109,7 +97,13 @@ public class AuthController {
                 new AdminLoginResponse(
                         value.token(),
                         value.expiresAt(),
-                        Map.of("id", value.userId(), "username", value.username())));
+                        Map.of(
+                                "id",
+                                value.userId(),
+                                "username",
+                                value.username(),
+                                "role",
+                                value.role())));
     }
 
     @GetMapping("/admin/session")
@@ -118,6 +112,6 @@ public class AuthController {
         if (!"admin".equals(identity.source())) {
             throw new IllegalStateException("Not an admin session");
         }
-        return Map.of("username", identity.actorLabel());
+        return Map.of("username", identity.actorLabel(), "role", identity.adminRole().name());
     }
 }

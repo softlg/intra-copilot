@@ -127,7 +127,7 @@ class ConversationLogAdminControllerTest {
                         mock(TraceRecorder.class),
                         new ObjectMapper());
         byte[] bytes = new byte[] {1, 2, 3};
-        when(attachments.serve("attachment-1"))
+        when(attachments.serveForAdmin("attachment-1"))
                 .thenReturn(new AttachmentService.StoredBytes(bytes, "image/png", "screen.png"));
 
         ResponseEntity<ByteArrayResource> response = controller.attachment("attachment-1");

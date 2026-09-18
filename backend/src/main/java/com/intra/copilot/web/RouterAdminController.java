@@ -649,7 +649,8 @@ public class RouterAdminController {
     @PostMapping(value = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public List<AttachmentView> uploadAttachments(@RequestParam("files") List<MultipartFile> files)
             throws Exception {
-        return attachments.upload(files).stream()
+        var identity = com.intra.copilot.service.auth.RequestContext.current();
+        return attachments.upload(identity.source(), identity.userId(), files).stream()
                 .map(
                         attachment ->
                                 new AttachmentView(
@@ -665,7 +666,9 @@ public class RouterAdminController {
     @GetMapping("/attachments/{id}")
     public ResponseEntity<ByteArrayResource> serveAttachment(@PathVariable String id)
             throws Exception {
-        AttachmentService.StoredBytes stored = attachments.serve(id);
+        var identity = com.intra.copilot.service.auth.RequestContext.current();
+        AttachmentService.StoredBytes stored =
+                attachments.serve(identity.source(), identity.userId(), id);
         byte[] bytes = stored.bytes();
         String contentType =
                 stored.contentType() == null ? "application/octet-stream" : stored.contentType();
@@ -727,7 +730,9 @@ public class RouterAdminController {
     }
 
     private List<String> routeImages(List<String> attachmentIds) {
-        return attachments.imageDataUrls(attachmentIds).stream()
+        var identity = com.intra.copilot.service.auth.RequestContext.current();
+        return attachments
+                .imageDataUrls(identity.source(), identity.userId(), attachmentIds).stream()
                 .filter(value -> value != null && value.startsWith("data:image/"))
                 .filter(value -> value.length() <= 8_000_000)
                 .limit(8)

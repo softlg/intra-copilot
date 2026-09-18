@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intra.copilot.model.ToolDefinition;
 import com.intra.copilot.repo.McpServerRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
+import com.intra.copilot.service.network.NetworkAddressPolicy;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -38,7 +39,7 @@ class ToolExecutorTest {
                         mock(McpServerService.class),
                         RestClient.builder(),
                         new ObjectMapper(),
-                        true);
+                        new NetworkAddressPolicy(true));
     }
 
     @AfterEach

@@ -12,6 +12,7 @@ import com.intra.copilot.repo.AgentPlanRepository;
 import com.intra.copilot.repo.AgentPlanStepRepository;
 import com.intra.copilot.repo.ConversationRepository;
 import com.intra.copilot.repo.MessageRepository;
+import com.intra.copilot.service.stream.SseExecutionService;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
@@ -38,6 +39,7 @@ class ChatServiceConversationActivityTest {
                         mock(SystemAgentBroker.class),
                         mock(SkillPromptAssembler.class),
                         mock(PlanningService.class),
+                        mock(SseExecutionService.class),
                         mock(AgentPlanRepository.class),
                         mock(AgentPlanStepRepository.class),
                         5,

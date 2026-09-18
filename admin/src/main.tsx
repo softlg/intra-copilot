@@ -1,4 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import "./components/Toast.css";
@@ -79,19 +86,64 @@ import {
   parseRuleConfig,
   type HookRuleType,
 } from "./lib/hooks";
-import { RatingsPage } from "./pages/RatingsPage";
-import { ConversationLogsPage } from "./pages/ConversationLogsPage";
-import { RouterPage } from "./pages/RouterPage";
-import { HooksPage } from "./pages/HooksPage";
-import { McpServersPage } from "./pages/McpServersPage";
-import { ToolsPage } from "./pages/ToolsPage";
-import { SkillsPage } from "./pages/SkillsPage";
-import { AgentSettingsPage } from "./pages/AgentSettingsPage";
-import { KnowledgePage } from "./pages/KnowledgePage";
-import { AdminUsersPage } from "./pages/AdminUsersPage";
-import { AdminCopilotPanel } from "./components/AdminCopilotPanel";
 import { SystemAgentHeroCard } from "./components/SystemAgentHeroCard";
 import { SystemAgentDashboard } from "./components/SystemAgentDashboard";
+
+const RatingsPage = lazy(() =>
+  import("./pages/RatingsPage").then((module) => ({
+    default: module.RatingsPage,
+  })),
+);
+const ConversationLogsPage = lazy(() =>
+  import("./pages/ConversationLogsPage").then((module) => ({
+    default: module.ConversationLogsPage,
+  })),
+);
+const RouterPage = lazy(() =>
+  import("./pages/RouterPage").then((module) => ({
+    default: module.RouterPage,
+  })),
+);
+const HooksPage = lazy(() =>
+  import("./pages/HooksPage").then((module) => ({
+    default: module.HooksPage,
+  })),
+);
+const McpServersPage = lazy(() =>
+  import("./pages/McpServersPage").then((module) => ({
+    default: module.McpServersPage,
+  })),
+);
+const ToolsPage = lazy(() =>
+  import("./pages/ToolsPage").then((module) => ({
+    default: module.ToolsPage,
+  })),
+);
+const SkillsPage = lazy(() =>
+  import("./pages/SkillsPage").then((module) => ({
+    default: module.SkillsPage,
+  })),
+);
+const AgentSettingsPage = lazy(() =>
+  import("./pages/AgentSettingsPage").then((module) => ({
+    default: module.AgentSettingsPage,
+  })),
+);
+const KnowledgePage = lazy(() =>
+  import("./pages/KnowledgePage").then((module) => ({
+    default: module.KnowledgePage,
+  })),
+);
+const AdminUsersPage = lazy(() =>
+  import("./pages/AdminUsersPage").then((module) => ({
+    default: module.AdminUsersPage,
+  })),
+);
+const AdminCopilotPanel = lazy(() =>
+  import("./components/AdminCopilotPanel").then((module) => ({
+    default: module.AdminCopilotPanel,
+  })),
+);
 
 type AgentConfigSnapshot = {
   id: string;
@@ -176,6 +228,28 @@ function agentTabForRole(role: string) {
   return "agents";
 }
 
+const ADMIN_TABS = new Set([
+  "agents",
+  "agents-general",
+  "agents-domain",
+  "agents-sub",
+  "agent-settings",
+  "knowledge",
+  "mcp-servers",
+  "tools",
+  "skills",
+  "hooks",
+  "ratings",
+  "conversation-logs",
+  "router",
+  "admin-users",
+]);
+
+function tabFromLocation(): string {
+  const value = window.location.hash.replace(/^#\/?/, "");
+  return ADMIN_TABS.has(value) ? value : "agents";
+}
+
 const MIN_PAGE_ZOOM = 75;
 const MAX_PAGE_ZOOM = 150;
 const PAGE_ZOOM_STEP = 10;
@@ -191,9 +265,11 @@ function clampPageZoom(value: number) {
 
 function AdminApp({
   username,
+  role,
   onLogout,
 }: {
   username: string;
+  role?: string;
   onLogout: () => void;
 }) {
   const [language, setLanguage] = useState<Language>(() => {
@@ -381,7 +457,15 @@ function AdminApp({
     current: 0,
     total: 0,
   });
-  const [tab, setTab] = useState("agents");
+  const [tab, setTabState] = useState(tabFromLocation);
+  const setTab = (next: string) => {
+    const value = ADMIN_TABS.has(next) ? next : "agents";
+    setTabState(value);
+    const nextHash = `#/${value}`;
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState(null, "", nextHash);
+    }
+  };
   const mainContentRef = useRef<HTMLElement>(null);
   const [agentMenuOpen, setAgentMenuOpen] = useState(
     () => localStorage.getItem("admin-agent-menu-open") !== "false",
@@ -478,6 +562,7 @@ function AdminApp({
   const [knowledgeDiagnostics, setKnowledgeDiagnostics] =
     useState<KnowledgeDiagnostics>();
   const t = translations[language];
+  const canManageAdmins = role === "OWNER" || role === "ADMIN";
 
   const normalizedName = (value: string) => value.trim().toLocaleLowerCase();
 
@@ -555,6 +640,13 @@ function AdminApp({
   useEffect(() => {
     mainContentRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [tab]);
+
+  useEffect(() => {
+    const syncTabFromLocation = () => setTabState(tabFromLocation());
+    window.addEventListener("hashchange", syncTabFromLocation);
+    if (!window.location.hash) setTab("agents");
+    return () => window.removeEventListener("hashchange", syncTabFromLocation);
+  }, []);
 
   useEffect(() => {
     setAgentListQuery("");
@@ -3040,6 +3132,7 @@ function AdminApp({
           ["router", "router"],
           ["admin-users", "settings"],
         ].map(([key, icon]) => {
+          if (key === "admin-users" && !canManageAdmins) return null;
           const labels: Record<string, string> = {
             knowledge: t.knowledge,
             "mcp-servers": t.mcpServers,
@@ -3070,714 +3163,741 @@ function AdminApp({
 
       <div className="workspace">
         <main ref={mainContentRef}>
-          <header>
-            <h2>
-              {tab === "agents"
-                ? t.agentConfig
-                : tab === "agents-general"
-                  ? t.generalAgentPage
-                  : tab === "agents-domain"
-                    ? t.domainAgentPage
-                    : tab === "agents-sub"
-                      ? t.subAgentPage
-                      : tab === "agent-settings"
-                        ? t.agentSettingsPage
-                        : tab === "knowledge"
-                          ? t.knowledge
-                          : tab === "mcp-servers"
-                            ? t.mcpServersTitle
-                            : tab === "tools"
-                              ? t.toolsTitle
-                              : tab === "skills"
-                                ? t.skillsTitle
-                                : tab === "hooks"
-                                  ? t.hooksTitle
-                                  : tab === "ratings"
-                                    ? t.agentRatings
-                                    : tab === "conversation-logs"
-                                      ? t.conversationLogs
-                                      : tab === "router"
-                                        ? t.routerTest
-                                        : language === "zh"
-                                          ? "管理员管理"
-                                          : "Administrators"}
-            </h2>
-            <div className="header-actions">
-              <button
-                className={
-                  copilotOpen
-                    ? "settings-button copilot-toggle active"
-                    : "settings-button copilot-toggle"
-                }
-                onClick={() => setCopilotOpen((open) => !open)}
-                aria-label={language === "zh" ? "AI 工作台" : "AI Workspace"}
-                aria-expanded={copilotOpen}
-              >
-                <Icon name="sparkle" size={18} />
-              </button>
-              <span className="badge badge-clickable">{t.localMode}</span>
-              <button
-                className="settings-button"
-                onClick={() => setShortcutsOpen(true)}
-                aria-label={t.shortcuts}
-              >
-                ?
-              </button>
-              <button
-                className="settings-button"
-                onClick={() => setSettingsOpen((open) => !open)}
-                aria-label={t.settings}
-                title={t.settings}
-              >
-                <Icon name="settings" size={18} />
-              </button>
-              {settingsOpen && (
-                <div
-                  className="settings-popover"
-                  role="dialog"
-                  aria-label={t.settings}
+          <Suspense
+            fallback={
+              <div className="page-loading" role="status" aria-live="polite">
+                <Skeleton.CardList count={2} />
+              </div>
+            }
+          >
+            <header>
+              <h2>
+                {tab === "agents"
+                  ? t.agentConfig
+                  : tab === "agents-general"
+                    ? t.generalAgentPage
+                    : tab === "agents-domain"
+                      ? t.domainAgentPage
+                      : tab === "agents-sub"
+                        ? t.subAgentPage
+                        : tab === "agent-settings"
+                          ? t.agentSettingsPage
+                          : tab === "knowledge"
+                            ? t.knowledge
+                            : tab === "mcp-servers"
+                              ? t.mcpServersTitle
+                              : tab === "tools"
+                                ? t.toolsTitle
+                                : tab === "skills"
+                                  ? t.skillsTitle
+                                  : tab === "hooks"
+                                    ? t.hooksTitle
+                                    : tab === "ratings"
+                                      ? t.agentRatings
+                                      : tab === "conversation-logs"
+                                        ? t.conversationLogs
+                                        : tab === "router"
+                                          ? t.routerTest
+                                          : language === "zh"
+                                            ? "管理员管理"
+                                            : "Administrators"}
+              </h2>
+              <div className="header-actions">
+                <button
+                  className={
+                    copilotOpen
+                      ? "settings-button copilot-toggle active"
+                      : "settings-button copilot-toggle"
+                  }
+                  onClick={() => setCopilotOpen((open) => !open)}
+                  aria-label={language === "zh" ? "AI 工作台" : "AI Workspace"}
+                  aria-expanded={copilotOpen}
                 >
-                  <strong>{t.settings}</strong>
-                  <span className="settings-label">{t.language}</span>
-                  <div className="settings-options">
-                    <button
-                      className={language === "zh" ? "option active" : "option"}
-                      onClick={() => setLanguage("zh")}
-                    >
-                      {t.chinese}
-                    </button>
-                    <button
-                      className={language === "en" ? "option active" : "option"}
-                      onClick={() => setLanguage("en")}
-                    >
-                      {t.english}
-                    </button>
-                  </div>
-                  <span className="settings-label">{t.appearance}</span>
-                  <div className="settings-options">
-                    <button
-                      className={theme === "dark" ? "option active" : "option"}
-                      onClick={() => setTheme("dark")}
-                    >
-                      {t.dark}
-                    </button>
-                    <button
-                      className={theme === "light" ? "option active" : "option"}
-                      onClick={() => setTheme("light")}
-                    >
-                      {t.light}
-                    </button>
-                  </div>
-                  <span className="settings-label">
-                    {language === "zh" ? "页面缩放" : "Page zoom"}
-                  </span>
-                  <div className="settings-zoom" role="group">
-                    <button
-                      type="button"
-                      className="settings-zoom-button"
-                      onClick={() =>
-                        setPageZoom((current) =>
-                          clampPageZoom(current - PAGE_ZOOM_STEP),
-                        )
-                      }
-                      disabled={pageZoom <= MIN_PAGE_ZOOM}
-                      aria-label={language === "zh" ? "缩小页面" : "Zoom out"}
-                      title={language === "zh" ? "缩小页面" : "Zoom out"}
-                    >
-                      <Icon name="minus" size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      className="settings-zoom-value"
-                      onClick={() => setPageZoom(100)}
-                      aria-label={
-                        language === "zh" ? "恢复 100%" : "Reset to 100%"
-                      }
-                      title={
-                        language === "zh"
-                          ? "点击恢复 100%"
-                          : "Click to reset to 100%"
-                      }
-                    >
-                      {pageZoom}%
-                    </button>
-                    <button
-                      type="button"
-                      className="settings-zoom-button"
-                      onClick={() =>
-                        setPageZoom((current) =>
-                          clampPageZoom(current + PAGE_ZOOM_STEP),
-                        )
-                      }
-                      disabled={pageZoom >= MAX_PAGE_ZOOM}
-                      aria-label={language === "zh" ? "放大页面" : "Zoom in"}
-                      title={language === "zh" ? "放大页面" : "Zoom in"}
-                    >
-                      <Icon name="plus" size={15} />
-                    </button>
-                  </div>
-                  <div className="settings-account">
-                    <span>{t.signedInAs}</span>
-                    <span className="settings-account-name">{username}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="settings-logout"
-                    onClick={onLogout}
-                  >
-                    <Icon name="logout" size={16} />
-                    {t.logout}
-                  </button>
-                </div>
-              )}
-            </div>
-          </header>
-
-          {tab === "agent-settings" && agentConfigId && (
-            <AgentSettingsPage
-              key={agentConfigId}
-              t={t}
-              agentId={agentId}
-              agentDisplayName={agentDisplayName}
-              agentRole={agentRole}
-              agentParentId={agentParentId}
-              agentDescription={agentDescription}
-              agentSystemPrompt={agentSystemPrompt}
-              agentBrowserActions={agentBrowserActions}
-              agentEnabled={agentEnabled}
-              agentPriority={agentPriority}
-              agentTemperature={agentTemperature}
-              agentModel={agentModel}
-              agentRoutingRules={agentRoutingRules}
-              agentHandlingMode={agentHandlingMode}
-              agentReturnMode={agentReturnMode}
-              agentPlanningMode={agentPlanningMode}
-              agentMaxPlanSteps={agentMaxPlanSteps}
-              agentChildIds={agentChildIds}
-              agentChildSearch={agentChildSearch}
-              agentChildRules={agentChildRules}
-              agentKnowledgeBaseIds={agentKnowledgeBaseIds}
-              agentKnowledgeSearch={agentKnowledgeSearch}
-              bases={bases}
-              tools={tools}
-              skills={skills}
-              hooks={hooks}
-              agentToolIds={agentToolIds}
-              agentToolSearch={agentToolSearch}
-              agentSkillIds={agentSkillIds}
-              agentSkillSearch={agentSkillSearch}
-              configuredAgent={configuredAgent}
-              configuredAgentIsSystem={configuredAgentIsSystem}
-              agentSubmitting={agentSubmitting}
-              agentConfigSection={agentConfigSection}
-              agentConfigDirty={agentConfigDirty}
-              agentVersions={agentVersions}
-              agents={agents}
-              closeAgentConfig={closeAgentConfig}
-              openAgentTest={openAgentTest}
-              requestAgentConfigSection={requestAgentConfigSection}
-              setAgentRole={setAgentRole}
-              setAgentParentId={setAgentParentId}
-              setAgentDisplayName={setAgentDisplayName}
-              setAgentDescription={setAgentDescription}
-              setAgentSystemPrompt={setAgentSystemPrompt}
-              setAgentBrowserActions={setAgentBrowserActions}
-              setAgentEnabled={setAgentEnabled}
-              setAgentPriority={setAgentPriority}
-              setAgentTemperature={setAgentTemperature}
-              setAgentModel={setAgentModel}
-              setAgentRoutingRules={setAgentRoutingRules}
-              setAgentHandlingMode={setAgentHandlingMode}
-              setAgentReturnMode={setAgentReturnMode}
-              setAgentPlanningMode={setAgentPlanningMode}
-              setAgentMaxPlanSteps={setAgentMaxPlanSteps}
-              setAgentChildIds={setAgentChildIds}
-              setAgentChildRules={setAgentChildRules}
-              setAgentChildSearch={setAgentChildSearch}
-              setAgentKnowledgeBaseIds={setAgentKnowledgeBaseIds}
-              setAgentKnowledgeSearch={setAgentKnowledgeSearch}
-              setAgentToolIds={setAgentToolIds}
-              setAgentToolSearch={setAgentToolSearch}
-              setAgentSkillIds={setAgentSkillIds}
-              setAgentSkillSearch={setAgentSkillSearch}
-              setResourceDetails={setResourceDetails}
-              saveAgent={saveAgent}
-              saveAgentDraft={saveAgentDraft}
-              saveAndPublishAgent={saveAndPublishAgent}
-              rollbackAgent={rollbackAgent}
-            />
-          )}
-          {agentListTab && (
-            <section>
-              {agentListTab.role !== "MAIN" && (
-                <div className="resource-toolbar agent-list-toolbar">
-                  <div className="agent-list-toolbar-copy">
-                    <strong>
-                      {t.paginationTotal(agentListTab.filteredCount)}
-                    </strong>
-                    <span>{agentListTab.hint}</span>
-                  </div>
-                  <div className="resource-toolbar-actions">
-                    <label className="resource-search agent-list-search">
-                      <Icon name="search" size={15} />
-                      <span className="sr-only">{t.search}</span>
-                      <input
-                        value={agentListQuery}
-                        onChange={(event) =>
-                          setAgentListQuery(event.target.value)
-                        }
-                        placeholder={t.searchPlaceholder}
-                        type="search"
-                      />
-                    </label>
-                    <select
-                      className="resource-filter"
-                      value={agentListStatus}
-                      onChange={(event) =>
-                        setAgentListStatus(event.target.value as ResourceStatus)
-                      }
-                      aria-label={t.statusFilter}
-                    >
-                      <option value="all">{t.allStatuses}</option>
-                      <option value="enabled">{t.enabled}</option>
-                      <option value="disabled">{t.disabled}</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => addAgent(agentListTab.role)}
-                    >
-                      {t.newAgent}
-                    </button>
-                  </div>
-                </div>
-              )}
-              <section className="agent-group">
-                {agentListTab.role === "MAIN" && (
-                  <div className="group-heading">
-                    <div>
-                      <h3>{agentListTab.title}</h3>
-                      <p>{agentListTab.hint}</p>
-                    </div>
-                    <span className="group-count">
-                      {agentsLoading && agentListTab.totalCount === 0 ? (
-                        <Skeleton width="24px" height="14px" />
-                      ) : (
-                        agentListTab.filteredCount
-                      )}
-                    </span>
-                  </div>
-                )}
-                {agentsLoading && agentListTab.totalCount === 0 ? (
-                  <Skeleton.CardList count={4} />
-                ) : (
+                  <Icon name="sparkle" size={18} />
+                </button>
+                <span className="badge badge-clickable">
+                  {role ? `${t.localMode} · ${role}` : t.localMode}
+                </span>
+                <button
+                  className="settings-button"
+                  onClick={() => setShortcutsOpen(true)}
+                  aria-label={t.shortcuts}
+                >
+                  ?
+                </button>
+                <button
+                  className="settings-button"
+                  onClick={() => setSettingsOpen((open) => !open)}
+                  aria-label={t.settings}
+                  title={t.settings}
+                >
+                  <Icon name="settings" size={18} />
+                </button>
+                {settingsOpen && (
                   <div
-                    className={
-                      agentListTab.role === "MAIN"
-                        ? "system-agent-list"
-                        : "grid"
-                    }
+                    className="settings-popover"
+                    role="dialog"
+                    aria-label={t.settings}
                   >
-                    {agentListTab.items.map((agent) => {
-                      const parent = agent.parentAgentId
-                        ? agents.find((item) => item.id === agent.parentAgentId)
-                        : undefined;
-                      const isMainCard = agentListTab.role === "MAIN";
-                      const systemLocked = isSystemAgent(agent);
-                      return (
-                        <article
-                          key={agent.id}
-                          className={`agent-card ${
-                            isMainCard
-                              ? "system-agent-card"
-                              : "resource-card-clickable"
-                          } ${agent.enabled ? "is-enabled" : "is-disabled"}`}
-                          aria-busy={agentActionId === agent.id}
-                        >
-                          {isMainCard ? (
-                            <SystemAgentHeroCard
-                              agent={agent}
-                              counts={agentRoleCounts}
-                              busy={agentActionId === agent.id}
-                              t={t}
-                              onToggle={toggle}
-                              onOpenSettings={openAgentSettings}
-                              onNavigate={setTab}
-                            />
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                className="resource-card-hit-area"
-                                aria-label={`${t.settings}: ${agent.displayName}`}
-                                onClick={() => openAgentSettings(agent)}
-                              />
-                              <div className="agent-card-header">
-                                <div className="agent-card-title">
-                                  <strong>{agent.displayName}</strong>
-                                  <span
-                                    className={agent.enabled ? "ok" : "off"}
-                                  >
-                                    {agent.enabled ? t.enabled : t.disabled}
-                                  </span>
-                                </div>
-                                <ResourceCardControls
-                                  enabled={agent.enabled}
-                                  busy={agentActionId === agent.id}
-                                  enableLabel={t.enable}
-                                  disableLabel={t.stop}
-                                  deleteLabel={t.deleteAgent}
-                                  deleteDisabledHint={
-                                    systemLocked
-                                      ? t.systemAgentReadOnlyHint
-                                      : t.deleteAgentDisabledHint
-                                  }
-                                  toggleDisabled={systemLocked}
-                                  toggleDisabledHint={t.systemAgentReadOnlyHint}
-                                  deleteDisabled={systemLocked}
-                                  onToggle={() => void toggle(agent)}
-                                  onDelete={() => deleteAgent(agent)}
-                                />
-                              </div>
-                              <div className="agent-card-meta">
-                                {agent.role === "SUB" &&
-                                  (parent ? (
-                                    <span>
-                                      <Icon name="flag" size={13} />
-                                      {t.parentAgent}: {parent.displayName}
-                                    </span>
-                                  ) : (
-                                    <span className="warning">
-                                      <Icon name="warn" size={13} />
-                                      {t.agentParentMissing}
-                                    </span>
-                                  ))}
-                                {agent.model && (
-                                  <span>
-                                    <Icon name="sparkle" size={13} />
-                                    {agent.model}
-                                  </span>
-                                )}
-                                {typeof agent.priority === "number" && (
-                                  <span>
-                                    <Icon name="filter" size={13} />
-                                    {t.priority}: {agent.priority}
-                                  </span>
-                                )}
-                              </div>
-                              <div
-                                className={`agent-card-description${
-                                  agent.description ? "" : " is-empty"
-                                }`}
-                              >
-                                <p title={agent.description || undefined}>
-                                  {agent.description || t.noDescription}
-                                </p>
-                              </div>
-                              <div className="agent-card-footer">
-                                <button
-                                  onClick={() => openAgentSettings(agent)}
-                                  className="secondary agent-settings-button"
-                                  disabled={agentActionId === agent.id}
-                                >
-                                  {t.settings}
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </article>
-                      );
-                    })}
+                    <strong>{t.settings}</strong>
+                    <span className="settings-label">{t.language}</span>
+                    <div className="settings-options">
+                      <button
+                        className={
+                          language === "zh" ? "option active" : "option"
+                        }
+                        onClick={() => setLanguage("zh")}
+                      >
+                        {t.chinese}
+                      </button>
+                      <button
+                        className={
+                          language === "en" ? "option active" : "option"
+                        }
+                        onClick={() => setLanguage("en")}
+                      >
+                        {t.english}
+                      </button>
+                    </div>
+                    <span className="settings-label">{t.appearance}</span>
+                    <div className="settings-options">
+                      <button
+                        className={
+                          theme === "dark" ? "option active" : "option"
+                        }
+                        onClick={() => setTheme("dark")}
+                      >
+                        {t.dark}
+                      </button>
+                      <button
+                        className={
+                          theme === "light" ? "option active" : "option"
+                        }
+                        onClick={() => setTheme("light")}
+                      >
+                        {t.light}
+                      </button>
+                    </div>
+                    <span className="settings-label">
+                      {language === "zh" ? "页面缩放" : "Page zoom"}
+                    </span>
+                    <div className="settings-zoom" role="group">
+                      <button
+                        type="button"
+                        className="settings-zoom-button"
+                        onClick={() =>
+                          setPageZoom((current) =>
+                            clampPageZoom(current - PAGE_ZOOM_STEP),
+                          )
+                        }
+                        disabled={pageZoom <= MIN_PAGE_ZOOM}
+                        aria-label={language === "zh" ? "缩小页面" : "Zoom out"}
+                        title={language === "zh" ? "缩小页面" : "Zoom out"}
+                      >
+                        <Icon name="minus" size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        className="settings-zoom-value"
+                        onClick={() => setPageZoom(100)}
+                        aria-label={
+                          language === "zh" ? "恢复 100%" : "Reset to 100%"
+                        }
+                        title={
+                          language === "zh"
+                            ? "点击恢复 100%"
+                            : "Click to reset to 100%"
+                        }
+                      >
+                        {pageZoom}%
+                      </button>
+                      <button
+                        type="button"
+                        className="settings-zoom-button"
+                        onClick={() =>
+                          setPageZoom((current) =>
+                            clampPageZoom(current + PAGE_ZOOM_STEP),
+                          )
+                        }
+                        disabled={pageZoom >= MAX_PAGE_ZOOM}
+                        aria-label={language === "zh" ? "放大页面" : "Zoom in"}
+                        title={language === "zh" ? "放大页面" : "Zoom in"}
+                      >
+                        <Icon name="plus" size={15} />
+                      </button>
+                    </div>
+                    <div className="settings-account">
+                      <span>{t.signedInAs}</span>
+                      <span className="settings-account-name">{username}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="settings-logout"
+                      onClick={onLogout}
+                    >
+                      <Icon name="logout" size={16} />
+                      {t.logout}
+                    </button>
                   </div>
                 )}
-                {agentListTab.role !== "MAIN" && agentListTab.pageCount > 1 && (
-                  <Pagination
-                    page={agentListTab.page}
-                    pageSize={agentListPageSize}
-                    total={agentListTab.filteredCount}
-                    pageSizeOptions={[6, 12, 24, 48]}
-                    labels={{
-                      total: t.paginationTotal,
-                      pageSize: t.perPage,
-                      position: t.paginationPosition,
-                      prev: t.prevPage,
-                      next: t.nextPage,
-                    }}
-                    onPageChange={(page) => {
-                      setAgentListPage(page);
-                      mainContentRef.current?.scrollTo({
-                        top: 0,
-                        behavior: "smooth",
-                      });
-                    }}
-                    onPageSizeChange={setAgentListPageSize}
-                  />
+              </div>
+            </header>
+
+            {tab === "agent-settings" && agentConfigId && (
+              <AgentSettingsPage
+                key={agentConfigId}
+                t={t}
+                agentId={agentId}
+                agentDisplayName={agentDisplayName}
+                agentRole={agentRole}
+                agentParentId={agentParentId}
+                agentDescription={agentDescription}
+                agentSystemPrompt={agentSystemPrompt}
+                agentBrowserActions={agentBrowserActions}
+                agentEnabled={agentEnabled}
+                agentPriority={agentPriority}
+                agentTemperature={agentTemperature}
+                agentModel={agentModel}
+                agentRoutingRules={agentRoutingRules}
+                agentHandlingMode={agentHandlingMode}
+                agentReturnMode={agentReturnMode}
+                agentPlanningMode={agentPlanningMode}
+                agentMaxPlanSteps={agentMaxPlanSteps}
+                agentChildIds={agentChildIds}
+                agentChildSearch={agentChildSearch}
+                agentChildRules={agentChildRules}
+                agentKnowledgeBaseIds={agentKnowledgeBaseIds}
+                agentKnowledgeSearch={agentKnowledgeSearch}
+                bases={bases}
+                tools={tools}
+                skills={skills}
+                hooks={hooks}
+                agentToolIds={agentToolIds}
+                agentToolSearch={agentToolSearch}
+                agentSkillIds={agentSkillIds}
+                agentSkillSearch={agentSkillSearch}
+                configuredAgent={configuredAgent}
+                configuredAgentIsSystem={configuredAgentIsSystem}
+                agentSubmitting={agentSubmitting}
+                agentConfigSection={agentConfigSection}
+                agentConfigDirty={agentConfigDirty}
+                agentVersions={agentVersions}
+                agents={agents}
+                closeAgentConfig={closeAgentConfig}
+                openAgentTest={openAgentTest}
+                requestAgentConfigSection={requestAgentConfigSection}
+                setAgentRole={setAgentRole}
+                setAgentParentId={setAgentParentId}
+                setAgentDisplayName={setAgentDisplayName}
+                setAgentDescription={setAgentDescription}
+                setAgentSystemPrompt={setAgentSystemPrompt}
+                setAgentBrowserActions={setAgentBrowserActions}
+                setAgentEnabled={setAgentEnabled}
+                setAgentPriority={setAgentPriority}
+                setAgentTemperature={setAgentTemperature}
+                setAgentModel={setAgentModel}
+                setAgentRoutingRules={setAgentRoutingRules}
+                setAgentHandlingMode={setAgentHandlingMode}
+                setAgentReturnMode={setAgentReturnMode}
+                setAgentPlanningMode={setAgentPlanningMode}
+                setAgentMaxPlanSteps={setAgentMaxPlanSteps}
+                setAgentChildIds={setAgentChildIds}
+                setAgentChildRules={setAgentChildRules}
+                setAgentChildSearch={setAgentChildSearch}
+                setAgentKnowledgeBaseIds={setAgentKnowledgeBaseIds}
+                setAgentKnowledgeSearch={setAgentKnowledgeSearch}
+                setAgentToolIds={setAgentToolIds}
+                setAgentToolSearch={setAgentToolSearch}
+                setAgentSkillIds={setAgentSkillIds}
+                setAgentSkillSearch={setAgentSkillSearch}
+                setResourceDetails={setResourceDetails}
+                saveAgent={saveAgent}
+                saveAgentDraft={saveAgentDraft}
+                saveAndPublishAgent={saveAndPublishAgent}
+                rollbackAgent={rollbackAgent}
+              />
+            )}
+            {agentListTab && (
+              <section>
+                {agentListTab.role !== "MAIN" && (
+                  <div className="resource-toolbar agent-list-toolbar">
+                    <div className="agent-list-toolbar-copy">
+                      <strong>
+                        {t.paginationTotal(agentListTab.filteredCount)}
+                      </strong>
+                      <span>{agentListTab.hint}</span>
+                    </div>
+                    <div className="resource-toolbar-actions">
+                      <label className="resource-search agent-list-search">
+                        <Icon name="search" size={15} />
+                        <span className="sr-only">{t.search}</span>
+                        <input
+                          value={agentListQuery}
+                          onChange={(event) =>
+                            setAgentListQuery(event.target.value)
+                          }
+                          placeholder={t.searchPlaceholder}
+                          type="search"
+                        />
+                      </label>
+                      <select
+                        className="resource-filter"
+                        value={agentListStatus}
+                        onChange={(event) =>
+                          setAgentListStatus(
+                            event.target.value as ResourceStatus,
+                          )
+                        }
+                        aria-label={t.statusFilter}
+                      >
+                        <option value="all">{t.allStatuses}</option>
+                        <option value="enabled">{t.enabled}</option>
+                        <option value="disabled">{t.disabled}</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => addAgent(agentListTab.role)}
+                      >
+                        {t.newAgent}
+                      </button>
+                    </div>
+                  </div>
                 )}
-                {agentListTab.role === "MAIN" &&
-                  !agentsLoading &&
-                  agentListTab.items[0] && (
-                    <SystemAgentDashboard
-                      systemAgent={agentListTab.items[0]}
-                      agents={agents}
-                      counts={agentRoleCounts}
-                      t={t}
-                      onNavigate={setTab}
-                      onCreateDomain={() => addAgent("DOMAIN")}
-                      onOpenSystemSettings={() =>
-                        openAgentSettings(agentListTab.items[0])
-                      }
-                    />
+                <section className="agent-group">
+                  {agentListTab.role === "MAIN" && (
+                    <div className="group-heading">
+                      <div>
+                        <h3>{agentListTab.title}</h3>
+                        <p>{agentListTab.hint}</p>
+                      </div>
+                      <span className="group-count">
+                        {agentsLoading && agentListTab.totalCount === 0 ? (
+                          <Skeleton width="24px" height="14px" />
+                        ) : (
+                          agentListTab.filteredCount
+                        )}
+                      </span>
+                    </div>
                   )}
-                {agentListTab.items.length === 0 &&
-                  (agentListTab.totalCount > 0 ? (
-                    <EmptyState
-                      compact
-                      icon={<Icon name="search" size={22} />}
-                      title={t.noSearchResults}
-                      hint={t.noSearchResultsHint}
-                    />
-                  ) : agentListTab.role === "MAIN" ? (
-                    <EmptyState
-                      icon={<Icon name="bot" size={22} />}
-                      title={t.noAgentOfType}
-                      hint={t.noSystemAgentHint}
-                    />
+                  {agentsLoading && agentListTab.totalCount === 0 ? (
+                    <Skeleton.CardList count={4} />
                   ) : (
-                    <EmptyState
-                      icon={<Icon name="bot" size={22} />}
-                      title={t.noAgentOfType}
-                      hint={
-                        agentListTab.role === "GENERAL"
-                          ? t.noGeneralAgentHint
-                          : agentListTab.role === "SUB"
-                            ? t.noSubAgentHint
-                            : t.noDomainAgentHint
+                    <div
+                      className={
+                        agentListTab.role === "MAIN"
+                          ? "system-agent-list"
+                          : "grid"
                       }
-                      action={
-                        <button
-                          type="button"
-                          onClick={() => addAgent(agentListTab.role)}
-                        >
-                          {t.newAgent}
-                        </button>
-                      }
-                    />
-                  ))}
+                    >
+                      {agentListTab.items.map((agent) => {
+                        const parent = agent.parentAgentId
+                          ? agents.find(
+                              (item) => item.id === agent.parentAgentId,
+                            )
+                          : undefined;
+                        const isMainCard = agentListTab.role === "MAIN";
+                        const systemLocked = isSystemAgent(agent);
+                        return (
+                          <article
+                            key={agent.id}
+                            className={`agent-card ${
+                              isMainCard
+                                ? "system-agent-card"
+                                : "resource-card-clickable"
+                            } ${agent.enabled ? "is-enabled" : "is-disabled"}`}
+                            aria-busy={agentActionId === agent.id}
+                          >
+                            {isMainCard ? (
+                              <SystemAgentHeroCard
+                                agent={agent}
+                                counts={agentRoleCounts}
+                                busy={agentActionId === agent.id}
+                                t={t}
+                                onToggle={toggle}
+                                onOpenSettings={openAgentSettings}
+                                onNavigate={setTab}
+                              />
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  className="resource-card-hit-area"
+                                  aria-label={`${t.settings}: ${agent.displayName}`}
+                                  onClick={() => openAgentSettings(agent)}
+                                />
+                                <div className="agent-card-header">
+                                  <div className="agent-card-title">
+                                    <strong>{agent.displayName}</strong>
+                                    <span
+                                      className={agent.enabled ? "ok" : "off"}
+                                    >
+                                      {agent.enabled ? t.enabled : t.disabled}
+                                    </span>
+                                  </div>
+                                  <ResourceCardControls
+                                    enabled={agent.enabled}
+                                    busy={agentActionId === agent.id}
+                                    enableLabel={t.enable}
+                                    disableLabel={t.stop}
+                                    deleteLabel={t.deleteAgent}
+                                    deleteDisabledHint={
+                                      systemLocked
+                                        ? t.systemAgentReadOnlyHint
+                                        : t.deleteAgentDisabledHint
+                                    }
+                                    toggleDisabled={systemLocked}
+                                    toggleDisabledHint={
+                                      t.systemAgentReadOnlyHint
+                                    }
+                                    deleteDisabled={systemLocked}
+                                    onToggle={() => void toggle(agent)}
+                                    onDelete={() => deleteAgent(agent)}
+                                  />
+                                </div>
+                                <div className="agent-card-meta">
+                                  {agent.role === "SUB" &&
+                                    (parent ? (
+                                      <span>
+                                        <Icon name="flag" size={13} />
+                                        {t.parentAgent}: {parent.displayName}
+                                      </span>
+                                    ) : (
+                                      <span className="warning">
+                                        <Icon name="warn" size={13} />
+                                        {t.agentParentMissing}
+                                      </span>
+                                    ))}
+                                  {agent.model && (
+                                    <span>
+                                      <Icon name="sparkle" size={13} />
+                                      {agent.model}
+                                    </span>
+                                  )}
+                                  {typeof agent.priority === "number" && (
+                                    <span>
+                                      <Icon name="filter" size={13} />
+                                      {t.priority}: {agent.priority}
+                                    </span>
+                                  )}
+                                </div>
+                                <div
+                                  className={`agent-card-description${
+                                    agent.description ? "" : " is-empty"
+                                  }`}
+                                >
+                                  <p title={agent.description || undefined}>
+                                    {agent.description || t.noDescription}
+                                  </p>
+                                </div>
+                                <div className="agent-card-footer">
+                                  <button
+                                    onClick={() => openAgentSettings(agent)}
+                                    className="secondary agent-settings-button"
+                                    disabled={agentActionId === agent.id}
+                                  >
+                                    {t.settings}
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {agentListTab.role !== "MAIN" &&
+                    agentListTab.pageCount > 1 && (
+                      <Pagination
+                        page={agentListTab.page}
+                        pageSize={agentListPageSize}
+                        total={agentListTab.filteredCount}
+                        pageSizeOptions={[6, 12, 24, 48]}
+                        labels={{
+                          total: t.paginationTotal,
+                          pageSize: t.perPage,
+                          position: t.paginationPosition,
+                          prev: t.prevPage,
+                          next: t.nextPage,
+                        }}
+                        onPageChange={(page) => {
+                          setAgentListPage(page);
+                          mainContentRef.current?.scrollTo({
+                            top: 0,
+                            behavior: "smooth",
+                          });
+                        }}
+                        onPageSizeChange={setAgentListPageSize}
+                      />
+                    )}
+                  {agentListTab.role === "MAIN" &&
+                    !agentsLoading &&
+                    agentListTab.items[0] && (
+                      <SystemAgentDashboard
+                        systemAgent={agentListTab.items[0]}
+                        agents={agents}
+                        counts={agentRoleCounts}
+                        t={t}
+                        onNavigate={setTab}
+                        onCreateDomain={() => addAgent("DOMAIN")}
+                        onOpenSystemSettings={() =>
+                          openAgentSettings(agentListTab.items[0])
+                        }
+                      />
+                    )}
+                  {agentListTab.items.length === 0 &&
+                    (agentListTab.totalCount > 0 ? (
+                      <EmptyState
+                        compact
+                        icon={<Icon name="search" size={22} />}
+                        title={t.noSearchResults}
+                        hint={t.noSearchResultsHint}
+                      />
+                    ) : agentListTab.role === "MAIN" ? (
+                      <EmptyState
+                        icon={<Icon name="bot" size={22} />}
+                        title={t.noAgentOfType}
+                        hint={t.noSystemAgentHint}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon={<Icon name="bot" size={22} />}
+                        title={t.noAgentOfType}
+                        hint={
+                          agentListTab.role === "GENERAL"
+                            ? t.noGeneralAgentHint
+                            : agentListTab.role === "SUB"
+                              ? t.noSubAgentHint
+                              : t.noDomainAgentHint
+                        }
+                        action={
+                          <button
+                            type="button"
+                            onClick={() => addAgent(agentListTab.role)}
+                          >
+                            {t.newAgent}
+                          </button>
+                        }
+                      />
+                    ))}
+                </section>
               </section>
-            </section>
-          )}
+            )}
 
-          {tab === "knowledge" && (
-            <KnowledgePage
-              t={t}
-              language={language}
-              bases={bases}
-              filteredBases={filteredBases}
-              basesLoading={basesLoading}
-              status={knowledgeStatus}
-              onStatusChange={setKnowledgeStatus}
-              documents={documents}
-              activeBase={activeBase}
-              activeDocuments={activeDocuments}
-              filteredDocuments={filteredDocuments}
-              activeQaSettings={activeQaSettings}
-              baseSaving={baseSaving}
-              documentActionId={documentActionId}
-              section={knowledgeSection}
-              onSectionChange={setKnowledgeSection}
-              qaSaved={qaSaved}
-              addBase={addBase}
-              toggleBase={toggleBase}
-              deleteBase={deleteBase}
-              openKnowledgeBase={openKnowledgeBase}
-              closeKnowledgeBase={closeKnowledgeBase}
-              saveBaseField={saveBaseField}
-              updateQaSettings={updateQaSettings}
-              saveKnowledgeSettings={saveKnowledgeSettings}
-              uploadDocuments={uploadDocuments}
-              uploadProgress={uploadProgress}
-              uploadingBaseId={uploadingBaseId}
-              deleteDocument={deleteDocument}
-              reindexDocument={reindexDocument}
-              openDocumentDetails={openDocumentDetails}
-              runRetrieval={runRetrieval}
-              retrievalQuery={retrievalQuery}
-              onRetrievalQueryChange={setRetrievalQuery}
-              retrievalResults={retrievalResults}
-              retrievalLoading={retrievalLoading}
-              retrievalError={retrievalError}
-              embeddingConfig={embeddingConfig}
-              embeddingProfiles={embeddingProfiles}
-              embeddingValidation={embeddingValidation}
-              embeddingSaving={embeddingSaving}
-              saveEmbeddingConfig={saveEmbeddingConfig}
-              validateEmbeddingConfig={validateEmbeddingConfig}
-              knowledgeDiagnostics={knowledgeDiagnostics}
-              runKnowledgeDiagnostics={runKnowledgeDiagnostics}
-            />
-          )}
+            {tab === "knowledge" && (
+              <KnowledgePage
+                t={t}
+                language={language}
+                bases={bases}
+                filteredBases={filteredBases}
+                basesLoading={basesLoading}
+                status={knowledgeStatus}
+                onStatusChange={setKnowledgeStatus}
+                documents={documents}
+                activeBase={activeBase}
+                activeDocuments={activeDocuments}
+                filteredDocuments={filteredDocuments}
+                activeQaSettings={activeQaSettings}
+                baseSaving={baseSaving}
+                documentActionId={documentActionId}
+                section={knowledgeSection}
+                onSectionChange={setKnowledgeSection}
+                qaSaved={qaSaved}
+                addBase={addBase}
+                toggleBase={toggleBase}
+                deleteBase={deleteBase}
+                openKnowledgeBase={openKnowledgeBase}
+                closeKnowledgeBase={closeKnowledgeBase}
+                saveBaseField={saveBaseField}
+                updateQaSettings={updateQaSettings}
+                saveKnowledgeSettings={saveKnowledgeSettings}
+                uploadDocuments={uploadDocuments}
+                uploadProgress={uploadProgress}
+                uploadingBaseId={uploadingBaseId}
+                deleteDocument={deleteDocument}
+                reindexDocument={reindexDocument}
+                openDocumentDetails={openDocumentDetails}
+                runRetrieval={runRetrieval}
+                retrievalQuery={retrievalQuery}
+                onRetrievalQueryChange={setRetrievalQuery}
+                retrievalResults={retrievalResults}
+                retrievalLoading={retrievalLoading}
+                retrievalError={retrievalError}
+                embeddingConfig={embeddingConfig}
+                embeddingProfiles={embeddingProfiles}
+                embeddingValidation={embeddingValidation}
+                embeddingSaving={embeddingSaving}
+                saveEmbeddingConfig={saveEmbeddingConfig}
+                validateEmbeddingConfig={validateEmbeddingConfig}
+                knowledgeDiagnostics={knowledgeDiagnostics}
+                runKnowledgeDiagnostics={runKnowledgeDiagnostics}
+              />
+            )}
 
-          {tab === "mcp-servers" && (
-            <McpServersPage
-              t={t}
-              servers={mcpServers}
-              filtered={filteredMcpServers}
-              loading={mcpServersLoading}
-              error={mcpError}
-              actionId={mcpActionId}
-              search={mcpSearch}
-              statusFilter={mcpStatusFilter}
-              onSearchChange={setMcpSearch}
-              onStatusFilterChange={setMcpStatusFilter}
-              onNew={() => openMcpDialog()}
-              onRefresh={loadMcpServers}
-              onEdit={(server) => openMcpDialog(server)}
-              onToggle={toggleMcpServer}
-              onDelete={deleteMcpServer}
-              onCheckHealth={checkMcpHealth}
-              onShowDetails={setMcpDetails}
-              onShowError={setMcpErrorDetail}
-            />
-          )}
+            {tab === "mcp-servers" && (
+              <McpServersPage
+                t={t}
+                servers={mcpServers}
+                filtered={filteredMcpServers}
+                loading={mcpServersLoading}
+                error={mcpError}
+                actionId={mcpActionId}
+                search={mcpSearch}
+                statusFilter={mcpStatusFilter}
+                onSearchChange={setMcpSearch}
+                onStatusFilterChange={setMcpStatusFilter}
+                onNew={() => openMcpDialog()}
+                onRefresh={loadMcpServers}
+                onEdit={(server) => openMcpDialog(server)}
+                onToggle={toggleMcpServer}
+                onDelete={deleteMcpServer}
+                onCheckHealth={checkMcpHealth}
+                onShowDetails={setMcpDetails}
+                onShowError={setMcpErrorDetail}
+              />
+            )}
 
-          {tab === "tools" && (
-            <ToolsPage
-              t={t}
-              tools={tools}
-              filteredTools={filteredTools}
-              loading={toolsLoading}
-              error={toolsError}
-              actionId={resourceActionId}
-              status={resourceStatus}
-              search={toolSearch}
-              onStatusChange={setResourceStatus}
-              onSearchChange={setToolSearch}
-              onNew={() => openResourceDialog("tool")}
-              onRetry={loadTools}
-              onEdit={(item) => openResourceDialog("tool", item)}
-              onShowDetails={(item) =>
-                setResourceDetails({ kind: "tool", resource: item })
-              }
-              onTest={openToolTest}
-              onToggle={(item) => toggleResource("tool", item)}
-              onDelete={(item) => deleteResource("tool", item)}
-            />
-          )}
+            {tab === "tools" && (
+              <ToolsPage
+                t={t}
+                tools={tools}
+                filteredTools={filteredTools}
+                loading={toolsLoading}
+                error={toolsError}
+                actionId={resourceActionId}
+                status={resourceStatus}
+                search={toolSearch}
+                onStatusChange={setResourceStatus}
+                onSearchChange={setToolSearch}
+                onNew={() => openResourceDialog("tool")}
+                onRetry={loadTools}
+                onEdit={(item) => openResourceDialog("tool", item)}
+                onShowDetails={(item) =>
+                  setResourceDetails({ kind: "tool", resource: item })
+                }
+                onTest={openToolTest}
+                onToggle={(item) => toggleResource("tool", item)}
+                onDelete={(item) => deleteResource("tool", item)}
+              />
+            )}
 
-          {tab === "skills" && (
-            <SkillsPage
-              t={t}
-              skills={skills}
-              tools={tools}
-              loading={skillsLoading}
-              onReload={loadSkills}
-              onShowDetails={(item) =>
-                setResourceDetails({ kind: "skill", resource: item })
-              }
-            />
-          )}
+            {tab === "skills" && (
+              <SkillsPage
+                t={t}
+                skills={skills}
+                tools={tools}
+                loading={skillsLoading}
+                onReload={loadSkills}
+                onShowDetails={(item) =>
+                  setResourceDetails({ kind: "skill", resource: item })
+                }
+              />
+            )}
 
-          {tab === "hooks" && (
-            <HooksPage
-              t={t}
-              hooks={hooks}
-              filteredHooks={filteredHooks}
-              loading={hooksLoading}
-              actionId={hookActionId}
-              status={hookStatus}
-              scope={hookScopeFilter}
-              ruleType={hookRuleTypeFilter}
-              search={hookSearch}
-              onStatusChange={setHookStatus}
-              onScopeChange={setHookScopeFilter}
-              onRuleTypeChange={setHookRuleTypeFilter}
-              onSearchChange={setHookSearch}
-              onNew={() => openHookDialog()}
-              onEdit={(hook) => openHookDialog(hook)}
-              onToggle={toggleHook}
-              onDelete={deleteHook}
-            />
-          )}
+            {tab === "hooks" && (
+              <HooksPage
+                t={t}
+                hooks={hooks}
+                filteredHooks={filteredHooks}
+                loading={hooksLoading}
+                actionId={hookActionId}
+                status={hookStatus}
+                scope={hookScopeFilter}
+                ruleType={hookRuleTypeFilter}
+                search={hookSearch}
+                onStatusChange={setHookStatus}
+                onScopeChange={setHookScopeFilter}
+                onRuleTypeChange={setHookRuleTypeFilter}
+                onSearchChange={setHookSearch}
+                onNew={() => openHookDialog()}
+                onEdit={(hook) => openHookDialog(hook)}
+                onToggle={toggleHook}
+                onDelete={deleteHook}
+              />
+            )}
 
-          {tab === "ratings" && <RatingsPage t={t} language={language} />}
+            {tab === "ratings" && <RatingsPage t={t} language={language} />}
 
-          {tab === "conversation-logs" && (
-            <ConversationLogsPage
-              t={t}
-              logs={conversationLogs}
-              total={conversationTotal}
-              page={conversationPage}
-              pageSize={conversationPageSize}
-              loading={conversationLoading}
-              sessionId={conversationSessionId}
-              sessionIdDraft={conversationSessionIdDraft}
-              onSessionIdDraftChange={setConversationSessionIdDraft}
-              onApplyFilter={() => {
-                setConversationSessionId(conversationSessionIdDraft.trim());
-                setConversationPage(1);
-              }}
-              onResetFilter={() => {
-                setConversationSessionIdDraft("");
-                setConversationSessionId("");
-                setConversationPage(1);
-              }}
-              onPageChange={setConversationPage}
-              onPageSizeChange={(size) => {
-                setConversationPageSize(size);
-                setConversationPage(1);
-              }}
-              onOpenLog={openConversationDetail}
-              detail={conversationDetail}
-              detailOpen={conversationDetailOpen}
-              detailLoading={conversationDetailLoading}
-              onCloseDetail={() => setConversationDetailOpen(false)}
-            />
-          )}
+            {tab === "conversation-logs" && (
+              <ConversationLogsPage
+                t={t}
+                logs={conversationLogs}
+                total={conversationTotal}
+                page={conversationPage}
+                pageSize={conversationPageSize}
+                loading={conversationLoading}
+                sessionId={conversationSessionId}
+                sessionIdDraft={conversationSessionIdDraft}
+                onSessionIdDraftChange={setConversationSessionIdDraft}
+                onApplyFilter={() => {
+                  setConversationSessionId(conversationSessionIdDraft.trim());
+                  setConversationPage(1);
+                }}
+                onResetFilter={() => {
+                  setConversationSessionIdDraft("");
+                  setConversationSessionId("");
+                  setConversationPage(1);
+                }}
+                onPageChange={setConversationPage}
+                onPageSizeChange={(size) => {
+                  setConversationPageSize(size);
+                  setConversationPage(1);
+                }}
+                onOpenLog={openConversationDetail}
+                detail={conversationDetail}
+                detailOpen={conversationDetailOpen}
+                detailLoading={conversationDetailLoading}
+                onCloseDetail={() => setConversationDetailOpen(false)}
+              />
+            )}
 
-          {tab === "router" && (
-            <RouterPage
-              t={t}
-              message={message}
-              onMessageChange={setMessage}
-              pageContext={routePageContext}
-              onPageContextChange={setRoutePageContext}
-              onTestRoute={testRoute}
-              attachments={routeAttachments}
-              uploadingAttachments={routeUploading}
-              readPage={routeReadPage}
-              onReadPageChange={setRouteReadPage}
-              onUploadAttachments={uploadRouteAttachments}
-              onRemoveAttachment={removeRouteAttachment}
-              onPastePageContext={pasteRoutePageContext}
-              onOpenPageContext={openRoutePage}
-              route={route}
-              testing={routeTesting}
-              error={routeError}
-              onCancelTest={cancelRouteTest}
-              analyzing={routeAnalyzing}
-              onAnalyze={analyzeRoute}
-              analysis={routeAnalysis}
-            />
-          )}
+            {tab === "router" && (
+              <RouterPage
+                t={t}
+                message={message}
+                onMessageChange={setMessage}
+                pageContext={routePageContext}
+                onPageContextChange={setRoutePageContext}
+                onTestRoute={testRoute}
+                attachments={routeAttachments}
+                uploadingAttachments={routeUploading}
+                readPage={routeReadPage}
+                onReadPageChange={setRouteReadPage}
+                onUploadAttachments={uploadRouteAttachments}
+                onRemoveAttachment={removeRouteAttachment}
+                onPastePageContext={pasteRoutePageContext}
+                onOpenPageContext={openRoutePage}
+                route={route}
+                testing={routeTesting}
+                error={routeError}
+                onCancelTest={cancelRouteTest}
+                analyzing={routeAnalyzing}
+                onAnalyze={analyzeRoute}
+                analysis={routeAnalysis}
+              />
+            )}
 
-          {tab === "admin-users" && <AdminUsersPage language={language} />}
+            {tab === "admin-users" && <AdminUsersPage language={language} />}
+          </Suspense>
         </main>
         {copilotOpen && (
-          <AdminCopilotPanel
-            language={language}
-            currentAgentId={agentConfigId}
-            currentAgentName={agentDisplayName}
-            currentAgentVersion={configuredAgent?.publishedVersion}
-            currentAgentSnapshot={copilotAgentSnapshot}
-            onClose={() => setCopilotOpen(false)}
-            onApplyPatch={applyCopilotPatch}
-            onAppliedAgent={(agentId) => {
-              void handleCopilotAppliedAgent(agentId);
-            }}
-            onResourcesChanged={refreshCopilotResources}
-            agentConfigDirty={agentConfigDirty}
-            onSaveDraft={async () => Boolean(await saveAgentDraft())}
-            onPublishDraft={() => void saveAndPublishAgent()}
-          />
+          <Suspense fallback={null}>
+            <AdminCopilotPanel
+              language={language}
+              currentAgentId={agentConfigId}
+              currentAgentName={agentDisplayName}
+              currentAgentVersion={configuredAgent?.publishedVersion}
+              currentAgentSnapshot={copilotAgentSnapshot}
+              onClose={() => setCopilotOpen(false)}
+              onApplyPatch={applyCopilotPatch}
+              onAppliedAgent={(agentId) => {
+                void handleCopilotAppliedAgent(agentId);
+              }}
+              onResourcesChanged={refreshCopilotResources}
+              agentConfigDirty={agentConfigDirty}
+              onSaveDraft={async () => Boolean(await saveAgentDraft())}
+              onPublishDraft={() => void saveAndPublishAgent()}
+            />
+          </Suspense>
         )}
       </div>
       {promptError && (
@@ -5467,7 +5587,7 @@ function App() {
     return localStorage.getItem("admin-theme") === "light" ? "light" : "dark";
   });
   const [session, setSession] = useState<
-    { username: string } | null | undefined
+    { username: string; role?: string } | null | undefined
   >(() => (getAuthToken() ? undefined : null));
   const [authNotice, setAuthNotice] = useState("");
   const t = translations[language];
@@ -5509,9 +5629,9 @@ function App() {
       window.removeEventListener("admin:unauthorized", handleUnauthorized);
   }, [t.sessionExpired]);
 
-  const login = (username: string) => {
+  const login = (identity: { username: string; role?: string }) => {
     setAuthNotice("");
-    setSession({ username });
+    setSession(identity);
   };
 
   const logout = () => {
@@ -5547,7 +5667,13 @@ function App() {
     );
   }
 
-  return <AdminApp username={session.username} onLogout={logout} />;
+  return (
+    <AdminApp
+      username={session.username}
+      role={session.role}
+      onLogout={logout}
+    />
+  );
 }
 
 createRoot(document.getElementById("root")!).render(

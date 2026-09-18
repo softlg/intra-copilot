@@ -6,6 +6,7 @@ import com.intra.copilot.agent.*;
 import com.intra.copilot.model.*;
 import com.intra.copilot.repo.*;
 import com.intra.copilot.service.auth.RequestContext;
+import com.intra.copilot.service.stream.SseExecutionService;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.io.IOException;
 import java.time.*;
@@ -60,6 +61,7 @@ public class ChatService {
         private final SystemAgentBroker systemAgentBroker;
         private final SkillPromptAssembler skillAssembler;
         private final PlanningService planningService;
+        private final SseExecutionService streams;
         private final AgentPlanRepository agentPlans;
         private final AgentPlanStepRepository planStepsRepository;
         private final int ragTopK;
@@ -89,6 +91,7 @@ public class ChatService {
                         SystemAgentBroker systemAgentBroker,
                         SkillPromptAssembler skillAssembler,
                         PlanningService planningService,
+                        SseExecutionService streams,
                         AgentPlanRepository agentPlans,
                         AgentPlanStepRepository planStepsRepository,
                         @Value("${rag.top-k:5}") int ragTopK,
@@ -113,6 +116,7 @@ public class ChatService {
                 this.systemAgentBroker = systemAgentBroker;
                 this.skillAssembler = skillAssembler;
                 this.planningService = planningService;
+                this.streams = streams;
                 this.agentPlans = agentPlans;
                 this.planStepsRepository = planStepsRepository;
                 this.ragTopK = Math.max(1, Math.min(20, ragTopK));
@@ -259,21 +263,15 @@ public class ChatService {
                 return conversations.findBySourceAndUserId(source, userId);
         }
 
+        public long sseTimeoutMs() {
+                return sseTimeoutMs;
+        }
+
         // 新会话放在列表最前（sort_order 最小）。取当前用户自己最小 sort_order 减步长，
         // 避免每次插入都重排整张表。
         private long nextSortOrder(String source, String userId) {
-                List<Conversation> mine = conversations.findBySourceAndUserId(source, userId);
-                long min = Long.MAX_VALUE;
-                boolean hasSort = false;
-                for (Conversation c : mine) {
-                        Long so = c.getSortOrder();
-                        if (so != null) {
-                                min = Math.min(min, so);
-                                hasSort = true;
-                        }
-                }
-                if (!hasSort) return 0L;
-                return min - SORT_STEP;
+                Long min = conversations.findMinSortOrder(source, userId);
+                return min == null ? 0L : min - SORT_STEP;
         }
 
         public List<Message> history(String source, String userId, String id) {
@@ -284,7 +282,12 @@ public class ChatService {
         /** 与 {@link #history} 相同，但每条消息附带其附件视图，供历史接口返回。 */
         public List<MessageView> historyWithAttachments(String source, String userId, String id) {
                 Conversation conversation = requireOwned(source, userId, id);
-                return messages.findByConversationIdOrderByCreatedAtAsc(conversation.getId()).stream()
+                List<Message> values =
+                                messages.findByConversationIdOrderByCreatedAtAsc(conversation.getId());
+                Map<String, List<AttachmentView>> attachmentsByMessage =
+                                attachments.listForMessages(
+                                                values.stream().map(Message::getId).toList());
+                return values.stream()
                                 .map(message -> new MessageView(
                                                 message.getId(),
                                                 message.getConversationId(),
@@ -293,7 +296,7 @@ public class ChatService {
                                                 message.getAgentId(),
                                                 message.getContextSummary(),
                                                 message.getCreatedAt(),
-                                                attachments.listForMessage(message.getId())))
+                                                attachmentsByMessage.getOrDefault(message.getId(), List.of())))
                                 .toList();
         }
 
@@ -465,25 +468,13 @@ public class ChatService {
                                                 ? EntityIdGenerator.next("RQ")
                                                 : requestId.strip();
 
-                ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(r -> {
-                        Thread t = new Thread(r, "sse-hb-" + Integer.toHexString(System.identityHashCode(out)));
-                        t.setDaemon(true);
-                        return t;
-                });
-                ScheduledFuture<?> heartbeatTask = heartbeat.scheduleAtFixedRate(() -> {
-                        if (finished.get()) return;
-                        try {
-                                out.send(SseEmitter.event().comment("keep-alive"));
-                        } catch (IOException ignored) {
-                        }
-                }, 15, 15, TimeUnit.SECONDS);
+                ScheduledFuture<?> heartbeatTask = streams.startHeartbeat(out, finished);
 
                 // 先返回 emitter，让路由、委派、检索和模型生成都能持续向插件推进度。
                 RequestContext.Identity identity = RequestContext.currentOrNull();
-                Thread worker = new Thread(
-                                () -> RequestContext.runWith(
-                                                identity,
-                                                () -> {
+                streams.executeWithIdentity(
+                                identity,
+                                () -> {
                                                         try {
                                                                 emitStage(out, finished, "analyzing", "正在分析问题…");
                                                                 runChat(
@@ -505,19 +496,14 @@ public class ChatService {
                                                         } finally {
                                                                 finished.set(true);
                                                                 try {
-                                                                        heartbeatTask.cancel(true);
-                                                                } catch (Exception ignored) {
-                                                                }
-                                                                try {
-                                                                        heartbeat.shutdownNow();
+                                                                        if (heartbeatTask != null) {
+                                                                                heartbeatTask.cancel(true);
+                                                                        }
                                                                 } catch (Exception ignored) {
                                                                 }
                                                                 TraceContext.clear();
                                                         }
-                                                }),
-                                "chat-" + Integer.toHexString(System.identityHashCode(out)));
-                worker.setDaemon(true);
-                worker.start();
+                                                });
                 return out;
         }
 
@@ -552,7 +538,9 @@ public class ChatService {
                                 requestId,
                                 null);
                 emitStage(out, finished, "analyzing", "正在分析问题…");
-                List<Message> fullHistory = history(callerSource, callerUserId, c.getId());
+                List<Message> fullHistory =
+                                messages.findRecentByConversationId(
+                                                c.getId(), Math.max(120, maxHistoryMessages * 3));
                 RetryContext retryContext =
                                 retry
                                                 ? resolveRetryContext(fullHistory, text)
@@ -572,7 +560,12 @@ public class ChatService {
                                                                         return item;
                                                                 })
                                                 .toList();
-                final List<String> images = sanitizeImages(attachments.imageDataUrls(attachmentIds));
+                final List<String> images =
+                                sanitizeImages(
+                                                attachments.imageDataUrls(
+                                                                callerSource,
+                                                                callerUserId,
+                                                                attachmentIds));
                 long turnStarted = System.nanoTime();
                 Instant turnStartedAt = Instant.now();
                 long routeStarted = System.nanoTime();
@@ -781,7 +774,11 @@ public class ChatService {
                                         routeAgent == null ? "router" : routeAgent.id(),
                                         readPage ? pageContext : null);
                         persistMessage(c, userMessage);
-                        attachments.linkToMessage(attachmentIds, userMessage.getId());
+                        attachments.linkToMessage(
+                                        callerSource,
+                                        callerUserId,
+                                        attachmentIds,
+                                        userMessage.getId());
                 }
                 try {
                         out.send(
@@ -3306,7 +3303,18 @@ public class ChatService {
                                                                         remainingNanos))),
                                                 TimeUnit.MILLISECONDS);
                                 } catch (TimeoutException ignored) {
-                                        // Keep the SSE connection alive while waiting for the browser.
+                                        // The confirmation request may reach another instance.
+                                        // Re-read the persisted proposal so distributed deployments
+                                        // do not depend on a process-local future.
+                                        ActionProposal persisted =
+                                                        actions.findById(proposal.getActionId())
+                                                                        .orElse(null);
+                                        if (persisted != null
+                                                        && !"PENDING".equals(persisted.getStatus())) {
+                                                return new ActionResolution(
+                                                                persisted.getStatus(),
+                                                                persisted.getResult());
+                                        }
                                 }
                         }
                 } catch (InterruptedException error) {

@@ -45,4 +45,17 @@ public interface ConversationRepository extends BaseMapper<Conversation> {
                         .orderByAsc("sort_order")
                         .orderByDesc("updated_at"));
     }
+
+    default Long findMinSortOrder(String source, String userId) {
+        return selectList(
+                        Wrappers.<Conversation>query()
+                                .select("MIN(sort_order) AS sort_order")
+                                .eq("source", source)
+                                .eq("user_id", userId))
+                .stream()
+                .map(Conversation::getSortOrder)
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+    }
 }

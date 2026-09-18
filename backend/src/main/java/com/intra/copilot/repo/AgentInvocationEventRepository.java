@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Select;
 
 @Mapper
 public interface AgentInvocationEventRepository extends BaseMapper<AgentInvocationEvent> {
@@ -43,19 +44,8 @@ public interface AgentInvocationEventRepository extends BaseMapper<AgentInvocati
                         .orderByAsc("created_at"));
     }
 
-    default long nextGlobalSequence(String traceId) {
-        return selectList(
-                                Wrappers.<AgentInvocationEvent>query()
-                                        .eq("trace_id", traceId)
-                                        .orderByDesc("sequence_global")
-                                        .last("LIMIT 1"))
-                        .stream()
-                        .findFirst()
-                        .map(AgentInvocationEvent::getSequenceGlobal)
-                        .filter(value -> value != null)
-                        .orElse(0L)
-                + 1L;
-    }
+    @Select("SELECT nextval('agent_invocation_event_global_seq')")
+    long nextGlobalSequence();
 
     default int deleteOlderThan(Instant cutoff) {
         return delete(Wrappers.<AgentInvocationEvent>query().lt("created_at", cutoff));

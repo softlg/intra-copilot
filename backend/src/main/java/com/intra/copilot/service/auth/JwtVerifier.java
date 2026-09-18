@@ -10,6 +10,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import java.security.interfaces.RSAPublicKey;
 import java.text.ParseException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import org.springframework.stereotype.Service;
@@ -83,9 +84,13 @@ public class JwtVerifier {
             throw new IllegalArgumentException("Signature verification failed");
         }
 
-        // 刷新 last_seen_at（异步或同步皆可；这里同步最简单）
-        device.touch();
-        deviceKeys.updateById(device);
+        // Avoid a database write on every authenticated request.
+        Instant now = Instant.now();
+        if (device.getLastSeenAt() == null
+                || device.getLastSeenAt().isBefore(now.minus(Duration.ofMinutes(5)))) {
+            device.setLastSeenAt(now);
+            deviceKeys.updateById(device);
+        }
 
         return new Verified(device.getSource(), device.getUserId(), scope);
     }

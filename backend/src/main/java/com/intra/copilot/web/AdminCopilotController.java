@@ -51,7 +51,7 @@ public class AdminCopilotController {
     @PostMapping("/sessions/{id}/respond/{runId}/cancel")
     public Map<String, Object> cancelRespond(
             @PathVariable String id, @PathVariable String runId) {
-        return copilot.cancelRespond(runId);
+        return copilot.cancelRespond(id, runId);
     }
 
     @PostMapping("/sessions/{id}/cancel")

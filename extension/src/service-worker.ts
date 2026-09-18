@@ -1,7 +1,52 @@
+import { originPattern } from "./lib/url";
+
 const SIDE_PANEL_PATH = "sidepanel.html";
 const SIDE_PANEL_ALL_TABS_KEY = "sidePanelAllTabs";
 const DISMISSED_BALL_TAB_IDS_KEY = "dismissedBallTabIds";
 let sidePanelAllTabs = false;
+
+async function hasOriginPermission(url: string | undefined): Promise<boolean> {
+  const pattern = originPattern(url);
+  if (!pattern) return false;
+  return chrome.permissions.contains({ origins: [pattern] });
+}
+
+async function ensureContentScript(tabId: number): Promise<void> {
+  const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+  if (!tab?.url || !(await hasOriginPermission(tab.url))) return;
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "PING" });
+    return;
+  } catch {
+    // The script is not present after install, navigation, or extension reload.
+  }
+  await chrome.scripting
+    .executeScript({
+      target: { tabId, allFrames: true },
+      files: ["content.js"],
+    })
+    .catch(() => {});
+}
+
+async function ensureEnabledTabContent(tabId: number): Promise<void> {
+  const local = await chrome.storage.local.get([
+    "activationMode",
+    "enabledTabIds",
+  ]);
+  const session = await chrome.storage.session.get([
+    DISMISSED_BALL_TAB_IDS_KEY,
+  ]);
+  if (
+    tabIsEnabled(
+      tabId,
+      local.activationMode ?? "manual",
+      local.enabledTabIds,
+      session[DISMISSED_BALL_TAB_IDS_KEY],
+    )
+  ) {
+    await ensureContentScript(tabId);
+  }
+}
 
 async function configureTabSidePanel(tabId: number) {
   await chrome.sidePanel
@@ -35,7 +80,13 @@ async function applySidePanelMode(allTabs: boolean) {
 
 async function loadSidePanelMode() {
   const value = await chrome.storage.local.get(SIDE_PANEL_ALL_TABS_KEY);
-  await applySidePanelMode(value[SIDE_PANEL_ALL_TABS_KEY] === true);
+  const requested = value[SIDE_PANEL_ALL_TABS_KEY] === true;
+  const granted =
+    !requested ||
+    (await chrome.permissions.contains({
+      origins: ["http://*/*", "https://*/*"],
+    }));
+  await applySidePanelMode(requested && granted);
 }
 
 function openSidePanelForTab(tabId: number, windowId: number) {
@@ -103,6 +154,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   ) {
     void configureTabSidePanel(tabId);
   }
+  if (changeInfo.status === "complete") {
+    void ensureEnabledTabContent(tabId);
+  }
 });
 
 function tabIsEnabled(
@@ -120,6 +174,15 @@ function tabIsEnabled(
 
 chrome.runtime.onMessage.addListener(
   (msg: any, sender: any, sendResponse: any) => {
+    if (
+      msg?.type === "SET_SIDE_PANEL_ALL_TABS" &&
+      sender.id === chrome.runtime.id
+    ) {
+      void applySidePanelMode(msg.enabled === true).then(() =>
+        sendResponse({ ok: true }),
+      );
+      return true;
+    }
     if (
       msg?.type === "OPEN_SIDE_PANEL" &&
       sender.tab?.id != null &&
@@ -199,6 +262,7 @@ chrome.runtime.onMessage.addListener(
             chrome.storage.session.set(
               { [DISMISSED_BALL_TAB_IDS_KEY]: nextDismissed },
               () => {
+                if (enabling) void ensureContentScript(tabId);
                 void chrome.tabs
                   .sendMessage(tabId, { type: "REFRESH_PAGE_ENABLED" })
                   .catch(() => {});
@@ -214,14 +278,16 @@ chrome.runtime.onMessage.addListener(
       const tabId = Number(msg.tabId);
       chrome.storage.local.get(["activationMode", "enabledTabIds"], (value) => {
         chrome.storage.session.get([DISMISSED_BALL_TAB_IDS_KEY], (session) => {
+          const enabled = tabIsEnabled(
+            tabId,
+            value.activationMode ?? "manual",
+            value.enabledTabIds,
+            session[DISMISSED_BALL_TAB_IDS_KEY],
+          );
           sendResponse({
-            enabled: tabIsEnabled(
-              tabId,
-              value.activationMode ?? "manual",
-              value.enabledTabIds,
-              session[DISMISSED_BALL_TAB_IDS_KEY],
-            ),
+            enabled,
           });
+          if (enabled) void ensureContentScript(tabId);
         });
       });
       return true;

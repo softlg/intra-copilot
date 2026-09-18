@@ -1,5 +1,6 @@
 import { apiFetch, request } from "./api";
 import { buildApiError } from "./apiError";
+import { parseSseFrame } from "../../../shared/protocol/sse";
 
 export type CopilotMode = "ASSIST" | "BUILD" | "VALIDATE";
 
@@ -299,16 +300,12 @@ function handleCopilotFrame(
   frame: string,
   handlers: CopilotRespondStreamHandlers,
 ) {
-  let name = "";
-  const data: string[] = [];
-  for (const line of frame.split("\n")) {
-    if (line.startsWith("event:")) name = line.slice(6).trim();
-    else if (line.startsWith("data:")) data.push(line.slice(5).trim());
-  }
-  if (!name || data.length === 0) return;
+  const parsedFrame = parseSseFrame(frame);
+  if (!parsedFrame) return;
+  const { name } = parsedFrame;
   let payload: unknown;
   try {
-    payload = JSON.parse(data.join("\n"));
+    payload = JSON.parse(parsedFrame.data);
   } catch {
     return;
   }
@@ -466,16 +463,12 @@ function handleValidationFrame(
   frame: string,
   handlers: ValidationStreamHandlers,
 ) {
-  let name = "";
-  const data: string[] = [];
-  for (const line of frame.split("\n")) {
-    if (line.startsWith("event:")) name = line.slice(6).trim();
-    else if (line.startsWith("data:")) data.push(line.slice(5).trim());
-  }
-  if (!name || data.length === 0) return;
+  const parsedFrame = parseSseFrame(frame);
+  if (!parsedFrame) return;
+  const { name } = parsedFrame;
   let payload: unknown;
   try {
-    payload = JSON.parse(data.join("\n"));
+    payload = JSON.parse(parsedFrame.data);
   } catch {
     return;
   }

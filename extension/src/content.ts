@@ -874,6 +874,10 @@ function conditionWithTarget(condition: any, target: ActionTarget | undefined) {
 
 chrome.runtime.onMessage.addListener((msg: any, sender: any, send: any) => {
   if (Number.isInteger(sender?.frameId)) frameId = sender.frameId;
+  if (msg?.type === "PING") {
+    send({ ok: true, frameId });
+    return true;
+  }
   if (msg?.type === "REFRESH_PAGE_ENABLED") {
     refreshPageEnabled();
     send({ ok: true });

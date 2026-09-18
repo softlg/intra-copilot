@@ -69,4 +69,41 @@ class JwtAuthFilterTest {
         assertEquals("admin", RequestContext.current().source());
         assertEquals("admin-user-id", RequestContext.current().userId());
     }
+
+    @Test
+    void unknownApiRoutesAreProtectedByDefault() throws Exception {
+        JwtAuthFilter filter =
+                new JwtAuthFilter(mock(JwtVerifier.class), mock(AdminAuthService.class));
+        MockHttpServletRequest request =
+                new MockHttpServletRequest("POST", "/api/v1/future-protected-route");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertFalse(filter.preHandle(request, response, new Object()));
+        assertEquals(401, response.getStatus());
+    }
+
+    @Test
+    void viewerCannotDeleteAdminResources() throws Exception {
+        AdminAuthService adminAuth = mock(AdminAuthService.class);
+        when(adminAuth.verify("viewer-token"))
+                .thenReturn(new AdminAuthService.Verified("viewer-id", "viewer", "VIEWER"));
+        JwtAuthFilter filter = new JwtAuthFilter(mock(JwtVerifier.class), adminAuth);
+        MockHttpServletRequest request =
+                new MockHttpServletRequest("DELETE", "/api/v1/admin/agents/AG-1");
+        request.addHeader("Authorization", "Bearer viewer-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertFalse(filter.preHandle(request, response, new Object()));
+        assertEquals(403, response.getStatus());
+    }
+
+    @Test
+    void deviceChallengeIsPublic() throws Exception {
+        JwtAuthFilter filter =
+                new JwtAuthFilter(mock(JwtVerifier.class), mock(AdminAuthService.class));
+        MockHttpServletRequest request =
+                new MockHttpServletRequest("POST", "/api/v1/auth/devices/challenge");
+
+        assertTrue(filter.preHandle(request, new MockHttpServletResponse(), new Object()));
+    }
 }

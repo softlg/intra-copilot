@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.intra.copilot.repo.DeviceKeyRepository;
 import com.intra.copilot.service.auth.AdminAuthService;
+import com.intra.copilot.service.auth.DeviceRegistrationService;
 import com.intra.copilot.service.auth.RequestContext;
 import java.time.Instant;
 import java.util.Map;
@@ -27,7 +27,8 @@ class AuthControllerTest {
                         Optional.of(
                                 new AdminAuthService.Session(
                                         "signed-token", "admin-id", "admin", expiresAt)));
-        AuthController controller = new AuthController(mock(DeviceKeyRepository.class), adminAuth);
+        AuthController controller =
+                new AuthController(mock(DeviceRegistrationService.class), adminAuth);
 
         ResponseEntity<?> response =
                 controller.adminLogin(new AuthController.AdminLoginRequest("admin", "secret"));
@@ -39,6 +40,7 @@ class AuthControllerTest {
         assertEquals(expiresAt, body.expiresAt());
         assertEquals("admin-id", body.user().get("id"));
         assertEquals("admin", body.user().get("username"));
+        assertEquals("ADMIN", body.user().get("role"));
     }
 
     @Test
@@ -46,7 +48,8 @@ class AuthControllerTest {
         AdminAuthService adminAuth = mock(AdminAuthService.class);
         when(adminAuth.isConfigured()).thenReturn(true);
         when(adminAuth.authenticate("admin", "wrong")).thenReturn(Optional.empty());
-        AuthController controller = new AuthController(mock(DeviceKeyRepository.class), adminAuth);
+        AuthController controller =
+                new AuthController(mock(DeviceRegistrationService.class), adminAuth);
 
         ResponseEntity<?> response =
                 controller.adminLogin(new AuthController.AdminLoginRequest("admin", "wrong"));
@@ -57,12 +60,13 @@ class AuthControllerTest {
     @Test
     void adminSessionReturnsDisplayNameInsteadOfUserId() {
         AuthController controller =
-                new AuthController(mock(DeviceKeyRepository.class), mock(AdminAuthService.class));
+                new AuthController(
+                        mock(DeviceRegistrationService.class), mock(AdminAuthService.class));
         RequestContext.set("admin", "admin-1", "operator");
         try {
             Map<String, String> session = controller.adminSession();
 
-            assertEquals(Map.of("username", "operator"), session);
+            assertEquals(Map.of("username", "operator", "role", "VIEWER"), session);
         } finally {
             RequestContext.clear();
         }

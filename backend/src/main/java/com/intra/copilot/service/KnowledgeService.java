@@ -415,7 +415,15 @@ public class KnowledgeService implements KnowledgeRetriever {
         record.setStorageKey(stored.key());
         record.setSha256(stored.sha256());
         record.setByteSize(stored.byteSize());
-        storageRecords.save(record);
+        try {
+            storageRecords.save(record);
+        } catch (RuntimeException error) {
+            try {
+                storage.delete(stored.key());
+            } catch (IOException ignored) {
+            }
+            throw error;
+        }
 
         jobService.enqueueParse(base.getId(), doc.getId());
         doc.setStatus(STATUS_QUEUED);

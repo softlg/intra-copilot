@@ -22,17 +22,6 @@ export interface AuthBootstrap {
 // 导出供调试使用
 export const SOURCE_NAME = SOURCE;
 
-/** 读取当前 deviceId，若不存在则生成。 */
-export async function getOrCreateDeviceId(): Promise<string> {
-  const stored = await chrome.storage.local.get(DEVICE_ID_KEY);
-  if (typeof stored[DEVICE_ID_KEY] === "string" && stored[DEVICE_ID_KEY]) {
-    return stored[DEVICE_ID_KEY];
-  }
-  const deviceId = crypto.randomUUID();
-  await chrome.storage.local.set({ [DEVICE_ID_KEY]: deviceId });
-  return deviceId;
-}
-
 /** 读取或生成 RSA 密钥对（PKCS8 存储在 chrome.storage.local）。 */
 interface StoredKey {
   publicKey: JsonWebKey;
@@ -121,17 +110,56 @@ async function signJwt(
 /** 上报公钥到后端。重复调用幂等。 */
 async function registerDevice(
   apiBase: string,
-  deviceId: string,
+  requestedDeviceId: string | undefined,
   publicKey: CryptoKey,
-): Promise<{ userId: string }> {
+  privateKey: CryptoKey,
+): Promise<{ deviceId: string; userId: string }> {
   const jwk = await crypto.subtle.exportKey("jwk", publicKey);
+  const challengeResponse = await fetch(
+    `${apiBase}/api/v1/auth/devices/challenge`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        deviceId: requestedDeviceId,
+        publicKeyJwk: jwk,
+        source: SOURCE,
+      }),
+    },
+  );
+  if (!challengeResponse.ok) {
+    throw new Error(
+      `Device challenge failed: ${challengeResponse.status} ${await challengeResponse
+        .text()
+        .catch(() => "")}`,
+    );
+  }
+  const challenge = (await challengeResponse.json()) as {
+    deviceId: string;
+    challengeId: string;
+    nonce: string;
+  };
+  const canonical = [
+    "intra-copilot-device-registration",
+    challenge.challengeId,
+    challenge.nonce,
+    SOURCE,
+    challenge.deviceId,
+  ].join("\n");
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    privateKey,
+    new TextEncoder().encode(canonical),
+  );
   const response = await fetch(`${apiBase}/api/v1/auth/devices/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      deviceId,
+      deviceId: challenge.deviceId,
       publicKeyJwk: jwk,
       source: SOURCE,
+      challengeId: challenge.challengeId,
+      signature: base64urlEncode(new Uint8Array(signature)),
     }),
   });
   if (!response.ok) {
@@ -141,8 +169,8 @@ async function registerDevice(
         .catch(() => "")}`,
     );
   }
-  const data = (await response.json()) as { userId: string };
-  return { userId: data.userId };
+  const data = (await response.json()) as { deviceId: string; userId: string };
+  return { deviceId: data.deviceId, userId: data.userId };
 }
 
 /**
@@ -150,27 +178,25 @@ async function registerDevice(
  * 返回 authedFetch 用于后续所有受保护请求。
  */
 export async function bootstrapAuth(apiBase: string): Promise<AuthBootstrap> {
-  const deviceId = await getOrCreateDeviceId();
+  const storedDeviceId = await chrome.storage.local.get(DEVICE_ID_KEY);
+  const requestedDeviceId =
+    typeof storedDeviceId[DEVICE_ID_KEY] === "string" &&
+    !String(storedDeviceId[DEVICE_ID_KEY]).startsWith("pending-")
+      ? String(storedDeviceId[DEVICE_ID_KEY])
+      : undefined;
   const keyPair = await getOrCreateKeyPair();
-  try {
-    await registerDevice(apiBase, deviceId, keyPair.publicKey);
-  } catch (error) {
-    // 公钥可能丢失或被禁用，重置本地密钥对后重试一次
-    console.warn("auth: device register failed, resetting keys", error);
-    await chrome.storage.local.remove(KEY_PAIR_KEY);
-    const fresh = await getOrCreateKeyPair();
-    await registerDevice(apiBase, deviceId, fresh.publicKey);
-    return {
-      deviceId,
-      authedFetch: makeAuthedFetch(apiBase, fresh.privateKey, deviceId, () =>
-        registerDevice(apiBase, deviceId, fresh.publicKey),
-      ),
-    };
-  }
+  const registered = await registerDevice(
+    apiBase,
+    requestedDeviceId,
+    keyPair.publicKey,
+    keyPair.privateKey,
+  );
+  const deviceId = registered.deviceId;
+  await chrome.storage.local.set({ [DEVICE_ID_KEY]: deviceId });
   return {
     deviceId,
     authedFetch: makeAuthedFetch(apiBase, keyPair.privateKey, deviceId, () =>
-      registerDevice(apiBase, deviceId, keyPair.publicKey),
+      registerDevice(apiBase, deviceId, keyPair.publicKey, keyPair.privateKey),
     ),
   };
 }

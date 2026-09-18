@@ -10,23 +10,25 @@ export interface AdminSession {
   expiresAt: string;
   user: {
     username: string;
+    role?: string;
   };
 }
 
 export interface AdminIdentity {
   username: string;
+  role?: string;
 }
 
 export function getAuthToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY);
+  return sessionStorage.getItem(AUTH_TOKEN_KEY);
 }
 
 export function setAuthToken(token: string): void {
-  localStorage.setItem(AUTH_TOKEN_KEY, token);
+  sessionStorage.setItem(AUTH_TOKEN_KEY, token);
 }
 
 export function clearAuthToken(): void {
-  localStorage.removeItem(AUTH_TOKEN_KEY);
+  sessionStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
 export async function apiFetch(

@@ -29,14 +29,28 @@ import com.intra.copilot.service.LlmClient;
 import com.intra.copilot.service.PlanningService;
 import com.intra.copilot.service.SkillPromptAssembler;
 import com.intra.copilot.service.ToolExecutor;
+import com.intra.copilot.service.auth.AdminRole;
+import com.intra.copilot.service.auth.RequestContext;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockMultipartFile;
 
 class RouterAdminControllerTest {
+
+    @BeforeEach
+    void bindAdminIdentity() {
+        RequestContext.set("admin", "admin-1", "operator", AdminRole.ADMIN);
+    }
+
+    @AfterEach
+    void clearAdminIdentity() {
+        RequestContext.clear();
+    }
 
     @Test
     void supportsImageOnlyRoutingAndForwardsSidePanelPermissions() {
@@ -50,7 +64,8 @@ class RouterAdminControllerTest {
         when(assistant.id()).thenReturn("assistant");
         when(assistant.displayName()).thenReturn("页面助手");
         String image = "data:image/png;base64,aW1hZ2U=";
-        when(attachments.imageDataUrls(List.of("attachment-1"))).thenReturn(List.of(image));
+        when(attachments.imageDataUrls("admin", "admin-1", List.of("attachment-1")))
+                .thenReturn(List.of(image));
         when(orchestrator.route(eq(""), eq(""), eq(List.of()), eq(List.of(image)), any()))
                 .thenReturn(
                         new AgentOrchestrator.RoutingResult(
@@ -414,7 +429,7 @@ class RouterAdminControllerTest {
                         attachments);
         MockMultipartFile file =
                 new MockMultipartFile("files", "screen.png", "image/png", new byte[] {1, 2, 3});
-        when(attachments.upload(List.of(file)))
+        when(attachments.upload("admin", "admin-1", List.of(file)))
                 .thenReturn(
                         List.of(
                                 new AttachmentView(

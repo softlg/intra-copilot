@@ -5,8 +5,8 @@ import com.intra.copilot.model.*;
 import com.intra.copilot.service.AgentRegistry;
 import com.intra.copilot.service.AttachmentService;
 import com.intra.copilot.service.ChatService;
-import com.intra.copilot.service.SystemAgentCatalog;
 import com.intra.copilot.service.SystemAgentBroker;
+import com.intra.copilot.service.SystemAgentCatalog;
 import com.intra.copilot.service.auth.RequestContext;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.*;
@@ -83,7 +83,9 @@ public class ApiController {
                 "systemAgentDelegationTool",
                 SystemAgentCatalog.DELEGATION_TOOL_NAME,
                 "systemAgentCapabilities",
-                systemAgentBroker.descriptors());
+                systemAgentBroker.descriptors(),
+                "streamTimeoutMs",
+                chat.sseTimeoutMs());
     }
 
     @PostMapping("/sessions")
@@ -170,7 +172,7 @@ public class ApiController {
     public List<AttachmentView> uploadAttachments(@RequestParam("files") List<MultipartFile> files)
             throws Exception {
         var identity = RequestContext.current();
-        return attachmentService.upload(files);
+        return attachmentService.upload(identity.source(), identity.userId(), files);
     }
 
     /** 取回单条附件字节，供前端渲染图片或下载文件。需鉴权。 */
@@ -178,7 +180,7 @@ public class ApiController {
     public ResponseEntity<ByteArrayResource> serveAttachment(@PathVariable String id)
             throws Exception {
         var identity = RequestContext.current();
-        var stored = attachmentService.serve(id);
+        var stored = attachmentService.serve(identity.source(), identity.userId(), id);
         byte[] bytes = stored.bytes();
         ByteArrayResource resource = new ByteArrayResource(bytes);
         String contentType =

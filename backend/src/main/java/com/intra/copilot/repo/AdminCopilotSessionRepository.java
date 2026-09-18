@@ -24,6 +24,10 @@ public interface AdminCopilotSessionRepository extends BaseMapper<AdminCopilotSe
                                 .last("LIMIT 1")));
     }
 
+    default Optional<AdminCopilotSession> findById(String id) {
+        return Optional.ofNullable(selectById(id));
+    }
+
     default List<AdminCopilotSession> findByOwner(String adminUserId) {
         return selectList(
                 Wrappers.<AdminCopilotSession>query()

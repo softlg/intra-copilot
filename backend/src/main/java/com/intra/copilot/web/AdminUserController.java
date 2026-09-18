@@ -30,7 +30,8 @@ public class AdminUserController {
                         request == null ? null : request.username(),
                         request == null ? null : request.displayName(),
                         request == null ? null : request.password(),
-                        request == null || request.enabled() == null || request.enabled());
+                        request == null || request.enabled() == null || request.enabled(),
+                        request == null ? "EDITOR" : request.role());
         audits.record("CREATE", "ADMIN_USER", created.id(), "MANUAL", null, created);
         return created;
     }
@@ -42,7 +43,10 @@ public class AdminUserController {
                 users.update(
                         id,
                         request == null ? null : request.displayName(),
-                        request != null && Boolean.TRUE.equals(request.enabled()));
+                        request == null || request.enabled() == null
+                                ? users.get(id).isEnabled()
+                                : request.enabled(),
+                        request == null ? null : request.role());
         audits.record("UPDATE", "ADMIN_USER", id, "MANUAL", null, updated);
         return updated;
     }
@@ -55,9 +59,9 @@ public class AdminUserController {
     }
 
     public record CreateUserRequest(
-            String username, String displayName, String password, Boolean enabled) {}
+            String username, String displayName, String password, Boolean enabled, String role) {}
 
-    public record UpdateUserRequest(String displayName, Boolean enabled) {}
+    public record UpdateUserRequest(String displayName, Boolean enabled, String role) {}
 
     public record ResetPasswordRequest(String password) {}
 }

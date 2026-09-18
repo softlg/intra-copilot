@@ -47,6 +47,7 @@ public class AdminAuthService {
     private final Duration sessionTtl;
     private final MACSigner signer;
     private final MACVerifier verifier;
+    private final boolean strictConfiguration;
 
     @Autowired
     public AdminAuthService(
@@ -54,14 +55,22 @@ public class AdminAuthService {
             @Value("${admin.username:admin}") String username,
             @Value("${admin.password:}") String password,
             @Value("${admin.session-ttl-minutes:480}") long sessionTtlMinutes,
-            @Value("${admin.session-secret:}") String sessionSecret) {
-        this(users, username, password, sessionTtlMinutes, sessionSecret, true);
+            @Value("${admin.session-secret:}") String sessionSecret,
+            @Value("${app.security.require-secure-admin-config:true}") boolean strictConfiguration) {
+        this(
+                users,
+                username,
+                password,
+                sessionTtlMinutes,
+                sessionSecret,
+                true,
+                strictConfiguration);
     }
 
     /** Constructor used by focused unit tests that do not need a database. */
     AdminAuthService(
             String username, String password, long sessionTtlMinutes, String sessionSecret) {
-        this(null, username, password, sessionTtlMinutes, sessionSecret, false);
+        this(null, username, password, sessionTtlMinutes, sessionSecret, false, false);
     }
 
     private AdminAuthService(
@@ -70,10 +79,13 @@ public class AdminAuthService {
             String password,
             long sessionTtlMinutes,
             String sessionSecret,
-            boolean ignoredSpringOnlyMarker) {
+            boolean ignoredSpringOnlyMarker,
+            boolean strictConfiguration) {
         this.users = users;
         this.bootstrapUsername = username == null ? "" : username.trim();
         this.bootstrapPassword = password == null ? "" : password;
+        this.strictConfiguration = strictConfiguration;
+        validateConfiguration(sessionSecret);
         this.sessionTtl = Duration.ofMinutes(Math.max(1, sessionTtlMinutes));
         byte[] key = buildSigningKey(sessionSecret);
         try {
@@ -97,6 +109,7 @@ public class AdminAuthService {
         user.setDisplayName(bootstrapUsername);
         user.setPasswordHash(hashPassword(bootstrapPassword));
         user.setEnabled(true);
+        user.setRole(AdminRole.OWNER.name());
         users.save(user);
     }
 
@@ -126,9 +139,16 @@ public class AdminAuthService {
         Instant issuedAt = Instant.now();
         Instant expiresAt = issuedAt.plus(sessionTtl);
         user.setLastLoginAt(issuedAt);
+        user.setSessionVersion(Math.max(0L, user.getSessionVersion()));
         user.touch();
         users.save(user);
-        return Optional.of(issueSession(user.getId(), user.getUsername(), expiresAt));
+        return Optional.of(
+                issueSession(
+                        user.getId(),
+                        user.getUsername(),
+                        user.getRole(),
+                        user.getSessionVersion(),
+                        expiresAt));
     }
 
     /** Verifies an admin session token or throws {@link IllegalArgumentException}. */
@@ -150,6 +170,7 @@ public class AdminAuthService {
             JWTClaimsSet claims = jwt.getJWTClaimsSet();
             String userId = claims.getSubject();
             String username = claims.getStringClaim("username");
+            Long sessionVersion = claims.getLongClaim("sessionVersion");
             Date expiresAt = claims.getExpirationTime();
             if (!ISSUER.equals(claims.getIssuer())
                     || userId == null
@@ -168,8 +189,13 @@ public class AdminAuthService {
                         || !current.getUsername().equals(username)) {
                     throw new IllegalArgumentException("Admin account disabled or changed");
                 }
+                if (sessionVersion == null) sessionVersion = 0L;
+                if (current.getSessionVersion() != sessionVersion) {
+                    throw new IllegalArgumentException("Admin session revoked");
+                }
+                return new Verified(userId, username, current.getRole());
             }
-            return new Verified(userId, username);
+            return new Verified(userId, username, AdminRole.OWNER.name());
         } catch (ParseException | JOSEException e) {
             throw new IllegalArgumentException("Malformed admin token", e);
         }
@@ -196,16 +222,30 @@ public class AdminAuthService {
             return Optional.empty();
         }
         Instant expiresAt = Instant.now().plus(sessionTtl);
-        return Optional.of(issueSession("legacy-admin", bootstrapUsername, expiresAt));
+        return Optional.of(
+                issueSession(
+                        "legacy-admin",
+                        bootstrapUsername,
+                        AdminRole.OWNER.name(),
+                        0L,
+                        expiresAt));
     }
 
-    private Session issueSession(String userId, String username, Instant expiresAt) {
+    private Session issueSession(
+            String userId,
+            String username,
+            String role,
+            long sessionVersion,
+            Instant expiresAt) {
         Instant issuedAt = Instant.now();
+        String effectiveRole = AdminRole.parse(role).name();
         JWTClaimsSet claims =
                 new JWTClaimsSet.Builder()
                         .issuer(ISSUER)
                         .subject(userId)
                         .claim("username", username)
+                        .claim("role", effectiveRole)
+                        .claim("sessionVersion", sessionVersion)
                         .issueTime(Date.from(issuedAt))
                         .expirationTime(Date.from(expiresAt))
                         .claim("scope", SCOPE)
@@ -217,7 +257,7 @@ public class AdminAuthService {
         } catch (JOSEException e) {
             throw new IllegalStateException("Unable to sign admin session", e);
         }
-        return new Session(token.serialize(), userId, username, expiresAt);
+        return new Session(token.serialize(), userId, username, effectiveRole, expiresAt);
     }
 
     private static boolean verifyPassword(AdminUser user, String candidate) {
@@ -279,7 +319,33 @@ public class AdminAuthService {
         }
     }
 
-    public record Session(String token, String userId, String username, Instant expiresAt) {}
+    private void validateConfiguration(String sessionSecret) {
+        if (!strictConfiguration) return;
+        if (bootstrapUsername.isBlank()
+                || bootstrapPassword.isBlank()
+                || "admin".equalsIgnoreCase(bootstrapPassword)) {
+            throw new IllegalStateException(
+                    "ADMIN_USERNAME/ADMIN_PASSWORD 未安全配置；禁止使用空密码或默认密码 admin");
+        }
+        if (sessionSecret == null || sessionSecret.isBlank()) {
+            throw new IllegalStateException("ADMIN_SESSION_SECRET 未配置，生产环境不允许使用临时随机密钥");
+        }
+    }
 
-    public record Verified(String userId, String username) {}
+    public record Session(
+            String token,
+            String userId,
+            String username,
+            String role,
+            Instant expiresAt) {
+        public Session(String token, String userId, String username, Instant expiresAt) {
+            this(token, userId, username, AdminRole.ADMIN.name(), expiresAt);
+        }
+    }
+
+    public record Verified(String userId, String username, String role) {
+        public Verified(String userId, String username) {
+            this(userId, username, AdminRole.ADMIN.name());
+        }
+    }
 }

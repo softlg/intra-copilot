@@ -24,6 +24,11 @@ spring:
     password: replace-me
   flyway:
     enabled: true
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
 mybatis-plus:
   configuration.map-underscore-to-camel-case: true
 embedding:
@@ -57,8 +62,7 @@ agent:
   llm-timeout-seconds: 180
   sse-timeout-seconds: 600
 tools:
-  # Set to false in public deployments to enforce HTTPS-only, public endpoints.
-  allow-http: true
+  allow-http: false
   allow-private-network: false
 mcp:
   timeout-ms: 8000
@@ -67,6 +71,13 @@ mcp:
   health-check-interval-ms: 300000
   session-idle-ms: 300000
 app:
+  security:
+    require-secure-admin-config: true
+  stream:
+    core-threads: 4
+    max-threads: 16
+    queue-capacity: 200
+    heartbeat-seconds: 15
   # 管理端开发服务器默认使用 4174；插件来源请替换为实际扩展 ID。
   cors-origins: chrome-extension://YOUR_EXTENSION_ID,http://localhost:4174,http://127.0.0.1:4174
 admin:

@@ -21,6 +21,7 @@ import com.intra.copilot.repo.KnowledgeBaseRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
 import com.intra.copilot.service.auth.RequestContext;
+import com.intra.copilot.service.stream.SseExecutionService;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.io.IOException;
 import java.time.Duration;
@@ -47,6 +48,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
 /** Stateful management-console assistant with explicit proposal generation and application. */
@@ -110,6 +112,7 @@ public class AdminCopilotService {
     private final ToolDefinitionRepository toolDefinitions;
     private final SkillDefinitionRepository skillDefinitions;
     private final TransactionTemplate transactionTemplate;
+    private final SseExecutionService streams;
     private final Map<String, RespondCancellation> respondCancellations = new ConcurrentHashMap<>();
 
     public AdminCopilotService(
@@ -129,7 +132,8 @@ public class AdminCopilotService {
             McpServerService mcpServers,
             KnowledgeBaseRepository knowledgeBases,
             ToolDefinitionRepository toolDefinitions,
-            SkillDefinitionRepository skillDefinitions) {
+            SkillDefinitionRepository skillDefinitions,
+            SseExecutionService streams) {
         this(
                 sessions,
                 messages,
@@ -148,6 +152,7 @@ public class AdminCopilotService {
                 knowledgeBases,
                 toolDefinitions,
                 skillDefinitions,
+                streams,
                 null);
     }
 
@@ -170,6 +175,7 @@ public class AdminCopilotService {
             KnowledgeBaseRepository knowledgeBases,
             ToolDefinitionRepository toolDefinitions,
             SkillDefinitionRepository skillDefinitions,
+            SseExecutionService streams,
             PlatformTransactionManager transactionManager) {
         this.sessions = sessions;
         this.messages = messages;
@@ -188,13 +194,25 @@ public class AdminCopilotService {
         this.knowledgeBases = knowledgeBases;
         this.toolDefinitions = toolDefinitions;
         this.skillDefinitions = skillDefinitions;
+        this.streams = streams;
         this.transactionTemplate =
                 transactionManager == null ? null : new TransactionTemplate(transactionManager);
     }
 
     public List<Map<String, Object>> listSessions() {
-        return sessions.findByOwner(users.requireCurrent().getId()).stream()
-                .map(this::sessionSummaryView)
+        List<AdminCopilotSession> values = sessions.findByOwner(users.requireCurrent().getId());
+        if (values.isEmpty()) return List.of();
+        Map<String, AdminCopilotMessage> latest =
+                messages
+                        .findLatestBySessionIds(values.stream().map(AdminCopilotSession::getId).toList())
+                        .stream()
+                        .collect(
+                                java.util.stream.Collectors.toMap(
+                                        AdminCopilotMessage::getSessionId,
+                                        item -> item,
+                                        (first, ignored) -> first));
+        return values.stream()
+                .map(session -> sessionSummaryView(session, latest.get(session.getId())))
                 .toList();
     }
 
@@ -217,7 +235,6 @@ public class AdminCopilotService {
         return sessionView(session);
     }
 
-    @Transactional
     public Map<String, Object> respond(String sessionId, RespondRequest request) {
         return respondInternal(sessionId, request, null, null);
     }
@@ -241,14 +258,13 @@ public class AdminCopilotService {
         out.onCompletion(cleanup);
         out.onTimeout(cleanup);
         out.onError(error -> cleanup.run());
+        java.util.concurrent.ScheduledFuture<?> heartbeat =
+                streams.startHeartbeat(out, finished);
 
         RequestContext.Identity identity = RequestContext.currentOrNull();
-        Thread worker =
-                new Thread(
-                        () ->
-                                RequestContext.runWith(
-                                        identity,
-                                        () -> {
+        streams.executeWithIdentity(
+                        identity,
+                        () -> {
                                             try {
                                                 emitStream(
                                                         out,
@@ -265,18 +281,16 @@ public class AdminCopilotService {
                                                                 "message",
                                                                 "正在分析上下文并生成回复"));
                                                 Map<String, Object> result =
-                                                        inTransaction(
-                                                                () ->
-                                                                        respondInternal(
-                                                                                sessionId,
-                                                                                request,
-                                                                                runId,
-                                                                                (name, payload) ->
-                                                                                        emitStream(
-                                                                                                out,
-                                                                                                finished,
-                                                                                                name,
-                                                                                                payload)));
+                                                        respondInternal(
+                                                                sessionId,
+                                                                request,
+                                                                runId,
+                                                                (name, payload) ->
+                                                                        emitStream(
+                                                                                out,
+                                                                                finished,
+                                                                                name,
+                                                                                payload));
                                                 emitStream(out, finished, "done", result);
                                             } catch (ModelCancelledException error) {
                                                 emitStream(
@@ -291,23 +305,29 @@ public class AdminCopilotService {
                                                         "error",
                                                         Map.of("message", safeMessage(error)));
                                             } finally {
+                                                if (heartbeat != null) heartbeat.cancel(true);
                                                 cleanup.run();
                                                 out.complete();
                                             }
-                                        }),
-                        "admin-copilot-" + runId.substring(3, 11));
-        worker.setDaemon(true);
-        worker.start();
+                                        });
         return out;
     }
 
-    public Map<String, Object> cancelRespond(String runId) {
+    public Map<String, Object> cancelRespond(String sessionId, String runId) {
         RespondCancellation cancellation =
                 runId == null ? null : respondCancellations.get(runId);
         if (cancellation != null) {
             cancellation.cancelled().set(true);
             cancellation.signal().tryEmitValue(true);
         }
+        sessions
+                .findOwned(sessionId, users.requireCurrent().getId())
+                .ifPresent(
+                        session -> {
+                            session.setStatus("CANCEL_REQUESTED");
+                            session.touch();
+                            sessions.save(session);
+                        });
         return Map.of(
                 "runId", runId == null ? "" : runId, "canceled", cancellation != null);
     }
@@ -337,7 +357,7 @@ public class AdminCopilotService {
         }
         Map<String, Object> state = readMap(session.getStateJson());
         Map<String, Object> context = buildContext(session, request == null ? null : request.context());
-        Mono<Void> cancellation = cancellationSignal(runId);
+        Mono<Void> cancellation = cancellationSignal(runId, sessionId);
         Map<String, Object> result;
         if ("BUILD".equals(session.getMode())) {
             result =
@@ -353,29 +373,35 @@ public class AdminCopilotService {
             result = respondAssist(session, context, userText, cancellation, progress);
         }
         result = enforceSystemAgentPatchBoundary(session, result);
-        if (isCancelled(runId)) throw new ModelCancelledException();
+        if (isCancelled(runId, sessionId)) throw new ModelCancelledException();
 
         String reply = Objects.toString(result.get("reply"), "").trim();
         if (reply.isBlank()) reply = "我没有得到可用回复，请补充信息后重试。";
-        AdminCopilotMessage userMessage = new AdminCopilotMessage();
-        userMessage.setSessionId(sessionId);
-        userMessage.setRole("user");
-        userMessage.setContent(userText);
-        messages.append(userMessage);
+        String finalReply = reply;
+        Map<String, Object> finalResult = result;
+        return inTransaction(
+                () -> {
+                    AdminCopilotMessage userMessage = new AdminCopilotMessage();
+                    userMessage.setSessionId(sessionId);
+                    userMessage.setRole("user");
+                    userMessage.setContent(userText);
+                    messages.append(userMessage);
 
-        AdminCopilotMessage assistantMessage = new AdminCopilotMessage();
-        assistantMessage.setSessionId(sessionId);
-        assistantMessage.setRole("assistant");
-        assistantMessage.setContent(reply);
-        assistantMessage.setPayloadJson(writeJson(result));
-        assistantMessage.setModel("system");
-        messages.append(assistantMessage);
+                    AdminCopilotMessage assistantMessage = new AdminCopilotMessage();
+                    assistantMessage.setSessionId(sessionId);
+                    assistantMessage.setRole("assistant");
+                    assistantMessage.setContent(finalReply);
+                    assistantMessage.setPayloadJson(writeJson(finalResult));
+                    assistantMessage.setModel("system");
+                    messages.append(assistantMessage);
 
-        session.setStateJson(writeJson(state));
-        if (isDefaultTitle(session.getTitle())) session.setTitle(titleFrom(userText));
-        session.touch();
-        sessions.save(session);
-        return result;
+                    session.setStateJson(writeJson(state));
+                    session.setStatus("ACTIVE");
+                    if (isDefaultTitle(session.getTitle())) session.setTitle(titleFrom(userText));
+                    session.touch();
+                    sessions.save(session);
+                    return finalResult;
+                });
     }
 
     @Transactional
@@ -1465,6 +1491,12 @@ public class AdminCopilotService {
     }
 
     private Map<String, Object> sessionSummaryView(AdminCopilotSession session) {
+        return sessionSummaryView(
+                session, messages.findLastBySession(session.getId()).orElse(null));
+    }
+
+    private Map<String, Object> sessionSummaryView(
+            AdminCopilotSession session, AdminCopilotMessage lastMessage) {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("id", session.getId());
         view.put("title", session.getTitle());
@@ -1474,8 +1506,9 @@ public class AdminCopilotService {
         view.put("currentAgentId", session.getCurrentAgentId());
         view.put("createdAt", session.getCreatedAt());
         view.put("updatedAt", session.getUpdatedAt());
-        Optional<AdminCopilotMessage> last = messages.findLastBySession(session.getId());
-        view.put("lastMessagePreview", last.map(AdminCopilotMessage::getContent).orElse(""));
+        view.put(
+                "lastMessagePreview",
+                lastMessage == null ? "" : lastMessage.getContent());
         if ("VALIDATE".equals(session.getMode())) {
             view.put("stateSummary", validationStateSummary(session));
         }
@@ -1493,9 +1526,9 @@ public class AdminCopilotService {
     }
 
     private List<Map<String, String>> history(String sessionId) {
-        List<AdminCopilotMessage> values = messages.findBySession(sessionId);
-        int from = Math.max(0, values.size() - MAX_HISTORY_MESSAGES);
-        return values.subList(from, values.size()).stream()
+        List<AdminCopilotMessage> values =
+                messages.findRecentBySession(sessionId, MAX_HISTORY_MESSAGES);
+        return values.stream()
                 .map(item -> Map.of("role", item.getRole(), "content", item.getContent()))
                 .toList();
     }
@@ -1904,14 +1937,36 @@ public class AdminCopilotService {
         return transactionTemplate.execute(status -> action.get());
     }
 
-    private Mono<Void> cancellationSignal(String runId) {
+    private Mono<Void> cancellationSignal(String runId, String sessionId) {
         RespondCancellation state = runId == null ? null : respondCancellations.get(runId);
-        return state == null ? null : state.signal().asMono().then();
+        Mono<Void> local = state == null ? null : state.signal().asMono().then();
+        Mono<Void> persisted =
+                Flux.interval(Duration.ofSeconds(1))
+                        .concatMap(
+                                ignored ->
+                                        Mono.<Boolean>fromCallable(
+                                                        () ->
+                                                                sessions.findById(sessionId)
+                                                                        .map(
+                                                                                item ->
+                                                                                        "CANCEL_REQUESTED"
+                                                                                                .equals(
+                                                                                                        item
+                                                                                                                .getStatus()))
+                                                                        .orElse(false))
+                                                .filter(Boolean::booleanValue)
+                                                .then())
+                        .next()
+                        .then();
+        return local == null ? persisted : Mono.firstWithSignal(local, persisted);
     }
 
-    private boolean isCancelled(String runId) {
+    private boolean isCancelled(String runId, String sessionId) {
         RespondCancellation state = runId == null ? null : respondCancellations.get(runId);
-        return state != null && state.cancelled().get();
+        if (state != null && state.cancelled().get()) return true;
+        return sessions.findById(sessionId)
+                .map(item -> "CANCEL_REQUESTED".equals(item.getStatus()))
+                .orElse(false);
     }
 
     private static void emitStream(

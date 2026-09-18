@@ -26,6 +26,8 @@ public class AgentRegistry {
     // 路由每次请求都会读全量定义（含兜底规则、可用 Agent 列表），加一个短 TTL 缓存避免每轮 LLM 都打 DB。
     private static final long TTL_MS = 5000;
     private final AtomicReference<Cache> allCache = new AtomicReference<>(new Cache(null, 0L));
+    private final AtomicReference<Cache> publishedCache =
+            new AtomicReference<>(new Cache(null, 0L));
 
     public AgentRegistry(
             AgentDefinitionRepository definitions,
@@ -39,11 +41,7 @@ public class AgentRegistry {
     }
 
     public List<AgentDefinition> enabledDefinitions() {
-        return allDefinitions()
-                .stream()
-                .filter(AgentDefinition::isEnabled)
-                .map(this::publishedDefinition)
-                .flatMap(Optional::stream)
+        return publishedDefinitions().stream()
                 .sorted(
                         java.util.Comparator.comparingInt(AgentDefinition::getPriority)
                                 .thenComparing(AgentDefinition::getDisplayName))
@@ -84,6 +82,22 @@ public class AgentRegistry {
         return definitions.findById(id).flatMap(this::publishedDefinition);
     }
 
+    private List<AgentDefinition> publishedDefinitions() {
+        long now = System.currentTimeMillis();
+        Cache entry = publishedCache.get();
+        if (entry.value != null && now - entry.at < TTL_MS) {
+            return entry.value;
+        }
+        List<AgentDefinition> values =
+                allDefinitions().stream()
+                        .filter(AgentDefinition::isEnabled)
+                        .map(this::publishedDefinition)
+                        .flatMap(Optional::stream)
+                        .toList();
+        publishedCache.set(new Cache(values, now));
+        return values;
+    }
+
     /**
      * Resolves the child bindings that were part of the parent's currently published release.
      * Legacy bare AgentDefinition snapshots have no binding payload, so they fall back to the
@@ -113,6 +127,7 @@ public class AgentRegistry {
     /** 配置变更后清缓存，避免最长 5s 读到旧值。 */
     public void evict() {
         allCache.set(new Cache(null, 0L));
+        publishedCache.set(new Cache(null, 0L));
     }
 
     @Transactional

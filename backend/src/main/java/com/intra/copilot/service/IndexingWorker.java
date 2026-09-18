@@ -67,12 +67,12 @@ public class IndexingWorker {
         this.workerId = ManagementFactory.getRuntimeMXBean().getName();
         ThreadFactory factory =
                 runnable -> {
-                    Thread thread = new Thread(runnable, "kb-indexer-" + running.incrementAndGet());
+                    Thread thread =
+                            new Thread(runnable, "kb-indexer-" + threadCounter.incrementAndGet());
                     thread.setDaemon(true);
                     return thread;
                 };
         this.executor = Executors.newFixedThreadPool(this.concurrency, factory);
-        running.set(0);
     }
 
     @Scheduled(fixedDelayString = "${kb.indexing.poll-interval-ms:1000}")

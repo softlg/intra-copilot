@@ -12,7 +12,7 @@ interface LoginScreenProps {
   notice?: string;
   onLanguageChange: (language: Language) => void;
   onThemeChange: (theme: Theme) => void;
-  onAuthenticated: (username: string) => void;
+  onAuthenticated: (session: { username: string; role?: string }) => void;
 }
 
 export function LoginScreen({
@@ -70,7 +70,7 @@ export function LoginScreen({
     setError("");
     try {
       const session = await loginAdmin(nextUsername, password);
-      onAuthenticated(session.user.username);
+      onAuthenticated(session.user);
     } catch (loginError) {
       setError(
         loginError instanceof Error ? loginError.message : t.loginFailed,

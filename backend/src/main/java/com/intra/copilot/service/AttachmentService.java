@@ -6,10 +6,14 @@ import com.intra.copilot.repo.MessageAttachmentRepository;
 import com.intra.copilot.storage.DocumentStorage;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,8 +43,10 @@ public class AttachmentService {
     }
 
     /** 上传一批附件，落库为「暂存」状态（message_id 为空），返回可展示的视图列表。 */
-    public List<AttachmentView> upload(List<MultipartFile> files) throws IOException {
+    public List<AttachmentView> upload(
+            String ownerSource, String ownerUserId, List<MultipartFile> files) throws IOException {
         if (files == null || files.isEmpty()) throw new IllegalArgumentException("上传文件不能为空");
+        validateOwner(ownerSource, ownerUserId);
         List<AttachmentView> views = new ArrayList<>();
         int order = 0;
         for (MultipartFile file : files) {
@@ -58,12 +64,24 @@ public class AttachmentService {
             attachment.setByteSize(bytes.length);
             attachment.setIsImage(isImage(contentType, name));
             attachment.setSortOrder(order++);
+            attachment.setOwnerSource(ownerSource);
+            attachment.setOwnerUserId(ownerUserId);
+            attachment.setStatus("PENDING");
+            attachment.setExpiresAt(Instant.now().plus(Duration.ofHours(24)));
             attachment.setCreatedAt(Instant.now());
             DocumentStorage.StoredObject stored =
                     storage.store("chat", attachment.getId(), name, bytes);
             attachment.setStorageBackend(storage.backend());
             attachment.setStorageKey(stored.key());
-            attachments.save(attachment);
+            try {
+                attachments.save(attachment);
+            } catch (RuntimeException error) {
+                try {
+                    storage.delete(stored.key());
+                } catch (IOException ignored) {
+                }
+                throw error;
+            }
             views.add(AttachmentView.of(attachment, baseUrl));
         }
         if (views.isEmpty()) throw new IllegalArgumentException("上传文件不能为空");
@@ -71,21 +89,43 @@ public class AttachmentService {
     }
 
     /** 把暂存附件绑定到某条用户消息，使其随该消息一起出现在历史里。 */
-    public void linkToMessage(List<String> attachmentIds, String messageId) {
+    public void linkToMessage(
+            String ownerSource, String ownerUserId, List<String> attachmentIds, String messageId) {
         if (attachmentIds == null || attachmentIds.isEmpty()) return;
+        validateOwner(ownerSource, ownerUserId);
         for (String id : attachmentIds) {
-            attachments
-                    .findById(id)
-                    .ifPresent(
-                            attachment -> {
-                                attachment.setMessageId(messageId);
-                                attachments.save(attachment);
-                            });
+            MessageAttachment attachment =
+                    attachments
+                            .findOwned(id, ownerSource, ownerUserId)
+                            .orElseThrow(
+                                    () ->
+                                            new IllegalArgumentException(
+                                                    "附件不存在、已绑定或不属于当前用户：" + id));
+            if (!"PENDING".equals(attachment.getStatus())
+                    && !messageId.equals(attachment.getMessageId())) {
+                throw new IllegalArgumentException("附件已绑定到其他消息：" + id);
+            }
+        }
+        for (String id : attachmentIds) {
+            if (!attachments.attachOwnedPending(id, messageId, ownerSource, ownerUserId)) {
+                throw new IllegalArgumentException("附件不存在、已绑定或不属于当前用户：" + id);
+            }
         }
     }
 
     /** 读取单条附件的字节，供流式返回；同时给出原始文件名与内容类型。 */
-    public StoredBytes serve(String id) throws IOException {
+    public StoredBytes serve(String ownerSource, String ownerUserId, String id) throws IOException {
+        validateOwner(ownerSource, ownerUserId);
+        MessageAttachment attachment =
+                attachments
+                        .findOwned(id, ownerSource, ownerUserId)
+                        .orElseThrow(() -> new IllegalArgumentException("附件不存在"));
+        byte[] bytes = storage.load(attachment.getStorageKey());
+        return new StoredBytes(bytes, attachment.getContentType(), attachment.getFilename());
+    }
+
+    /** Administrative read path. The caller must already be authorized for conversation logs. */
+    public StoredBytes serveForAdmin(String id) throws IOException {
         MessageAttachment attachment =
                 attachments.findById(id).orElseThrow(() -> new IllegalArgumentException("附件不存在"));
         byte[] bytes = storage.load(attachment.getStorageKey());
@@ -101,13 +141,29 @@ public class AttachmentService {
                 .toList();
     }
 
+    public Map<String, List<AttachmentView>> listForMessages(List<String> messageIds) {
+        if (messageIds == null || messageIds.isEmpty()) return Map.of();
+        return attachments
+                .findByMessageIds(messageIds)
+                .stream()
+                .collect(
+                        Collectors.groupingBy(
+                                MessageAttachment::getMessageId,
+                                LinkedHashMap::new,
+                                Collectors.mapping(
+                                        attachment -> AttachmentView.of(attachment, baseUrl),
+                                        Collectors.toList())));
+    }
+
     /** 把图片类附件还原成 data URL，供大模型「看见」图片内容。非图片附件被忽略。 */
-    public List<String> imageDataUrls(List<String> attachmentIds) {
+    public List<String> imageDataUrls(
+            String ownerSource, String ownerUserId, List<String> attachmentIds) {
         if (attachmentIds == null || attachmentIds.isEmpty()) return List.of();
+        validateOwner(ownerSource, ownerUserId);
         List<String> urls = new ArrayList<>();
         for (String id : attachmentIds) {
             attachments
-                    .findById(id)
+                    .findOwned(id, ownerSource, ownerUserId)
                     .ifPresent(
                             attachment -> {
                                 if (!attachment.getIsImage()) return;
@@ -131,6 +187,17 @@ public class AttachmentService {
         return urls;
     }
 
+    public void deleteExpiredPending(int limit) {
+        for (MessageAttachment attachment : attachments.findExpiredPending(Instant.now(), limit)) {
+            try {
+                storage.delete(attachment.getStorageKey());
+            } catch (IOException ignored) {
+                // A missing object must not block metadata cleanup.
+            }
+            attachments.deleteById(attachment.getId());
+        }
+    }
+
     public record StoredBytes(byte[] bytes, String contentType, String filename) {}
 
     private static boolean isImage(String contentType, String filename) {
@@ -150,5 +217,14 @@ public class AttachmentService {
         String name = file.getOriginalFilename();
         if (name == null || name.isBlank()) return "file";
         return java.nio.file.Paths.get(name).getFileName().toString();
+    }
+
+    private static void validateOwner(String ownerSource, String ownerUserId) {
+        if (ownerSource == null
+                || ownerSource.isBlank()
+                || ownerUserId == null
+                || ownerUserId.isBlank()) {
+            throw new IllegalArgumentException("附件所有者不能为空");
+        }
     }
 }

@@ -10,7 +10,10 @@ import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.repo.McpServerRepository;
 import com.intra.copilot.repo.SkillToolBindingRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
+import com.intra.copilot.service.network.NetworkAddressPolicy;
+import com.intra.copilot.service.network.SafeDnsResolver;
 import com.intra.copilot.util.EntityIdGenerator;
+import jakarta.annotation.PreDestroy;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -46,13 +49,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -93,6 +99,8 @@ public class McpServerService {
     private final boolean allowPrivateNetwork;
     private final boolean allowStdio;
     private final long sessionIdleMs;
+    private final NetworkAddressPolicy networkPolicy;
+    private final CloseableHttpClient outboundHttpClient;
     /** Per-server cached transport session (live STDIO process or HTTP session id). */
     private final ConcurrentHashMap<String, McpSession> sessions = new ConcurrentHashMap<>();
     /** In-flight health checks keyed by server id, to skip concurrent duplicate discovery. */
@@ -119,6 +127,15 @@ public class McpServerService {
         this.allowPrivateNetwork = allowPrivateNetwork;
         this.allowStdio = allowStdio;
         this.sessionIdleMs = Math.max(5000, sessionIdleMs);
+        this.networkPolicy = new NetworkAddressPolicy(allowPrivateNetwork);
+        this.outboundHttpClient =
+                HttpClients.custom()
+                        .setConnectionManager(
+                                PoolingHttpClientConnectionManagerBuilder.create()
+                                        .setDnsResolver(new SafeDnsResolver(networkPolicy))
+                                        .build())
+                        .disableRedirectHandling()
+                        .build();
     }
 
     public List<McpServer> list() {
@@ -662,20 +679,19 @@ public class McpServerService {
     }
 
     private RestClient buildClient() {
-        SimpleClientHttpRequestFactory factory =
-                new SimpleClientHttpRequestFactory() {
-                    @Override
-                    protected void prepareConnection(
-                            HttpURLConnection connection, String httpMethod) throws IOException {
-                        super.prepareConnection(connection, httpMethod);
-                        // Disable redirect following to prevent SSRF via 302 to cloud metadata /
-                        // internal hosts.
-                        connection.setInstanceFollowRedirects(false);
-                    }
-                };
+        HttpComponentsClientHttpRequestFactory factory =
+                new HttpComponentsClientHttpRequestFactory(outboundHttpClient);
         factory.setConnectTimeout(timeoutMs);
         factory.setReadTimeout(timeoutMs);
         return restClientBuilder.clone().requestFactory(factory).build();
+    }
+
+    @PreDestroy
+    public void closeOutboundHttpClient() {
+        try {
+            outboundHttpClient.close();
+        } catch (IOException ignored) {
+        }
     }
 
     private ResponseEntity<String> rpc(

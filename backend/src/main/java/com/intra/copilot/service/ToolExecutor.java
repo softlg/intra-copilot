@@ -7,9 +7,9 @@ import com.intra.copilot.model.McpServer;
 import com.intra.copilot.model.ToolDefinition;
 import com.intra.copilot.repo.McpServerRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
-import java.net.InetAddress;
+import com.intra.copilot.service.network.NetworkAddressPolicy;
+import com.intra.copilot.service.network.SafeDnsResolver;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -21,15 +21,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
 
 /**
  * Executes a configured {@link ToolDefinition} as a real action.
@@ -50,7 +52,7 @@ public class ToolExecutor {
     private final McpServerService mcpService;
     private final RestClient.Builder restClientBuilder;
     private final ObjectMapper json;
-    private final boolean allowPrivateNetwork;
+    private final NetworkAddressPolicy networkPolicy;
 
     public ToolExecutor(
             ToolDefinitionRepository toolRepository,
@@ -58,13 +60,13 @@ public class ToolExecutor {
             McpServerService mcpService,
             RestClient.Builder restClientBuilder,
             ObjectMapper json,
-            @Value("${tools.allow-private-network:false}") boolean allowPrivateNetwork) {
+            NetworkAddressPolicy networkPolicy) {
         this.toolRepository = toolRepository;
         this.mcpRepository = mcpRepository;
         this.mcpService = mcpService;
         this.restClientBuilder = restClientBuilder;
         this.json = json;
-        this.allowPrivateNetwork = allowPrivateNetwork;
+        this.networkPolicy = networkPolicy;
     }
 
     public record ToolExecutionResult(boolean success, String output) {}
@@ -179,12 +181,17 @@ public class ToolExecutor {
                 def.getTimeoutMs() == null
                         ? 10000
                         : Math.max(500, Math.min(60000, def.getTimeoutMs()));
-        HttpClient httpClient =
-                HttpClient.newBuilder()
-                        .connectTimeout(Duration.ofMillis(timeout))
-                        .followRedirects(HttpClient.Redirect.NEVER)
+        CloseableHttpClient httpClient =
+                HttpClients.custom()
+                        .setConnectionManager(
+                                PoolingHttpClientConnectionManagerBuilder.create()
+                                        .setDnsResolver(new SafeDnsResolver(networkPolicy))
+                                        .build())
+                        .disableRedirectHandling()
                         .build();
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        HttpComponentsClientHttpRequestFactory factory =
+                new HttpComponentsClientHttpRequestFactory(httpClient);
+        factory.setConnectTimeout(Duration.ofMillis(timeout));
         factory.setReadTimeout(Duration.ofMillis(timeout));
         RestClient client = restClientBuilder.clone().requestFactory(factory).build();
 
@@ -201,8 +208,9 @@ public class ToolExecutor {
                             .body(request.body());
     }
 
-        return spec.exchange(
-                (req, response) -> {
+        try (httpClient) {
+            return spec.exchange(
+                    (req, response) -> {
                     String body =
                             response.getBody() == null
                                     ? ""
@@ -215,8 +223,9 @@ public class ToolExecutor {
                                         + "："
                                         + truncate(detail));
                     }
-                    return success(truncate(body));
-                });
+                        return success(truncate(body));
+                    });
+        }
     }
 
     private RequestParts buildRequest(
@@ -389,42 +398,13 @@ public class ToolExecutor {
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         if (!List.of("http", "https").contains(scheme)) return "仅支持 http/https endpoint";
         if (uri.getHost() == null || uri.getUserInfo() != null) return "Tool 地址不能包含用户凭据或无效主机";
-        if (isCloudMetadata(uri.getHost())) return "禁止访问云实例元数据地址";
-        if (!allowPrivateNetwork && isPrivateHost(uri.getHost())) {
-            return "当前配置禁止访问内网/本机 Tool 地址";
+        if (networkPolicy.isCloudMetadata(uri.getHost())) return "禁止访问云实例元数据地址";
+        try {
+            networkPolicy.resolveAndValidate(uri.getHost());
+        } catch (Exception error) {
+            return "当前配置禁止访问内网、本机或不可解析的 Tool 地址";
         }
         return null;
-    }
-
-    private boolean isPrivateHost(String host) {
-        if (host == null) return true;
-        String normalized = host.toLowerCase(Locale.ROOT).replace("[", "").replace("]", "");
-        if (normalized.equals("localhost")
-                || normalized.equals("::1")
-                || normalized.equals("0.0.0.0")
-                || normalized.equals("::")) {
-            return true;
-        }
-        try {
-            for (InetAddress address : InetAddress.getAllByName(host)) {
-                if (address.isAnyLocalAddress()
-                        || address.isLoopbackAddress()
-                        || address.isLinkLocalAddress()
-                        || address.isSiteLocalAddress()) {
-                    return true;
-                }
-            }
-        } catch (Exception ignored) {
-            // The actual request will surface DNS failures.
-        }
-        return false;
-    }
-
-    private boolean isCloudMetadata(String host) {
-        String normalized = host.toLowerCase(Locale.ROOT).replace("[", "").replace("]", "");
-        return normalized.equals("169.254.169.254")
-                || normalized.equals("metadata.google.internal")
-                || normalized.equals("metadata.google.com");
     }
 
     private boolean hasAuthorityPlaceholder(String endpoint) {

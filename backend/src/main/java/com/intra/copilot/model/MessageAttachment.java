@@ -16,6 +16,10 @@ public class MessageAttachment {
     private long byteSize;
     private boolean isImage;
     private int sortOrder;
+    private String ownerSource;
+    private String ownerUserId;
+    private String status = "PENDING";
+    private Instant expiresAt;
     private Instant createdAt = Instant.now();
 
     public MessageAttachment() {}
@@ -90,6 +94,38 @@ public class MessageAttachment {
 
     public void setSortOrder(int sortOrder) {
         this.sortOrder = sortOrder;
+    }
+
+    public String getOwnerSource() {
+        return ownerSource;
+    }
+
+    public void setOwnerSource(String value) {
+        ownerSource = value;
+    }
+
+    public String getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(String value) {
+        ownerUserId = value;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String value) {
+        status = value;
+    }
+
+    public Instant getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(Instant value) {
+        expiresAt = value;
     }
 
     public Instant getCreatedAt() {

@@ -25,7 +25,7 @@ public class TraceRecorder {
     private final AgentInvocationEventRepository events;
     private final ObjectMapper json;
     private final MeterRegistry meterRegistry;
-    private final Map<String, AtomicInteger> sequences = new ConcurrentHashMap<>();
+    private final Map<String, SequenceState> sequences = new ConcurrentHashMap<>();
 
     public TraceRecorder(
             AgentInvocationEventRepository events, ObjectMapper json, MeterRegistry meterRegistry) {
@@ -51,11 +51,20 @@ public class TraceRecorder {
     }
 
     private int nextSequence(String invocationId) {
-        return sequences
-                .computeIfAbsent(
+        long now = System.currentTimeMillis();
+        if (sequences.size() > 10_000) {
+            sequences.entrySet().removeIf(entry -> now - entry.getValue().touchedAt() > 3_600_000L);
+        }
+        SequenceState state =
+                sequences.computeIfAbsent(
                         invocationId,
-                        key -> new AtomicInteger(Math.max(0, events.nextSequence(key) - 1)))
-                .incrementAndGet();
+                        key ->
+                                new SequenceState(
+                                        new AtomicInteger(
+                                                Math.max(0, events.nextSequence(key) - 1)),
+                                        now));
+        state.touch(now);
+        return state.value().incrementAndGet();
     }
 
     private AgentInvocationEvent persist(AgentInvocationEvent event) {
@@ -71,8 +80,8 @@ public class TraceRecorder {
         if (event.getSequence() == null) {
             event.setSequence(nextSequence(event.getInvocationId()));
         }
-        if (event.getSequenceGlobal() == null && event.getTraceId() != null) {
-            event.setSequenceGlobal(events.nextGlobalSequence(event.getTraceId()));
+        if (event.getSequenceGlobal() == null) {
+            event.setSequenceGlobal(events.nextGlobalSequence());
         }
         if (event.getCreatedAt() == null) {
             event.setCreatedAt(Instant.now());
@@ -94,6 +103,28 @@ public class TraceRecorder {
                             error);
         }
         return event;
+    }
+
+    private static final class SequenceState {
+        private final AtomicInteger value;
+        private volatile long touchedAt;
+
+        private SequenceState(AtomicInteger value, long touchedAt) {
+            this.value = value;
+            this.touchedAt = touchedAt;
+        }
+
+        private AtomicInteger value() {
+            return value;
+        }
+
+        private long touchedAt() {
+            return touchedAt;
+        }
+
+        private void touch(long value) {
+            touchedAt = value;
+        }
     }
 
     private void recordMetrics(AgentInvocationEvent event) {

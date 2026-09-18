@@ -411,95 +411,192 @@ export function AgentSettingsPage({
           disabled={configuredAgentIsSystem}
           className="agent-settings-fieldset"
         >
-        {agentConfigSection === "basic" && (
-          <div className="settings-panel">
-            <label className="field">
-              <span>{t.agentId}</span>
-              <input value={agentId} disabled />
-              <small className="field-hint">{t.agentIdHint}</small>
-            </label>
-            <div className="field-grid">
+          {agentConfigSection === "basic" && (
+            <div className="settings-panel">
               <label className="field">
-                <span>{t.agentRole}</span>
-                <select
-                  value={agentRole}
-                  onChange={(event) => setAgentRole(event.target.value)}
-                  disabled={configuredAgentIsSystem}
-                >
-                  <option value="GENERAL">{t.roleGeneral}</option>
-                  <option value="DOMAIN">{t.roleDomain}</option>
-                  <option value="SUB">{t.roleSub}</option>
-                  {configuredAgentIsSystem && (
-                    <option value="MAIN">{t.roleMain}</option>
-                  )}
-                </select>
+                <span>{t.agentId}</span>
+                <input value={agentId} disabled />
+                <small className="field-hint">{t.agentIdHint}</small>
               </label>
-              {agentRole === "SUB" && (
+              <div className="field-grid">
                 <label className="field">
-                  <span>{t.parentAgent}</span>
+                  <span>{t.agentRole}</span>
                   <select
-                    value={agentParentId}
-                    onChange={(event) => setAgentParentId(event.target.value)}
+                    value={agentRole}
+                    onChange={(event) => setAgentRole(event.target.value)}
+                    disabled={configuredAgentIsSystem}
                   >
-                    <option value="">{t.parentAgentUnbound}</option>
-                    {agents
-                      .filter((item) => item.role === "DOMAIN" && item.enabled)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.displayName}
-                        </option>
-                      ))}
+                    <option value="GENERAL">{t.roleGeneral}</option>
+                    <option value="DOMAIN">{t.roleDomain}</option>
+                    <option value="SUB">{t.roleSub}</option>
+                    {configuredAgentIsSystem && (
+                      <option value="MAIN">{t.roleMain}</option>
+                    )}
                   </select>
-                  <small className="field-hint">{t.parentAgentHint}</small>
                 </label>
-              )}
-            </div>
-            <label className="field">
-              <span>{t.displayName}</span>
-              <input
-                value={agentDisplayName}
-                onChange={(event) => setAgentDisplayName(event.target.value)}
-                maxLength={100}
-              />
-            </label>
-            <label className="field">
-              <span>{t.descriptionOptional}</span>
-              <textarea
-                value={agentDescription}
-                onChange={(event) => setAgentDescription(event.target.value)}
-                rows={3}
-                maxLength={500}
-              />
-            </label>
-            <label className="field">
-              <span>{t.systemPrompt}</span>
-              <textarea
-                value={agentSystemPrompt}
-                onChange={(event) => setAgentSystemPrompt(event.target.value)}
-                rows={7}
-                maxLength={8000}
-              />
-            </label>
-            <label className="embedding-toggle-row agent-enabled-toggle">
-              <div>
-                <span className="embedding-toggle-label">{t.enable}</span>
-                <p className="field-hint">
-                  {agentEnabled ? t.enabled : t.disabled}
-                </p>
+                {agentRole === "SUB" && (
+                  <label className="field">
+                    <span>{t.parentAgent}</span>
+                    <select
+                      value={agentParentId}
+                      onChange={(event) => setAgentParentId(event.target.value)}
+                    >
+                      <option value="">{t.parentAgentUnbound}</option>
+                      {agents
+                        .filter(
+                          (item) => item.role === "DOMAIN" && item.enabled,
+                        )
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.displayName}
+                          </option>
+                        ))}
+                    </select>
+                    <small className="field-hint">{t.parentAgentHint}</small>
+                  </label>
+                )}
               </div>
-              <span className="switch">
-                <input
-                  type="checkbox"
-                  role="switch"
-                  checked={agentEnabled}
-                  onChange={(event) => setAgentEnabled(event.target.checked)}
-                />
-                <span className="switch-track" aria-hidden="true" />
-              </span>
-            </label>
-            <div className="field-grid">
               <label className="field">
-                <span>{t.priority}</span>
+                <span>{t.displayName}</span>
+                <input
+                  value={agentDisplayName}
+                  onChange={(event) => setAgentDisplayName(event.target.value)}
+                  maxLength={100}
+                />
+              </label>
+              <label className="field">
+                <span>{t.descriptionOptional}</span>
+                <textarea
+                  value={agentDescription}
+                  onChange={(event) => setAgentDescription(event.target.value)}
+                  rows={3}
+                  maxLength={500}
+                />
+              </label>
+              <label className="field">
+                <span>{t.systemPrompt}</span>
+                <textarea
+                  value={agentSystemPrompt}
+                  onChange={(event) => setAgentSystemPrompt(event.target.value)}
+                  rows={7}
+                  maxLength={8000}
+                />
+              </label>
+              <label className="embedding-toggle-row agent-enabled-toggle">
+                <div>
+                  <span className="embedding-toggle-label">{t.enable}</span>
+                  <p className="field-hint">
+                    {agentEnabled ? t.enabled : t.disabled}
+                  </p>
+                </div>
+                <span className="switch">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={agentEnabled}
+                    onChange={(event) => setAgentEnabled(event.target.checked)}
+                  />
+                  <span className="switch-track" aria-hidden="true" />
+                </span>
+              </label>
+              <div className="field-grid">
+                <label className="field">
+                  <span>{t.priority}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10000}
+                    value={agentPriority}
+                    onChange={(event) =>
+                      setAgentPriority(Number(event.target.value) || 0)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>{t.temperature}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    value={agentTemperature}
+                    onChange={(event) =>
+                      setAgentTemperature(event.target.value)
+                    }
+                  />
+                </label>
+              </div>
+              <label className="field">
+                <span>{t.model}</span>
+                <input
+                  value={agentModel}
+                  onChange={(event) => setAgentModel(event.target.value)}
+                  placeholder={t.modelPlaceholder}
+                />
+              </label>
+              <div className="field-grid">
+                <label className="field">
+                  <span>{t.agentPlanningMode}</span>
+                  <select
+                    value={agentPlanningMode}
+                    onChange={(event) =>
+                      setAgentPlanningMode(event.target.value)
+                    }
+                  >
+                    <option value="OFF">{t.planningModeOff}</option>
+                    <option value="AUTO">{t.planningModeAuto}</option>
+                    <option value="ALWAYS">{t.planningModeAlways}</option>
+                  </select>
+                  <small className="field-hint">
+                    {t.agentPlanningModeHint}
+                  </small>
+                </label>
+                <label className="field">
+                  <span>{t.agentMaxPlanSteps}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    value={agentMaxPlanSteps}
+                    disabled={agentPlanningMode === "OFF"}
+                    onChange={(event) =>
+                      setAgentMaxPlanSteps(
+                        Math.max(
+                          1,
+                          Math.min(12, Number(event.target.value) || 6),
+                        ),
+                      )
+                    }
+                  />
+                  <small className="field-hint">
+                    {t.agentMaxPlanStepsHint}
+                  </small>
+                </label>
+              </div>
+            </div>
+          )}
+          {agentConfigSection === "routing" && agentRole === "MAIN" && (
+            <div className="settings-panel routing-panel">
+              <div className="binding-heading">
+                <div>
+                  <h4>{t.intentRouting}</h4>
+                  <p>{t.intentRoutingHint}</p>
+                </div>
+                <span className="route-badge">系统 Agent</span>
+              </div>
+              <label className="field">
+                <span>{t.routingRules}</span>
+                <textarea
+                  value={agentRoutingRules}
+                  onChange={(event) => setAgentRoutingRules(event.target.value)}
+                  placeholder={t.routingRulesPlaceholder}
+                  rows={12}
+                  maxLength={8000}
+                />
+                <small className="field-hint">{t.idsHint}</small>
+              </label>
+              <div className="routing-priority-note">
+                <strong>{t.priority}</strong>
                 <input
                   type="number"
                   min={0}
@@ -508,666 +605,602 @@ export function AgentSettingsPage({
                   onChange={(event) =>
                     setAgentPriority(Number(event.target.value) || 0)
                   }
+                  aria-label={t.priority}
                 />
-              </label>
-              <label className="field">
-                <span>{t.temperature}</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={2}
-                  step={0.1}
-                  value={agentTemperature}
-                  onChange={(event) => setAgentTemperature(event.target.value)}
-                />
-              </label>
+                <small>{t.intentRoutingHint}</small>
+              </div>
             </div>
-            <label className="field">
-              <span>{t.model}</span>
-              <input
-                value={agentModel}
-                onChange={(event) => setAgentModel(event.target.value)}
-                placeholder={t.modelPlaceholder}
-              />
-            </label>
-            <div className="field-grid">
+          )}
+          {agentConfigSection === "strategy" && agentRole === "DOMAIN" && (
+            <div className="settings-panel">
+              <div className="binding-heading">
+                <div>
+                  <h4>{t.handlingMode}</h4>
+                  <p>{t.intentRoutingHint}</p>
+                </div>
+              </div>
               <label className="field">
-                <span>{t.agentPlanningMode}</span>
+                <span>{t.handlingMode}</span>
                 <select
-                  value={agentPlanningMode}
-                  onChange={(event) => setAgentPlanningMode(event.target.value)}
+                  value={agentHandlingMode}
+                  onChange={(event) => setAgentHandlingMode(event.target.value)}
                 >
-                  <option value="OFF">{t.planningModeOff}</option>
-                  <option value="AUTO">{t.planningModeAuto}</option>
-                  <option value="ALWAYS">{t.planningModeAlways}</option>
+                  <option value="DIRECT">{t.directMode}</option>
+                  <option value="DELEGATE">{t.delegateMode}</option>
+                  <option value="AUTO">{t.autoMode}</option>
                 </select>
-                <small className="field-hint">{t.agentPlanningModeHint}</small>
               </label>
               <label className="field">
-                <span>{t.agentMaxPlanSteps}</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={12}
-                  value={agentMaxPlanSteps}
-                  disabled={agentPlanningMode === "OFF"}
-                  onChange={(event) =>
-                    setAgentMaxPlanSteps(
-                      Math.max(
-                        1,
-                        Math.min(12, Number(event.target.value) || 6),
-                      ),
-                    )
-                  }
-                />
-                <small className="field-hint">{t.agentMaxPlanStepsHint}</small>
+                <span>{t.returnMode}</span>
+                <select
+                  value={agentReturnMode}
+                  onChange={(event) => setAgentReturnMode(event.target.value)}
+                >
+                  <option value="CHILD_DIRECT">{t.childDirectMode}</option>
+                  <option value="DOMAIN_SUMMARY">{t.domainSummaryMode}</option>
+                </select>
               </label>
             </div>
-          </div>
-        )}
-        {agentConfigSection === "routing" && agentRole === "MAIN" && (
-          <div className="settings-panel routing-panel">
-            <div className="binding-heading">
-              <div>
-                <h4>{t.intentRouting}</h4>
-                <p>{t.intentRoutingHint}</p>
+          )}
+          {agentConfigSection === "children" && agentRole === "DOMAIN" && (
+            <div className="settings-panel">
+              <div className="binding-heading">
+                <div>
+                  <h4>{t.childBinding}</h4>
+                  <p>{t.childRoutingRuleHint}</p>
+                </div>
+                <span className="binding-count">{agentChildIds.length}</span>
               </div>
-              <span className="route-badge">系统 Agent</span>
-            </div>
-            <label className="field">
-              <span>{t.routingRules}</span>
-              <textarea
-                value={agentRoutingRules}
-                onChange={(event) => setAgentRoutingRules(event.target.value)}
-                placeholder={t.routingRulesPlaceholder}
-                rows={12}
-                maxLength={8000}
-              />
-              <small className="field-hint">{t.idsHint}</small>
-            </label>
-            <div className="routing-priority-note">
-              <strong>{t.priority}</strong>
-              <input
-                type="number"
-                min={0}
-                max={10000}
-                value={agentPriority}
-                onChange={(event) =>
-                  setAgentPriority(Number(event.target.value) || 0)
-                }
-                aria-label={t.priority}
-              />
-              <small>{t.intentRoutingHint}</small>
-            </div>
-          </div>
-        )}
-        {agentConfigSection === "strategy" && agentRole === "DOMAIN" && (
-          <div className="settings-panel">
-            <div className="binding-heading">
-              <div>
-                <h4>{t.handlingMode}</h4>
-                <p>{t.intentRoutingHint}</p>
+              <label className="binding-search">
+                <span className="sr-only">{t.search}</span>
+                <input
+                  type="search"
+                  value={agentChildSearch}
+                  onChange={(event) => setAgentChildSearch(event.target.value)}
+                  placeholder={t.searchPlaceholder}
+                />
+              </label>
+              <div className="binding-list binding-list-tall">
+                {availableChildAgents
+                  .filter((item) => {
+                    const query = agentChildSearch.trim().toLowerCase();
+                    return (
+                      !query ||
+                      [item.id, item.displayName, item.description ?? ""].some(
+                        (value) => value.toLowerCase().includes(query),
+                      )
+                    );
+                  })
+                  .map((item) => {
+                    const checked = agentChildIds.includes(item.id);
+                    return (
+                      <div className="child-binding" key={item.id}>
+                        <label className="binding-option">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setAgentChildIds((current) =>
+                                checked
+                                  ? current.filter((id) => id !== item.id)
+                                  : [...current, item.id],
+                              );
+                              if (checked)
+                                setAgentChildRules((current) => {
+                                  const next = { ...current };
+                                  delete next[item.id];
+                                  return next;
+                                });
+                            }}
+                          />
+                          <span className="binding-copy">
+                            <span className="binding-name">
+                              {item.displayName}
+                            </span>
+                            <span className="binding-meta">{item.id}</span>
+                            {item.description && (
+                              <span className="binding-description">
+                                {item.description}
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                        {checked && (
+                          <label className="child-rule">
+                            <span>{t.childRoutingRule}</span>
+                            <input
+                              value={agentChildRules[item.id] ?? ""}
+                              onChange={(event) =>
+                                setAgentChildRules((current) => ({
+                                  ...current,
+                                  [item.id]: event.target.value,
+                                }))
+                              }
+                              placeholder={t.childRoutingRulePlaceholder}
+                            />
+                          </label>
+                        )}
+                      </div>
+                    );
+                  })}
               </div>
+              {availableChildAgents.length === 0 && (
+                <p className="binding-empty">{t.noChildAgents}</p>
+              )}
             </div>
-            <label className="field">
-              <span>{t.handlingMode}</span>
-              <select
-                value={agentHandlingMode}
-                onChange={(event) => setAgentHandlingMode(event.target.value)}
-              >
-                <option value="DIRECT">{t.directMode}</option>
-                <option value="DELEGATE">{t.delegateMode}</option>
-                <option value="AUTO">{t.autoMode}</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>{t.returnMode}</span>
-              <select
-                value={agentReturnMode}
-                onChange={(event) => setAgentReturnMode(event.target.value)}
-              >
-                <option value="CHILD_DIRECT">{t.childDirectMode}</option>
-                <option value="DOMAIN_SUMMARY">{t.domainSummaryMode}</option>
-              </select>
-            </label>
-          </div>
-        )}
-        {agentConfigSection === "children" && agentRole === "DOMAIN" && (
-          <div className="settings-panel">
-            <div className="binding-heading">
-              <div>
-                <h4>{t.childBinding}</h4>
-                <p>{t.childRoutingRuleHint}</p>
+          )}
+          {agentConfigSection === "knowledge" && (
+            <div className="settings-panel">
+              <div className="binding-heading">
+                <div>
+                  <h4>{t.knowledgeBases}</h4>
+                  <p>{t.idsHint}</p>
+                </div>
+                <span className="binding-count">
+                  {parseIds(agentKnowledgeBaseIds).length}
+                </span>
               </div>
-              <span className="binding-count">{agentChildIds.length}</span>
-            </div>
-            <label className="binding-search">
-              <span className="sr-only">{t.search}</span>
-              <input
-                type="search"
-                value={agentChildSearch}
-                onChange={(event) => setAgentChildSearch(event.target.value)}
-                placeholder={t.searchPlaceholder}
-              />
-            </label>
-            <div className="binding-list binding-list-tall">
-              {availableChildAgents
-                .filter((item) => {
-                  const query = agentChildSearch.trim().toLowerCase();
-                  return (
-                    !query ||
-                    [item.id, item.displayName, item.description ?? ""].some(
+              {bases.length === 0 ? (
+                <p className="binding-empty">{t.noKnowledgeBases}</p>
+              ) : (
+                <>
+                  <label className="binding-search">
+                    <span className="sr-only">{t.search}</span>
+                    <input
+                      value={agentKnowledgeSearch}
+                      onChange={(event) =>
+                        setAgentKnowledgeSearch(event.target.value)
+                      }
+                      placeholder={t.searchPlaceholder}
+                      type="search"
+                    />
+                  </label>
+                  {bases.filter((base) => {
+                    const query = agentKnowledgeSearch.trim().toLowerCase();
+                    if (!query) return true;
+                    return [base.id, base.name, base.description ?? ""].some(
                       (value) => value.toLowerCase().includes(query),
-                    )
-                  );
-                })
-                .map((item) => {
-                  const checked = agentChildIds.includes(item.id);
-                  return (
-                    <div className="child-binding" key={item.id}>
-                      <label className="binding-option">
+                    );
+                  }).length === 0 ? (
+                    <p className="binding-empty">{t.noSearchResults}</p>
+                  ) : (
+                    <div className="binding-list">
+                      {bases
+                        .filter((base) => {
+                          const query = agentKnowledgeSearch
+                            .trim()
+                            .toLowerCase();
+                          if (!query) return true;
+                          return [
+                            base.id,
+                            base.name,
+                            base.description ?? "",
+                          ].some((value) =>
+                            value.toLowerCase().includes(query),
+                          );
+                        })
+                        .map((base) => {
+                          const selected = parseIds(
+                            agentKnowledgeBaseIds,
+                          ).includes(base.id);
+                          return (
+                            <label className="binding-option" key={base.id}>
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => {
+                                  const current = parseIds(
+                                    agentKnowledgeBaseIds,
+                                  );
+                                  const next = selected
+                                    ? current.filter((id) => id !== base.id)
+                                    : [...current, base.id];
+                                  setAgentKnowledgeBaseIds(
+                                    JSON.stringify(next),
+                                  );
+                                }}
+                              />
+                              <span className="binding-copy">
+                                <span className="binding-name">
+                                  {base.name}
+                                </span>
+                                <span className="binding-meta">
+                                  {base.enabled ? t.enabled : t.disabled}
+                                </span>
+                                {base.description && (
+                                  <span className="binding-description">
+                                    {base.description}
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {(agentConfigSection === "tools" ||
+            agentConfigSection === "skills") && (
+            <div className="settings-panel">
+              {agentConfigSection === "tools" && (
+                <section className="binding-section">
+                  <div className="binding-heading">
+                    <div>
+                      <h4>{t.tools}</h4>
+                      <p>{t.browserActions}</p>
+                    </div>
+                    <span className="binding-count">{agentToolIds.length}</span>
+                  </div>
+                  {tools.filter((tool) => tool.enabled).length === 0 ? (
+                    <p className="binding-empty">{t.noTools}</p>
+                  ) : (
+                    <>
+                      <label className="binding-search">
+                        <span className="sr-only">{t.search}</span>
                         <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            setAgentChildIds((current) =>
-                              checked
-                                ? current.filter((id) => id !== item.id)
-                                : [...current, item.id],
-                            );
-                            if (checked)
-                              setAgentChildRules((current) => {
-                                const next = { ...current };
-                                delete next[item.id];
-                                return next;
-                              });
-                          }}
+                          value={agentToolSearch}
+                          onChange={(event) =>
+                            setAgentToolSearch(event.target.value)
+                          }
+                          placeholder={t.searchPlaceholder}
+                          type="search"
                         />
+                      </label>
+                      {tools.filter((tool) => {
+                        if (!tool.enabled) return false;
+                        const query = agentToolSearch.trim().toLowerCase();
+                        if (!query) return true;
+                        return [
+                          tool.id,
+                          tool.name,
+                          tool.description ?? "",
+                          tool.type ?? "",
+                          tool.endpoint ?? "",
+                        ].some((value) => value.toLowerCase().includes(query));
+                      }).length === 0 ? (
+                        <p className="binding-empty">{t.noSearchResults}</p>
+                      ) : (
+                        <div className="binding-list">
+                          {tools
+                            .filter((tool) => {
+                              if (!tool.enabled) return false;
+                              const query = agentToolSearch
+                                .trim()
+                                .toLowerCase();
+                              if (!query) return true;
+                              return [
+                                tool.id,
+                                tool.name,
+                                tool.description ?? "",
+                                tool.type ?? "",
+                                tool.endpoint ?? "",
+                              ].some((value) =>
+                                value.toLowerCase().includes(query),
+                              );
+                            })
+                            .map((tool) => {
+                              const checked = agentToolIds.includes(tool.id);
+                              return (
+                                <label className="binding-option" key={tool.id}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() =>
+                                      setAgentToolIds((current) =>
+                                        checked
+                                          ? current.filter(
+                                              (id) => id !== tool.id,
+                                            )
+                                          : [...current, tool.id],
+                                      )
+                                    }
+                                  />
+                                  <span className="binding-copy">
+                                    <span className="binding-name">
+                                      {tool.name}
+                                    </span>
+                                    <span className="binding-meta">
+                                      {tool.type === "BROWSER_PROPOSAL"
+                                        ? t.browserProposal
+                                        : tool.type}
+                                    </span>
+                                    {tool.description && (
+                                      <span className="binding-description">
+                                        {tool.description}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="binding-detail-button"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      setResourceDetails({
+                                        kind: "tool",
+                                        resource: tool,
+                                      });
+                                    }}
+                                  >
+                                    {t.viewDetails}
+                                  </button>
+                                </label>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </section>
+              )}
+              {agentConfigSection === "skills" && (
+                <section className="binding-section">
+                  <div className="binding-heading">
+                    <div>
+                      <h4>{t.skills}</h4>
+                      <p>{t.idsHint}</p>
+                    </div>
+                    <span className="binding-count">
+                      {agentSkillIds.length}
+                    </span>
+                  </div>
+                  {skills.filter((skill) => skill.enabled).length === 0 ? (
+                    <p className="binding-empty">{t.noSkills}</p>
+                  ) : (
+                    <>
+                      <label className="binding-search">
+                        <span className="sr-only">{t.search}</span>
+                        <input
+                          value={agentSkillSearch}
+                          onChange={(event) =>
+                            setAgentSkillSearch(event.target.value)
+                          }
+                          placeholder={t.searchPlaceholder}
+                          type="search"
+                        />
+                      </label>
+                      {skills.filter((skill) => {
+                        if (!skill.enabled) return false;
+                        const query = agentSkillSearch.trim().toLowerCase();
+                        if (!query) return true;
+                        return [
+                          skill.id,
+                          skill.name,
+                          skill.description ?? "",
+                          skill.prompt,
+                          skill.version ?? "",
+                        ].some((value) => value.toLowerCase().includes(query));
+                      }).length === 0 ? (
+                        <p className="binding-empty">{t.noSearchResults}</p>
+                      ) : (
+                        <div className="binding-list">
+                          {skills
+                            .filter((skill) => {
+                              if (!skill.enabled) return false;
+                              const query = agentSkillSearch
+                                .trim()
+                                .toLowerCase();
+                              if (!query) return true;
+                              return [
+                                skill.id,
+                                skill.name,
+                                skill.description ?? "",
+                                skill.prompt,
+                                skill.version ?? "",
+                              ].some((value) =>
+                                value.toLowerCase().includes(query),
+                              );
+                            })
+                            .map((skill) => {
+                              const checked = agentSkillIds.includes(skill.id);
+                              return (
+                                <label
+                                  className="binding-option"
+                                  key={skill.id}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() =>
+                                      setAgentSkillIds((current) =>
+                                        checked
+                                          ? current.filter(
+                                              (id) => id !== skill.id,
+                                            )
+                                          : [...current, skill.id],
+                                      )
+                                    }
+                                  />
+                                  <span className="binding-copy">
+                                    <span className="binding-name">
+                                      {skill.name}
+                                    </span>
+                                    {skill.version && (
+                                      <span className="binding-meta">
+                                        v{skill.version}
+                                      </span>
+                                    )}
+                                    {skill.description && (
+                                      <span className="binding-description">
+                                        {skill.description}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="binding-detail-button"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      setResourceDetails({
+                                        kind: "skill",
+                                        resource: skill,
+                                      });
+                                    }}
+                                  >
+                                    {t.viewDetails}
+                                  </button>
+                                </label>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </section>
+              )}
+            </div>
+          )}
+          {agentConfigSection === "hooks" && (
+            <div className="settings-panel">
+              <section className="binding-section">
+                <div className="binding-heading">
+                  <div>
+                    <h4>{t.hookBindings}</h4>
+                    <p>{t.hookBindingsHint}</p>
+                  </div>
+                  <span className="binding-count">{boundHooks.length}</span>
+                </div>
+                {boundHooks.length === 0 ? (
+                  <p className="binding-empty">{t.noBoundHooks}</p>
+                ) : (
+                  <div className="binding-list">
+                    {boundHooks.map((hook) => (
+                      <div
+                        className="binding-option hook-binding-option"
+                        key={hook.id}
+                      >
                         <span className="binding-copy">
                           <span className="binding-name">
-                            {item.displayName}
+                            {hook.name}
+                            <span
+                              className={
+                                hook.enabled
+                                  ? "binding-meta ok"
+                                  : "binding-meta off"
+                              }
+                            >
+                              {hook.enabled ? t.enabled : t.disabled}
+                            </span>
                           </span>
-                          <span className="binding-meta">{item.id}</span>
-                          {item.description && (
+                          <span className="binding-meta">
+                            {hookBindingTargets(hook, agentId, agentRole, t)} ·{" "}
+                            {hookPhaseLabel(hook.phase, t)} ·{" "}
+                            {hookRuleLabel(hook.ruleType, t)}
+                          </span>
+                          {hook.description && (
                             <span className="binding-description">
-                              {item.description}
+                              {hook.description}
                             </span>
                           )}
                         </span>
-                      </label>
-                      {checked && (
-                        <label className="child-rule">
-                          <span>{t.childRoutingRule}</span>
-                          <input
-                            value={agentChildRules[item.id] ?? ""}
-                            onChange={(event) =>
-                              setAgentChildRules((current) => ({
-                                ...current,
-                                [item.id]: event.target.value,
-                              }))
-                            }
-                            placeholder={t.childRoutingRulePlaceholder}
-                          />
-                        </label>
-                      )}
-                    </div>
-                  );
-                })}
-            </div>
-            {availableChildAgents.length === 0 && (
-              <p className="binding-empty">{t.noChildAgents}</p>
-            )}
-          </div>
-        )}
-        {agentConfigSection === "knowledge" && (
-          <div className="settings-panel">
-            <div className="binding-heading">
-              <div>
-                <h4>{t.knowledgeBases}</h4>
-                <p>{t.idsHint}</p>
-              </div>
-              <span className="binding-count">
-                {parseIds(agentKnowledgeBaseIds).length}
-              </span>
-            </div>
-            {bases.length === 0 ? (
-              <p className="binding-empty">{t.noKnowledgeBases}</p>
-            ) : (
-              <>
-                <label className="binding-search">
-                  <span className="sr-only">{t.search}</span>
-                  <input
-                    value={agentKnowledgeSearch}
-                    onChange={(event) =>
-                      setAgentKnowledgeSearch(event.target.value)
-                    }
-                    placeholder={t.searchPlaceholder}
-                    type="search"
-                  />
-                </label>
-                {bases.filter((base) => {
-                  const query = agentKnowledgeSearch.trim().toLowerCase();
-                  if (!query) return true;
-                  return [base.id, base.name, base.description ?? ""].some(
-                    (value) => value.toLowerCase().includes(query),
-                  );
-                }).length === 0 ? (
-                  <p className="binding-empty">{t.noSearchResults}</p>
-                ) : (
-                  <div className="binding-list">
-                    {bases
-                      .filter((base) => {
-                        const query = agentKnowledgeSearch.trim().toLowerCase();
-                        if (!query) return true;
-                        return [
-                          base.id,
-                          base.name,
-                          base.description ?? "",
-                        ].some((value) => value.toLowerCase().includes(query));
-                      })
-                      .map((base) => {
-                        const selected = parseIds(
-                          agentKnowledgeBaseIds,
-                        ).includes(base.id);
-                        return (
-                          <label className="binding-option" key={base.id}>
-                            <input
-                              type="checkbox"
-                              checked={selected}
-                              onChange={() => {
-                                const current = parseIds(agentKnowledgeBaseIds);
-                                const next = selected
-                                  ? current.filter((id) => id !== base.id)
-                                  : [...current, base.id];
-                                setAgentKnowledgeBaseIds(JSON.stringify(next));
-                              }}
-                            />
-                            <span className="binding-copy">
-                              <span className="binding-name">{base.name}</span>
-                              <span className="binding-meta">
-                                {base.enabled ? t.enabled : t.disabled}
-                              </span>
-                              {base.description && (
-                                <span className="binding-description">
-                                  {base.description}
-                                </span>
-                              )}
-                            </span>
-                          </label>
-                        );
-                      })}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-        {(agentConfigSection === "tools" ||
-          agentConfigSection === "skills") && (
-          <div className="settings-panel">
-            {agentConfigSection === "tools" && (
-              <section className="binding-section">
-                <div className="binding-heading">
-                  <div>
-                    <h4>{t.tools}</h4>
-                    <p>{t.browserActions}</p>
-                  </div>
-                  <span className="binding-count">{agentToolIds.length}</span>
-                </div>
-                {tools.filter((tool) => tool.enabled).length === 0 ? (
-                  <p className="binding-empty">{t.noTools}</p>
-                ) : (
-                  <>
-                    <label className="binding-search">
-                      <span className="sr-only">{t.search}</span>
-                      <input
-                        value={agentToolSearch}
-                        onChange={(event) =>
-                          setAgentToolSearch(event.target.value)
-                        }
-                        placeholder={t.searchPlaceholder}
-                        type="search"
-                      />
-                    </label>
-                    {tools.filter((tool) => {
-                      if (!tool.enabled) return false;
-                      const query = agentToolSearch.trim().toLowerCase();
-                      if (!query) return true;
-                      return [
-                        tool.id,
-                        tool.name,
-                        tool.description ?? "",
-                        tool.type ?? "",
-                        tool.endpoint ?? "",
-                      ].some((value) => value.toLowerCase().includes(query));
-                    }).length === 0 ? (
-                      <p className="binding-empty">{t.noSearchResults}</p>
-                    ) : (
-                      <div className="binding-list">
-                        {tools
-                          .filter((tool) => {
-                            if (!tool.enabled) return false;
-                            const query = agentToolSearch.trim().toLowerCase();
-                            if (!query) return true;
-                            return [
-                              tool.id,
-                              tool.name,
-                              tool.description ?? "",
-                              tool.type ?? "",
-                              tool.endpoint ?? "",
-                            ].some((value) =>
-                              value.toLowerCase().includes(query),
-                            );
-                          })
-                          .map((tool) => {
-                            const checked = agentToolIds.includes(tool.id);
-                            return (
-                              <label className="binding-option" key={tool.id}>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() =>
-                                    setAgentToolIds((current) =>
-                                      checked
-                                        ? current.filter((id) => id !== tool.id)
-                                        : [...current, tool.id],
-                                    )
-                                  }
-                                />
-                                <span className="binding-copy">
-                                  <span className="binding-name">
-                                    {tool.name}
-                                  </span>
-                                  <span className="binding-meta">
-                                    {tool.type === "BROWSER_PROPOSAL"
-                                      ? t.browserProposal
-                                      : tool.type}
-                                  </span>
-                                  {tool.description && (
-                                    <span className="binding-description">
-                                      {tool.description}
-                                    </span>
-                                  )}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="binding-detail-button"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    setResourceDetails({
-                                      kind: "tool",
-                                      resource: tool,
-                                    });
-                                  }}
-                                >
-                                  {t.viewDetails}
-                                </button>
-                              </label>
-                            );
-                          })}
                       </div>
-                    )}
-                  </>
+                    ))}
+                  </div>
                 )}
               </section>
-            )}
-            {agentConfigSection === "skills" && (
-              <section className="binding-section">
-                <div className="binding-heading">
-                  <div>
-                    <h4>{t.skills}</h4>
-                    <p>{t.idsHint}</p>
-                  </div>
-                  <span className="binding-count">{agentSkillIds.length}</span>
-                </div>
-                {skills.filter((skill) => skill.enabled).length === 0 ? (
-                  <p className="binding-empty">{t.noSkills}</p>
-                ) : (
-                  <>
-                    <label className="binding-search">
-                      <span className="sr-only">{t.search}</span>
-                      <input
-                        value={agentSkillSearch}
-                        onChange={(event) =>
-                          setAgentSkillSearch(event.target.value)
-                        }
-                        placeholder={t.searchPlaceholder}
-                        type="search"
-                      />
-                    </label>
-                    {skills.filter((skill) => {
-                      if (!skill.enabled) return false;
-                      const query = agentSkillSearch.trim().toLowerCase();
-                      if (!query) return true;
-                      return [
-                        skill.id,
-                        skill.name,
-                        skill.description ?? "",
-                        skill.prompt,
-                        skill.version ?? "",
-                      ].some((value) => value.toLowerCase().includes(query));
-                    }).length === 0 ? (
-                      <p className="binding-empty">{t.noSearchResults}</p>
-                    ) : (
-                      <div className="binding-list">
-                        {skills
-                          .filter((skill) => {
-                            if (!skill.enabled) return false;
-                            const query = agentSkillSearch.trim().toLowerCase();
-                            if (!query) return true;
-                            return [
-                              skill.id,
-                              skill.name,
-                              skill.description ?? "",
-                              skill.prompt,
-                              skill.version ?? "",
-                            ].some((value) =>
-                              value.toLowerCase().includes(query),
-                            );
-                          })
-                          .map((skill) => {
-                            const checked = agentSkillIds.includes(skill.id);
-                            return (
-                              <label className="binding-option" key={skill.id}>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() =>
-                                    setAgentSkillIds((current) =>
-                                      checked
-                                        ? current.filter(
-                                            (id) => id !== skill.id,
-                                          )
-                                        : [...current, skill.id],
-                                    )
-                                  }
-                                />
-                                <span className="binding-copy">
-                                  <span className="binding-name">
-                                    {skill.name}
-                                  </span>
-                                  {skill.version && (
-                                    <span className="binding-meta">
-                                      v{skill.version}
-                                    </span>
-                                  )}
-                                  {skill.description && (
-                                    <span className="binding-description">
-                                      {skill.description}
-                                    </span>
-                                  )}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="binding-detail-button"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    setResourceDetails({
-                                      kind: "skill",
-                                      resource: skill,
-                                    });
-                                  }}
-                                >
-                                  {t.viewDetails}
-                                </button>
-                              </label>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </>
-                )}
-              </section>
-            )}
-          </div>
-        )}
-        {agentConfigSection === "hooks" && (
-          <div className="settings-panel">
-            <section className="binding-section">
+            </div>
+          )}
+          {agentConfigSection === "versions" && (
+            <div className="settings-panel">
               <div className="binding-heading">
                 <div>
-                  <h4>{t.hookBindings}</h4>
-                  <p>{t.hookBindingsHint}</p>
+                  <h4>{t.versionHistory}</h4>
+                  <p>
+                    {hasPublishedRelease
+                      ? `${t.publishedVersion}: ${configuredAgent?.publishedVersion}`
+                      : t.noPublishedVersion}
+                  </p>
                 </div>
-                <span className="binding-count">{boundHooks.length}</span>
               </div>
-              {boundHooks.length === 0 ? (
-                <p className="binding-empty">{t.noBoundHooks}</p>
+              <p
+                className={`publish-guidance ${
+                  agentConfigDirty || hasUnpublishedChanges
+                    ? "is-warning"
+                    : "is-success"
+                }`}
+              >
+                <Icon
+                  name={
+                    agentConfigDirty || hasUnpublishedChanges
+                      ? "alert"
+                      : "check"
+                  }
+                  size={14}
+                />
+                <span>
+                  {agentConfigDirty
+                    ? t.saveBeforePublish
+                    : hasUnpublishedChanges
+                      ? t.unpublishedChanges
+                      : t.publishedAndCurrent}
+                </span>
+              </p>
+              {agentVersions.length === 0 ? (
+                <p className="binding-empty">{t.noVersionHistory}</p>
               ) : (
-                <div className="binding-list">
-                  {boundHooks.map((hook) => (
-                    <div
-                      className="binding-option hook-binding-option"
-                      key={hook.id}
-                    >
-                      <span className="binding-copy">
-                        <span className="binding-name">
-                          {hook.name}
-                          <span
-                            className={
-                              hook.enabled
-                                ? "binding-meta ok"
-                                : "binding-meta off"
+                <div className="version-list">
+                  {agentVersions.map((version) => (
+                    <div className="version-row" key={version.id}>
+                      <div className="version-row-content">
+                        <strong>v{version.version}</strong>
+                        <span className="binding-meta">
+                          {version.status === "PUBLISHED"
+                            ? t.published
+                            : version.status === "ARCHIVED"
+                              ? t.archivedRelease
+                              : t.draft}
+                        </span>
+                        {version.releaseNote && <p>{version.releaseNote}</p>}
+                      </div>
+                      <div className="version-row-actions">
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => setSelectedVersion(version)}
+                          aria-label={`${t.detail} v${version.version}`}
+                        >
+                          {t.detail}
+                        </button>
+                        {version.status !== "PUBLISHED" && (
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => rollbackAgent(version.version)}
+                            disabled={agentSubmitting || agentConfigDirty}
+                            title={
+                              agentConfigDirty ? t.saveBeforePublish : undefined
                             }
                           >
-                            {hook.enabled ? t.enabled : t.disabled}
-                          </span>
-                        </span>
-                        <span className="binding-meta">
-                          {hookBindingTargets(hook, agentId, agentRole, t)} ·{" "}
-                          {hookPhaseLabel(hook.phase, t)} ·{" "}
-                          {hookRuleLabel(hook.ruleType, t)}
-                        </span>
-                        {hook.description && (
-                          <span className="binding-description">
-                            {hook.description}
-                          </span>
+                            {t.rollback}
+                          </button>
                         )}
-                      </span>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
-            </section>
-          </div>
-        )}
-        {agentConfigSection === "versions" && (
-          <div className="settings-panel">
-            <div className="binding-heading">
-              <div>
-                <h4>{t.versionHistory}</h4>
-                <p>
-                  {hasPublishedRelease
-                    ? `${t.publishedVersion}: ${configuredAgent?.publishedVersion}`
-                    : t.noPublishedVersion}
-                </p>
-              </div>
             </div>
-            <p
-              className={`publish-guidance ${
-                agentConfigDirty || hasUnpublishedChanges
-                  ? "is-warning"
-                  : "is-success"
-              }`}
+          )}
+          {selectedVersion && (
+            <div
+              className="modal-backdrop"
+              role="presentation"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget)
+                  setSelectedVersion(undefined);
+              }}
             >
-              <Icon
-                name={
-                  agentConfigDirty || hasUnpublishedChanges ? "alert" : "check"
-                }
-                size={14}
+              <VersionDetailsDialog
+                t={t}
+                version={selectedVersion}
+                onClose={() => setSelectedVersion(undefined)}
               />
-              <span>
-                {agentConfigDirty
-                  ? t.saveBeforePublish
-                  : hasUnpublishedChanges
-                    ? t.unpublishedChanges
-                    : t.publishedAndCurrent}
-              </span>
-            </p>
-            {agentVersions.length === 0 ? (
-              <p className="binding-empty">{t.noVersionHistory}</p>
-            ) : (
-              <div className="version-list">
-                {agentVersions.map((version) => (
-                  <div className="version-row" key={version.id}>
-                    <div className="version-row-content">
-                      <strong>v{version.version}</strong>
-                      <span className="binding-meta">
-                        {version.status === "PUBLISHED"
-                          ? t.published
-                          : version.status === "ARCHIVED"
-                            ? t.archivedRelease
-                            : t.draft}
-                      </span>
-                      {version.releaseNote && <p>{version.releaseNote}</p>}
-                    </div>
-                    <div className="version-row-actions">
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => setSelectedVersion(version)}
-                        aria-label={`${t.detail} v${version.version}`}
-                      >
-                        {t.detail}
-                      </button>
-                      {version.status !== "PUBLISHED" && (
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => rollbackAgent(version.version)}
-                          disabled={agentSubmitting || agentConfigDirty}
-                          title={
-                            agentConfigDirty ? t.saveBeforePublish : undefined
-                          }
-                        >
-                          {t.rollback}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {selectedVersion && (
-          <div
-            className="modal-backdrop"
-            role="presentation"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget)
-                setSelectedVersion(undefined);
-            }}
-          >
-            <VersionDetailsDialog
-              t={t}
-              version={selectedVersion}
-              onClose={() => setSelectedVersion(undefined)}
-            />
-          </div>
-        )}
+            </div>
+          )}
         </fieldset>
       </form>
     </section>

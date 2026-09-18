@@ -15,7 +15,16 @@ public final class RequestContext {
     }
 
     public static void set(String source, String userId, String actorName) {
-        CURRENT.set(new Identity(source, userId, actorName));
+        CURRENT.set(new Identity(source, userId, actorName, null));
+    }
+
+    public static void set(String source, String userId, String actorName, AdminRole role) {
+        CURRENT.set(
+                new Identity(
+                        source,
+                        userId,
+                        actorName,
+                        role == null ? null : role.name()));
     }
 
     /** 绑定已有身份；传 null 表示清空（例如匿名线程）。 */
@@ -58,16 +67,26 @@ public final class RequestContext {
 
     public static Identity currentOrAnonymous() {
         Identity value = CURRENT.get();
-        return value != null ? value : new Identity("anonymous", "anonymous", "anonymous");
+        return value != null
+                ? value
+                : new Identity("anonymous", "anonymous", "anonymous", "VIEWER");
     }
 
-    public record Identity(String source, String userId, String actorName) {
+    public record Identity(String source, String userId, String actorName, String role) {
         public Identity(String source, String userId) {
-            this(source, userId, userId);
+            this(source, userId, userId, null);
+        }
+
+        public Identity(String source, String userId, String actorName) {
+            this(source, userId, actorName, null);
         }
 
         public String actorLabel() {
             return actorName == null || actorName.isBlank() ? userId : actorName;
+        }
+
+        public AdminRole adminRole() {
+            return AdminRole.parse(role);
         }
     }
 }

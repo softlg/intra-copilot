@@ -27,6 +27,19 @@ public interface MessageRepository extends BaseMapper<Message> {
                 Wrappers.<Message>query().eq("conversation_id", id).orderByAsc("created_at"));
     }
 
+    default List<Message> findRecentByConversationId(String conversationId, int limit) {
+        int safeLimit = Math.max(1, Math.min(500, limit));
+        List<Message> descending =
+                selectList(
+                        Wrappers.<Message>query()
+                                .eq("conversation_id", conversationId)
+                                .orderByDesc("created_at")
+                                .last("LIMIT " + safeLimit));
+        List<Message> ascending = new ArrayList<>(descending);
+        java.util.Collections.reverse(ascending);
+        return ascending;
+    }
+
     default long countByConversationId(String conversationId) {
         return selectCount(Wrappers.<Message>query().eq("conversation_id", conversationId));
     }

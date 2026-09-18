@@ -27,7 +27,7 @@ npm install
 npm run build
 ```
 
-在 Chrome/Edge 打开扩展管理页，开启“开发者模式”，选择“加载已解压的扩展”，指向 `extension/dist`。点击浏览器工具栏中的扩展图标或页面悬浮球打开侧边栏；首次使用需允许当前页面访问权限。
+在 Chrome/Edge 打开扩展管理页，开启“开发者模式”，选择“加载已解压的扩展”，指向 `extension/dist`。点击浏览器工具栏中的扩展图标打开侧边栏；启用某个页面时，插件才申请该站点的运行时权限，不再在安装时获得全网站访问权。
 
 侧边栏默认只在打开它的标签页显示，切换到其它标签页时会隐藏，切回原标签页后恢复。侧边栏右上角“设置”中勾选“在所有标签页启用”后，侧边栏会在窗口内的所有标签页持续显示。
 
@@ -53,7 +53,13 @@ $env:ADMIN_PASSWORD="your-password"
 $env:ADMIN_SESSION_SECRET="long-random-value"
 ```
 
-管理端登录不区分角色和权限。除 `POST /api/v1/auth/admin/login` 外，所有 `/api/v1/admin/**` 接口都要求登录后返回的 Bearer Token。
+管理端使用 `VIEWER`、`EDITOR`、`ADMIN`、`OWNER` 四级角色。读取接口至少需要 `VIEWER`，配置修改至少需要 `EDITOR`，删除和管理管理员账号至少需要 `ADMIN`。除登录、设备注册与公开能力接口外，`/api/v1/**` 默认拒绝匿名访问。
+
+后端默认启用严格安全配置：`ADMIN_PASSWORD` 不能为空或 `admin`，`ADMIN_SESSION_SECRET` 必须显式配置。仅在本机临时开发时可设置 `SECURITY_REQUIRE_SECURE_ADMIN_CONFIG=false`。
+
+插件设备注册使用一次性 challenge 和 RSA 私钥签名。首次注册由服务端生成 `deviceId`；后续公钥轮换必须提供旧私钥签名，不能仅凭已知的 `deviceId` 覆盖公钥。
+
+OpenAPI 与 Swagger UI 默认关闭。需要生成客户端或本地调试时设置 `OPENAPI_ENABLED=true`，接口位于 `/api-docs` 和 `/swagger-ui.html`。
 
 ### 管理 API
 
@@ -61,7 +67,7 @@ $env:ADMIN_SESSION_SECRET="long-random-value"
 - `GET /api/v1/auth/admin/session`：校验当前登录状态。
 - `GET/POST/PUT/DELETE /api/v1/admin/agents`：Agent 配置及启用状态。
 - `/api/v1/admin/knowledge-bases`：知识库、文档上传、重建索引和删除。支持 Markdown、TXT、PDF、DOCX、XLS/XLSX、PPTX、CSV/TSV、HTML；图片和扫描 PDF 需要 OCR。
-- `/api/v1/admin/tools`、`/api/v1/admin/skills`：注册 HTTP 工具和 Skill。HTTP 工具默认允许访问 HTTP/HTTPS 公网地址，可通过 `TOOLS_ALLOW_HTTP=false` 禁止 HTTP；`TOOLS_ALLOW_PRIVATE_NETWORK=true` 可显式放行内网或本机地址。工具请求不跟随重定向。
+- `/api/v1/admin/tools`、`/api/v1/admin/skills`：注册 HTTP 工具和 Skill。HTTP 工具默认仅允许 HTTPS 公网地址；`TOOLS_ALLOW_HTTP=true` 可放行 HTTP，`TOOLS_ALLOW_PRIVATE_NETWORK=true` 可显式放行内网或本机地址。DNS 解析在连接阶段再次校验，并拒绝云元数据地址和重定向。
 - `/api/v1/admin/mcp-servers`：MCP 服务注册、编辑、启停、删除和健康检查；`POST /{id}/health` 会执行 MCP `initialize` 与 `tools/list`，缓存接口数量、能力和接口详情。
 - `POST /api/v1/admin/router/test`：按插件请求协议测试系统 Agent 路由，支持页面权限、图片附件和领域/子 Agent 委派链路。
 - `POST /api/v1/admin/router/attachments`：上传路由测试图片并返回管理端预览地址。

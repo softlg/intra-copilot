@@ -748,353 +748,360 @@ export function SkillsPage({
               </div>
 
               <div className="skill-editor-tab-panels" key={editorTab}>
-              {editorTab === "basic" && (
-                <section className="skill-form-section">
-                  <div className="skill-section-heading">
-                    <h4>{t.skillBasicSection}</h4>
-                    <StatusBadge
-                      kind={
-                        editing?.enabled
-                          ? "ok"
-                          : editing?.publishedVersion
-                            ? "off"
-                            : "neutral"
-                      }
-                    >
-                      {editing
-                        ? lifecycleBadge(t, editing).label
-                        : t.skillUnpublished}
-                    </StatusBadge>
-                  </div>
-                  <div className="field-grid">
+                {editorTab === "basic" && (
+                  <section className="skill-form-section">
+                    <div className="skill-section-heading">
+                      <h4>{t.skillBasicSection}</h4>
+                      <StatusBadge
+                        kind={
+                          editing?.enabled
+                            ? "ok"
+                            : editing?.publishedVersion
+                              ? "off"
+                              : "neutral"
+                        }
+                      >
+                        {editing
+                          ? lifecycleBadge(t, editing).label
+                          : t.skillUnpublished}
+                      </StatusBadge>
+                    </div>
+                    <div className="field-grid">
+                      <label className="field">
+                        <span>
+                          {t.toolName}
+                          <span className="required-mark" aria-hidden="true">
+                            *
+                          </span>
+                        </span>
+                        <input
+                          autoFocus
+                          value={draft.name}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              name: event.target.value,
+                            }))
+                          }
+                          maxLength={80}
+                          required
+                        />
+                      </label>
+                      <label className="field">
+                        <span>{t.version}</span>
+                        <input
+                          value={draft.version}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              version: event.target.value,
+                            }))
+                          }
+                          maxLength={32}
+                          placeholder="1.0.0"
+                        />
+                      </label>
+                    </div>
                     <label className="field">
                       <span>
-                        {t.toolName}
+                        {t.descriptionLabel}
                         <span className="required-mark" aria-hidden="true">
                           *
                         </span>
                       </span>
-                      <input
-                        autoFocus
-                        value={draft.name}
+                      <textarea
+                        value={draft.description}
                         onChange={(event) =>
                           setDraft((current) => ({
                             ...current,
-                            name: event.target.value,
+                            description: event.target.value,
                           }))
                         }
-                        maxLength={80}
+                        maxLength={500}
+                        rows={3}
+                        placeholder={t.noDescription}
+                      />
+                      <FieldHint>{draft.description.length} / 500</FieldHint>
+                    </label>
+                  </section>
+                )}
+
+                {editorTab === "activation" && (
+                  <section className="skill-form-section">
+                    <div className="skill-section-heading">
+                      <h4>{t.skillActivationSection}</h4>
+                    </div>
+                    <div className="field-grid">
+                      <label className="field">
+                        <span>{t.skillActivationMode}</span>
+                        <select
+                          value={draft.activationMode}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              activationMode: event.target.value as
+                                "ALWAYS" | "KEYWORD",
+                            }))
+                          }
+                        >
+                          <option value="ALWAYS">
+                            {t.skillActivationAlways}
+                          </option>
+                          <option value="KEYWORD">
+                            {t.skillActivationKeyword}
+                          </option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>{t.skillPriorityLabel}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={10000}
+                          value={draft.priority}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              priority: Number(event.target.value),
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+                    {draft.activationMode === "KEYWORD" && (
+                      <label className="field">
+                        <span>{t.skillKeywords}</span>
+                        <input
+                          value={draft.keywords}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              keywords: event.target.value,
+                            }))
+                          }
+                          placeholder={t.skillKeywordsPlaceholder}
+                        />
+                        <FieldHint>{t.skillKeywordsHint}</FieldHint>
+                      </label>
+                    )}
+                    <label className="field">
+                      <span>{t.skillMaxPromptChars}</span>
+                      <input
+                        type="number"
+                        min={100}
+                        max={50000}
+                        value={draft.maxPromptChars}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            maxPromptChars: Number(event.target.value),
+                          }))
+                        }
+                      />
+                      <FieldHint>{t.skillMaxPromptCharsHint}</FieldHint>
+                    </label>
+                  </section>
+                )}
+
+                {editorTab === "prompt" && (
+                  <section className="skill-form-section">
+                    <div className="skill-section-heading">
+                      <h4>{t.skillPromptSection}</h4>
+                      <span
+                        className={
+                          draft.prompt.length > draft.maxPromptChars
+                            ? "skill-counter is-over"
+                            : "skill-counter"
+                        }
+                      >
+                        {draft.prompt.length} / {draft.maxPromptChars}
+                      </span>
+                    </div>
+                    <label className="field">
+                      <span className="sr-only">{t.skillPrompt}</span>
+                      <textarea
+                        className="skill-prompt-editor"
+                        value={draft.prompt}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            prompt: event.target.value,
+                          }))
+                        }
+                        rows={12}
+                        placeholder={t.skillPromptPlaceholder}
                         required
                       />
                     </label>
-                    <label className="field">
-                      <span>{t.version}</span>
-                      <input
-                        value={draft.version}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            version: event.target.value,
-                          }))
-                        }
-                        maxLength={32}
-                        placeholder="1.0.0"
-                      />
-                    </label>
-                  </div>
-                  <label className="field">
-                    <span>
-                      {t.descriptionLabel}
-                      <span className="required-mark" aria-hidden="true">
-                        *
+                  </section>
+                )}
+
+                {editorTab === "tools" && (
+                  <section className="skill-form-section">
+                    <div className="skill-section-heading">
+                      <h4>{t.skillToolSection}</h4>
+                      <span className="skill-counter">
+                        {t.skillToolsSelected(
+                          draft.toolIds.length,
+                          tools.length,
+                        )}
                       </span>
-                    </span>
-                    <textarea
-                      value={draft.description}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          description: event.target.value,
-                        }))
-                      }
-                      maxLength={500}
-                      rows={3}
-                      placeholder={t.noDescription}
-                    />
-                    <FieldHint>{draft.description.length} / 500</FieldHint>
-                  </label>
-                </section>
-              )}
-
-              {editorTab === "activation" && (
-                <section className="skill-form-section">
-                  <div className="skill-section-heading">
-                    <h4>{t.skillActivationSection}</h4>
-                  </div>
-                  <div className="field-grid">
-                    <label className="field">
-                      <span>{t.skillActivationMode}</span>
-                      <select
-                        value={draft.activationMode}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            activationMode: event.target.value as
-                              "ALWAYS" | "KEYWORD",
-                          }))
-                        }
-                      >
-                        <option value="ALWAYS">
-                          {t.skillActivationAlways}
-                        </option>
-                        <option value="KEYWORD">
-                          {t.skillActivationKeyword}
-                        </option>
-                      </select>
-                    </label>
-                    <label className="field">
-                      <span>{t.skillPriorityLabel}</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={10000}
-                        value={draft.priority}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            priority: Number(event.target.value),
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-                  {draft.activationMode === "KEYWORD" && (
-                    <label className="field">
-                      <span>{t.skillKeywords}</span>
-                      <input
-                        value={draft.keywords}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            keywords: event.target.value,
-                          }))
-                        }
-                        placeholder={t.skillKeywordsPlaceholder}
-                      />
-                      <FieldHint>{t.skillKeywordsHint}</FieldHint>
-                    </label>
-                  )}
-                  <label className="field">
-                    <span>{t.skillMaxPromptChars}</span>
-                    <input
-                      type="number"
-                      min={100}
-                      max={50000}
-                      value={draft.maxPromptChars}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          maxPromptChars: Number(event.target.value),
-                        }))
-                      }
-                    />
-                    <FieldHint>{t.skillMaxPromptCharsHint}</FieldHint>
-                  </label>
-                </section>
-              )}
-
-              {editorTab === "prompt" && (
-                <section className="skill-form-section">
-                  <div className="skill-section-heading">
-                    <h4>{t.skillPromptSection}</h4>
-                    <span
-                      className={
-                        draft.prompt.length > draft.maxPromptChars
-                          ? "skill-counter is-over"
-                          : "skill-counter"
-                      }
-                    >
-                      {draft.prompt.length} / {draft.maxPromptChars}
-                    </span>
-                  </div>
-                  <label className="field">
-                    <span className="sr-only">{t.skillPrompt}</span>
-                    <textarea
-                      className="skill-prompt-editor"
-                      value={draft.prompt}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          prompt: event.target.value,
-                        }))
-                      }
-                      rows={12}
-                      placeholder={t.skillPromptPlaceholder}
-                      required
-                    />
-                  </label>
-                </section>
-              )}
-
-              {editorTab === "tools" && (
-                <section className="skill-form-section">
-                  <div className="skill-section-heading">
-                    <h4>{t.skillToolSection}</h4>
-                    <span className="skill-counter">
-                      {t.skillToolsSelected(draft.toolIds.length, tools.length)}
-                    </span>
-                  </div>
-                  {tools.length === 0 ? (
-                    <p className="binding-empty">{t.skillNoTools}</p>
-                  ) : (
-                    <>
-                      <label className="binding-search">
-                        <span className="sr-only">{t.search}</span>
-                        <input
-                          value={toolSearch}
-                          onChange={(event) =>
-                            setToolSearch(event.target.value)
-                          }
-                          placeholder={t.searchPlaceholder}
-                          type="search"
-                        />
-                      </label>
-                      <div className="binding-list skill-tool-list">
-                        {filteredTools.map((tool) => {
-                          const checked = draft.toolIds.includes(tool.id);
-                          return (
-                            <label className="binding-option" key={tool.id}>
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                disabled={!tool.enabled && !checked}
-                                onChange={() =>
-                                  setDraft((current) => ({
-                                    ...current,
-                                    toolIds: checked
-                                      ? current.toolIds.filter(
-                                          (id) => id !== tool.id,
-                                        )
-                                      : [...current.toolIds, tool.id],
-                                  }))
-                                }
-                              />
-                              <span className="binding-copy">
-                                <span className="binding-name">
-                                  {tool.name}
-                                </span>
-                                <span className="binding-meta">
-                                  {tool.type || "HTTP"}
-                                  {!tool.enabled ? ` · ${t.disabled}` : ""}
-                                </span>
-                                {tool.description && (
-                                  <span className="binding-description">
-                                    {tool.description}
+                    </div>
+                    {tools.length === 0 ? (
+                      <p className="binding-empty">{t.skillNoTools}</p>
+                    ) : (
+                      <>
+                        <label className="binding-search">
+                          <span className="sr-only">{t.search}</span>
+                          <input
+                            value={toolSearch}
+                            onChange={(event) =>
+                              setToolSearch(event.target.value)
+                            }
+                            placeholder={t.searchPlaceholder}
+                            type="search"
+                          />
+                        </label>
+                        <div className="binding-list skill-tool-list">
+                          {filteredTools.map((tool) => {
+                            const checked = draft.toolIds.includes(tool.id);
+                            return (
+                              <label className="binding-option" key={tool.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={!tool.enabled && !checked}
+                                  onChange={() =>
+                                    setDraft((current) => ({
+                                      ...current,
+                                      toolIds: checked
+                                        ? current.toolIds.filter(
+                                            (id) => id !== tool.id,
+                                          )
+                                        : [...current.toolIds, tool.id],
+                                    }))
+                                  }
+                                />
+                                <span className="binding-copy">
+                                  <span className="binding-name">
+                                    {tool.name}
                                   </span>
+                                  <span className="binding-meta">
+                                    {tool.type || "HTTP"}
+                                    {!tool.enabled ? ` · ${t.disabled}` : ""}
+                                  </span>
+                                  {tool.description && (
+                                    <span className="binding-description">
+                                      {tool.description}
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </section>
+                )}
+
+                {editorTab === "release" && (
+                  <section className="skill-form-section">
+                    <div className="skill-section-heading">
+                      <h4>{t.skillChangeNote}</h4>
+                    </div>
+                    <label className="field">
+                      <span className="sr-only">{t.skillChangeNote}</span>
+                      <textarea
+                        value={changeNote}
+                        onChange={(event) => setChangeNote(event.target.value)}
+                        rows={2}
+                        maxLength={500}
+                        placeholder={t.skillChangeNotePlaceholder}
+                      />
+                    </label>
+                  </section>
+                )}
+
+                {editorTab === "release" && editing && (
+                  <section className="skill-form-section skill-history-section">
+                    <div className="skill-history-grid">
+                      <div>
+                        <div className="skill-section-heading">
+                          <h4>{t.skillVersionHistory}</h4>
+                          {historyLoading && (
+                            <Skeleton width="40px" height="14px" />
+                          )}
+                        </div>
+                        {!historyLoading && versions.length === 0 ? (
+                          <p className="binding-empty">{t.skillNoVersions}</p>
+                        ) : (
+                          <div className="skill-history-list">
+                            {versions.map((version) => (
+                              <div
+                                className="skill-history-item"
+                                key={version.id}
+                              >
+                                <div>
+                                  <strong>
+                                    v{version.version} · {version.versionLabel}
+                                  </strong>
+                                  <span>
+                                    {formatDateTime(version.createdAt)}
+                                    {version.createdBy
+                                      ? ` · ${version.createdBy}`
+                                      : ""}
+                                  </span>
+                                  {version.changeNote && (
+                                    <p>{version.changeNote}</p>
+                                  )}
+                                </div>
+                                {version.version !==
+                                  editing.publishedVersion && (
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    onClick={() =>
+                                      rollbackSkill(editing, version)
+                                    }
+                                    disabled={actionId === editing.id}
+                                  >
+                                    {t.skillRollback}
+                                  </button>
                                 )}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </section>
-              )}
-
-              {editorTab === "release" && (
-                <section className="skill-form-section">
-                  <div className="skill-section-heading">
-                    <h4>{t.skillChangeNote}</h4>
-                  </div>
-                  <label className="field">
-                    <span className="sr-only">{t.skillChangeNote}</span>
-                    <textarea
-                      value={changeNote}
-                      onChange={(event) => setChangeNote(event.target.value)}
-                      rows={2}
-                      maxLength={500}
-                      placeholder={t.skillChangeNotePlaceholder}
-                    />
-                  </label>
-                </section>
-              )}
-
-              {editorTab === "release" && editing && (
-                <section className="skill-form-section skill-history-section">
-                  <div className="skill-history-grid">
-                    <div>
-                      <div className="skill-section-heading">
-                        <h4>{t.skillVersionHistory}</h4>
-                        {historyLoading && (
-                          <Skeleton width="40px" height="14px" />
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
-                      {!historyLoading && versions.length === 0 ? (
-                        <p className="binding-empty">{t.skillNoVersions}</p>
-                      ) : (
-                        <div className="skill-history-list">
-                          {versions.map((version) => (
-                            <div
-                              className="skill-history-item"
-                              key={version.id}
-                            >
-                              <div>
-                                <strong>
-                                  v{version.version} · {version.versionLabel}
-                                </strong>
-                                <span>
-                                  {formatDateTime(version.createdAt)}
-                                  {version.createdBy
-                                    ? ` · ${version.createdBy}`
-                                    : ""}
-                                </span>
-                                {version.changeNote && (
-                                  <p>{version.changeNote}</p>
-                                )}
-                              </div>
-                              {version.version !== editing.publishedVersion && (
-                                <button
-                                  type="button"
-                                  className="secondary"
-                                  onClick={() =>
-                                    rollbackSkill(editing, version)
-                                  }
-                                  disabled={actionId === editing.id}
-                                >
-                                  {t.skillRollback}
-                                </button>
-                              )}
-                            </div>
-                          ))}
+                      <div>
+                        <div className="skill-section-heading">
+                          <h4>{t.skillAuditHistory}</h4>
                         </div>
-                      )}
-                    </div>
-                    <div>
-                      <div className="skill-section-heading">
-                        <h4>{t.skillAuditHistory}</h4>
+                        {!historyLoading && audits.length === 0 ? (
+                          <p className="binding-empty">{t.skillNoAudit}</p>
+                        ) : (
+                          <div className="skill-history-list">
+                            {audits.slice(0, 12).map((audit) => (
+                              <div
+                                className="skill-history-item"
+                                key={audit.id}
+                              >
+                                <div>
+                                  <strong>{audit.action}</strong>
+                                  <span>
+                                    {formatDateTime(audit.createdAt)}
+                                    {audit.actor ? ` · ${audit.actor}` : ""}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      {!historyLoading && audits.length === 0 ? (
-                        <p className="binding-empty">{t.skillNoAudit}</p>
-                      ) : (
-                        <div className="skill-history-list">
-                          {audits.slice(0, 12).map((audit) => (
-                            <div className="skill-history-item" key={audit.id}>
-                              <div>
-                                <strong>{audit.action}</strong>
-                                <span>
-                                  {formatDateTime(audit.createdAt)}
-                                  {audit.actor ? ` · ${audit.actor}` : ""}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
-                  </div>
-                </section>
-              )}
+                  </section>
+                )}
               </div>
 
               {dialogError && (

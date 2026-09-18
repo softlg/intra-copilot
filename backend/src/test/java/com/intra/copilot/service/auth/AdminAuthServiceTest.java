@@ -57,7 +57,7 @@ class AdminAuthServiceTest {
         when(users.findByUsername("operator")).thenReturn(Optional.of(user));
 
         AdminAuthService service =
-                new AdminAuthService(users, "admin", "", 60, "test-session-secret");
+                new AdminAuthService(users, "admin", "", 60, "test-session-secret", false);
         AdminAuthService.Session session = service.authenticate("operator", "secret").orElseThrow();
 
         when(users.selectById("admin-1")).thenReturn(null);
@@ -71,5 +71,15 @@ class AdminAuthServiceTest {
 
         assertFalse(service.isConfigured());
         assertTrue(service.authenticate("admin", "").isEmpty());
+    }
+
+    @Test
+    void strictConfigurationRejectsDefaultPasswordAndEphemeralSecret() {
+        assertThrows(
+                IllegalStateException.class,
+                () -> new AdminAuthService(null, "admin", "admin", 60, "secret", true));
+        assertThrows(
+                IllegalStateException.class,
+                () -> new AdminAuthService(null, "admin", "strong-password", 60, "", true));
     }
 }

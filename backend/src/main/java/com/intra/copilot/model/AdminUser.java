@@ -13,6 +13,8 @@ public class AdminUser {
     private String displayName;
     private String passwordHash;
     private boolean enabled = true;
+    private String role = "VIEWER";
+    private long sessionVersion;
     private Instant lastLoginAt;
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
@@ -55,6 +57,22 @@ public class AdminUser {
 
     public void setEnabled(boolean value) {
         enabled = value;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String value) {
+        role = value;
+    }
+
+    public long getSessionVersion() {
+        return sessionVersion;
+    }
+
+    public void setSessionVersion(long value) {
+        sessionVersion = Math.max(0L, value);
     }
 
     public Instant getLastLoginAt() {

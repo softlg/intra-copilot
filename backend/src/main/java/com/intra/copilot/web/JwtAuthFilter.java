@@ -1,6 +1,7 @@
 package com.intra.copilot.web;
 
 import com.intra.copilot.service.auth.AdminAuthService;
+import com.intra.copilot.service.auth.AdminRole;
 import com.intra.copilot.service.auth.JwtVerifier;
 import com.intra.copilot.service.auth.RequestContext;
 import jakarta.servlet.http.HttpServletRequest;
@@ -50,7 +51,14 @@ public class JwtAuthFilter implements HandlerInterceptor {
         try {
             if (mode == AuthMode.ADMIN) {
                 AdminAuthService.Verified verified = adminAuth.verify(token);
-                RequestContext.set("admin", verified.userId(), verified.username());
+                AdminRole role = AdminRole.parse(verified.role());
+                if (!allowsAdminRequest(request, role)) {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"error\":\"FORBIDDEN\",\"message\":\"权限不足\"}");
+                    return false;
+                }
+                RequestContext.set("admin", verified.userId(), verified.username(), role);
             } else {
                 JwtVerifier.Verified v = verifier.verify(token);
                 RequestContext.set(v.source(), v.userId());
@@ -80,19 +88,37 @@ public class JwtAuthFilter implements HandlerInterceptor {
     private AuthMode authMode(HttpServletRequest request) {
         String path = request.getRequestURI();
         if (path == null) return AuthMode.NONE;
+        if (path.equals("/api/v1/auth/devices/challenge")
+                || path.equals("/api/v1/auth/devices/register")
+                || path.equals("/api/v1/auth/admin/login")
+                || path.equals("/api/v1/agents")
+                || path.equals("/api/v1/capabilities")) {
+            return AuthMode.NONE;
+        }
         if (path.equals("/api/v1/auth/admin/session")
                 || path.equals("/api/v1/admin")
                 || path.startsWith("/api/v1/admin/")) {
             return AuthMode.ADMIN;
         }
-        if (path.startsWith("/api/v1/sessions")
-                || path.startsWith("/api/v1/chat/")
-                || path.startsWith("/api/v1/actions/")
-                || path.startsWith("/api/v1/attachments")
-                || path.startsWith("/api/v1/feedback")) {
-            return AuthMode.DEVICE;
+        // Default deny for every current and future API route. Public endpoints
+        // must be added to the explicit allowlist above.
+        return AuthMode.DEVICE;
+    }
+
+    private boolean allowsAdminRequest(HttpServletRequest request, AdminRole role) {
+        String path = request.getRequestURI();
+        if (path == null) return false;
+        if (path.equals("/api/v1/auth/admin/session")) return true;
+        if (path.startsWith("/api/v1/admin/users")) {
+            return role.atLeast(AdminRole.ADMIN);
         }
-        return AuthMode.NONE;
+        if (HttpMethod.GET.matches(request.getMethod())) {
+            return role.atLeast(AdminRole.VIEWER);
+        }
+        if (HttpMethod.DELETE.matches(request.getMethod())) {
+            return role.atLeast(AdminRole.ADMIN);
+        }
+        return role.atLeast(AdminRole.EDITOR);
     }
 
     private enum AuthMode {

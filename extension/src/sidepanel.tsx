@@ -1,10 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import rehypeHighlight from "rehype-highlight";
-import ReactMarkdown from "react-markdown";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
 import { bootstrapAuth, type AuthedFetch } from "./auth";
+import {
+  AssistantMarkdown,
+  isDefaultSessionTitle,
+} from "./components/AssistantMarkdown";
+import { consumeSseBuffer, parseSseFrame } from "../../shared/protocol/sse";
+import { translations } from "./i18n/translations";
+import {
+  attachmentObjectUrlCache,
+  collectContextsFromTab,
+  executeEditorAction,
+  resolveAttachment,
+} from "./lib/browser";
 import "./style.css";
 
 const API_BASE = (
@@ -36,487 +44,6 @@ type AttachmentView = {
 // 附件原始 url 指向需要鉴权的后端接口；浏览器在加载 <img src> 或 <a download> 时
 // 不会附带 JWT，直接用它必然 401 而显示/下载失败。因此统一用 apiFetch 取回字节，
 // 转成同源 object URL 后再交给 img/下载使用，并按 id 缓存避免重复请求。
-const attachmentObjectUrlCache = new Map<string, string>();
-
-/**
- * 在页面主世界执行的上下文采集函数。该函数会被 chrome.scripting.executeScript
- * 序列化后注入到目标标签页执行，因此不能引用任何模块级变量。
- */
-function collectPageContext() {
-  return {
-    url: location.href,
-    title: document.title,
-    selection: (getSelection()?.toString() || "").slice(0, 4000),
-    visibleText: (document.body?.innerText || "").slice(0, 12000),
-    domSummary: Array.from(
-      document.querySelectorAll(
-        "input,button,select,textarea,a,[role='button'],[contenteditable='true'],.monaco-editor,.cm-editor",
-      ),
-    )
-      .filter((element) => {
-        if (!(element instanceof HTMLElement)) return false;
-        const rect = element.getBoundingClientRect();
-        const style = getComputedStyle(element);
-        return (
-          rect.width > 0 &&
-          rect.height > 0 &&
-          style.display !== "none" &&
-          style.visibility !== "hidden" &&
-          style.opacity !== "0"
-        );
-      })
-      .slice(0, 120)
-      .map((element, index) => {
-        const e = element as HTMLElement;
-        const codeEditor = e.matches(".monaco-editor,.cm-editor");
-        const name = (
-          (codeEditor ? "代码编辑器" : "") ||
-          e.getAttribute("aria-label") ||
-          e.getAttribute("title") ||
-          (e as HTMLInputElement).placeholder ||
-          e.innerText ||
-          (e as HTMLInputElement).value ||
-          e.getAttribute("name") ||
-          ""
-        )
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 160);
-        return `${index + 1 < 10 ? " " : ""}ref_${index + 1} <${e.tagName.toLowerCase()}> role="${codeEditor ? "code-editor" : e.getAttribute("role") || (e.tagName === "A" ? "link" : e.tagName === "BUTTON" ? "button" : e.tagName.toLowerCase())}"${name ? ` name="${name.replace(/"/g, '\\"')}"` : ""}`;
-      })
-      .join("\n"),
-    timestamp: new Date().toISOString(),
-  };
-}
-
-/**
- * Runs in the page's MAIN world so it can access Monaco's JavaScript API. The function is
- * serialized by chrome.scripting.executeScript and must not reference module-level values.
- */
-async function setEditorValueInPage(args: any) {
-  const code = typeof args?.code === "string" ? args.code : "";
-  if (!code.trim()) {
-    return { ok: false, action: "SET_EDITOR", error: "Code is empty" };
-  }
-  const normalize = (value: unknown) =>
-    String(value || "")
-      .replace(/\s+/g, "")
-      .trim();
-  const expected = normalize(code).slice(0, 240);
-  const verified = (value: unknown) => {
-    const actual = normalize(value);
-    const probe = expected.slice(0, Math.min(100, expected.length));
-    return probe.length > 0 && actual.includes(probe);
-  };
-  const applyModel = (model: any, method: string) => {
-    try {
-      if (!model || typeof model.setValue !== "function") return null;
-      model.setValue(code);
-      const current =
-        typeof model.getValue === "function" ? model.getValue() : "";
-      return verified(current)
-        ? {
-            ok: true,
-            action: "SET_EDITOR",
-            method,
-            preview: String(current).slice(0, 160),
-          }
-        : null;
-    } catch {
-      return null;
-    }
-  };
-  const applyCodeMirror = (view: any, method: string) => {
-    try {
-      const doc = view?.state?.doc;
-      if (
-        !doc ||
-        typeof doc.toString !== "function" ||
-        !Number.isInteger(doc.length) ||
-        typeof view.dispatch !== "function"
-      ) {
-        return null;
-      }
-      view.dispatch({
-        changes: {
-          from: 0,
-          to: doc.length,
-          insert: code,
-        },
-      });
-      const current = view.state.doc.toString();
-      return verified(current)
-        ? {
-            ok: true,
-            action: "SET_EDITOR",
-            method,
-            preview: String(current).slice(0, 160),
-          }
-        : null;
-    } catch {
-      return null;
-    }
-  };
-  const applyEditor = (editor: any, method: string) => {
-    try {
-      const byModel = applyModel(editor?.getModel?.(), `${method}-model`);
-      if (byModel) return byModel;
-      if (!editor || typeof editor.setValue !== "function") return null;
-      editor.setValue(code);
-      const current =
-        typeof editor.getValue === "function" ? editor.getValue() : "";
-      return verified(current)
-        ? {
-            ok: true,
-            action: "SET_EDITOR",
-            method,
-            preview: String(current).slice(0, 160),
-          }
-        : null;
-    } catch {
-      return null;
-    }
-  };
-  const editorCandidate = (value: any) => {
-    if (!value || typeof value !== "object") return null;
-    if (
-      typeof value.dispatch === "function" &&
-      typeof value.state?.doc?.toString === "function"
-    ) {
-      return { kind: "codeMirror", value };
-    }
-    if (
-      typeof value.getModel === "function" &&
-      typeof value.setValue === "function"
-    ) {
-      return { kind: "editor", value };
-    }
-    if (
-      typeof value.getValue === "function" &&
-      typeof value.setValue === "function"
-    ) {
-      return { kind: "model", value };
-    }
-    return null;
-  };
-  const applyCandidate = (candidate: any, method: string) =>
-    candidate?.kind === "model"
-      ? applyModel(candidate.value, method)
-      : candidate?.kind === "codeMirror"
-        ? applyCodeMirror(candidate.value, method)
-        : applyEditor(candidate?.value, method);
-
-  const deepQueryAll = (
-    queryRoot: Document | ShadowRoot | HTMLElement,
-    selector: string,
-  ): Element[] => {
-    const values = Array.from(queryRoot.querySelectorAll(selector));
-    for (const element of Array.from(queryRoot.querySelectorAll("*"))) {
-      if (element.shadowRoot) {
-        values.push(...deepQueryAll(element.shadowRoot, selector));
-      }
-    }
-    return values;
-  };
-
-  const markedEditor = deepQueryAll(
-    document,
-    "[data-intra-copilot-editor-target='true']",
-  )[0];
-  if (markedEditor instanceof HTMLElement) {
-    markedEditor.setAttribute("data-intra-copilot-editor-target", "true");
-  }
-  const domEditors = deepQueryAll(
-    document,
-    ".monaco-editor, .cm-editor, .cm-content, textarea[class*='inputarea']",
-  ).filter((element): element is HTMLElement => element instanceof HTMLElement);
-  if (
-    markedEditor instanceof HTMLElement &&
-    !domEditors.includes(markedEditor)
-  ) {
-    domEditors.unshift(markedEditor);
-  }
-
-  if (!(markedEditor instanceof HTMLElement)) {
-    const host = window as any;
-    const globalMonaco = host.monaco;
-    const globalModels = globalMonaco?.editor?.getModels?.() || [];
-    if (Array.isArray(globalModels)) {
-      for (const model of globalModels) {
-        const result = applyModel(model, "monaco-global-model");
-        if (result) return result;
-      }
-    }
-    const globalEditors = globalMonaco?.editor?.getEditors?.() || [];
-    if (Array.isArray(globalEditors)) {
-      for (const editor of globalEditors) {
-        const result = applyEditor(editor, "monaco-global-editor");
-        if (result) return result;
-      }
-    }
-  }
-
-  for (const domEditor of domEditors) {
-    const directCodeMirror =
-      (domEditor as any).cmView?.view || (domEditor as any).view;
-    const directCodeMirrorResult = applyCodeMirror(
-      directCodeMirror,
-      "codemirror-dom",
-    );
-    if (directCodeMirrorResult) return directCodeMirrorResult;
-    const fiberKey = Object.keys(domEditor).find(
-      (key) =>
-        key.startsWith("__reactFiber$") ||
-        key.startsWith("__reactInternalInstance$"),
-    );
-    if (fiberKey) {
-      const seen = new Set<any>();
-      const queue: any[] = [(domEditor as any)[fiberKey]];
-      while (queue.length && seen.size < 3000) {
-        const node = queue.shift();
-        if (!node || seen.has(node)) continue;
-        seen.add(node);
-        for (const value of [
-          node.stateNode,
-          node.memoizedProps,
-          node.memoizedState,
-          node.ref,
-        ]) {
-          const candidate = editorCandidate(value);
-          if (candidate) {
-            const result = applyCandidate(candidate, "react-instance");
-            if (result) return result;
-          }
-          if (value && typeof value === "object") queue.push(value);
-        }
-        if (node.child) queue.push(node.child);
-        if (node.sibling) queue.push(node.sibling);
-        if (node.return) queue.push(node.return);
-      }
-    }
-
-    const surface =
-      domEditor.querySelector(
-        "textarea.inputarea, textarea, [contenteditable='true']",
-      ) || domEditor;
-    if (surface instanceof HTMLElement) {
-      surface.focus();
-      if (
-        surface instanceof HTMLInputElement ||
-        surface instanceof HTMLTextAreaElement
-      ) {
-        surface.select();
-      } else if (surface.isContentEditable) {
-        const selection = getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(surface);
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-      }
-
-      try {
-        const pasteData = new DataTransfer();
-        pasteData.setData("text/plain", code);
-        surface.dispatchEvent(
-          new ClipboardEvent("paste", {
-            bubbles: true,
-            cancelable: true,
-            clipboardData: pasteData,
-          } as any),
-        );
-      } catch {
-        // ClipboardEvent is not supported on every Chromium version.
-      }
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      const rendered = Array.from(domEditor.querySelectorAll(".view-line"))
-        .map((line) => line.textContent || "")
-        .join("\n");
-      if (verified(rendered)) {
-        return {
-          ok: true,
-          action: "SET_EDITOR",
-          method: "clipboard-event",
-          preview: rendered.slice(0, 160),
-        };
-      }
-
-      try {
-        document.execCommand("selectAll", false);
-        if (document.execCommand("insertText", false, code)) {
-          await new Promise((resolve) => requestAnimationFrame(resolve));
-          const nextRendered = Array.from(
-            domEditor.querySelectorAll(".view-line"),
-          )
-            .map((line) => line.textContent || "")
-            .join("\n");
-          if (verified(nextRendered)) {
-            return {
-              ok: true,
-              action: "SET_EDITOR",
-              method: "dom-execCommand",
-              preview: nextRendered.slice(0, 160),
-            };
-          }
-        }
-      } catch {
-        // Continue with direct input events below.
-      }
-
-      try {
-        if (
-          surface instanceof HTMLInputElement ||
-          surface instanceof HTMLTextAreaElement
-        ) {
-          const setter = Object.getOwnPropertyDescriptor(
-            Object.getPrototypeOf(surface),
-            "value",
-          )?.set;
-          if (setter) setter.call(surface, code);
-          else surface.value = code;
-          surface.dispatchEvent(
-            new InputEvent("input", {
-              bubbles: true,
-              inputType: "insertText",
-              data: code,
-            }),
-          );
-        } else if (surface.isContentEditable) {
-          surface.textContent = code;
-          surface.dispatchEvent(
-            new InputEvent("input", {
-              bubbles: true,
-              inputType: "insertText",
-              data: code,
-            }),
-          );
-        }
-      } catch {
-        // Continue to the final verification result.
-      }
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      const finalRendered = Array.from(domEditor.querySelectorAll(".view-line"))
-        .map((line) => line.textContent || "")
-        .join("\n");
-      if (verified(finalRendered)) {
-        return {
-          ok: true,
-          action: "SET_EDITOR",
-          method: "input-event",
-          preview: finalRendered.slice(0, 160),
-        };
-      }
-    }
-  }
-  return {
-    ok: false,
-    action: "SET_EDITOR",
-    error: "未能在页面中确认代码写入，请刷新 LeetCode 页面后重试",
-  };
-}
-
-async function executeEditorAction(tabId: number, action: any) {
-  const frameId =
-    typeof action.target === "object" &&
-    Number.isInteger(action.target?.frameId)
-      ? action.target.frameId
-      : 0;
-  let contentResult: any;
-  try {
-    contentResult = await chrome.tabs.sendMessage(
-      tabId,
-      {
-        type: "EXECUTE_ACTION",
-        action,
-      },
-      { frameId },
-    );
-  } catch {
-    contentResult = { ok: false, error: "Content script unavailable" };
-  }
-  let mainResult: unknown;
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId, frameIds: [frameId] },
-      world: "MAIN",
-      func: setEditorValueInPage,
-      args: [{ ...action.arguments, target: action.target }],
-    });
-    mainResult = results[0]?.result;
-  } finally {
-    void chrome.tabs
-      .sendMessage(tabId, { type: "CLEAR_EDITOR_TARGET" }, { frameId })
-      .catch(() => {});
-  }
-  if ((mainResult as { ok?: boolean } | undefined)?.ok) return mainResult;
-  return {
-    ok: false,
-    action: "SET_EDITOR",
-    error:
-      (mainResult as { error?: string } | undefined)?.error ||
-      contentResult?.error ||
-      "页面编辑器写入未成功",
-  };
-}
-
-async function resolveAttachment(
-  fetchFn: (path: string, init?: RequestInit) => Promise<Response>,
-  id: string,
-): Promise<string> {
-  const cached = attachmentObjectUrlCache.get(id);
-  if (cached) return cached;
-  const response = await fetchFn(`/attachments/${id}`);
-  if (!response.ok) throw new Error(`attachment ${response.status}`);
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  attachmentObjectUrlCache.set(id, objectUrl);
-  return objectUrl;
-}
-
-async function collectContextsFromTab(
-  id: number,
-): Promise<Record<string, any>[]> {
-  let frames: chrome.webNavigation.GetAllFrameResultDetails[] = [];
-  try {
-    frames = (await chrome.webNavigation.getAllFrames({ tabId: id })) || [];
-  } catch {
-    frames = [];
-  }
-  const frameIds = frames.length ? frames.map((frame) => frame.frameId) : [0];
-  const contexts = await Promise.all(
-    frameIds.map(async (frameId) => {
-      try {
-        const context = await chrome.tabs.sendMessage(
-          id,
-          { type: "COLLECT_CONTEXT" },
-          { frameId },
-        );
-        return context ? { ...context, frameId } : null;
-      } catch {
-        return null;
-      }
-    }),
-  );
-  const available = contexts.filter(
-    (context): context is Record<string, any> => context != null,
-  );
-  if (available.length) return available;
-
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: id, allFrames: true },
-      func: collectPageContext,
-    });
-    return results
-      .filter((result) => result.result)
-      .map((result) => ({
-        ...(result.result as Record<string, any>),
-        frameId: result.frameId,
-      }));
-  } catch {
-    return [];
-  }
-}
-
 function MessageAttachmentView({
   att,
   fetchFn,
@@ -758,633 +285,9 @@ const PAGE_INFO_KEYS: PageInfoKey[] = [
 ];
 const MAX_VISIBLE_SESSION_TABS = 5;
 
-const translations = {
-  zh: {
-    appSubtitle: "浏览器智能助手",
-    newSession: "新建会话",
-    history: "历史",
-    settings: "设置",
-    appearance: "外观",
-    followSystem: "跟随系统",
-    light: "浅色",
-    dark: "深色",
-    sidePanelScope: "侧边栏",
-    sidePanelAllTabs: "在所有标签页启用",
-    activationScope: "悬浮球显示范围",
-    allPages: "所有页面开启",
-    manualPages: "仅在手动开启的页面使用",
-    currentPage: "当前页面",
-    enableCurrentPage: "在当前页面显示悬浮球",
-    disableCurrentPage: "关闭当前页面悬浮球",
-    language: "语言",
-    chinese: "中文",
-    english: "English",
-    chatWindows: "聊天窗口",
-    moreSessions: "更多会话",
-    processingSession: "处理中",
-    empty: "你好！我可以帮你诊断当前页面，或协助处理你的问题。",
-    you: "你",
-    assistant: "助手",
-    thinking: "思考中…",
-    stopped: "已停止生成",
-    responseUnavailable: "本次回复未保存，请重新发送。",
-    closeHistory: "关闭历史",
-    selectAll: "全选",
-    noHistory: "暂无历史会话",
-    save: "保存",
-    cancel: "取消",
-    edit: "编辑",
-    delete: "删除",
-    bulkDelete: "删除已选",
-    saveNameTitle: "保存名称",
-    cancelEditTitle: "取消修改",
-    editTitle: "修改名称",
-    deleteTitle: "删除会话",
-    switchChat: "切换聊天窗口",
-    historyLabel: (count: number) => `${count} 个会话`,
-    defaultSession: (index: number) => `新会话 ${index}`,
-    selectSession: (title: string) => `选择 ${title}`,
-    deleteConfirm: (names: string) =>
-      `确定删除${names}吗？聊天记录将一并移除。`,
-    thisSession: "此会话",
-    sessions: (count: number) => `${count} 个会话`,
-    nameRequired: "会话名称不能为空",
-    renameFailed: "修改会话名称失败",
-    deleteFailed: "删除会话失败",
-    createFailed: "创建会话失败",
-    reorderFailed: "调整会话顺序失败",
-    backendError: "无法连接后端，请确认 Spring Boot 已启用。",
-    requestFailed: "请求失败",
-    requestTimeout: "请求超时，请稍后重试。",
-    modelTimeout: "模型响应超时，请稍后重试。",
-    modelUnavailable: "模型服务暂时不可用，请稍后重试。",
-    stageAnalyzing: "正在分析问题…",
-    stageRouting: "正在选择处理 Agent…",
-    stageDelegating: "正在分配处理任务…",
-    stageKnowledge: "正在查询知识库…",
-    stageGenerating: "正在生成回答…",
-    stageProcessing: "正在整理处理结果…",
-    stageSummarizing: "正在整理最终回答…",
-    stageTool: (tool: string) => `正在调用工具：${tool}`,
-    uploadFailed: "附件上传失败",
-    invalidAction: "操作提案格式无效",
-    rejected: "用户拒绝",
-    confirmOk: "确定",
-    confirmCancel: "取消",
-    confirmTitle: "确认",
-    inputPlaceholder: "描述问题或输入你的需求,Shift+Enter换行...",
-    chatInput: "聊天输入框",
-    agentSelector: "选择 Agent",
-    agentAuto: "自动",
-    agentGeneralGroup: "通用 Agent",
-    agentDomainGroup: "领域 Agent",
-    agentRefresh: "刷新 Agent 列表",
-    toolInvoked: "调用工具",
-    toolResult: "工具返回",
-    toolTrace: "执行过程",
-    browserActionName: "页面操作",
-    browserActionReason: "原因",
-    systemAgentTaskName: "调用系统 Agent",
-    systemAgentGoalLabel: "目标",
-    browserActionSetEditor: "写入代码编辑器",
-    browserActionClick: "点击页面按钮",
-    browserActionFill: "填写输入框",
-    browserActionNavigate: "打开网页",
-    toolArgs: "参数",
-    toolOk: "成功",
-    toolFail: "失败",
-    generationFailed: "生成失败",
-    handledBy: "处理 Agent",
-    expandComposer: "展开输入框",
-    collapseComposer: "收起输入框",
-    send: "发送",
-    stop: "停止生成",
-    addTools: "添加插件或附件",
-    permission: "权限",
-    toolsUnavailable: "插件、附件等扩展能力将在后续版本接入。",
-    addTab: "添加标签页",
-    tabsHint: "选择要提供给助手的标签页",
-    noTabs: "没有可用标签页",
-    removeTab: "移除标签页",
-    attachFile: "上传文件",
-    attachmentMenu: "附加文件",
-    screenshot: "从屏幕上选择",
-    screenshotSelectHint: "拖动鼠标框选需要截图的页面区域，松开完成",
-    pageInfo: "页面信息",
-    pageInfoHint: "选择要随消息发送的页面信息",
-    pageInfoUrl: "当前网址",
-    pageInfoTitle: "页面标题",
-    pageInfoSelection: "选中文本",
-    pageInfoVisibleText: "可见文本",
-    pageInfoDomSummary: "页面结构摘要",
-    screenshotNew: "新",
-    removeAttachment: "移除附件",
-    screenshotFailed: "截图失败，请确认浏览器权限。",
-    screenshotRestricted: "当前页面不允许截图，请切换到普通网页后重试。",
-    screenshotRateLimited: "截图请求过于频繁，请稍后再试。",
-    pageContextReadFailed:
-      "未能读取当前页面上下文，可能是浏览器内置页面或标签页尚未完成注入，请刷新后重试。",
-    capabilityMismatch: "插件与后端版本不兼容，请刷新或升级浏览器插件。",
-    dismissError: "关闭异常提示",
-    imagePreview: "查看图片",
-    closeImagePreview: "关闭图片预览",
-    like: "有帮助",
-    dislike: "没帮助",
-    feedbackCancelHint: "再次点击可撤销",
-    feedbackCleared: "已撤销投票",
-    feedbackThanks: "已收到，感谢反馈",
-    feedbackInlineTitle: "这条回答哪里可以更好？",
-    feedbackInlineHint: "点踩后可补充原因，全部为选填",
-    feedbackChipInaccurate: "不准确",
-    feedbackChipIrrelevant: "答非所问",
-    feedbackChipTooLong: "太长",
-    feedbackChipFormat: "格式/UI",
-    feedbackChipOther: "其他",
-    feedbackInlinePlaceholder: "补充一点具体原因（可选）",
-    feedbackInlineSubmit: "提交反馈",
-    feedbackInlineSkip: "暂不补充",
-    feedbackSubmitting: "提交中…",
-    feedbackSubmitFailed: "反馈提交失败，请重试。",
-    copyMessage: "复制回答",
-    copyCode: "复制代码",
-    copied: "已复制",
-    copyFailed: "复制失败，请手动选择文本复制。",
-    retry: "重试",
-    editResend: "重新编辑并发送",
-    imageOnly: "图片",
-    pagePermission: "页面权限",
-    readPage: "允许读取当前页面上下文",
-    actionPermissionTitle: "页面操作授权",
-    actionPermissionAsk: "请求批准",
-    actionPermissionAskHint: "每次操作前都向你确认。",
-    actionPermissionDelegate: "帮我批准",
-    actionPermissionDelegateHint: "自动批准低、中风险操作，高风险仍会询问。",
-    actionPermissionFull: "完全控制",
-    actionPermissionFullHint: "所有页面操作都自动执行，不再询问。",
-    permissionNote: "授权模式会保存在当前浏览器中，可随时修改。",
-    actionConfirmTitle: "确认下一步",
-    actionConfirm: (type: string, reason: string, risk: string) => {
-      const fallback =
-        {
-          SET_EDITOR: "将代码写入当前页面的编辑器。",
-          CLICK: "点击当前页面中完成任务所需的按钮。",
-          FILL: "填写当前页面中完成任务所需的输入框。",
-          TYPE: "填写当前页面中完成任务所需的输入框。",
-          CLEAR: "清空当前页面中指定的输入内容。",
-          SELECT: "选择当前页面中指定的选项。",
-          CHECK: "勾选当前页面中指定的选项。",
-          UNCHECK: "取消勾选当前页面中指定的选项。",
-          HOVER: "将鼠标移到当前页面指定位置。",
-          SCROLL: "滚动当前页面。",
-          PRESS_KEY: "向当前页面发送键盘操作。",
-          UPLOAD: "向当前页面上传指定文件。",
-          WAIT_FOR: "等待当前页面处理完成。",
-          VERIFY: "检查当前页面结果。",
-          EXTRACT: "读取当前页面内容。",
-          SNAPSHOT: "读取当前页面最新状态。",
-          NAVIGATE: "打开完成任务所需的网页。",
-        }[type] || "继续操作当前页面。";
-      const dynamicText = (reason || "")
-        .replace(/\bref_\d+\b/gi, "当前页面元素")
-        .replace(
-          /\b(?:SET_EDITOR|CLICK|FILL|TYPE|CLEAR|SELECT|CHECK|UNCHECK|HOVER|SCROLL|PRESS_KEY|UPLOAD|NAVIGATE|WAIT_FOR|VERIFY|EXTRACT|SNAPSHOT|medium|low|high)\b/gi,
-          "",
-        )
-        .replace(/\s{2,}/g, " ")
-        .trim();
-      const riskText =
-        {
-          low: "低",
-          medium: "中",
-          high: "高",
-        }[risk] || "中";
-      return `${dynamicText || fallback}\n\n影响：本次操作只作用于当前页面，风险等级为${riskText}。\n\n确认后助手才会执行。`;
-    },
-  },
-  en: {
-    appSubtitle: "Browser AI assistant",
-    newSession: "New chat",
-    history: "History",
-    settings: "Settings",
-    appearance: "Appearance",
-    followSystem: "Follow system",
-    light: "Light",
-    dark: "Dark",
-    sidePanelScope: "Side panel",
-    sidePanelAllTabs: "Enable on all tabs",
-    activationScope: "Floating button scope",
-    allPages: "Enable on all pages",
-    manualPages: "Only use on pages enabled manually",
-    currentPage: "Current page",
-    enableCurrentPage: "Show floating button on current page",
-    disableCurrentPage: "Hide floating button on current page",
-    language: "Language",
-    chinese: "中文",
-    english: "English",
-    chatWindows: "Chat windows",
-    moreSessions: "More chats",
-    processingSession: "Processing",
-    empty:
-      "Hello! I can help diagnose the current page or assist with your questions.",
-    you: "You",
-    assistant: "Assistant",
-    thinking: "Thinking…",
-    stopped: "Generation stopped",
-    responseUnavailable: "This reply was not saved. Please send again.",
-    closeHistory: "Close history",
-    selectAll: "Select all",
-    noHistory: "No chat history",
-    save: "Save",
-    cancel: "Cancel",
-    edit: "Edit",
-    delete: "Delete",
-    bulkDelete: "Delete selected",
-    saveNameTitle: "Save name",
-    cancelEditTitle: "Cancel editing",
-    editTitle: "Rename",
-    deleteTitle: "Delete chat",
-    switchChat: "Switch chat window",
-    historyLabel: (count: number) => `${count} chat${count === 1 ? "" : "s"}`,
-    defaultSession: (index: number) => `New chat ${index}`,
-    selectSession: (title: string) => `Select ${title}`,
-    deleteConfirm: (names: string) =>
-      `Delete ${names}? All messages in this chat will also be removed.`,
-    thisSession: "this chat",
-    sessions: (count: number) => `${count} chat${count === 1 ? "" : "s"}`,
-    nameRequired: "Chat name cannot be empty",
-    renameFailed: "Failed to rename chat",
-    deleteFailed: "Failed to delete chat",
-    createFailed: "Failed to create chat",
-    reorderFailed: "Failed to reorder chats",
-    backendError:
-      "Unable to connect to the backend. Please make sure Spring Boot is enabled.",
-    requestFailed: "Request failed",
-    requestTimeout: "The request timed out. Please try again.",
-    modelTimeout: "The model timed out. Please try again.",
-    modelUnavailable:
-      "The model service is temporarily unavailable. Please try again.",
-    stageAnalyzing: "Analyzing your question…",
-    stageRouting: "Selecting an Agent…",
-    stageDelegating: "Assigning the task…",
-    stageKnowledge: "Searching the knowledge base…",
-    stageGenerating: "Generating a response…",
-    stageProcessing: "Processing the result…",
-    stageSummarizing: "Preparing the final response…",
-    stageTool: (tool: string) => `Calling tool: ${tool}`,
-    uploadFailed: "Attachment upload failed",
-    invalidAction: "Invalid action proposal",
-    rejected: "Rejected by user",
-    confirmOk: "OK",
-    confirmCancel: "Cancel",
-    confirmTitle: "Confirm",
-    inputPlaceholder: "Describe the problem or enter your request…",
-    chatInput: "Chat input",
-    agentSelector: "Select Agent",
-    agentAuto: "Auto",
-    agentGeneralGroup: "General Agents",
-    agentDomainGroup: "Domain Agents",
-    agentRefresh: "Refresh agents",
-    toolInvoked: "Calling tool",
-    toolResult: "Tool returned",
-    toolTrace: "Tool calls",
-    browserActionName: "Page action",
-    browserActionReason: "Reason",
-    systemAgentTaskName: "Call system Agent",
-    systemAgentGoalLabel: "Goal",
-    browserActionSetEditor: "Write to code editor",
-    browserActionClick: "Click page button",
-    browserActionFill: "Fill input",
-    browserActionNavigate: "Open web page",
-    toolArgs: "Arguments",
-    toolOk: "Success",
-    toolFail: "Failed",
-    generationFailed: "Generation failed",
-    handledBy: "Handled by",
-    expandComposer: "Expand input",
-    collapseComposer: "Collapse input",
-    send: "Send",
-    stop: "Stop generating",
-    addTools: "Add plugin or attachment",
-    permission: "Permissions",
-    toolsUnavailable:
-      "Plugins and attachments will be available in a future version.",
-    addTab: "Add tabs",
-    tabsHint: "Choose tabs to share with the assistant",
-    noTabs: "No available tabs",
-    removeTab: "Remove tab",
-    attachFile: "Upload file",
-    attachmentMenu: "Attachments",
-    screenshot: "Select from screen",
-    screenshotSelectHint:
-      "Drag to select the page area to capture, then release",
-    pageInfo: "Page info",
-    pageInfoHint: "Choose page information to include with the message",
-    pageInfoUrl: "Current URL",
-    pageInfoTitle: "Page title",
-    pageInfoSelection: "Selected text",
-    pageInfoVisibleText: "Visible text",
-    pageInfoDomSummary: "DOM summary",
-    screenshotNew: "New",
-    removeAttachment: "Remove attachment",
-    screenshotFailed: "Screenshot failed. Check browser permissions.",
-    screenshotRestricted:
-      "This page cannot be captured. Switch to a regular webpage and try again.",
-    screenshotRateLimited:
-      "Screenshot requested too often. Please try again shortly.",
-    pageContextReadFailed:
-      "Could not read the current page context. The page may be a built-in browser page or the tab may need to be refreshed.",
-    capabilityMismatch:
-      "The extension and backend versions are incompatible. Refresh or update the extension.",
-    dismissError: "Dismiss error",
-    imagePreview: "View image",
-    closeImagePreview: "Close image preview",
-    like: "Helpful",
-    dislike: "Not helpful",
-    feedbackCancelHint: "Click again to undo",
-    feedbackCleared: "Vote removed",
-    feedbackThanks: "Thanks for your feedback",
-    feedbackInlineTitle: "What could be better here?",
-    feedbackInlineHint: "Add an optional reason after down-voting.",
-    feedbackChipInaccurate: "Inaccurate",
-    feedbackChipIrrelevant: "Off-topic",
-    feedbackChipTooLong: "Too long",
-    feedbackChipFormat: "Format / UI",
-    feedbackChipOther: "Other",
-    feedbackInlinePlaceholder: "Add a short reason (optional)",
-    feedbackInlineSubmit: "Send feedback",
-    feedbackInlineSkip: "Skip reason",
-    feedbackSubmitting: "Sending…",
-    feedbackSubmitFailed: "Could not submit feedback. Please try again.",
-    copyMessage: "Copy answer",
-    copyCode: "Copy code",
-    copied: "Copied",
-    copyFailed: "Copy failed. Please select and copy the text manually.",
-    retry: "Retry",
-    editResend: "Edit and resend",
-    imageOnly: "Image",
-    pagePermission: "Page permissions",
-    readPage: "Allow reading the current page context",
-    actionPermissionTitle: "Page action permission",
-    actionPermissionAsk: "Ask every time",
-    actionPermissionAskHint: "Confirm every page action before it runs.",
-    actionPermissionDelegate: "Approve for me",
-    actionPermissionDelegateHint:
-      "Automatically approve low and medium risk actions. High risk still asks.",
-    actionPermissionFull: "Full control",
-    actionPermissionFullHint: "Run every page action automatically.",
-    permissionNote:
-      "The selected mode is stored in this browser and can be changed at any time.",
-    actionConfirmTitle: "Confirm next step",
-    actionConfirm: (type: string, reason: string, risk: string) => {
-      const fallback =
-        {
-          SET_EDITOR: "Write the code into the current page editor.",
-          CLICK: "Click the button needed to continue the task.",
-          FILL: "Fill the input needed to continue the task.",
-          TYPE: "Fill the input needed to continue the task.",
-          CLEAR: "Clear the specified input.",
-          SELECT: "Select the requested option.",
-          CHECK: "Check the requested option.",
-          UNCHECK: "Uncheck the requested option.",
-          HOVER: "Move the pointer to the requested page element.",
-          SCROLL: "Scroll the current page.",
-          PRESS_KEY: "Send a keyboard action to the current page.",
-          UPLOAD: "Upload the specified file to the current page.",
-          WAIT_FOR: "Wait for the page to finish processing.",
-          VERIFY: "Verify the result on the current page.",
-          EXTRACT: "Read content from the current page.",
-          SNAPSHOT: "Read the latest page state.",
-          NAVIGATE: "Open the page needed to continue the task.",
-        }[type] || "Continue operating on the current page.";
-      const dynamicText = (reason || "")
-        .replace(/\bref_\d+\b/gi, "the current page element")
-        .replace(
-          /\b(?:SET_EDITOR|CLICK|FILL|TYPE|CLEAR|SELECT|CHECK|UNCHECK|HOVER|SCROLL|PRESS_KEY|UPLOAD|NAVIGATE|WAIT_FOR|VERIFY|EXTRACT|SNAPSHOT|medium|low|high)\b/gi,
-          "",
-        )
-        .replace(/\s{2,}/g, " ")
-        .trim();
-      const riskText =
-        {
-          low: "low",
-          medium: "medium",
-          high: "high",
-        }[risk] || "medium";
-      return `${dynamicText || fallback}\n\nImpact: This action only affects the current page. Risk level: ${riskText}.\n\nThe assistant will not act until you confirm.`;
-    },
-  },
-} as const;
-
-function isDefaultSessionTitle(title: unknown) {
-  return (
-    !title ||
-    title === "新会话" ||
-    (typeof title === "string" && title.toLowerCase() === "new chat")
-  );
-}
-
-type AssistantMarkdownProps = {
-  content: string;
-  messageIndex: number;
-  copiedCode?: string;
-  onCopyCode: (code: string, codeId: string) => void;
-  copyCodeLabel: string;
-  copiedLabel: string;
-};
-type CodeElementProps = {
-  className?: string;
-  children?: React.ReactNode;
-};
-
-function getRenderedText(value: React.ReactNode): string {
-  if (typeof value === "string" || typeof value === "number")
-    return String(value);
-  if (Array.isArray(value)) return value.map(getRenderedText).join("");
-  if (React.isValidElement<{ children?: React.ReactNode }>(value)) {
-    return getRenderedText(value.props.children);
-  }
-  return "";
-}
-
-/**
- * Models occasionally omit the space/newline that Markdown requires for a
- * heading (for example `###标题` or `... ###下一步`).  Normalise only the
- * prose portions, leaving fenced code untouched, so streamed responses remain
- * readable without changing the actual message text copied by the user.
- */
-function decodeProseEscapes(value: string): string {
-  return value
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) =>
-      String.fromCharCode(parseInt(hex, 16)),
-    )
-    .replace(/\\r\\n/g, "\n")
-    .replace(/\\n/g, "\n")
-    .replace(/\\t/g, "\t")
-    .replace(/\\"/g, '"')
-    .replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, "$1");
-}
-
-function normalizeCodeFenceLanguage(value: string): string {
-  return value
-    .replace(
-      /^(\s*(?:```|~~~)java)(?=(?:class|public|import|package|interface|enum)\b)/gm,
-      "$1\n",
-    )
-    .replace(
-      /^(\s*(?:```|~~~)(?:go|golang))(?=(?:package|import|func|type|var|const)\b)/gm,
-      "$1\n",
-    )
-    .replace(
-      /^(\s*(?:```|~~~)(?:python|py))(?=(?:from|import|def|class)\b)/gm,
-      "$1\n",
-    )
-    .replace(
-      /^(\s*(?:```|~~~)(?:javascript|js|typescript|ts))(?=(?:const|let|var|function|class|interface|type|import)\b)/gm,
-      "$1\n",
-    )
-    .replace(
-      /^(\s*(?:```|~~~)(?:cpp|c\+\+|csharp|cs|rust|rs|kotlin|swift|php|ruby|sql|bash|sh))(?=(?:#include|using|fn|fun|class|function|def|SELECT|select|echo|export)\b)/gm,
-      "$1\n",
-    );
-}
-
-function normalizeMarkdownProse(value: string): string {
-  return decodeProseEscapes(value)
-    .replace(/(^|\n)([ \t]*#{1,6})(?=\S)/g, "$1$2 ")
-    .replace(/([。！？.!?：:])\s+(#{1,6})(?=\S)/g, "$1\n\n$2 ")
-    .replace(/^(#{1,6} [^\n]+?)(\|)/gm, "$1\n\n$2")
-    .replace(/(^|\n)([ \t]*)(?:-(?!-)|[+•])(?=\S)/g, "$1$2- ")
-    .replace(/(^|\n)([ \t]*)(\d{1,2})[.)、][ \t]*(?=\S)/g, "$1$2$3. ")
-    .replace(/\*\*([^*\n]+?)\*\*(?=[\p{L}\p{N}])/gu, "**$1** ")
-    .replace(/([^\n])\n([ \t]*\*\*[^*\n]{1,80}\*\*)[ \t]*(?=\n|$)/g, "$1\n\n$2")
-    .replace(/(^|\n)([ \t]*\*\*[^*\n]{1,80}\*\*)[ \t]*(?=\n)/g, "$1$2\n")
-    .replace(/([。！？.!?：:])\s+(?=(?:\d{1,2}[.)、]|[-+•])\s*\S)/g, "$1\n\n")
-    .replace(/([。！？.?：:])\s+(\*\*[^*\n]{1,80}\*\*)/g, "$1\n\n$2")
-    .replace(/\n{3,}/g, "\n\n");
-}
-
-function normalizeAssistantMarkdown(value: string): string {
-  // 模型偶尔会输出 `1.内容`、`-内容` 这类缺少空格的列表，或把加粗小标题
-  // 紧贴在正文段落里。这里只规整围栏代码之外的块结构，保留原始换行和内容。
-  return value
-    .replace(/\r\n?/g, "\n")
-    .replace(/([^\n])(```|~~~)/g, "$1\n\n$2")
-    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g)
-    .map((part) => {
-      if (/^(```|~~~)/.test(part)) {
-        return normalizeCodeFenceLanguage(part);
-      }
-      return normalizeMarkdownProse(part);
-    })
-    .join("\n");
-}
-
-function isSafeAssistantUrl(value?: string): boolean {
-  if (!value) return false;
-  try {
-    const url = new URL(value, window.location.href);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function AssistantMarkdown({
-  content,
-  messageIndex,
-  copiedCode,
-  onCopyCode,
-  copyCodeLabel,
-  copiedLabel,
-}: AssistantMarkdownProps) {
-  let codeBlockIndex = 0;
-  return (
-    <ReactMarkdown
-      skipHtml
-      remarkPlugins={[remarkGfm, remarkBreaks]}
-      rehypePlugins={[rehypeHighlight]}
-      components={{
-        code({ className, children, ...props }) {
-          return (
-            <code className={className} {...props}>
-              {children}
-            </code>
-          );
-        },
-        pre({ children }) {
-          const codeElement = React.Children.toArray(children).find((child) =>
-            React.isValidElement(child),
-          ) as React.ReactElement<CodeElementProps> | undefined;
-          const code = getRenderedText(codeElement?.props.children).replace(
-            /\n$/,
-            "",
-          );
-          const className = codeElement?.props.className;
-          const language =
-            className?.match(/language-([\w+-]+)/)?.[1]?.toLowerCase() ||
-            "text";
-          const codeId = `${messageIndex}:${codeBlockIndex++}`;
-          const isCopied = copiedCode === codeId;
-          return (
-            <div className="code-block">
-              <div className="code-toolbar">
-                <span className="code-language">{language}</span>
-                <button
-                  type="button"
-                  className="code-copy-button"
-                  onClick={() => onCopyCode(code, codeId)}
-                  title={isCopied ? copiedLabel : copyCodeLabel}
-                  aria-label={isCopied ? copiedLabel : copyCodeLabel}
-                >
-                  {isCopied ? "✓" : "⧉"}{" "}
-                  {isCopied ? copiedLabel : copyCodeLabel}
-                </button>
-              </div>
-              <pre>{codeElement ?? <code>{children}</code>}</pre>
-            </div>
-          );
-        },
-        a({ href, children, ...props }) {
-          return (
-            <a href={href} target="_blank" rel="noreferrer" {...props}>
-              {children}
-            </a>
-          );
-        },
-        table({ children }) {
-          return (
-            <div className="markdown-table-wrap">
-              <table>{children}</table>
-            </div>
-          );
-        },
-        img({ src, alt }) {
-          if (
-            !src ||
-            !(
-              isSafeAssistantUrl(src) ||
-              /^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(src)
-            )
-          )
-            return null;
-          return (
-            <img
-              className="markdown-image"
-              src={src}
-              alt={alt ?? ""}
-              loading="lazy"
-            />
-          );
-        },
-      }}
-    >
-      {normalizeAssistantMarkdown(content)}
-    </ReactMarkdown>
-  );
-}
-
 function App() {
   const [authedFetch, setAuthedFetch] = useState<AuthedFetch | null>(null);
+  const streamTimeoutMsRef = useRef(CHAT_STREAM_TIMEOUT_MS);
   // 是否贴近消息列表底部：用户向上翻阅历史时暂停自动跟随，仅在其回到底部后才恢复。
   const [atBottom, setAtBottom] = useState(true);
   const [authError, setAuthError] = useState<string>("");
@@ -1506,6 +409,16 @@ function App() {
   }
 
   useEffect(() => {
+    return () => {
+      streamControllersRef.current.forEach((controller) => controller.abort());
+      streamControllersRef.current.clear();
+      attachmentObjectUrlCache.forEach((url) => URL.revokeObjectURL(url));
+      attachmentObjectUrlCache.clear();
+      messagesBySessionRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
@@ -1516,6 +429,10 @@ function App() {
         const capabilitiesResponse = await authedFetch("/capabilities");
         if (capabilitiesResponse.ok) {
           const capabilities = await capabilitiesResponse.json();
+          const streamTimeoutMs = Number(capabilities?.streamTimeoutMs);
+          if (Number.isFinite(streamTimeoutMs) && streamTimeoutMs > 0) {
+            streamTimeoutMsRef.current = streamTimeoutMs;
+          }
           const mismatch =
             Number(capabilities?.browserProtocolVersion) !==
             BROWSER_PROTOCOL_VERSION;
@@ -1731,6 +648,23 @@ function App() {
 
   async function toggleCurrentTab() {
     if (currentTabId == null) return;
+    if (!currentTabEnabled) {
+      const tab = await chrome.tabs.get(currentTabId).catch(() => undefined);
+      let pattern: string | undefined;
+      try {
+        pattern = tab?.url ? `${new URL(tab.url).origin}/*` : undefined;
+      } catch {
+        pattern = undefined;
+      }
+      if (!pattern) {
+        setError(t.pageContextReadFailed);
+        return;
+      }
+      const granted = await chrome.permissions.request({
+        origins: [pattern],
+      });
+      if (!granted) return;
+    }
     const type = currentTabEnabled
       ? "DISABLE_CURRENT_TAB"
       : "ENABLE_CURRENT_TAB";
@@ -1742,21 +676,32 @@ function App() {
   }
 
   function updateSidePanelAllTabs(enabled: boolean) {
-    setSidePanelAllTabs(enabled);
-    void chrome.storage.local.set({ sidePanelAllTabs: enabled });
     if (enabled) {
-      void chrome.sidePanel.setOptions({
-        path: "sidepanel.html",
-        enabled: true,
-      });
-      if (currentWindowId != null) {
-        void chrome.sidePanel
-          .open({ windowId: currentWindowId })
-          .catch(() => {});
-      }
+      void chrome.permissions
+        .request({ origins: ["http://*/*", "https://*/*"] })
+        .then((granted) => {
+          if (granted) {
+            setSidePanelAllTabs(true);
+            void chrome.storage.local.set({ sidePanelAllTabs: true });
+            void chrome.runtime.sendMessage({
+              type: "SET_SIDE_PANEL_ALL_TABS",
+              enabled: true,
+            });
+            void chrome.sidePanel.setOptions({
+              path: "sidepanel.html",
+              enabled: true,
+            });
+            if (currentWindowId != null) {
+              void chrome.sidePanel
+                .open({ windowId: currentWindowId })
+                .catch(() => {});
+            }
+          }
+        });
       return;
     }
-
+    setSidePanelAllTabs(false);
+    void chrome.storage.local.set({ sidePanelAllTabs: false });
     void chrome.sidePanel.setOptions({
       path: "sidepanel.html",
       enabled: false,
@@ -1993,8 +938,19 @@ function App() {
         ? (update as (items: Msg[]) => Msg[])(current)
         : update;
     messagesBySessionRef.current.set(sessionId, next);
+    trimMessageCache(sessionId);
     if (sessionRef.current?.id === sessionId) setMsgs(next);
     return next;
+  }
+
+  function trimMessageCache(activeSessionId: string) {
+    const maxSessions = 50;
+    while (messagesBySessionRef.current.size > maxSessions) {
+      const oldest = messagesBySessionRef.current.keys().next().value as
+        string | undefined;
+      if (!oldest || oldest === activeSessionId) break;
+      messagesBySessionRef.current.delete(oldest);
+    }
   }
 
   function activateSession(conversation: any, initialMessages: Msg[] = []) {
@@ -2769,10 +1725,14 @@ function App() {
         markGenerationStopped(assistantIndex, targetSessionId);
         return;
       }
-      timeoutId = window.setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, CHAT_STREAM_TIMEOUT_MS);
+      const armStreamTimeout = () => {
+        if (timeoutId) window.clearTimeout(timeoutId);
+        timeoutId = window.setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, streamTimeoutMsRef.current);
+      };
+      armStreamTimeout();
       const response = await apiFetch("/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2833,32 +1793,16 @@ function App() {
       };
       // 标准化 SSE 事件解析：逐行解析，多个 data: 行按换行 join（对齐 EventSource 规范），
       // 只剥离 colon 后单个空格的帧封装字符，绝不吞掉正文里的真实空格；事件名同样按规范解析。
-      function parseSseBlock(block: string): {
-        name: string | null;
-        data: string | null;
-      } {
-        let name: string | null = null;
-        const dataLines: string[] = [];
-        for (const rawLine of block.split("\n")) {
-          if (rawLine.startsWith(":")) continue;
-          const colon = rawLine.indexOf(":");
-          if (colon === -1) continue;
-          const field = rawLine.slice(0, colon).trim();
-          const value = rawLine.slice(colon + 1).replace(/^ /, "");
-          if (field === "event") name = value;
-          else if (field === "data") dataLines.push(value);
-        }
-        return { name, data: dataLines.length ? dataLines.join("\n") : null };
-      }
-
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        armStreamTimeout();
         buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() || "";
-        for (const part of parts) {
-          const { name, data } = parseSseBlock(part);
+        let pendingFrames: ReturnType<typeof parseSseFrame>[] = [];
+        buffer = consumeSseBuffer(buffer, (frame) => pendingFrames.push(frame));
+        for (const parsed of pendingFrames) {
+          if (!parsed) continue;
+          const { name, data } = parsed;
           if (name === "token" && data) {
             // 新后端用 JSON 信封 {"text": "..."} 下发正文，任意字符安全；
             // 解析失败则按裸文本处理（兼容未升级的旧后端）。
@@ -2936,10 +1880,8 @@ function App() {
                 continue;
               }
               const autoApproved =
-                action.readOnly === true ||
-                actionPermission === "full" ||
-                (actionPermission === "delegate" && action.risk !== "high");
-              const approved =
+                action.readOnly === true || actionPermission === "full";
+              let approved =
                 autoApproved ||
                 (await askConfirm({
                   title: t.actionConfirmTitle,
@@ -2963,6 +1905,30 @@ function App() {
                 result: approved ? "" : t.rejected,
               };
               if (approved) {
+                if (action.type === "NAVIGATE") {
+                  try {
+                    const destination = new URL(
+                      String(action.arguments?.url || ""),
+                    );
+                    const granted = await chrome.permissions.contains({
+                      origins: [`${destination.origin}/*`],
+                    });
+                    if (!granted) {
+                      throw new Error(t.pageContextReadFailed);
+                    }
+                  } catch {
+                    approved = false;
+                    result = {
+                      status: "FAILED",
+                      result: JSON.stringify({
+                        ok: false,
+                        error: t.pageContextReadFailed,
+                      }),
+                    };
+                  }
+                }
+              }
+              if (approved && result.status === "EXECUTED") {
                 const tabs = await chrome.tabs.query({
                   active: true,
                   currentWindow: true,
