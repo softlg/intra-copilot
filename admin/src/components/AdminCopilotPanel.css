@@ -958,7 +958,10 @@ body.copilot-panel-resizing * {
   box-shadow: 0 0 0 2px var(--brand-surface);
 }
 
-.copilot-composer textarea {
+.copilot-composer textarea,
+.copilot-composer textarea:hover,
+.copilot-composer textarea:focus,
+.copilot-composer textarea:focus-visible {
   field-sizing: content;
   height: auto;
   margin: 0;
@@ -969,6 +972,7 @@ body.copilot-panel-resizing * {
   border: 0;
   outline: 0;
   background: transparent;
+  box-shadow: none;
   font-size: 13px;
   line-height: 1.45;
   resize: none;
