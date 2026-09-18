@@ -525,16 +525,22 @@ export function KnowledgePage({
                       </label>
                       <label className="field">
                         <span>{t.dimension}</span>
-                        <input
-                          type="number"
-                          min={1}
+                        <select
                           value={customDimension}
                           disabled={embeddingSaving}
-                          placeholder="1536"
                           onChange={(event) =>
                             setCustomDimension(event.target.value)
                           }
-                        />
+                        >
+                          <option value="1024">1024</option>
+                          <option value="1536">1536</option>
+                          <option value="3072">3072</option>
+                        </select>
+                        <small className="field-hint">
+                          {language === "zh"
+                            ? "当前数据库仅支持 1024、1536、3072 三个向量维度。"
+                            : "The database currently supports 1024, 1536, and 3072 dimensions."}
+                        </small>
                       </label>
                     </>
                   )}
@@ -576,20 +582,50 @@ export function KnowledgePage({
                     )}
                   </div>
                   {knowledgeDiagnostics && (
-                    <p
-                      className={
-                        knowledgeDiagnostics.issues.length
-                          ? "document-error"
-                          : "field-hint"
-                      }
-                      aria-live="polite"
-                    >
-                      {knowledgeDiagnostics.issues.length
-                        ? knowledgeDiagnostics.issues.join(" · ")
-                        : language === "zh"
-                          ? `诊断通过：${knowledgeDiagnostics.documentCount} 个文档`
-                          : `Healthy: ${knowledgeDiagnostics.documentCount} documents`}
-                    </p>
+                    <div aria-live="polite">
+                      {knowledgeDiagnostics.issues.length ? (
+                        <ul className="document-error">
+                          {knowledgeDiagnostics.issues.map((issue, index) => (
+                            <li key={`${issue.code}-${index}`}>
+                              {issue.message}
+                              {issue.recommendation
+                                ? `；${issue.recommendation}`
+                                : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="field-hint">
+                          {language === "zh"
+                            ? `诊断通过：${knowledgeDiagnostics.documentCount} 个文档`
+                            : `Healthy: ${knowledgeDiagnostics.documentCount} documents`}
+                        </p>
+                      )}
+                      <p className="field-hint">
+                        {language === "zh" ? "解析统计" : "Extraction"}:{" "}
+                        {knowledgeDiagnostics.pageCount ?? 0} pages ·{" "}
+                        {knowledgeDiagnostics.tableCount ?? 0} tables ·{" "}
+                        {knowledgeDiagnostics.imageCount ?? 0} images ·{" "}
+                        {knowledgeDiagnostics.attachmentCount ?? 0} attachments
+                        · {knowledgeDiagnostics.extractedChars ?? 0} chars
+                      </p>
+                      {knowledgeDiagnostics.extractionWarnings?.length ? (
+                        <details className="field-hint">
+                          <summary>
+                            {language === "zh"
+                              ? "解析警告"
+                              : "Extraction warnings"}
+                          </summary>
+                          <ul>
+                            {knowledgeDiagnostics.extractionWarnings.map(
+                              (warning, index) => (
+                                <li key={`${warning}-${index}`}>{warning}</li>
+                              ),
+                            )}
+                          </ul>
+                        </details>
+                      ) : null}
+                    </div>
                   )}
                 </section>
               )}
@@ -725,7 +761,7 @@ export function KnowledgePage({
                       <input
                         type="file"
                         multiple
-                        accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
+                        accept=".md,.markdown,.txt,.pdf,.docx,.xlsx,.xls,.pptx,.csv,.tsv,.html,.htm,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,text/markdown,text/plain,text/csv,text/html,application/pdf"
                         disabled={uploadingBaseId === activeBase.id}
                         onChange={(event) =>
                           uploadDocuments(
@@ -872,6 +908,7 @@ export function KnowledgePage({
                           {result.pageNumber
                             ? `第 ${result.pageNumber} 页 · `
                             : ""}
+                          {result.sectionPath ? `${result.sectionPath} · ` : ""}
                           {t.retrievalScore} {result.score.toFixed(3)} ·{" "}
                           {t.retrievalVectorScore}{" "}
                           {result.similarity.toFixed(3)} ·{" "}
@@ -881,6 +918,10 @@ export function KnowledgePage({
                       </div>
                       <div className="retrieval-result-tags">
                         <span>{result.retrievalMode}</span>
+                        {result.blockType && <span>{result.blockType}</span>}
+                        {result.tokenCount ? (
+                          <span>{result.tokenCount} tokens</span>
+                        ) : null}
                         <span>#{result.rank}</span>
                         {result.belowThreshold && (
                           <span className="warning">

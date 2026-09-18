@@ -38,11 +38,21 @@ rag:
   top-k: 5
   chunk-size: 1200
   chunk-overlap: 200
+  chunk-max-tokens: 800
   similarity-threshold: 0.50
   retrieval-mode: HYBRID
   lexical-weight: 0.30
   fallback-enabled: true
   max-document-bytes: 10485760
+  max-embedded-attachment-bytes: 20971520
+ocr:
+  enabled: false
+  command: tesseract
+  languages: chi_sim+eng
+  pdf-dpi: 180
+  pdf-min-text-characters: 80
+  timeout-seconds: 90
+  max-characters: 200000
 agent:
   llm-timeout-seconds: 180
   sse-timeout-seconds: 600

@@ -1,5 +1,6 @@
 package com.intra.copilot.service;
 
+import java.util.List;
 import org.springframework.stereotype.Component;
 
 /**
@@ -14,6 +15,10 @@ public class EmbeddingSchema {
 
     public boolean supports(int dimension) {
         return dimension == 1024 || dimension == 1536 || dimension == 3072;
+    }
+
+    public List<Integer> supportedDimensions() {
+        return List.of(1024, 1536, 3072);
     }
 
     public String tableFor(int dimension) {

@@ -345,10 +345,24 @@ export type EmbeddingValidation = {
   error?: string;
 };
 export type KnowledgeDiagnostics = {
-  issues: string[];
+  issues: {
+    code: string;
+    severity: "critical" | "error" | "warning" | "info" | string;
+    message: string;
+    recommendation: string;
+  }[];
   documentCount: number;
   errorCount: number;
   embeddingTableExists: boolean;
+  staleCount?: number;
+  missingVectorCount?: number;
+  pageCount?: number;
+  tableCount?: number;
+  imageCount?: number;
+  attachmentCount?: number;
+  extractedChars?: number;
+  extractionWarnings?: string[];
+  baseStatus?: string;
 };
 
 export type KnowledgeDocument = {
@@ -360,6 +374,13 @@ export type KnowledgeDocument = {
   error?: string;
   fileHash?: string;
   sizeBytes?: number;
+  pageCount?: number;
+  blockCount?: number;
+  tableCount?: number;
+  imageCount?: number;
+  attachmentCount?: number;
+  extractedChars?: number;
+  parseMetadata?: Record<string, unknown>;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -370,6 +391,9 @@ export type DocumentChunk = {
   chunkIndex: number;
   content: string;
   pageNumber?: number;
+  sectionPath?: string;
+  blockType?: string;
+  tokenCount?: number;
 };
 
 export type RetrievalResult = {
@@ -377,6 +401,10 @@ export type RetrievalResult = {
   documentId: string;
   filename: string;
   pageNumber?: number;
+  chunkIndex?: number;
+  sectionPath?: string;
+  blockType?: string;
+  tokenCount?: number;
   content: string;
   distance: number;
   similarity: number;

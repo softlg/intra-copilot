@@ -10,6 +10,10 @@ public interface KnowledgeRetriever {
             String documentId,
             String filename,
             Integer pageNumber,
+            int chunkIndex,
+            String sectionPath,
+            String blockType,
+            Integer tokenCount,
             String content,
             double distance,
             double similarity,
@@ -21,8 +25,23 @@ public interface KnowledgeRetriever {
 
         public Result(
                 String documentId, String filename, Integer pageNumber, String content, double distance) {
-            this(null, documentId, filename, pageNumber, content, distance, 1 - distance, 0, 1 - distance,
-                    "DENSE", false, 0);
+            this(
+                    null,
+                    documentId,
+                    filename,
+                    pageNumber,
+                    0,
+                    null,
+                    "TEXT",
+                    null,
+                    content,
+                    distance,
+                    1 - distance,
+                    0,
+                    1 - distance,
+                    "DENSE",
+                    false,
+                    0);
         }
     }
 }

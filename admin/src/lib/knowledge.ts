@@ -7,7 +7,15 @@ export function documentStatus(
   labels: Translations,
 ): string {
   if (status === "READY") return labels.parsed;
-  if (status === "INDEXING" || status === "PARSING") return labels.processing;
-  if (status === "ERROR") return labels.parseFailed;
+  if (
+    status === "INDEXING" ||
+    status === "PARSING" ||
+    status === "CHUNKING" ||
+    status === "EMBEDDING" ||
+    status === "STALE" ||
+    status === "REBUILDING"
+  )
+    return labels.processing;
+  if (status === "ERROR" || status === "FAILED") return labels.parseFailed;
   return labels.pending;
 }

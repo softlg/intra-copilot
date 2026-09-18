@@ -259,8 +259,21 @@ public class IndexingJobService {
                         job -> {
                             job.setStatus(IndexingJob.STATUS_SUCCEEDED);
                             job.setProgress(100);
+                            job.setHeartbeatAt(Instant.now());
                             job.setFinishedAt(Instant.now());
                             job.setError(null);
+                            jobs.save(job);
+                        });
+    }
+
+    public void markFailed(String jobId, String message) {
+        jobs.findById(jobId)
+                .ifPresent(
+                        job -> {
+                            job.setStatus(IndexingJob.STATUS_FAILED);
+                            job.setHeartbeatAt(Instant.now());
+                            job.setFinishedAt(Instant.now());
+                            job.setError(message);
                             jobs.save(job);
                         });
     }
@@ -270,6 +283,7 @@ public class IndexingJobService {
                 .ifPresent(
                         job -> {
                             job.setProgress(progress);
+                            job.setHeartbeatAt(Instant.now());
                             jobs.save(job);
                         });
     }

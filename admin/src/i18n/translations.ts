@@ -242,7 +242,8 @@ export const translations = {
       "承接系统 Agent 分派，可自行处理，也可继续分派给已绑定的子 Agent。",
     subAgentPage: "子 Agent",
     subAgentPageHint: "由领域 Agent 绑定并分派的叶子节点，用户不可直接选择。",
-    supportedDocs: "支持 Markdown、TXT、PDF 文档",
+    supportedDocs:
+      "支持 Markdown、TXT、PDF、Word、Excel、PPT、CSV、HTML 和图片（图片需启用 OCR）",
     upload: "上传文档",
     processing: "解析中…",
     uploadHint: "Markdown、TXT、PDF，最大 10 MB",
@@ -1193,7 +1194,8 @@ export const translations = {
     subAgentPage: "Sub-agent",
     subAgentPageHint:
       "Leaf node bound to and dispatched by a domain Agent. Not selectable by users.",
-    supportedDocs: "Supports Markdown, TXT, and PDF documents",
+    supportedDocs:
+      "Supports Markdown, TXT, PDF, Word, Excel, PPT, CSV, HTML, and images when OCR is enabled",
     upload: "Upload document",
     processing: "Processing…",
     uploadHint: "Markdown, TXT, PDF, up to 10 MB",

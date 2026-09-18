@@ -10,6 +10,7 @@ import java.time.Instant;
 public class KnowledgeBase {
     public static final String STATUS_READY = "READY";
     public static final String STATUS_REBUILDING = "REBUILDING";
+    public static final String STATUS_DEGRADED = "DEGRADED";
 
     @TableId private String id = EntityIdGenerator.next("KB");
     private String name;

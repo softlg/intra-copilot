@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 
 class DocumentChunkerTest {
 
-    private final DocumentChunker chunker = new DocumentChunker(200, 50);
+    private final DocumentChunker chunker = new DocumentChunker(200, 50, 100);
 
     @Test
     void returnsNothingForBlankInput() {
@@ -39,5 +39,24 @@ class DocumentChunkerTest {
     @Test
     void fallsBackToUnknownStrategy() {
         assertEquals(1, chunker.split("not-configured-yet", "短文本").size());
+    }
+
+    @Test
+    void hardSplitsASingleOversizedBlock() {
+        String text = "这是一个没有空段落的长文本。".repeat(200);
+
+        List<DocumentChunker.Chunk> chunks = chunker.splitDetailed("structured", text);
+
+        assertTrue(chunks.size() > 1);
+        assertTrue(
+                chunks.stream().allMatch(chunk -> chunk.text().length() <= 200), "每个分块都应遵守字符硬上限");
+        assertTrue(
+                chunks.stream().allMatch(chunk -> chunk.tokenCount() <= 100), "每个分块都应遵守 token 硬上限");
+    }
+
+    @Test
+    void estimatesChineseAndAsciiWithDifferentDensities() {
+        assertTrue(chunker.estimateTokens("中文内容") >= 4);
+        assertTrue(chunker.estimateTokens("abcdefgh") <= 4);
     }
 }

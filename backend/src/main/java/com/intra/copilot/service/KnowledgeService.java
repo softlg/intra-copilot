@@ -8,6 +8,7 @@ import com.intra.copilot.model.KnowledgeDocument;
 import com.intra.copilot.model.KnowledgeDocumentStorage;
 import com.intra.copilot.repo.DocumentChunkRepository;
 import com.intra.copilot.repo.KnowledgeBaseRepository;
+import com.intra.copilot.repo.KnowledgeDocumentAssetRepository;
 import com.intra.copilot.repo.KnowledgeDocumentRepository;
 import com.intra.copilot.repo.KnowledgeDocumentStorageRepository;
 import com.intra.copilot.service.auth.RequestContext;
@@ -15,6 +16,7 @@ import com.intra.copilot.service.parser.DocumentParserRegistry;
 import com.intra.copilot.storage.DocumentStorage;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -23,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -31,7 +34,9 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -53,6 +58,7 @@ public class KnowledgeService implements KnowledgeRetriever {
     private final KnowledgeDocumentRepository documents;
     private final DocumentChunkRepository chunks;
     private final KnowledgeDocumentStorageRepository storageRecords;
+    private final KnowledgeDocumentAssetRepository assetRecords;
     private final DocumentStorage storage;
     private final JdbcTemplate jdbc;
     private final EmbeddingClient embeddings;
@@ -67,12 +73,14 @@ public class KnowledgeService implements KnowledgeRetriever {
     private final String defaultRetrievalMode;
     private final double defaultLexicalWeight;
     private final boolean defaultFallbackEnabled;
+    private final TransactionTemplate transaction;
 
     public KnowledgeService(KnowledgeBaseRepository bases, KnowledgeDocumentRepository documents,
             DocumentChunkRepository chunks, KnowledgeDocumentStorageRepository storageRecords,
-            DocumentStorage storage, JdbcTemplate jdbc, EmbeddingClient embeddings,
+            KnowledgeDocumentAssetRepository assetRecords, DocumentStorage storage, JdbcTemplate jdbc, EmbeddingClient embeddings,
             EmbeddingProfileService embeddingProfiles, EmbeddingSchema schema, DocumentParserRegistry parsers,
             IndexingJobService jobService, KnowledgeAuditService audit,
+            PlatformTransactionManager transactionManager,
             @Value("${rag.max-document-bytes:104857600}") long maxDocumentBytes,
             @Value("${rag.similarity-threshold:0.50}") double similarityThreshold,
             @Value("${rag.top-k:5}") int topK,
@@ -83,6 +91,7 @@ public class KnowledgeService implements KnowledgeRetriever {
         this.documents = documents;
         this.chunks = chunks;
         this.storageRecords = storageRecords;
+        this.assetRecords = assetRecords;
         this.storage = storage;
         this.jdbc = jdbc;
         this.embeddings = embeddings;
@@ -97,6 +106,7 @@ public class KnowledgeService implements KnowledgeRetriever {
         this.defaultRetrievalMode = normalizeRetrievalMode(retrievalMode);
         this.defaultLexicalWeight = clamp(lexicalWeight, 0, 1);
         this.defaultFallbackEnabled = fallbackEnabled;
+        this.transaction = new TransactionTemplate(transactionManager);
     }
 
     public List<KnowledgeBase> listBases() {
@@ -153,9 +163,10 @@ public class KnowledgeService implements KnowledgeRetriever {
         List<KnowledgeDocument> docs = documents.findAllByKnowledgeBaseIdOrderByCreatedAtDesc(baseId);
         long chunkCount = countValue("SELECT COUNT(*) FROM document_chunk c JOIN knowledge_document d ON d.id = c.document_id WHERE d.knowledge_base_id = ?", baseId);
         long vectorCount = 0;
-        EmbeddingProfile profile = safeResolve(base);
-        if (profile != null && schema.supports(profile.getDimension())) {
-            vectorCount = countValue("SELECT COUNT(*) FROM " + schema.tableFor(profile.getDimension()) + " WHERE knowledge_base_id = ?", baseId);
+        for (int dimension : schema.supportedDimensions()) {
+            vectorCount += countValue(
+                    "SELECT COUNT(*) FROM " + schema.tableFor(dimension) + " WHERE knowledge_base_id = ?",
+                    baseId);
         }
         long boundAgents = countValue("SELECT COUNT(*) FROM agent_definition WHERE knowledge_base_ids LIKE ?", "%\"" + baseId + "\"%");
         long readyCount = docs.stream().filter(d -> "READY".equals(d.getStatus())).count();
@@ -237,6 +248,49 @@ public class KnowledgeService implements KnowledgeRetriever {
         List<KnowledgeDocument> docs = documents.findAllByKnowledgeBaseIdOrderByCreatedAtDesc(baseId);
         long errorCount = docs.stream().filter(d -> isFailed(d.getStatus())).count();
         long staleCount = docs.stream().filter(d -> STATUS_STALE.equals(d.getStatus())).count();
+        long pageCount =
+                docs.stream()
+                        .map(KnowledgeDocument::getPageCount)
+                        .filter(java.util.Objects::nonNull)
+                        .mapToLong(Integer::longValue)
+                        .sum();
+        long tableCount =
+                docs.stream()
+                        .map(KnowledgeDocument::getTableCount)
+                        .filter(java.util.Objects::nonNull)
+                        .mapToLong(Integer::longValue)
+                        .sum();
+        long imageCount =
+                docs.stream()
+                        .map(KnowledgeDocument::getImageCount)
+                        .filter(java.util.Objects::nonNull)
+                        .mapToLong(Integer::longValue)
+                        .sum();
+        long attachmentCount =
+                docs.stream()
+                        .map(KnowledgeDocument::getAttachmentCount)
+                        .filter(java.util.Objects::nonNull)
+                        .mapToLong(Integer::longValue)
+                        .sum();
+        long extractedChars =
+                docs.stream()
+                        .map(KnowledgeDocument::getExtractedChars)
+                        .filter(java.util.Objects::nonNull)
+                        .mapToLong(Long::longValue)
+                        .sum();
+        List<String> extractionWarnings =
+                docs.stream()
+                        .map(KnowledgeDocument::getParseMetadata)
+                        .filter(java.util.Objects::nonNull)
+                        .flatMap(
+                                metadata ->
+                                        java.util.stream.StreamSupport.stream(
+                                                metadata.path("warnings").spliterator(), false))
+                        .map(com.fasterxml.jackson.databind.JsonNode::asText)
+                        .filter(value -> !value.isBlank())
+                        .distinct()
+                        .limit(20)
+                        .toList();
 
         List<DiagnosticIssue> issues = new ArrayList<>();
         if (!tableExists) {
@@ -279,6 +333,14 @@ public class KnowledgeService implements KnowledgeRetriever {
             issues.add(new DiagnosticIssue("DOCUMENT_STALE", "info",
                     staleCount + " 个文档等待重建", "等待重建任务完成，或手动触发重建"));
         }
+        if (imageCount > 0 && extractedChars == 0) {
+            issues.add(
+                    new DiagnosticIssue(
+                            "IMAGE_ONLY_CONTENT",
+                            "warning",
+                            "检测到图片内容，但没有可用于检索的文本",
+                            "启用 OCR 并重新索引，或改用包含文本层的文档"));
+        }
         long missingStorage = missingStorageCount(baseId, docs);
         if (missingStorage > 0) {
             issues.add(new DiagnosticIssue("STORAGE_BACKEND_OFFLINE", "warning",
@@ -289,8 +351,24 @@ public class KnowledgeService implements KnowledgeRetriever {
             issues.add(new DiagnosticIssue("MISSING_AUDIT_LOG", "info",
                     "该知识库还没有任何操作记录", "后续上传/重建/删除操作会自动记录"));
         }
-        return new Diagnostics(baseId, profile.getProvider(), profile.getModel(), profile.getDimension(), tableExists,
-                docs.size(), errorCount, staleCount, missingVector, base.getStatus(), issues);
+        return new Diagnostics(
+                baseId,
+                profile.getProvider(),
+                profile.getModel(),
+                profile.getDimension(),
+                tableExists,
+                docs.size(),
+                errorCount,
+                staleCount,
+                missingVector,
+                pageCount,
+                tableCount,
+                imageCount,
+                attachmentCount,
+                extractedChars,
+                extractionWarnings,
+                base.getStatus(),
+                issues);
     }
 
     /**
@@ -303,7 +381,15 @@ public class KnowledgeService implements KnowledgeRetriever {
         if (file.getSize() > maxDocumentBytes) throw new IllegalArgumentException("文件大小超过限制（最大 " + maxDocumentBytes + " 字节）");
         byte[] bytes = file.getBytes();
         String name = originalName(file);
-        DocumentParser parser = parsers.forFilename(name);
+        DocumentParser parser;
+        try {
+            parser = parsers.forFilename(name);
+        } catch (IllegalArgumentException error) {
+            if (isImageFilename(name)) {
+                throw new IllegalArgumentException("图片文档需要启用 OCR，并安装 tesseract 语言包");
+            }
+            throw error;
+        }
         validateMediaType(name, file.getContentType());
         validateContentSignature(parser.id(), name, bytes);
         String hash = sha256(bytes);
@@ -347,10 +433,27 @@ public class KnowledgeService implements KnowledgeRetriever {
         List<UploadFailure> failures = new ArrayList<>();
         for (MultipartFile file : files) {
             try {
-                uploaded.add(upload(baseId, file));
+                KnowledgeDocument saved =
+                        transaction.execute(
+                                status -> {
+                                    try {
+                                        return upload(baseId, file);
+                                    } catch (IOException error) {
+                                        throw new UncheckedIOException(error);
+                                    }
+                                });
+                uploaded.add(saved);
             } catch (Exception error) {
-                failures.add(new UploadFailure(originalName(file), error.getMessage() == null
-                        ? error.getClass().getSimpleName() : error.getMessage()));
+                Throwable cause =
+                        error instanceof UncheckedIOException && error.getCause() != null
+                                ? error.getCause()
+                                : error;
+                failures.add(
+                        new UploadFailure(
+                                originalName(file),
+                                cause.getMessage() == null
+                                        ? cause.getClass().getSimpleName()
+                                        : cause.getMessage()));
             }
         }
         return new UploadBatchResult(uploaded, failures);
@@ -406,40 +509,72 @@ public class KnowledgeService implements KnowledgeRetriever {
             String vector = EmbeddingClient.literal(queryVectors.computeIfAbsent(
                     vectorKey, key -> embeddings.embed(query, profile)));
             int candidateLimit = Math.min(200, Math.max(30, config.topK() * 6));
-            String sql = "SELECT c.id AS chunk_id,c.document_id,d.filename,c.page_number,c.content,"
+            String sql = "SELECT c.id AS chunk_id,c.document_id,d.filename,c.page_number,c.chunk_index,"
+                    + "c.section_path,c.block_type,c.token_count,c.content,"
                     + "(1 - (e.embedding <=> " + cast + ")) AS similarity"
                     + " FROM document_chunk c JOIN knowledge_document d ON d.id=c.document_id"
                     + " JOIN " + table + " e ON e.chunk_id=c.id"
-                    + " WHERE e.knowledge_base_id = ? AND d.status = 'READY'"
+                    + " WHERE e.knowledge_base_id = ?"
                     + " AND (c.embedding_model IS NULL OR c.embedding_model = ?)"
                     + " AND (c.embedding_dimension IS NULL OR c.embedding_dimension = ?)"
                     + " ORDER BY e.embedding <=> " + cast + " LIMIT ?";
-            List<Candidate> candidates = jdbc.query(sql,
-                    new Object[]{vector, id, profile.getModel(), profile.getDimension(),
-                            vector, candidateLimit},
+            Map<String, Candidate> candidates = new LinkedHashMap<>();
+            jdbc.query(sql,
+                    new Object[]{vector, id, profile.getModel(), profile.getDimension(), vector,
+                            candidateLimit},
                     (rs, row) -> {
-                        String content = rs.getString("content");
                         double similarity = clamp(rs.getDouble("similarity"), 0, 1);
-                        double lexical = RetrievalTextScorer.score(query, content);
-                        double score = "DENSE".equals(config.mode())
-                                ? similarity
-                                : (1 - config.lexicalWeight()) * similarity + config.lexicalWeight() * lexical;
-                        return new Candidate(rs.getString("chunk_id"), rs.getString("document_id"),
-                                rs.getString("filename"), (Integer) rs.getObject("page_number"), content,
-                                similarity, lexical, score);
+                        Candidate candidate = candidate(rs, similarity, 0);
+                        candidates.put(candidate.chunkId(), candidate);
+                        return candidate;
                     });
-            candidates.sort(Comparator.comparingDouble(Candidate::score).reversed()
-                    .thenComparing(Comparator.comparingDouble(Candidate::similarity).reversed()));
-            List<Candidate> selected = new ArrayList<>();
-            for (Candidate candidate : candidates) {
-                if (candidate.score() >= config.similarityThreshold()) {
-                    selected.add(candidate);
-                    if (selected.size() >= config.topK()) break;
-                }
+
+            if ("HYBRID".equals(config.mode())) {
+                String lexicalQuery = query.toLowerCase(Locale.ROOT);
+                String lexicalSql = "SELECT c.id AS chunk_id,c.document_id,d.filename,c.page_number,c.chunk_index,"
+                        + "c.section_path,c.block_type,c.token_count,c.content,"
+                        + "word_similarity(?, lower(c.content)) AS lexical_score"
+                        + " FROM document_chunk c JOIN knowledge_document d ON d.id=c.document_id"
+                        + " JOIN " + table + " e ON e.chunk_id=c.id"
+                        + " WHERE e.knowledge_base_id = ? AND lower(c.content) %> ?"
+                        + " AND (c.embedding_model IS NULL OR c.embedding_model = ?)"
+                        + " AND (c.embedding_dimension IS NULL OR c.embedding_dimension = ?)"
+                        + " ORDER BY lexical_score DESC LIMIT ?";
+                jdbc.query(
+                        lexicalSql,
+                        new Object[]{
+                            lexicalQuery,
+                            id,
+                            lexicalQuery,
+                            profile.getModel(),
+                            profile.getDimension(),
+                            candidateLimit
+                        },
+                        (rs, row) -> {
+                            double lexical = clamp(rs.getDouble("lexical_score"), 0, 1);
+                            Candidate existing = candidates.get(rs.getString("chunk_id"));
+                            Candidate candidate =
+                                    existing == null
+                                            ? candidate(rs, 0, lexical)
+                                            : existing.withLexical(lexical);
+                            candidates.put(candidate.chunkId(), candidate);
+                            return candidate;
+                        });
             }
-            if (selected.isEmpty() && config.fallbackEnabled() && !candidates.isEmpty()) {
-                selected.add(candidates.get(0).withBelowThreshold());
-            }
+
+            List<Candidate> ranked =
+                    candidates.values().stream()
+                            .map(item -> item.withScore(config, query))
+                            .sorted(
+                                    Comparator.comparingDouble(Candidate::score)
+                                            .reversed()
+                                            .thenComparing(
+                                                    Comparator.comparingDouble(
+                                                                    Candidate::similarity)
+                                                            .reversed()))
+                            .toList();
+            List<Candidate> selected = selectCandidates(ranked, config);
+            selected = expandCandidates(id, table, profile, selected);
             scoredLists.add(new ScoredList(config, selected));
         }
         if (scoredLists.isEmpty()) return List.of();
@@ -479,6 +614,15 @@ public class KnowledgeService implements KnowledgeRetriever {
     }
 
     private void deleteStoredBytes(String documentId) {
+        for (com.intra.copilot.model.KnowledgeDocumentAsset asset :
+                assetRecords.findAllByDocumentId(documentId)) {
+            if (asset.getStorageKey() == null || asset.getStorageKey().isBlank()) continue;
+            try {
+                storage.delete(asset.getStorageKey());
+            } catch (IOException ignored) {
+                // A missing derived asset must not block deletion of the source document.
+            }
+        }
         storageRecords.findByDocumentId(documentId).ifPresent(record -> {
             try {
                 storage.delete(record.getStorageKey());
@@ -599,7 +743,31 @@ public class KnowledgeService implements KnowledgeRetriever {
             }
             return;
         }
-        if (!"text".equals(parserId)) return;
+        if ("docx".equals(parserId) || "spreadsheet".equals(parserId) && filename.toLowerCase(Locale.ROOT).endsWith(".xlsx")
+                || "pptx".equals(parserId)) {
+            if (bytes.length < 4 || bytes[0] != 'P' || bytes[1] != 'K') {
+                throw new IllegalArgumentException("Office 文件内容不是有效的 OOXML 文档");
+            }
+            return;
+        }
+        if ("spreadsheet".equals(parserId) && filename.toLowerCase(Locale.ROOT).endsWith(".xls")) {
+            if (bytes.length < 8
+                    || (bytes[0] & 0xff) != 0xd0
+                    || (bytes[1] & 0xff) != 0xcf
+                    || (bytes[2] & 0xff) != 0x11
+                    || (bytes[3] & 0xff) != 0xe0) {
+                throw new IllegalArgumentException("Excel 文件内容不是有效的 XLS 文档");
+            }
+            return;
+        }
+        if ("image".equals(parserId)) {
+            if (!isSupportedImage(bytes)) {
+                throw new IllegalArgumentException("图片文件内容无法识别");
+            }
+            return;
+        }
+        if (!"text".equals(parserId) && !"csv".equals(parserId) && !"html".equals(parserId))
+            return;
         for (byte value : bytes) {
             if (value == 0) throw new IllegalArgumentException("文本文件包含不可识别的二进制内容");
         }
@@ -608,10 +776,92 @@ public class KnowledgeService implements KnowledgeRetriever {
     private void validateMediaType(String filename, String mediaType) {
         if (mediaType == null || mediaType.isBlank() || "application/octet-stream".equalsIgnoreCase(mediaType)) return;
         String lower = filename.toLowerCase(Locale.ROOT);
-        boolean valid = lower.endsWith(".pdf") ? "application/pdf".equalsIgnoreCase(mediaType)
-                : ("text/plain".equalsIgnoreCase(mediaType) || "text/markdown".equalsIgnoreCase(mediaType)
-                        || "text/x-markdown".equalsIgnoreCase(mediaType));
+        boolean valid;
+        if (lower.endsWith(".pdf")) {
+            valid = "application/pdf".equalsIgnoreCase(mediaType);
+        } else if (lower.endsWith(".docx")) {
+            valid =
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    .equalsIgnoreCase(mediaType)
+                            || "application/zip".equalsIgnoreCase(mediaType);
+        } else if (lower.endsWith(".xlsx")) {
+            valid =
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    .equalsIgnoreCase(mediaType)
+                            || "application/zip".equalsIgnoreCase(mediaType);
+        } else if (lower.endsWith(".xls")) {
+            valid = "application/vnd.ms-excel".equalsIgnoreCase(mediaType);
+        } else if (lower.endsWith(".pptx")) {
+            valid =
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                                    .equalsIgnoreCase(mediaType)
+                            || "application/zip".equalsIgnoreCase(mediaType);
+        } else if (lower.endsWith(".html") || lower.endsWith(".htm")) {
+            valid = "text/html".equalsIgnoreCase(mediaType);
+        } else if (lower.endsWith(".csv")) {
+            valid =
+                    "text/csv".equalsIgnoreCase(mediaType)
+                            || "application/csv".equalsIgnoreCase(mediaType)
+                            || "text/plain".equalsIgnoreCase(mediaType);
+        } else if (lower.endsWith(".tsv")) {
+            valid =
+                    "text/tab-separated-values".equalsIgnoreCase(mediaType)
+                            || "text/plain".equalsIgnoreCase(mediaType);
+        } else if (lower.endsWith(".png")
+                || lower.endsWith(".jpg")
+                || lower.endsWith(".jpeg")
+                || lower.endsWith(".webp")
+                || lower.endsWith(".bmp")
+                || lower.endsWith(".tif")
+                || lower.endsWith(".tiff")) {
+            valid = mediaType.toLowerCase(Locale.ROOT).startsWith("image/");
+        } else {
+            valid =
+                    "text/plain".equalsIgnoreCase(mediaType)
+                            || "text/markdown".equalsIgnoreCase(mediaType)
+                            || "text/x-markdown".equalsIgnoreCase(mediaType);
+        }
         if (!valid) throw new IllegalArgumentException("文件类型与扩展名不匹配");
+    }
+
+    private boolean isSupportedImage(byte[] bytes) {
+        if (bytes.length >= 8
+                && (bytes[0] & 0xff) == 0x89
+                && bytes[1] == 'P'
+                && bytes[2] == 'N'
+                && bytes[3] == 'G') return true;
+        if (bytes.length >= 3
+                && (bytes[0] & 0xff) == 0xff
+                && (bytes[1] & 0xff) == 0xd8
+                && (bytes[2] & 0xff) == 0xff) return true;
+        if (bytes.length >= 12
+                && bytes[0] == 'R'
+                && bytes[1] == 'I'
+                && bytes[2] == 'F'
+                && bytes[3] == 'F'
+                && bytes[8] == 'W'
+                && bytes[9] == 'E'
+                && bytes[10] == 'B'
+                && bytes[11] == 'P') return true;
+        if (bytes.length >= 4
+                && ((bytes[0] == 'I' && bytes[1] == 'I' && bytes[2] == 42 && bytes[3] == 0)
+                        || (bytes[0] == 'M'
+                                && bytes[1] == 'M'
+                                && bytes[2] == 0
+                                && bytes[3] == 42))) return true;
+        return bytes.length >= 4 && bytes[0] == 'B' && bytes[1] == 'M';
+    }
+
+    private boolean isImageFilename(String filename) {
+        if (filename == null) return false;
+        String lower = filename.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".png")
+                || lower.endsWith(".jpg")
+                || lower.endsWith(".jpeg")
+                || lower.endsWith(".webp")
+                || lower.endsWith(".bmp")
+                || lower.endsWith(".tif")
+                || lower.endsWith(".tiff");
     }
 
     private String normalizeName(String value) {
@@ -631,6 +881,10 @@ public class KnowledgeService implements KnowledgeRetriever {
             String documentId,
             String filename,
             Integer pageNumber,
+            int chunkIndex,
+            String sectionPath,
+            String blockType,
+            Integer tokenCount,
             String content,
             double similarity,
             double lexicalScore,
@@ -642,27 +896,234 @@ public class KnowledgeService implements KnowledgeRetriever {
                 String documentId,
                 String filename,
                 Integer pageNumber,
+                int chunkIndex,
+                String sectionPath,
+                String blockType,
+                Integer tokenCount,
                 String content,
                 double similarity,
                 double lexicalScore,
                 double score) {
-            this(chunkId, documentId, filename, pageNumber, content, similarity, lexicalScore, score, false);
+            this(
+                    chunkId,
+                    documentId,
+                    filename,
+                    pageNumber,
+                    chunkIndex,
+                    sectionPath,
+                    blockType,
+                    tokenCount,
+                    content,
+                    similarity,
+                    lexicalScore,
+                    score,
+                    false);
         }
 
         private Candidate withBelowThreshold() {
-            return new Candidate(chunkId, documentId, filename, pageNumber, content, similarity,
-                    lexicalScore, score, true);
+            return new Candidate(
+                    chunkId,
+                    documentId,
+                    filename,
+                    pageNumber,
+                    chunkIndex,
+                    sectionPath,
+                    blockType,
+                    tokenCount,
+                    content,
+                    similarity,
+                    lexicalScore,
+                    score,
+                    true);
+        }
+
+        private Candidate withLexical(double value) {
+            return new Candidate(
+                    chunkId,
+                    documentId,
+                    filename,
+                    pageNumber,
+                    chunkIndex,
+                    sectionPath,
+                    blockType,
+                    tokenCount,
+                    content,
+                    similarity,
+                    value,
+                    score,
+                    belowThreshold);
+        }
+
+        private Candidate withScore(RetrievalConfig config, String query) {
+            double hybrid =
+                    (1 - config.lexicalWeight()) * similarity
+                            + config.lexicalWeight() * lexicalScore;
+            double resolved =
+                    "DENSE".equals(config.mode())
+                            ? similarity
+                            : Math.max(hybrid, lexicalScore * 0.90);
+            String normalizedQuery =
+                    query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+            if (!normalizedQuery.isBlank()
+                    && content != null
+                    && content.toLowerCase(Locale.ROOT).contains(normalizedQuery)) {
+                resolved = Math.min(1, resolved + 0.06);
+            }
+            if (("TABLE".equals(blockType) || "CODE".equals(blockType))
+                    && lexicalScore >= 0.35) {
+                resolved = Math.min(1, resolved + 0.04);
+            }
+            return new Candidate(
+                    chunkId,
+                    documentId,
+                    filename,
+                    pageNumber,
+                    chunkIndex,
+                    sectionPath,
+                    blockType,
+                    tokenCount,
+                    content,
+                    similarity,
+                    lexicalScore,
+                    resolved,
+                    belowThreshold);
+        }
+
+        private Candidate withContent(String value) {
+            return new Candidate(
+                    chunkId,
+                    documentId,
+                    filename,
+                    pageNumber,
+                    chunkIndex,
+                    sectionPath,
+                    blockType,
+                    tokenCount,
+                    value,
+                    similarity,
+                    lexicalScore,
+                    score,
+                    belowThreshold);
         }
 
         private Result toResult(RetrievalConfig config, int rank) {
-            return new Result(chunkId, documentId, filename, pageNumber, content, 1 - similarity,
-                    similarity, lexicalScore, score, config.mode(), belowThreshold, rank);
+            return new Result(
+                    chunkId,
+                    documentId,
+                    filename,
+                    pageNumber,
+                    chunkIndex,
+                    sectionPath,
+                    blockType,
+                    tokenCount,
+                    content,
+                    1 - similarity,
+                    similarity,
+                    lexicalScore,
+                    score,
+                    config.mode(),
+                    belowThreshold,
+                    rank);
         }
+    }
+
+    private Candidate candidate(
+            java.sql.ResultSet rs, double similarity, double lexicalScore) throws java.sql.SQLException {
+        return new Candidate(
+                rs.getString("chunk_id"),
+                rs.getString("document_id"),
+                rs.getString("filename"),
+                (Integer) rs.getObject("page_number"),
+                rs.getInt("chunk_index"),
+                rs.getString("section_path"),
+                rs.getString("block_type"),
+                (Integer) rs.getObject("token_count"),
+                rs.getString("content"),
+                similarity,
+                lexicalScore,
+                similarity);
+    }
+
+    private List<Candidate> selectCandidates(
+            List<Candidate> ranked, RetrievalConfig config) {
+        List<Candidate> selected = new ArrayList<>();
+        Set<String> selectedIds = new HashSet<>();
+        Map<String, Integer> perDocument = new HashMap<>();
+        for (Candidate candidate : ranked) {
+            if (candidate.score() < config.similarityThreshold()) continue;
+            int count = perDocument.getOrDefault(candidate.documentId(), 0);
+            if (count >= 2) continue;
+            selected.add(candidate);
+            selectedIds.add(candidate.chunkId());
+            perDocument.put(candidate.documentId(), count + 1);
+            if (selected.size() >= config.topK()) return selected;
+        }
+        for (Candidate candidate : ranked) {
+            if (candidate.score() < config.similarityThreshold()) continue;
+            if (!selectedIds.add(candidate.chunkId())) continue;
+            selected.add(candidate);
+            if (selected.size() >= config.topK()) break;
+        }
+        if (selected.isEmpty() && config.fallbackEnabled() && !ranked.isEmpty()) {
+            selected.add(ranked.get(0).withBelowThreshold());
+        }
+        return selected;
+    }
+
+    /**
+     * Adds immediate neighbors of a selected chunk. This keeps split tables, definitions and
+     * procedure steps together without indexing a second parent document.
+     */
+    private List<Candidate> expandCandidates(
+            String baseId,
+            String table,
+            EmbeddingProfile profile,
+            List<Candidate> selected) {
+        if (selected.isEmpty()) return selected;
+        List<Candidate> out = new ArrayList<>();
+        Map<String, Set<Integer>> emitted = new HashMap<>();
+        for (Candidate candidate : selected) {
+            Set<Integer> emittedIndexes =
+                    emitted.computeIfAbsent(candidate.documentId(), key -> new HashSet<>());
+            if (!emittedIndexes.add(candidate.chunkIndex())) continue;
+            List<NeighborChunk> neighbors =
+                    jdbc.query(
+                            "SELECT chunk_index, content FROM document_chunk"
+                                    + " WHERE document_id = ? AND chunk_index BETWEEN ? AND ?"
+                                    + " AND (embedding_model IS NULL OR embedding_model = ?)"
+                                    + " AND (embedding_dimension IS NULL OR embedding_dimension = ?)"
+                                    + " ORDER BY chunk_index",
+                            new Object[]{
+                                candidate.documentId(),
+                                Math.max(0, candidate.chunkIndex() - 1),
+                                candidate.chunkIndex() + 1,
+                                profile.getModel(),
+                                profile.getDimension()
+                            },
+                            (rs, row) ->
+                                    new NeighborChunk(
+                                            rs.getInt("chunk_index"), rs.getString("content")));
+            StringBuilder content = new StringBuilder();
+            for (NeighborChunk neighbor : neighbors) {
+                if (!emittedIndexes.add(neighbor.chunkIndex())) continue;
+                if (content.length() > 0) content.append("\n\n");
+                if (neighbor.chunkIndex() != candidate.chunkIndex()) {
+                    content.append("[相邻分块 ").append(neighbor.chunkIndex() + 1).append("]\n");
+                }
+                content.append(neighbor.content());
+            }
+            if (content.length() == 0) content.append(candidate.content());
+            out.add(candidate.withContent(content.toString()));
+            if (out.size() >= Math.max(1, selected.size())) break;
+        }
+        return out;
     }
 
     private record ScoredList(RetrievalConfig config, List<Candidate> candidates) {}
 
     private record FusedCandidate(Candidate candidate, RetrievalConfig config, double fusionScore) {}
+
+    private record NeighborChunk(int chunkIndex, String content) {}
 
     public record RetrievalConfig(
             int topK, double similarityThreshold, String mode, double lexicalWeight, boolean fallbackEnabled) {}
@@ -681,9 +1142,24 @@ public class KnowledgeService implements KnowledgeRetriever {
             Double lexicalWeight,
             Boolean fallbackEnabled) {}
 
-    public record Diagnostics(String knowledgeBaseId, String provider, String model, int dimension,
-                              boolean embeddingTableExists, long documentCount, long errorCount, long staleCount,
-                              long missingVectorCount, String baseStatus, List<DiagnosticIssue> issues) {}
+    public record Diagnostics(
+            String knowledgeBaseId,
+            String provider,
+            String model,
+            int dimension,
+            boolean embeddingTableExists,
+            long documentCount,
+            long errorCount,
+            long staleCount,
+            long missingVectorCount,
+            long pageCount,
+            long tableCount,
+            long imageCount,
+            long attachmentCount,
+            long extractedChars,
+            List<String> extractionWarnings,
+            String baseStatus,
+            List<DiagnosticIssue> issues) {}
 
     public record DiagnosticIssue(String code, String severity, String message, String recommendation) {}
 

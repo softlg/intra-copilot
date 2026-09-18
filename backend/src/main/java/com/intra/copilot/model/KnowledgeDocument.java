@@ -1,9 +1,13 @@
 package com.intra.copilot.model;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.intra.copilot.persistence.PostgresJsonNodeTypeHandler;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
+import org.apache.ibatis.type.JdbcType;
 
 @TableName("knowledge_document")
 public class KnowledgeDocument {
@@ -24,6 +28,16 @@ public class KnowledgeDocument {
     private String chunkStrategy;
     private String embeddingModel;
     private Integer embeddingDimension;
+    private Integer pageCount;
+    private Integer blockCount;
+    private Integer tableCount;
+    private Integer imageCount;
+    private Integer attachmentCount;
+    private Long extractedChars;
+
+    @TableField(typeHandler = PostgresJsonNodeTypeHandler.class, jdbcType = JdbcType.OTHER)
+    private JsonNode parseMetadata;
+
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
 
@@ -165,6 +179,62 @@ public class KnowledgeDocument {
 
     public void setEmbeddingDimension(Integer value) {
         embeddingDimension = value;
+    }
+
+    public Integer getPageCount() {
+        return pageCount;
+    }
+
+    public void setPageCount(Integer value) {
+        pageCount = value;
+    }
+
+    public Integer getBlockCount() {
+        return blockCount;
+    }
+
+    public void setBlockCount(Integer value) {
+        blockCount = value;
+    }
+
+    public Integer getTableCount() {
+        return tableCount;
+    }
+
+    public void setTableCount(Integer value) {
+        tableCount = value;
+    }
+
+    public Integer getImageCount() {
+        return imageCount;
+    }
+
+    public void setImageCount(Integer value) {
+        imageCount = value;
+    }
+
+    public Integer getAttachmentCount() {
+        return attachmentCount;
+    }
+
+    public void setAttachmentCount(Integer value) {
+        attachmentCount = value;
+    }
+
+    public Long getExtractedChars() {
+        return extractedChars;
+    }
+
+    public void setExtractedChars(Long value) {
+        extractedChars = value;
+    }
+
+    public JsonNode getParseMetadata() {
+        return parseMetadata;
+    }
+
+    public void setParseMetadata(JsonNode value) {
+        parseMetadata = value;
     }
 
     public void touch() {

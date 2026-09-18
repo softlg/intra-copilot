@@ -3714,6 +3714,21 @@ function AdminApp({
                   {t.documentHash}: {selectedDocument.fileHash.slice(0, 16)}…
                 </code>
               )}
+              {selectedDocument.pageCount != null && (
+                <span>{selectedDocument.pageCount} pages</span>
+              )}
+              {selectedDocument.tableCount != null && (
+                <span>{selectedDocument.tableCount} tables</span>
+              )}
+              {selectedDocument.imageCount != null && (
+                <span>{selectedDocument.imageCount} images</span>
+              )}
+              {selectedDocument.attachmentCount != null && (
+                <span>{selectedDocument.attachmentCount} attachments</span>
+              )}
+              {selectedDocument.extractedChars != null && (
+                <span>{selectedDocument.extractedChars} chars</span>
+              )}
             </div>
             <h4>{t.documentChunks}</h4>
             {chunksLoading ? (
@@ -3728,6 +3743,12 @@ function AdminApp({
                       <strong>#{chunk.chunkIndex + 1}</strong>
                       {chunk.pageNumber ? (
                         <span> · 第 {chunk.pageNumber} 页</span>
+                      ) : null}
+                      {chunk.sectionPath ? (
+                        <span> · {chunk.sectionPath}</span>
+                      ) : null}
+                      {chunk.blockType ? (
+                        <span> · {chunk.blockType}</span>
                       ) : null}
                     </div>
                     <pre>{chunk.content}</pre>

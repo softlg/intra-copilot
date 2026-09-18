@@ -15,6 +15,7 @@ public class EmbeddingProfileService {
     private final String defaultProvider;
     private final String defaultModel;
     private final int defaultDimension;
+    private final EmbeddingSchema schema = new EmbeddingSchema();
 
     public EmbeddingProfileService(
             EmbeddingProfileRepository profiles,
@@ -125,6 +126,9 @@ public class EmbeddingProfileService {
             throw new IllegalArgumentException("模型不能为空");
         if (profile.getDimension() == null || profile.getDimension() <= 0)
             throw new IllegalArgumentException("向量维度必须大于 0");
+        if (!schema.supports(profile.getDimension()))
+            throw new IllegalArgumentException(
+                    "暂不支持向量维度 " + profile.getDimension() + "，当前支持 1024、1536、3072");
         if (profile.getConfigVersion() == null || profile.getConfigVersion().isBlank())
             profile.setConfigVersion("1");
         if (profile.isDefaultProfile())
@@ -177,6 +181,10 @@ public class EmbeddingProfileService {
                     || dimension == null
                     || dimension <= 0) {
                 throw new IllegalArgumentException("自定义模型需填写提供方、Base URL、模型名与大于 0 的向量维度");
+            }
+            if (!schema.supports(dimension)) {
+                throw new IllegalArgumentException(
+                        "暂不支持向量维度 " + dimension + "，当前支持 1024、1536、3072");
             }
             if (apiKey == null || apiKey.isBlank()) {
                 apiKey = base.getEmbeddingApiKey();

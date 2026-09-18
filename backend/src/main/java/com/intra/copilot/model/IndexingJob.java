@@ -39,6 +39,7 @@ public class IndexingJob {
     private String payload;
     private String workerId;
     private Instant nextAttemptAt;
+    private Instant heartbeatAt;
     private Instant createdAt = Instant.now();
     private Instant startedAt;
     private Instant finishedAt;
@@ -145,6 +146,14 @@ public class IndexingJob {
 
     public void setNextAttemptAt(Instant value) {
         nextAttemptAt = value;
+    }
+
+    public Instant getHeartbeatAt() {
+        return heartbeatAt;
+    }
+
+    public void setHeartbeatAt(Instant value) {
+        heartbeatAt = value;
     }
 
     public Instant getCreatedAt() {

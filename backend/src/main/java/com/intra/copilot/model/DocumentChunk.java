@@ -1,8 +1,12 @@
 package com.intra.copilot.model;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.intra.copilot.persistence.PostgresJsonNodeTypeHandler;
 import com.intra.copilot.util.EntityIdGenerator;
+import org.apache.ibatis.type.JdbcType;
 
 @TableName("document_chunk")
 public class DocumentChunk {
@@ -11,6 +15,14 @@ public class DocumentChunk {
     private int chunkIndex;
     private String content;
     private Integer pageNumber;
+    private String sectionPath;
+    private String blockType = "TEXT";
+
+    @TableField(typeHandler = PostgresJsonNodeTypeHandler.class, jdbcType = JdbcType.OTHER)
+    private JsonNode metadata;
+
+    private Integer tokenCount;
+    private String contentHash;
     private String embeddingModel;
     private Integer embeddingDimension;
     private String chunkStrategy;
@@ -50,6 +62,46 @@ public class DocumentChunk {
 
     public void setPageNumber(Integer value) {
         pageNumber = value;
+    }
+
+    public String getSectionPath() {
+        return sectionPath;
+    }
+
+    public void setSectionPath(String value) {
+        sectionPath = value;
+    }
+
+    public String getBlockType() {
+        return blockType;
+    }
+
+    public void setBlockType(String value) {
+        blockType = value;
+    }
+
+    public JsonNode getMetadata() {
+        return metadata;
+    }
+
+    public void setMetadata(JsonNode value) {
+        metadata = value;
+    }
+
+    public Integer getTokenCount() {
+        return tokenCount;
+    }
+
+    public void setTokenCount(Integer value) {
+        tokenCount = value;
+    }
+
+    public String getContentHash() {
+        return contentHash;
+    }
+
+    public void setContentHash(String value) {
+        contentHash = value;
     }
 
     public String getEmbeddingModel() {

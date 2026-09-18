@@ -42,6 +42,7 @@ public class IndexingWorker {
     private final String workerId;
     private final int concurrency;
     private final boolean enabled;
+    private final long leaseTimeoutSeconds;
     private final AtomicInteger threadCounter = new AtomicInteger();
 
     public IndexingWorker(
@@ -52,7 +53,8 @@ public class IndexingWorker {
             JdbcTemplate jdbc,
             PlatformTransactionManager transactionManager,
             @Value("${kb.indexing.enabled:true}") boolean enabled,
-            @Value("${kb.indexing.concurrency:2}") int concurrency) {
+            @Value("${kb.indexing.concurrency:2}") int concurrency,
+            @Value("${kb.indexing.lease-timeout-seconds:1800}") long leaseTimeoutSeconds) {
         this.jobs = jobs;
         this.jobService = jobService;
         this.indexing = indexing;
@@ -61,6 +63,7 @@ public class IndexingWorker {
         this.transaction = new TransactionTemplate(transactionManager);
         this.enabled = enabled;
         this.concurrency = Math.max(1, concurrency);
+        this.leaseTimeoutSeconds = Math.max(60, leaseTimeoutSeconds);
         this.workerId = ManagementFactory.getRuntimeMXBean().getName();
         ThreadFactory factory =
                 runnable -> {
@@ -75,6 +78,7 @@ public class IndexingWorker {
     @Scheduled(fixedDelayString = "${kb.indexing.poll-interval-ms:1000}")
     public void poll() {
         if (!enabled) return;
+        recoverExpiredJobs();
         reapWaitingParents();
         int slots = concurrency - running.get();
         for (int i = 0; i < slots; i++) {
@@ -106,11 +110,35 @@ public class IndexingWorker {
                     String id = candidates.get(0);
                     jdbc.update(
                             "UPDATE indexing_job SET status = 'RUNNING', attempt = attempt + 1, worker_id = ?,"
-                                    + " started_at = NOW(), next_attempt_at = NULL WHERE id = ?",
+                                    + " started_at = NOW(), heartbeat_at = NOW(), next_attempt_at = NULL WHERE id = ?",
                             workerId,
                             id);
                     return id;
                 });
+    }
+
+    /**
+     * Requeues work abandoned by a crashed process. Progress updates refresh the heartbeat, so a
+     * healthy long-running document is not reclaimed.
+     */
+    private void recoverExpiredJobs() {
+        List<String> expired =
+                jdbc.queryForList(
+                        "SELECT id FROM indexing_job WHERE status = 'RUNNING'"
+                                + " AND COALESCE(heartbeat_at, started_at, created_at)"
+                                + " < NOW() - (? * INTERVAL '1 second')"
+                                + " ORDER BY created_at LIMIT ?",
+                        String.class,
+                        leaseTimeoutSeconds,
+                        Math.max(1, concurrency * 2));
+        for (String jobId : expired) {
+            jobs.findById(jobId)
+                    .ifPresent(
+                            job ->
+                                    handleFailure(
+                                            job,
+                                            new IllegalStateException("索引任务租约超时，已由其它工作节点重新接管")));
+        }
     }
 
     private void run(String jobId) {
@@ -194,12 +222,29 @@ public class IndexingWorker {
     }
 
     private void finishParent(IndexingJob parent) {
-        jobService.markSucceeded(parent.getId());
+        List<IndexingJob> children = jobs.findChildren(parent.getId());
+        long failed =
+                children.stream()
+                        .filter(
+                                child ->
+                                        IndexingJob.STATUS_DEAD.equals(child.getStatus())
+                                                || IndexingJob.STATUS_FAILED.equals(
+                                                        child.getStatus()))
+                        .count();
+        if (failed > 0) {
+            jobService.markFailed(
+                    parent.getId(), failed + "/" + children.size() + " 个文档重建失败；失败文档继续使用上一代索引");
+        } else {
+            jobService.markSucceeded(parent.getId());
+        }
         bases.findById(parent.getKnowledgeBaseId())
                 .ifPresent(
                         base -> {
                             if (KnowledgeBase.STATUS_REBUILDING.equals(base.getStatus())) {
-                                base.setStatus(KnowledgeBase.STATUS_READY);
+                                base.setStatus(
+                                        failed > 0
+                                                ? KnowledgeBase.STATUS_DEGRADED
+                                                : KnowledgeBase.STATUS_READY);
                                 base.touch();
                                 bases.save(base);
                             }

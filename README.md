@@ -60,10 +60,20 @@ $env:ADMIN_SESSION_SECRET="long-random-value"
 - `POST /api/v1/auth/admin/login`：管理员登录并获取会话令牌。
 - `GET /api/v1/auth/admin/session`：校验当前登录状态。
 - `GET/POST/PUT/DELETE /api/v1/admin/agents`：Agent 配置及启用状态。
-- `/api/v1/admin/knowledge-bases`：知识库、Markdown/TXT/PDF 文档上传、重建索引和删除。
+- `/api/v1/admin/knowledge-bases`：知识库、文档上传、重建索引和删除。支持 Markdown、TXT、PDF、DOCX、XLS/XLSX、PPTX、CSV/TSV、HTML；图片和扫描 PDF 需要 OCR。
 - `/api/v1/admin/tools`、`/api/v1/admin/skills`：注册 HTTP 工具和 Skill。HTTP 工具默认允许访问 HTTP/HTTPS 公网地址，可通过 `TOOLS_ALLOW_HTTP=false` 禁止 HTTP；`TOOLS_ALLOW_PRIVATE_NETWORK=true` 可显式放行内网或本机地址。工具请求不跟随重定向。
 - `/api/v1/admin/mcp-servers`：MCP 服务注册、编辑、启停、删除和健康检查；`POST /{id}/health` 会执行 MCP `initialize` 与 `tools/list`，缓存接口数量、能力和接口详情。
 - `POST /api/v1/admin/router/test`：按插件请求协议测试系统 Agent 路由，支持页面权限、图片附件和领域/子 Agent 委派链路。
 - `POST /api/v1/admin/router/attachments`：上传路由测试图片并返回管理端预览地址。
 
 知识库索引依赖 pgvector 与 Embedding API；未配置 Embedding Key 时文档会标记为 `ERROR`，不会阻塞会话功能。
+
+PDF 文本层、Office 表格、CSV/HTML 表格和 Markdown 标题会保留结构化元数据；PDF/Office/PPT 图片可提取并保存。启用 OCR 时需要本机安装 `tesseract` 及对应语言包，然后配置：
+
+```powershell
+$env:OCR_ENABLED="true"
+$env:OCR_COMMAND="tesseract"
+$env:OCR_LANGUAGES="chi_sim+eng"
+```
+
+OCR 默认关闭。未启用 OCR 时，扫描 PDF 或独立图片会上传失败或提示“未能提取到可索引文本”。混合检索使用 pgvector 与 PostgreSQL `pg_trgm` 两路候选，再执行融合、去重和相邻分块扩展；重建失败时上一代向量仍可作为检索兜底。

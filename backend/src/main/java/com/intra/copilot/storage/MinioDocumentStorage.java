@@ -135,9 +135,21 @@ public class MinioDocumentStorage implements DocumentStorage {
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
         if (lower.endsWith(".gif")) return "image/gif";
         if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".bmp")) return "image/bmp";
+        if (lower.endsWith(".tif") || lower.endsWith(".tiff")) return "image/tiff";
         if (lower.endsWith(".pdf")) return "application/pdf";
         if (lower.endsWith(".txt")) return "text/plain";
         if (lower.endsWith(".md")) return "text/markdown";
+        if (lower.endsWith(".csv")) return "text/csv";
+        if (lower.endsWith(".tsv")) return "text/tab-separated-values";
+        if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
+        if (lower.endsWith(".docx"))
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (lower.endsWith(".xlsx"))
+            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+        if (lower.endsWith(".pptx"))
+            return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
         return "application/octet-stream";
     }
 

@@ -65,11 +65,22 @@ rag:
   top-k: ${RAG_TOP_K:5}
   chunk-size: ${RAG_CHUNK_SIZE:1200}
   chunk-overlap: ${RAG_CHUNK_OVERLAP:200}
+  chunk-max-tokens: ${RAG_CHUNK_MAX_TOKENS:800}
   similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.50}
   retrieval-mode: ${RAG_RETRIEVAL_MODE:HYBRID}
   lexical-weight: ${RAG_LEXICAL_WEIGHT:0.30}
   fallback-enabled: ${RAG_FALLBACK_ENABLED:true}
   max-document-bytes: ${RAG_MAX_DOCUMENT_BYTES:104857600}
+  max-embedded-attachment-bytes: ${RAG_MAX_EMBEDDED_ATTACHMENT_BYTES:20971520}
+ocr:
+  # Set true only when the tesseract executable and traineddata packs are installed.
+  enabled: ${OCR_ENABLED:false}
+  command: ${OCR_COMMAND:tesseract}
+  languages: ${OCR_LANGUAGES:chi_sim+eng}
+  pdf-dpi: ${OCR_PDF_DPI:180}
+  pdf-min-text-characters: ${OCR_PDF_MIN_TEXT_CHARACTERS:80}
+  timeout-seconds: ${OCR_TIMEOUT_SECONDS:90}
+  max-characters: ${OCR_MAX_CHARACTERS:200000}
 agent:
   # 单次模型调用与 SSE 连接的最大等待时间。图片理解等请求可能超过原来的 60 秒。
   llm-timeout-seconds: ${AGENT_LLM_TIMEOUT_SECONDS:180}
@@ -85,6 +96,9 @@ kb:
     concurrency: ${KB_INDEXING_CONCURRENCY:2}
     poll-interval-ms: ${KB_INDEXING_POLL_INTERVAL_MS:1000}
     max-attempts: ${KB_INDEXING_MAX_ATTEMPTS:3}
+    # A worker refreshes heartbeat on every progress update. Expired RUNNING jobs
+    # are safely requeued after this lease window.
+    lease-timeout-seconds: ${KB_INDEXING_LEASE_TIMEOUT_SECONDS:1800}
 tools:
   # 内网部署场景可使用 HTTP 和本机服务；仍会拒绝云元数据地址。
   allow-http: ${TOOLS_ALLOW_HTTP:true}
