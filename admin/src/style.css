@@ -760,6 +760,34 @@ header {
   margin-top: 28px;
 }
 
+.resource-toolbar.agent-list-toolbar {
+  align-items: flex-end;
+  margin-bottom: 14px;
+}
+
+.agent-list-toolbar-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.agent-list-toolbar-copy strong {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.agent-list-toolbar-copy span {
+  max-width: 720px;
+  color: var(--muted-subtle);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-list-search {
+  min-width: 240px;
+}
+
 .group-heading {
   display: flex;
   align-items: center;
@@ -849,8 +877,8 @@ article p {
 }
 
 .agent-card {
-  height: 300px;
-  min-height: 300px;
+  height: 260px;
+  min-height: 260px;
   overflow: hidden;
 }
 
@@ -934,8 +962,43 @@ article p {
   font-size: 13px;
   line-height: 1.55;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   overflow-wrap: anywhere;
+}
+
+.agent-card-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.agent-card-meta > span {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-card-meta > span.warning {
+  border-color: var(--warning-tint-border);
+  background: var(--warning-tint);
+  color: var(--warning);
+}
+
+.agent-card-meta svg {
+  flex: 0 0 auto;
 }
 
 .agent-card-description.is-empty > p {
@@ -2934,6 +2997,7 @@ article p {
 
 .resource-card-clickable .agent-card-controls,
 .resource-card-clickable .agent-actions,
+.resource-card-clickable .agent-card-footer,
 .resource-card-clickable .skill-card-actions {
   position: relative;
   z-index: 2;
@@ -6013,6 +6077,10 @@ pre {
 }
 
 @media (max-width: 767px) {
+  .resource-toolbar.agent-list-toolbar {
+    align-items: stretch;
+  }
+
   .knowledge-summary {
     grid-template-columns: 1fr;
   }

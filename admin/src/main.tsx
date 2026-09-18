@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import "./components/Toast.css";
 import "./components/ConfirmDialog.css";
-import "./components/TruncatedId.css";
 import "./components/FieldHint.css";
 import "./components/Dropdown.css";
 import "./components/StatusBadge.css";
@@ -14,12 +13,12 @@ import "./components/Skeleton.css";
 import Pagination from "./components/Pagination";
 import { ToastContainer, toast } from "./components/Toast";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import { TruncatedId } from "./components/TruncatedId";
 import { FieldHint } from "./components/FieldHint";
 import { Dropdown } from "./components/Dropdown";
 import { StatusBadge, type StatusKind } from "./components/StatusBadge";
 import { EmptyState } from "./components/EmptyState";
 import { Icon, type IconName } from "./components/Icon";
+import { ResourceCardControls } from "./components/ResourceCardControls";
 import {
   useKeyboardShortcuts,
   shortcutHint,
@@ -394,6 +393,10 @@ function AdminApp({
   const [knowledgeStatus, setKnowledgeStatus] = useState<
     "all" | "enabled" | "disabled"
   >("all");
+  const [agentListQuery, setAgentListQuery] = useState("");
+  const [agentListStatus, setAgentListStatus] = useState<ResourceStatus>("all");
+  const [agentListPage, setAgentListPage] = useState(1);
+  const [agentListPageSize, setAgentListPageSize] = useState(12);
   const [message, setMessage] = useState("");
   const [routePageContext, setRoutePageContext] = useState("");
   const [routeAttachments, setRouteAttachments] = useState<
@@ -552,6 +555,16 @@ function AdminApp({
   useEffect(() => {
     mainContentRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [tab]);
+
+  useEffect(() => {
+    setAgentListQuery("");
+    setAgentListStatus("all");
+    setAgentListPage(1);
+  }, [tab]);
+
+  useEffect(() => {
+    setAgentListPage(1);
+  }, [agentListQuery, agentListStatus, agentListPageSize]);
 
   useEffect(() => {
     if (
@@ -2723,7 +2736,6 @@ function AdminApp({
     setUploadError("");
     setResourceError("");
   };
-  const filteredAgents = agents;
   const filteredBases = bases.filter(
     (base) =>
       knowledgeStatus === "all" ||
@@ -2842,11 +2854,46 @@ function AdminApp({
       },
     }[tab];
     if (!config) return undefined;
+    const roleItems = agents.filter(
+      (agent) => agentRoleOf(agent) === config.role,
+    );
+    const query = agentListQuery.trim().toLowerCase();
+    const matchingItems = roleItems.filter((agent) => {
+      const parentName =
+        agent.parentAgentId &&
+        agents.find((item) => item.id === agent.parentAgentId)?.displayName;
+      const matchesQuery =
+        !query ||
+        [
+          agent.displayName,
+          agent.description ?? "",
+          agent.id,
+          agent.model ?? "",
+          parentName ?? "",
+        ].some((value) => value.toLowerCase().includes(query));
+      const matchesStatus =
+        agentListStatus === "all" ||
+        (agentListStatus === "enabled" ? agent.enabled : !agent.enabled);
+      return matchesQuery && matchesStatus;
+    });
+    const pageCount = Math.max(
+      1,
+      Math.ceil(matchingItems.length / agentListPageSize),
+    );
+    const page = Math.min(agentListPage, pageCount);
     return {
       ...config,
-      items: filteredAgents.filter(
-        (agent) => agentRoleOf(agent) === config.role,
-      ),
+      items:
+        config.role === "MAIN"
+          ? matchingItems
+          : matchingItems.slice(
+              (page - 1) * agentListPageSize,
+              page * agentListPageSize,
+            ),
+      totalCount: roleItems.length,
+      filteredCount: matchingItems.length,
+      page,
+      pageCount,
     };
   })();
 
@@ -3263,28 +3310,64 @@ function AdminApp({
           {agentListTab && (
             <section>
               {agentListTab.role !== "MAIN" && (
-                <button
-                  type="button"
-                  onClick={() => addAgent(agentListTab.role)}
-                >
-                  {t.newAgent}
-                </button>
+                <div className="resource-toolbar agent-list-toolbar">
+                  <div className="agent-list-toolbar-copy">
+                    <strong>
+                      {t.paginationTotal(agentListTab.filteredCount)}
+                    </strong>
+                    <span>{agentListTab.hint}</span>
+                  </div>
+                  <div className="resource-toolbar-actions">
+                    <label className="resource-search agent-list-search">
+                      <Icon name="search" size={15} />
+                      <span className="sr-only">{t.search}</span>
+                      <input
+                        value={agentListQuery}
+                        onChange={(event) =>
+                          setAgentListQuery(event.target.value)
+                        }
+                        placeholder={t.searchPlaceholder}
+                        type="search"
+                      />
+                    </label>
+                    <select
+                      className="resource-filter"
+                      value={agentListStatus}
+                      onChange={(event) =>
+                        setAgentListStatus(event.target.value as ResourceStatus)
+                      }
+                      aria-label={t.statusFilter}
+                    >
+                      <option value="all">{t.allStatuses}</option>
+                      <option value="enabled">{t.enabled}</option>
+                      <option value="disabled">{t.disabled}</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => addAgent(agentListTab.role)}
+                    >
+                      {t.newAgent}
+                    </button>
+                  </div>
+                </div>
               )}
               <section className="agent-group">
-                <div className="group-heading">
-                  <div>
-                    <h3>{agentListTab.title}</h3>
-                    <p>{agentListTab.hint}</p>
+                {agentListTab.role === "MAIN" && (
+                  <div className="group-heading">
+                    <div>
+                      <h3>{agentListTab.title}</h3>
+                      <p>{agentListTab.hint}</p>
+                    </div>
+                    <span className="group-count">
+                      {agentsLoading && agentListTab.totalCount === 0 ? (
+                        <Skeleton width="24px" height="14px" />
+                      ) : (
+                        agentListTab.filteredCount
+                      )}
+                    </span>
                   </div>
-                  <span className="group-count">
-                    {agentsLoading && !agentListTab.items.length ? (
-                      <Skeleton width="24px" height="14px" />
-                    ) : (
-                      agentListTab.items.length
-                    )}
-                  </span>
-                </div>
-                {agentsLoading && !agentListTab.items.length ? (
+                )}
+                {agentsLoading && agentListTab.totalCount === 0 ? (
                   <Skeleton.CardList count={4} />
                 ) : (
                   <div
@@ -3304,7 +3387,9 @@ function AdminApp({
                         <article
                           key={agent.id}
                           className={`agent-card ${
-                            isMainCard ? "system-agent-card" : ""
+                            isMainCard
+                              ? "system-agent-card"
+                              : "resource-card-clickable"
                           } ${agent.enabled ? "is-enabled" : "is-disabled"}`}
                           aria-busy={agentActionId === agent.id}
                         >
@@ -3320,6 +3405,12 @@ function AdminApp({
                             />
                           ) : (
                             <>
+                              <button
+                                type="button"
+                                className="resource-card-hit-area"
+                                aria-label={`${t.settings}: ${agent.displayName}`}
+                                onClick={() => openAgentSettings(agent)}
+                              />
                               <div className="agent-card-header">
                                 <div className="agent-card-title">
                                   <strong>{agent.displayName}</strong>
@@ -3329,64 +3420,50 @@ function AdminApp({
                                     {agent.enabled ? t.enabled : t.disabled}
                                   </span>
                                 </div>
-                                <div className="agent-card-controls">
-                                  <label
-                                    className="switch agent-card-switch"
-                                    title={
-                                      systemLocked
-                                        ? t.systemAgentReadOnlyHint
-                                        : agent.enabled
-                                          ? t.stop
-                                          : t.enable
-                                    }
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      role="switch"
-                                      checked={agent.enabled}
-                                      aria-label={
-                                        agent.enabled ? t.stop : t.enable
-                                      }
-                                      disabled={
-                                        systemLocked ||
-                                        agentActionId === agent.id
-                                      }
-                                      onChange={() => {
-                                        if (!systemLocked) void toggle(agent);
-                                      }}
-                                    />
-                                    <span
-                                      className="switch-track"
-                                      aria-hidden="true"
-                                    />
-                                  </label>
-                                  {!isSystemAgent(agent) && (
-                                    <button
-                                      type="button"
-                                      className="agent-card-delete"
-                                      aria-label={t.deleteAgent}
-                                      title={
-                                        agent.enabled
-                                          ? t.deleteAgentDisabledHint
-                                          : t.deleteAgent
-                                      }
-                                      disabled={
-                                        agent.enabled ||
-                                        agentActionId === agent.id
-                                      }
-                                      onClick={() => deleteAgent(agent)}
-                                    >
-                                      <Icon name="trash" size={16} />
-                                    </button>
-                                  )}
-                                </div>
+                                <ResourceCardControls
+                                  enabled={agent.enabled}
+                                  busy={agentActionId === agent.id}
+                                  enableLabel={t.enable}
+                                  disableLabel={t.stop}
+                                  deleteLabel={t.deleteAgent}
+                                  deleteDisabledHint={
+                                    systemLocked
+                                      ? t.systemAgentReadOnlyHint
+                                      : t.deleteAgentDisabledHint
+                                  }
+                                  toggleDisabled={systemLocked}
+                                  toggleDisabledHint={t.systemAgentReadOnlyHint}
+                                  deleteDisabled={systemLocked}
+                                  onToggle={() => void toggle(agent)}
+                                  onDelete={() => deleteAgent(agent)}
+                                />
                               </div>
-                              <TruncatedId value={agent.id} label="Agent ID" />
-                              {parent && (
-                                <p className="agent-parent">
-                                  {t.parentAgent}：{parent.displayName}
-                                </p>
-                              )}
+                              <div className="agent-card-meta">
+                                {agent.role === "SUB" &&
+                                  (parent ? (
+                                    <span>
+                                      <Icon name="flag" size={13} />
+                                      {t.parentAgent}: {parent.displayName}
+                                    </span>
+                                  ) : (
+                                    <span className="warning">
+                                      <Icon name="warn" size={13} />
+                                      {t.agentParentMissing}
+                                    </span>
+                                  ))}
+                                {agent.model && (
+                                  <span>
+                                    <Icon name="sparkle" size={13} />
+                                    {agent.model}
+                                  </span>
+                                )}
+                                {typeof agent.priority === "number" && (
+                                  <span>
+                                    <Icon name="filter" size={13} />
+                                    {t.priority}: {agent.priority}
+                                  </span>
+                                )}
+                              </div>
                               <div
                                 className={`agent-card-description${
                                   agent.description ? "" : " is-empty"
@@ -3412,6 +3489,29 @@ function AdminApp({
                     })}
                   </div>
                 )}
+                {agentListTab.role !== "MAIN" && agentListTab.pageCount > 1 && (
+                  <Pagination
+                    page={agentListTab.page}
+                    pageSize={agentListPageSize}
+                    total={agentListTab.filteredCount}
+                    pageSizeOptions={[6, 12, 24, 48]}
+                    labels={{
+                      total: t.paginationTotal,
+                      pageSize: t.perPage,
+                      position: t.paginationPosition,
+                      prev: t.prevPage,
+                      next: t.nextPage,
+                    }}
+                    onPageChange={(page) => {
+                      setAgentListPage(page);
+                      mainContentRef.current?.scrollTo({
+                        top: 0,
+                        behavior: "smooth",
+                      });
+                    }}
+                    onPageSizeChange={setAgentListPageSize}
+                  />
+                )}
                 {agentListTab.role === "MAIN" &&
                   !agentsLoading &&
                   agentListTab.items[0] && (
@@ -3428,7 +3528,7 @@ function AdminApp({
                     />
                   )}
                 {agentListTab.items.length === 0 &&
-                  (filteredAgents.length < agents.length ? (
+                  (agentListTab.totalCount > 0 ? (
                     <EmptyState
                       compact
                       icon={<Icon name="search" size={22} />}
@@ -3445,7 +3545,13 @@ function AdminApp({
                     <EmptyState
                       icon={<Icon name="bot" size={22} />}
                       title={t.noAgentOfType}
-                      hint={t.noDomainAgentHint}
+                      hint={
+                        agentListTab.role === "GENERAL"
+                          ? t.noGeneralAgentHint
+                          : agentListTab.role === "SUB"
+                            ? t.noSubAgentHint
+                            : t.noDomainAgentHint
+                      }
                       action={
                         <button
                           type="button"

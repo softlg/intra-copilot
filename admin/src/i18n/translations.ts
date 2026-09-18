@@ -614,6 +614,10 @@ export const translations = {
       "系统 Agent 由后端 seed 初始化；新增/编辑/删除请走「通用 Agent」「领域 Agent」「子 Agent」页。",
     noDomainAgentHint:
       "领域 Agent 负责处理特定业务域的请求；可以绑定子 Agent 让系统按关键词或自动决策派发。",
+    noGeneralAgentHint:
+      "通用 Agent 用于兜底处理未匹配的请求，建议至少启用一个。",
+    noSubAgentHint: "子 Agent 需要由领域 Agent 绑定后才能被系统自动委派。",
+    agentParentMissing: "未绑定领域 Agent",
     search: "搜索",
     searchPlaceholder: "搜索名称、ID或描述",
     statusFilter: "状态筛选",
@@ -1613,6 +1617,11 @@ export const translations = {
       "System agents are seeded by the backend. Add / edit / remove them through the 'General', 'Domain', and 'Sub-agent' pages.",
     noDomainAgentHint:
       "Domain agents handle a specific business area. Attach sub-agents to let the router dispatch by keyword or automatic decision.",
+    noGeneralAgentHint:
+      "General agents handle unmatched requests. Keep at least one enabled for fallback routing.",
+    noSubAgentHint:
+      "Sub-agents must be attached to a domain agent before the router can delegate to them.",
+    agentParentMissing: "No owning domain Agent",
     search: "Search",
     searchPlaceholder: "Search by name, ID, or description",
     statusFilter: "Status filter",
