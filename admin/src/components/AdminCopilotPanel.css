@@ -945,29 +945,26 @@ body.copilot-panel-resizing * {
 }
 
 .copilot-composer {
-  padding: 7px 10px 9px;
-  border-top: 1px solid var(--border);
-  background: var(--surface-raised);
-}
-
-.copilot-composer-box {
   display: grid;
+  margin: 6px 10px 8px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--control-bg);
 }
 
-.copilot-composer-box:focus-within {
+.copilot-composer:focus-within {
   border-color: var(--brand-border);
   box-shadow: 0 0 0 2px var(--brand-surface);
 }
 
-.copilot-composer-box textarea {
+.copilot-composer textarea {
   field-sizing: content;
-  min-height: 34px;
-  max-height: 120px;
-  padding: 9px 12px 4px;
+  height: auto;
+  margin: 0;
+  min-height: 24px;
+  max-height: 116px;
+  padding: 7px 10px 1px;
   overflow-y: auto;
   border: 0;
   outline: 0;
@@ -982,8 +979,8 @@ body.copilot-panel-resizing * {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 38px;
-  padding: 2px 4px 4px 10px;
+  min-height: 32px;
+  padding: 0 3px 3px 10px;
 }
 
 .copilot-composer-context {
@@ -1037,8 +1034,8 @@ body.copilot-panel-resizing * {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   margin: 0;
   padding: 0;
   border-radius: 8px;

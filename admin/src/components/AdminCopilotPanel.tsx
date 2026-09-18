@@ -106,15 +106,10 @@ const MIN_MAIN_CONTENT_WIDTH = 420;
 const PANEL_WIDTH_STORAGE_KEY = "admin-copilot-width";
 const PANEL_VIEW_STORAGE_KEY = "admin-copilot-view";
 const ACTIVE_SESSION_STORAGE_KEY = "admin-copilot-active-session";
-const COMPOSER_DRAFT_STORAGE_KEY = "admin-copilot-composer-draft";
 const APPLIED_PATCH_STORAGE_KEY = "admin-copilot-applied-patches";
 
 function activeSessionStorageKey(mode: CopilotMode) {
   return `${ACTIVE_SESSION_STORAGE_KEY}:${mode}`;
-}
-
-function composerDraftStorageKey(mode: CopilotMode, sessionId?: string) {
-  return `${COMPOSER_DRAFT_STORAGE_KEY}:${mode}:${sessionId || "new"}`;
 }
 
 function appliedPatchStorageKey(agentId?: string) {
@@ -1564,11 +1559,7 @@ export function AdminCopilotPanel({
           (session) => session.id === storedId && session.mode === nextMode,
         ) ?? values.find((session) => session.mode === nextMode);
       if (candidate) await loadSession(candidate.id);
-      else {
-        setMessage(
-          localStorage.getItem(composerDraftStorageKey(nextMode)) ?? "",
-        );
-      }
+      else setMessage("");
     })();
   }, []);
 
@@ -1798,11 +1789,7 @@ export function AdminCopilotPanel({
       const session = await getCopilotSession(id);
       setActiveSession(session);
       localStorage.setItem(activeSessionStorageKey(session.mode), session.id);
-      setMessage(
-        localStorage.getItem(
-          composerDraftStorageKey(session.mode, session.id),
-        ) ?? "",
-      );
+      setMessage("");
       setFailedChatMessage(undefined);
       setChatRun(undefined);
       setHasNewMessages(false);
@@ -1972,11 +1959,7 @@ export function AdminCopilotPanel({
     else {
       setActiveSession(undefined);
       if (nextMode === "VALIDATE") resetValidationWorkspace();
-      else {
-        setMessage(
-          localStorage.getItem(composerDraftStorageKey(nextMode)) ?? "",
-        );
-      }
+      else setMessage("");
     }
   };
 
@@ -2010,12 +1993,7 @@ export function AdminCopilotPanel({
     if (nearBottom) setHasNewMessages(false);
   };
 
-  const writeComposerDraft = (value: string, sessionId = activeSession?.id) => {
-    setMessage(value);
-    const key = composerDraftStorageKey(mode, sessionId);
-    if (value) localStorage.setItem(key, value);
-    else localStorage.removeItem(key);
-  };
+  const writeComposerDraft = (value: string) => setMessage(value);
 
   const send = async (contentOverride?: string) => {
     const content = (contentOverride ?? message).trim();
@@ -2076,7 +2054,7 @@ export function AdminCopilotPanel({
         abort.signal,
       );
       if (streamCancelled || abort.signal.aborted) {
-        writeComposerDraft(content, sessionId);
+        writeComposerDraft(content);
         toast.info(text.generationCancelled);
         return;
       }
@@ -2087,11 +2065,11 @@ export function AdminCopilotPanel({
       if (!shouldFollow) setHasNewMessages(true);
     } catch (error) {
       if (abort.signal.aborted) {
-        writeComposerDraft(content, session?.id);
+        writeComposerDraft(content);
         toast.info(text.generationCancelled);
       } else {
         setPanelError(errorMessage(error, text.error));
-        writeComposerDraft(content, session?.id);
+        writeComposerDraft(content);
         setFailedChatMessage({
           sessionId: session?.id,
           content,
@@ -3012,87 +2990,81 @@ export function AdminCopilotPanel({
             )}
 
             <div className="copilot-composer">
-              <div className="copilot-composer-box">
-                <textarea
-                  id="admin-copilot-message"
-                  ref={composerRef}
-                  aria-label={
-                    view === "build"
-                      ? text.inputPlaceholderBuild
-                      : text.inputPlaceholder
+              <textarea
+                id="admin-copilot-message"
+                ref={composerRef}
+                aria-label={
+                  view === "build"
+                    ? text.inputPlaceholderBuild
+                    : text.inputPlaceholder
+                }
+                value={message}
+                onChange={(event) => writeComposerDraft(event.target.value)}
+                placeholder={
+                  view === "build"
+                    ? text.inputPlaceholderBuild
+                    : text.inputPlaceholder
+                }
+                rows={1}
+                maxLength={16000}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.altKey &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault();
+                    void send();
                   }
-                  value={message}
-                  onChange={(event) => writeComposerDraft(event.target.value)}
-                  placeholder={
-                    view === "build"
-                      ? text.inputPlaceholderBuild
-                      : text.inputPlaceholder
+                }}
+              />
+              <div className="copilot-composer-footer">
+                <div
+                  className={
+                    agentConfigDirty
+                      ? "copilot-composer-context is-dirty"
+                      : "copilot-composer-context"
                   }
-                  rows={1}
-                  maxLength={16000}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.altKey &&
-                      !event.ctrlKey &&
-                      !event.metaKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault();
-                      void send();
-                    }
-                  }}
-                />
-                <div className="copilot-composer-footer">
-                  <div
-                    className={
-                      agentConfigDirty
-                        ? "copilot-composer-context is-dirty"
-                        : "copilot-composer-context"
-                    }
-                  >
-                    <Icon name="agents" size={12} />
-                    <span>
-                      {view === "build"
-                        ? text.contextBuild
-                        : text.contextAssist}
-                    </span>
-                    <strong>
-                      {currentAgentId
-                        ? currentAgentName || currentAgentId
-                        : text.contextNoAgent}
-                    </strong>
-                    <em>
-                      {agentConfigDirty
-                        ? text.contextUnsaved
-                        : text.contextSaved}
-                    </em>
-                  </div>
-                  {sending ? (
-                    <button
-                      type="button"
-                      className="copilot-composer-action is-stop"
-                      onClick={() => void cancelChatRun()}
-                      aria-label={text.cancelGeneration}
-                      title={text.cancelGeneration}
-                      disabled={chatRun?.canceling}
-                    >
-                      <Icon name="pause" size={15} />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="copilot-composer-action"
-                      onClick={() => void send()}
-                      aria-label={text.sendMessage}
-                      title={text.sendMessage}
-                      disabled={!message.trim()}
-                    >
-                      <Icon name="send" size={16} />
-                    </button>
-                  )}
+                >
+                  <Icon name="agents" size={12} />
+                  <span>
+                    {view === "build" ? text.contextBuild : text.contextAssist}
+                  </span>
+                  <strong>
+                    {currentAgentId
+                      ? currentAgentName || currentAgentId
+                      : text.contextNoAgent}
+                  </strong>
+                  <em>
+                    {agentConfigDirty ? text.contextUnsaved : text.contextSaved}
+                  </em>
                 </div>
+                {sending ? (
+                  <button
+                    type="button"
+                    className="copilot-composer-action is-stop"
+                    onClick={() => void cancelChatRun()}
+                    aria-label={text.cancelGeneration}
+                    title={text.cancelGeneration}
+                    disabled={chatRun?.canceling}
+                  >
+                    <Icon name="pause" size={15} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="copilot-composer-action"
+                    onClick={() => void send()}
+                    aria-label={text.sendMessage}
+                    title={text.sendMessage}
+                    disabled={!message.trim()}
+                  >
+                    <Icon name="send" size={16} />
+                  </button>
+                )}
               </div>
             </div>
           </div>
