@@ -1048,7 +1048,7 @@ function getRenderedText(value: React.ReactNode): string {
  * prose portions, leaving fenced code untouched, so streamed responses remain
  * readable without changing the actual message text copied by the user.
  */
-function decodeAssistantEscapes(value: string): string {
+function decodeProseEscapes(value: string): string {
   return value
     .replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) =>
       String.fromCharCode(parseInt(hex, 16)),
@@ -1056,33 +1056,61 @@ function decodeAssistantEscapes(value: string): string {
     .replace(/\\r\\n/g, "\n")
     .replace(/\\n/g, "\n")
     .replace(/\\t/g, "\t")
-    .replace(/\\"/g, '"');
+    .replace(/\\"/g, '"')
+    .replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, "$1");
+}
+
+function normalizeCodeFenceLanguage(value: string): string {
+  return value
+    .replace(
+      /^(\s*(?:```|~~~)java)(?=(?:class|public|import|package|interface|enum)\b)/gm,
+      "$1\n",
+    )
+    .replace(
+      /^(\s*(?:```|~~~)(?:go|golang))(?=(?:package|import|func|type|var|const)\b)/gm,
+      "$1\n",
+    )
+    .replace(
+      /^(\s*(?:```|~~~)(?:python|py))(?=(?:from|import|def|class)\b)/gm,
+      "$1\n",
+    )
+    .replace(
+      /^(\s*(?:```|~~~)(?:javascript|js|typescript|ts))(?=(?:const|let|var|function|class|interface|type|import)\b)/gm,
+      "$1\n",
+    )
+    .replace(
+      /^(\s*(?:```|~~~)(?:cpp|c\+\+|csharp|cs|rust|rs|kotlin|swift|php|ruby|sql|bash|sh))(?=(?:#include|using|fn|fun|class|function|def|SELECT|select|echo|export)\b)/gm,
+      "$1\n",
+    );
+}
+
+function normalizeMarkdownProse(value: string): string {
+  return decodeProseEscapes(value)
+    .replace(/(^|\n)([ \t]*#{1,6})(?=\S)/g, "$1$2 ")
+    .replace(/([。！？.!?：:])\s+(#{1,6})(?=\S)/g, "$1\n\n$2 ")
+    .replace(/^(#{1,6} [^\n]+?)(\|)/gm, "$1\n\n$2")
+    .replace(/(^|\n)([ \t]*)(?:-(?!-)|[+•])(?=\S)/g, "$1$2- ")
+    .replace(/(^|\n)([ \t]*)(\d{1,2})[.)、][ \t]*(?=\S)/g, "$1$2$3. ")
+    .replace(/\*\*([^*\n]+?)\*\*(?=[\p{L}\p{N}])/gu, "**$1** ")
+    .replace(/([^\n])\n([ \t]*\*\*[^*\n]{1,80}\*\*)[ \t]*(?=\n|$)/g, "$1\n\n$2")
+    .replace(/(^|\n)([ \t]*\*\*[^*\n]{1,80}\*\*)[ \t]*(?=\n)/g, "$1$2\n")
+    .replace(/([。！？.!?：:])\s+(?=(?:\d{1,2}[.)、]|[-+•])\s*\S)/g, "$1\n\n")
+    .replace(/([。！？.?：:])\s+(\*\*[^*\n]{1,80}\*\*)/g, "$1\n\n$2")
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 function normalizeAssistantMarkdown(value: string): string {
   // 模型偶尔会输出 `1.内容`、`-内容` 这类缺少空格的列表，或把加粗小标题
   // 紧贴在正文段落里。这里只规整围栏代码之外的块结构，保留原始换行和内容。
-  return decodeAssistantEscapes(value)
+  return value
     .replace(/\r\n?/g, "\n")
+    .replace(/([^\n])(```|~~~)/g, "$1\n\n$2")
     .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g)
     .map((part) => {
-      if (/^(```|~~~)/.test(part)) return part;
-      return part
-        .replace(/(^|\n)([ \t]*#{1,6})(?=\S)/g, "$1$2 ")
-        .replace(/([^\n])\s+(#{1,6})(?=\S)/g, "$1\n\n$2 ")
-        .replace(/(^|\n)([ \t]*)(?:-(?!-)|[+•])(?=\S)/g, "$1$2- ")
-        .replace(/(^|\n)([ \t]*)(\d{1,2})[.)、][ \t]*(?=\S)/g, "$1$2$3. ")
-        .replace(
-          /([^\n])\n([ \t]*\*\*[^*\n]{1,80}\*\*)[ \t]*(?=\n|$)/g,
-          "$1\n\n$2",
-        )
-        .replace(/(^|\n)([ \t]*\*\*[^*\n]{1,80}\*\*)[ \t]*(?=\n)/g, "$1$2\n")
-        .replace(
-          /([。！？.!?：:])\s+(?=(?:\d{1,2}[.)、]|[-+•])\s*\S)/g,
-          "$1\n\n",
-        )
-        .replace(/([。！？.!?：:])\s+(\*\*[^*\n]{1,80}\*\*)/g, "$1\n\n$2")
-        .replace(/\n{3,}/g, "\n\n");
+      if (/^(```|~~~)/.test(part)) {
+        return normalizeCodeFenceLanguage(part);
+      }
+      return normalizeMarkdownProse(part);
     })
     .join("\n");
 }
