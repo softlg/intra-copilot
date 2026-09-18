@@ -39,7 +39,9 @@ class AdminAuthServiceTest {
         int signatureIndex = token.lastIndexOf('.') + 2;
         char replacement = token.charAt(signatureIndex) == 'a' ? 'b' : 'a';
         String tampered =
-                token.substring(0, signatureIndex) + replacement + token.substring(signatureIndex + 1);
+                token.substring(0, signatureIndex)
+                        + replacement
+                        + token.substring(signatureIndex + 1);
         assertThrows(IllegalArgumentException.class, () -> service.verify(tampered));
     }
 

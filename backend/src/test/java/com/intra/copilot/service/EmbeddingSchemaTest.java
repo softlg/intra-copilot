@@ -32,7 +32,7 @@ class EmbeddingSchemaTest {
 
     @Test
     void supportedDimensionsAreConsistent() {
-        for (int dimension : new int[]{1024, 1536, 3072}) {
+        for (int dimension : new int[] {1024, 1536, 3072}) {
             assertTrue(schema.supports(dimension));
         }
     }

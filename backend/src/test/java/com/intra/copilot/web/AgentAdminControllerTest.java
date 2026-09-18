@@ -39,6 +39,7 @@ class AgentAdminControllerTest {
                         "draft-agent", new AgentAdminController.AgentTestRequest("hello", null));
 
         assertEquals("ok", result.get("response"));
-        verify(llm).complete(org.mockito.ArgumentMatchers.eq("draft prompt"), anyList(), anyString());
+        verify(llm)
+                .complete(org.mockito.ArgumentMatchers.eq("draft prompt"), anyList(), anyString());
     }
 }

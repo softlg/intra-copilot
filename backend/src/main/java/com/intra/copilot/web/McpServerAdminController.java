@@ -19,25 +19,39 @@ import org.springframework.web.bind.annotation.RestController;
 public class McpServerAdminController {
     private final McpServerService service;
 
-    public McpServerAdminController(McpServerService service) { this.service = service; }
+    public McpServerAdminController(McpServerService service) {
+        this.service = service;
+    }
 
     @GetMapping
-    public List<McpServer> list() { return service.list(); }
+    public List<McpServer> list() {
+        return service.list();
+    }
 
     @GetMapping("/{id}")
-    public McpServer get(@PathVariable String id) { return service.get(id); }
+    public McpServer get(@PathVariable String id) {
+        return service.get(id);
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public McpServer create(@RequestBody McpServer server) { return service.create(server); }
+    public McpServer create(@RequestBody McpServer server) {
+        return service.create(server);
+    }
 
     @PutMapping("/{id}")
-    public McpServer update(@PathVariable String id, @RequestBody McpServer server) { return service.update(id, server); }
+    public McpServer update(@PathVariable String id, @RequestBody McpServer server) {
+        return service.update(id, server);
+    }
 
     @PostMapping("/{id}/health")
-    public McpServer health(@PathVariable String id) { return service.checkHealth(id); }
+    public McpServer health(@PathVariable String id) {
+        return service.checkHealth(id);
+    }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable String id) { service.delete(id); }
+    public void delete(@PathVariable String id) {
+        service.delete(id);
+    }
 }

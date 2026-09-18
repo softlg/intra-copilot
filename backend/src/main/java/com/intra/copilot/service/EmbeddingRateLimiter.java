@@ -10,9 +10,9 @@ import org.springframework.stereotype.Component;
 /**
  * Sliding-window limiter for outbound embedding calls.
  *
- * <p>Providers answer 429 long before the JVM runs out of memory, and an unbounded
- * fan-out during a base rebuild turns a slow job into a failed one. Queue draining is
- * mostly serial anyway, so this only has to smooth out bursts.
+ * <p>Providers answer 429 long before the JVM runs out of memory, and an unbounded fan-out during a
+ * base rebuild turns a slow job into a failed one. Queue draining is mostly serial anyway, so this
+ * only has to smooth out bursts.
  */
 @Component
 public class EmbeddingRateLimiter {
@@ -29,7 +29,9 @@ public class EmbeddingRateLimiter {
     public void acquire(String provider) {
         int qps = qpsFor(provider);
         if (qps <= 0) return;
-        Deque<Long> window = windows.computeIfAbsent(provider == null ? "default" : provider, key -> new ArrayDeque<>());
+        Deque<Long> window =
+                windows.computeIfAbsent(
+                        provider == null ? "default" : provider, key -> new ArrayDeque<>());
         synchronized (window) {
             long now = System.currentTimeMillis();
             while (window.size() >= qps) {
@@ -54,6 +56,7 @@ public class EmbeddingRateLimiter {
 
     public int qpsFor(String provider) {
         if (provider == null || provider.isBlank()) return DEFAULT_QPS;
-        return environment.getProperty("embedding.providers." + provider + ".qps", Integer.class, DEFAULT_QPS);
+        return environment.getProperty(
+                "embedding.providers." + provider + ".qps", Integer.class, DEFAULT_QPS);
     }
 }

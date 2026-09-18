@@ -24,9 +24,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * Drains the indexing queue.
  *
- * <p>The claim query uses {@code FOR UPDATE SKIP LOCKED}, so several instances can run
- * this worker without stepping on each other. Concurrency stays low by default because
- * the bottleneck is the embedding provider's rate limit, not CPU.
+ * <p>The claim query uses {@code FOR UPDATE SKIP LOCKED}, so several instances can run this worker
+ * without stepping on each other. Concurrency stays low by default because the bottleneck is the
+ * embedding provider's rate limit, not CPU.
  */
 @Component
 public class IndexingWorker {
@@ -44,8 +44,12 @@ public class IndexingWorker {
     private final boolean enabled;
     private final AtomicInteger threadCounter = new AtomicInteger();
 
-    public IndexingWorker(IndexingJobRepository jobs, IndexingJobService jobService,
-            KnowledgeIndexingService indexing, KnowledgeBaseRepository bases, JdbcTemplate jdbc,
+    public IndexingWorker(
+            IndexingJobRepository jobs,
+            IndexingJobService jobService,
+            KnowledgeIndexingService indexing,
+            KnowledgeBaseRepository bases,
+            JdbcTemplate jdbc,
             PlatformTransactionManager transactionManager,
             @Value("${kb.indexing.enabled:true}") boolean enabled,
             @Value("${kb.indexing.concurrency:2}") int concurrency) {
@@ -58,11 +62,12 @@ public class IndexingWorker {
         this.enabled = enabled;
         this.concurrency = Math.max(1, concurrency);
         this.workerId = ManagementFactory.getRuntimeMXBean().getName();
-        ThreadFactory factory = runnable -> {
-            Thread thread = new Thread(runnable, "kb-indexer-" + running.incrementAndGet());
-            thread.setDaemon(true);
-            return thread;
-        };
+        ThreadFactory factory =
+                runnable -> {
+                    Thread thread = new Thread(runnable, "kb-indexer-" + running.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                };
         this.executor = Executors.newFixedThreadPool(this.concurrency, factory);
         running.set(0);
     }
@@ -76,29 +81,36 @@ public class IndexingWorker {
             String jobId = claim();
             if (jobId == null) break;
             running.incrementAndGet();
-            executor.submit(() -> {
-                try {
-                    run(jobId);
-                } finally {
-                    running.decrementAndGet();
-                }
-            });
+            executor.submit(
+                    () -> {
+                        try {
+                            run(jobId);
+                        } finally {
+                            running.decrementAndGet();
+                        }
+                    });
         }
     }
 
     /** Atomically moves one queued job to RUNNING and returns its id, if any. */
     private String claim() {
-        return transaction.execute(status -> {
-            List<String> candidates = jdbc.queryForList(
-                    "SELECT id FROM indexing_job WHERE status = 'QUEUED'"
-                            + " AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())"
-                            + " ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED", String.class);
-            if (candidates.isEmpty()) return null;
-            String id = candidates.get(0);
-            jdbc.update("UPDATE indexing_job SET status = 'RUNNING', attempt = attempt + 1, worker_id = ?,"
-                    + " started_at = NOW(), next_attempt_at = NULL WHERE id = ?", workerId, id);
-            return id;
-        });
+        return transaction.execute(
+                status -> {
+                    List<String> candidates =
+                            jdbc.queryForList(
+                                    "SELECT id FROM indexing_job WHERE status = 'QUEUED'"
+                                            + " AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())"
+                                            + " ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED",
+                                    String.class);
+                    if (candidates.isEmpty()) return null;
+                    String id = candidates.get(0);
+                    jdbc.update(
+                            "UPDATE indexing_job SET status = 'RUNNING', attempt = attempt + 1, worker_id = ?,"
+                                    + " started_at = NOW(), next_attempt_at = NULL WHERE id = ?",
+                            workerId,
+                            id);
+                    return id;
+                });
     }
 
     private void run(String jobId) {
@@ -110,7 +122,10 @@ public class IndexingWorker {
                 jobService.markWaiting(jobId);
                 return;
             }
-            indexing.index(job.getDocumentId(), jobId, progress -> jobService.markProgress(jobId, progress));
+            indexing.index(
+                    job.getDocumentId(),
+                    jobId,
+                    progress -> jobService.markProgress(jobId, progress));
             jobService.markSucceeded(jobId);
         } catch (Exception error) {
             handleFailure(job, error);
@@ -118,35 +133,49 @@ public class IndexingWorker {
     }
 
     private void handleFailure(IndexingJob job, Exception error) {
-        String message = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+        String message =
+                error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
         indexing.discardPartial(job.getId());
         int attempt = Math.max(1, job.getAttempt());
         if (attempt >= job.getMaxAttempts()) {
             indexing.markFailed(job.getDocumentId(), message);
-            jobs.findById(job.getId()).ifPresent(current -> {
-                current.setStatus(IndexingJob.STATUS_DEAD);
-                current.setError(message);
-                current.setFinishedAt(Instant.now());
-                jobs.save(current);
-            });
-            jdbc.update("INSERT INTO indexing_dead_letter (id, job_id, document_id, knowledge_base_id, job_type, payload, error)"
+            jobs.findById(job.getId())
+                    .ifPresent(
+                            current -> {
+                                current.setStatus(IndexingJob.STATUS_DEAD);
+                                current.setError(message);
+                                current.setFinishedAt(Instant.now());
+                                jobs.save(current);
+                            });
+            jdbc.update(
+                    "INSERT INTO indexing_dead_letter (id, job_id, document_id, knowledge_base_id, job_type, payload, error)"
                             + " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    EntityIdGenerator.next("DL"), job.getId(), job.getDocumentId(), job.getKnowledgeBaseId(),
-                    job.getJobType(), job.getPayload(), message);
+                    EntityIdGenerator.next("DL"),
+                    job.getId(),
+                    job.getDocumentId(),
+                    job.getKnowledgeBaseId(),
+                    job.getJobType(),
+                    job.getPayload(),
+                    message);
             return;
         }
         long delaySeconds = Math.min(60L, 5L * attempt);
-        jobs.findById(job.getId()).ifPresent(current -> {
-            current.setStatus(IndexingJob.STATUS_QUEUED);
-            current.setError(message);
-            current.setNextAttemptAt(Instant.now().plus(delaySeconds, ChronoUnit.SECONDS));
-            jobs.save(current);
-        });
+        jobs.findById(job.getId())
+                .ifPresent(
+                        current -> {
+                            current.setStatus(IndexingJob.STATUS_QUEUED);
+                            current.setError(message);
+                            current.setNextAttemptAt(
+                                    Instant.now().plus(delaySeconds, ChronoUnit.SECONDS));
+                            jobs.save(current);
+                        });
     }
 
     /** Closes out REBUILD_BASE parents once every child job has settled. */
     private void reapWaitingParents() {
-        List<String> waiting = jdbc.queryForList("SELECT id FROM indexing_job WHERE status = 'WAITING'", String.class);
+        List<String> waiting =
+                jdbc.queryForList(
+                        "SELECT id FROM indexing_job WHERE status = 'WAITING'", String.class);
         for (String parentId : waiting) {
             IndexingJob parent = jobs.findById(parentId).orElse(null);
             if (parent == null) continue;
@@ -166,13 +195,15 @@ public class IndexingWorker {
 
     private void finishParent(IndexingJob parent) {
         jobService.markSucceeded(parent.getId());
-        bases.findById(parent.getKnowledgeBaseId()).ifPresent(base -> {
-            if (KnowledgeBase.STATUS_REBUILDING.equals(base.getStatus())) {
-                base.setStatus(KnowledgeBase.STATUS_READY);
-                base.touch();
-                bases.save(base);
-            }
-        });
+        bases.findById(parent.getKnowledgeBaseId())
+                .ifPresent(
+                        base -> {
+                            if (KnowledgeBase.STATUS_REBUILDING.equals(base.getStatus())) {
+                                base.setStatus(KnowledgeBase.STATUS_READY);
+                                base.touch();
+                                bases.save(base);
+                            }
+                        });
     }
 
     @PreDestroy

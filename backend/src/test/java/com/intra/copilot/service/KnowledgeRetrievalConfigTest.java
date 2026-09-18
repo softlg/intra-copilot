@@ -39,8 +39,7 @@ class KnowledgeRetrievalConfigTest {
         KnowledgeService.RetrievalConfig config =
                 resolve(
                         base,
-                        new KnowledgeService.RetrievalOverrides(
-                                3, 0.35, "HYBRID", 0.45, true));
+                        new KnowledgeService.RetrievalOverrides(3, 0.35, "HYBRID", 0.45, true));
 
         assertEquals(3, config.topK());
         assertEquals(0.35, config.similarityThreshold());
@@ -61,8 +60,7 @@ class KnowledgeRetrievalConfigTest {
         base.setRetrievalFallbackEnabled(null);
 
         KnowledgeService.RetrievalConfig config =
-                KnowledgeService.resolveRetrievalConfig(
-                        base, null, 6, 0.50, "HYBRID", 0.30, true);
+                KnowledgeService.resolveRetrievalConfig(base, null, 6, 0.50, "HYBRID", 0.30, true);
 
         assertEquals(6, config.topK());
         assertEquals(0.50, config.similarityThreshold());

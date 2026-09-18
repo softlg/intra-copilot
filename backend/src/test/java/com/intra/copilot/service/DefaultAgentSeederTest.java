@@ -49,7 +49,9 @@ class DefaultAgentSeederTest {
                 ArgumentCaptor.forClass(AgentConfigVersion.class);
         verify(versions, org.mockito.Mockito.atLeastOnce()).save(versionCaptor.capture());
         assertTrue(
-                versionCaptor.getAllValues().stream()
+                versionCaptor
+                        .getAllValues()
+                        .stream()
                         .anyMatch(
                                 version ->
                                         "assistant".equals(version.getAgentId())

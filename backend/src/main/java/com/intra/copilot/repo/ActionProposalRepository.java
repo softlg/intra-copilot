@@ -25,6 +25,8 @@ public interface ActionProposalRepository extends BaseMapper<ActionProposal> {
 
     default List<ActionProposal> findByConversationIdOrderByExpiresAtAsc(String id) {
         return selectList(
-                Wrappers.<ActionProposal>query().eq("conversation_id", id).orderByAsc("expires_at"));
+                Wrappers.<ActionProposal>query()
+                        .eq("conversation_id", id)
+                        .orderByAsc("expires_at"));
     }
 }

@@ -14,6 +14,11 @@ public interface McpServerRepository extends BaseMapper<McpServer> {
         return value;
     }
 
-    default Optional<McpServer> findById(String id) { return Optional.ofNullable(selectById(id)); }
-    default List<McpServer> findAll() { return selectList(null); }
+    default Optional<McpServer> findById(String id) {
+        return Optional.ofNullable(selectById(id));
+    }
+
+    default List<McpServer> findAll() {
+        return selectList(null);
+    }
 }

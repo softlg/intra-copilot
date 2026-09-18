@@ -36,13 +36,21 @@ public interface IndexingJobRepository extends BaseMapper<IndexingJob> {
         return selectList(
                 Wrappers.<IndexingJob>query()
                         .eq("document_id", documentId)
-                        .in("status", IndexingJob.STATUS_QUEUED, IndexingJob.STATUS_RUNNING, IndexingJob.STATUS_WAITING));
+                        .in(
+                                "status",
+                                IndexingJob.STATUS_QUEUED,
+                                IndexingJob.STATUS_RUNNING,
+                                IndexingJob.STATUS_WAITING));
     }
 
     default List<IndexingJob> findActiveByKnowledgeBaseId(String baseId) {
         return selectList(
                 Wrappers.<IndexingJob>query()
                         .eq("knowledge_base_id", baseId)
-                        .in("status", IndexingJob.STATUS_QUEUED, IndexingJob.STATUS_RUNNING, IndexingJob.STATUS_WAITING));
+                        .in(
+                                "status",
+                                IndexingJob.STATUS_QUEUED,
+                                IndexingJob.STATUS_RUNNING,
+                                IndexingJob.STATUS_WAITING));
     }
 }

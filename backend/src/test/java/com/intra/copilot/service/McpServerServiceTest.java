@@ -54,8 +54,8 @@ class McpServerServiceTest {
     }
 
     /**
-     * P0-1: 健康检查失败时不应把镜像 Tool 当作"远端无接口"而清掉。连接被拒会抛出，
-     * 应被 catch 捕获为 UNHEALTHY，且 syncTools 不被调用（不删除/不禁用任何 Tool）。
+     * P0-1: 健康检查失败时不应把镜像 Tool 当作"远端无接口"而清掉。连接被拒会抛出， 应被 catch 捕获为 UNHEALTHY，且 syncTools
+     * 不被调用（不删除/不禁用任何 Tool）。
      */
     @Test
     void checkHealthFailureDoesNotDeleteMirroredTools() {
@@ -78,7 +78,8 @@ class McpServerServiceTest {
         when(agents.findAll()).thenReturn(List.of());
         when(skillToolBindings.findByToolId(anyString())).thenReturn(List.of());
 
-        McpServerService service = buildService(repository, toolRepository, agents, skillToolBindings);
+        McpServerService service =
+                buildService(repository, toolRepository, agents, skillToolBindings);
 
         McpServer result = service.checkHealth("MC1");
 
@@ -87,9 +88,7 @@ class McpServerServiceTest {
         verify(toolRepository, never()).save(any(ToolDefinition.class));
     }
 
-    /**
-     * 保存后立即自动发现：create 内部会触发 checkHealth，因此返回的 server 状态不应再是 UNKNOWN。
-     */
+    /** 保存后立即自动发现：create 内部会触发 checkHealth，因此返回的 server 状态不应再是 UNKNOWN。 */
     @Test
     void createTriggersAutoDiscovery() {
         McpServerRepository repository = mock(McpServerRepository.class);
@@ -105,7 +104,8 @@ class McpServerServiceTest {
         when(agents.findAll()).thenReturn(List.of());
         when(skillToolBindings.findByToolId(anyString())).thenReturn(List.of());
 
-        McpServerService service = buildService(repository, toolRepository, agents, skillToolBindings);
+        McpServerService service =
+                buildService(repository, toolRepository, agents, skillToolBindings);
 
         McpServer created = service.create(server);
 
@@ -128,7 +128,8 @@ class McpServerServiceTest {
         when(agents.findAll()).thenReturn(List.of());
         when(skillToolBindings.findByToolId(anyString())).thenReturn(List.of());
 
-        McpServerService service = buildService(repository, toolRepository, agents, skillToolBindings);
+        McpServerService service =
+                buildService(repository, toolRepository, agents, skillToolBindings);
 
         McpServer update = new McpServer();
         update.setName("demo");

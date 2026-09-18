@@ -26,7 +26,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -235,8 +234,7 @@ public class McpServerService {
                 server.setInterfaceCount(discoveredInterfaces.size());
                 server.setInterfacesJson(mapper.writeValueAsString(discoveredInterfaces));
                 server.setCapabilitiesJson(discovery.capabilitiesJson());
-                server.setLastError(
-                        discoveredInterfaces.isEmpty() ? "服务已连接，但未返回可用接口" : null);
+                server.setLastError(discoveredInterfaces.isEmpty() ? "服务已连接，但未返回可用接口" : null);
                 discovered = true;
             } catch (Exception error) {
                 server.setStatus("UNHEALTHY");
@@ -418,7 +416,8 @@ public class McpServerService {
         return uniqueFunctionName(remoteName, toolId, toolRepository.findAll());
     }
 
-    private String uniqueFunctionName(String remoteName, String toolId, List<ToolDefinition> allTools) {
+    private String uniqueFunctionName(
+            String remoteName, String toolId, List<ToolDefinition> allTools) {
         String base = sanitizeFunctionName(remoteName);
         boolean conflict =
                 allTools.stream()
@@ -468,7 +467,8 @@ public class McpServerService {
 
     private void ensureToolNotReferenced(String toolId, List<AgentDefinition> allAgents) {
         List<String> agentNames =
-                allAgents.stream()
+                allAgents
+                        .stream()
                         .filter(agent -> containsToolId(agent.getToolIds(), toolId))
                         .map(
                                 agent ->
@@ -782,8 +782,8 @@ public class McpServerService {
     }
 
     /**
-     * 解析本地启动命令，支持单/双引号包裹、含空格的路径（如 {@code "C:\Program Files\foo.exe" --port 8080}）。
-     * 不进行 shell 展开，仅做空白分隔与引号剥离，结果用于 {@link ProcessBuilder} 的参数数组。
+     * 解析本地启动命令，支持单/双引号包裹、含空格的路径（如 {@code "C:\Program Files\foo.exe" --port 8080}）。 不进行 shell
+     * 展开，仅做空白分隔与引号剥离，结果用于 {@link ProcessBuilder} 的参数数组。
      */
     private List<String> parseCommandLine(String commandLine) {
         List<String> args = new ArrayList<>();

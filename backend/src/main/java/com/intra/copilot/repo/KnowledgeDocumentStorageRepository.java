@@ -1,7 +1,6 @@
 package com.intra.copilot.repo;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.intra.copilot.model.KnowledgeDocumentStorage;
 import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;

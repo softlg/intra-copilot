@@ -8,11 +8,10 @@ import java.time.Instant;
 /**
  * A unit of background work for the knowledge base pipeline.
  *
- * <p>Status transitions: {@code QUEUED -> RUNNING -> SUCCEEDED | FAILED}. A failing job
- * goes back to {@code QUEUED} (with {@code next_attempt_at} set) until {@code attempt}
- * reaches {@code max_attempts}, at which point it becomes {@code DEAD}. {@code WAITING}
- * is used by a REBUILD_BASE parent job while its per-document children are still
- * running.
+ * <p>Status transitions: {@code QUEUED -> RUNNING -> SUCCEEDED | FAILED}. A failing job goes back
+ * to {@code QUEUED} (with {@code next_attempt_at} set) until {@code attempt} reaches {@code
+ * max_attempts}, at which point it becomes {@code DEAD}. {@code WAITING} is used by a REBUILD_BASE
+ * parent job while its per-document children are still running.
  */
 @TableName("indexing_job")
 public class IndexingJob {
@@ -173,6 +172,8 @@ public class IndexingJob {
     }
 
     public boolean isActive() {
-        return STATUS_QUEUED.equals(status) || STATUS_RUNNING.equals(status) || STATUS_WAITING.equals(status);
+        return STATUS_QUEUED.equals(status)
+                || STATUS_RUNNING.equals(status)
+                || STATUS_WAITING.equals(status);
     }
 }

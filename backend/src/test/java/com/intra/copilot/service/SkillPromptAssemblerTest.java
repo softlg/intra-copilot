@@ -98,8 +98,7 @@ class SkillPromptAssemblerTest {
         SkillDefinitionRepository skills = mock(SkillDefinitionRepository.class);
         SkillDefinitionVersionRepository versions = mock(SkillDefinitionVersionRepository.class);
         AgentSkillBindingRepository bindings = mock(AgentSkillBindingRepository.class);
-        SkillDefinition skill =
-                skill("draft prompt", "KEYWORD", "{\"keywords\":[\"refund\"]}");
+        SkillDefinition skill = skill("draft prompt", "KEYWORD", "{\"keywords\":[\"refund\"]}");
 
         SkillPromptAssembler assembler =
                 new SkillPromptAssembler(skills, versions, bindings, 24000);

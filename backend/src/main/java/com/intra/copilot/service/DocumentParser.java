@@ -6,9 +6,9 @@ import java.util.List;
 /**
  * Turns raw document bytes into page-ish text units.
  *
- * <p>Adding a format means adding one implementation of this interface; the registry
- * picks it up automatically. Office/HTML/CSV/OCR parsers can therefore land later
- * without touching the indexing pipeline.
+ * <p>Adding a format means adding one implementation of this interface; the registry picks it up
+ * automatically. Office/HTML/CSV/OCR parsers can therefore land later without touching the indexing
+ * pipeline.
  */
 public interface DocumentParser {
 

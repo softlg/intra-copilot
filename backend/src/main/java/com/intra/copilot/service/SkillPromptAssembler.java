@@ -233,10 +233,7 @@ public class SkillPromptAssembler {
     }
 
     private boolean activationMatches(String modeValue, String configValue, String userInput) {
-        String mode =
-                modeValue == null
-                        ? "ALWAYS"
-                        : modeValue.trim().toUpperCase(Locale.ROOT);
+        String mode = modeValue == null ? "ALWAYS" : modeValue.trim().toUpperCase(Locale.ROOT);
         if ("ALWAYS".equals(mode)) return true;
         if (!"KEYWORD".equals(mode)) return false;
         String input = userInput == null ? "" : userInput.toLowerCase(Locale.ROOT);
@@ -312,8 +309,7 @@ public class SkillPromptAssembler {
             int maxPromptChars,
             int priority) {}
 
-    private record ResolvedSkill(
-            int index, SkillDefinition skill, EffectivePrompt effective) {}
+    private record ResolvedSkill(int index, SkillDefinition skill, EffectivePrompt effective) {}
 
     public record AppliedSkill(
             String id,

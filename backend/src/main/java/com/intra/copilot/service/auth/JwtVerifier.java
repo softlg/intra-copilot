@@ -14,10 +14,7 @@ import java.time.Instant;
 import java.util.Date;
 import org.springframework.stereotype.Service;
 
-/**
- * 验签设备用自身私钥签发的 JWT。
- * 验签通过后把 device_id -> (source, userId) 解析出来。
- */
+/** 验签设备用自身私钥签发的 JWT。 验签通过后把 device_id -> (source, userId) 解析出来。 */
 @Service
 public class JwtVerifier {
 

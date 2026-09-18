@@ -36,7 +36,8 @@ public class DocumentParserRegistry {
 
     public Map<String, String> descriptor() {
         Map<String, String> out = new LinkedHashMap<>();
-        for (DocumentParser parser : parsers) out.put(parser.id(), parser.getClass().getSimpleName());
+        for (DocumentParser parser : parsers)
+            out.put(parser.id(), parser.getClass().getSimpleName());
         return out;
     }
 }

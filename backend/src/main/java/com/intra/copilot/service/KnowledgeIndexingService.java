@@ -23,11 +23,11 @@ import org.springframework.stereotype.Service;
  * <p>Two invariants make failures survivable:
  *
  * <ol>
- *   <li>Every chunk written by a run is tagged with the {@code jobId} that produced it.
- *       The old chunks are only deleted after the last embedding succeeded, so a failed
- *       rebuild leaves the previously searchable content untouched.
- *   <li>Sources are re-read from the stored original bytes, so changing the parser or
- *       the chunking strategy does not require the user to upload the file again.
+ *   <li>Every chunk written by a run is tagged with the {@code jobId} that produced it. The old
+ *       chunks are only deleted after the last embedding succeeded, so a failed rebuild leaves the
+ *       previously searchable content untouched.
+ *   <li>Sources are re-read from the stored original bytes, so changing the parser or the chunking
+ *       strategy does not require the user to upload the file again.
  * </ol>
  */
 @Service
@@ -45,10 +45,18 @@ public class KnowledgeIndexingService {
     private final DocumentParserRegistry parsers;
     private final DocumentChunker chunker;
 
-    public KnowledgeIndexingService(KnowledgeBaseRepository bases, KnowledgeDocumentRepository documents,
-            DocumentChunkRepository chunks, KnowledgeDocumentStorageRepository storageRecords, DocumentStorage storage,
-            JdbcTemplate jdbc, EmbeddingClient embeddings, EmbeddingProfileService embeddingProfiles,
-            EmbeddingSchema schema, DocumentParserRegistry parsers, DocumentChunker chunker) {
+    public KnowledgeIndexingService(
+            KnowledgeBaseRepository bases,
+            KnowledgeDocumentRepository documents,
+            DocumentChunkRepository chunks,
+            KnowledgeDocumentStorageRepository storageRecords,
+            DocumentStorage storage,
+            JdbcTemplate jdbc,
+            EmbeddingClient embeddings,
+            EmbeddingProfileService embeddingProfiles,
+            EmbeddingSchema schema,
+            DocumentParserRegistry parsers,
+            DocumentChunker chunker) {
         this.bases = bases;
         this.documents = documents;
         this.chunks = chunks;
@@ -64,7 +72,11 @@ public class KnowledgeIndexingService {
 
     /** Number of chunks a document currently has; used to estimate rebuild cost. */
     public int chunkCount(String documentId) {
-        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM document_chunk WHERE document_id = ?", Integer.class, documentId);
+        Integer count =
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM document_chunk WHERE document_id = ?",
+                        Integer.class,
+                        documentId);
         return count == null ? 0 : count;
     }
 
@@ -74,10 +86,13 @@ public class KnowledgeIndexingService {
      * @param progress receives 0-100 as the run advances
      */
     public void index(String documentId, String jobId, IntConsumer progress) {
-        KnowledgeDocument document = documents.findById(documentId)
-                .orElseThrow(() -> new IllegalArgumentException("文档不存在"));
-        KnowledgeBase base = bases.findById(document.getKnowledgeBaseId())
-                .orElseThrow(() -> new IllegalArgumentException("知识库不存在"));
+        KnowledgeDocument document =
+                documents
+                        .findById(documentId)
+                        .orElseThrow(() -> new IllegalArgumentException("文档不存在"));
+        KnowledgeBase base =
+                bases.findById(document.getKnowledgeBaseId())
+                        .orElseThrow(() -> new IllegalArgumentException("知识库不存在"));
         EmbeddingProfile profile = embeddingProfiles.resolve(base);
         if (!schema.supports(profile.getDimension())) {
             throw new IllegalArgumentException("暂不支持的 Embedding 维度：" + profile.getDimension());
@@ -108,8 +123,10 @@ public class KnowledgeIndexingService {
         }
 
         // Atomic swap: only now drop chunks that were not produced by this run.
-        jdbc.update("DELETE FROM document_chunk WHERE document_id = ? AND (job_id IS NULL OR job_id <> ?)",
-                documentId, jobId);
+        jdbc.update(
+                "DELETE FROM document_chunk WHERE document_id = ? AND (job_id IS NULL OR job_id <> ?)",
+                documentId,
+                jobId);
 
         document.setStatus("READY");
         document.setError(null);
@@ -128,12 +145,15 @@ public class KnowledgeIndexingService {
     }
 
     public void markFailed(String documentId, String message) {
-        documents.findById(documentId).ifPresent(document -> {
-            document.setStatus("FAILED");
-            document.setError(message);
-            document.touch();
-            documents.save(document);
-        });
+        documents
+                .findById(documentId)
+                .ifPresent(
+                        document -> {
+                            document.setStatus("FAILED");
+                            document.setError(message);
+                            document.touch();
+                            documents.save(document);
+                        });
     }
 
     private ParsedSource readSource(KnowledgeDocument document) {
@@ -150,16 +170,20 @@ public class KnowledgeIndexingService {
         }
         // Pre-V21 documents have no stored bytes; fall back to the archived text so they
         // can still be re-indexed after a profile switch.
-        List<String> archived = jdbc.query(
-                "SELECT content FROM knowledge_document_content_archive WHERE document_id = ?",
-                (rs, row) -> rs.getString("content"), document.getId());
+        List<String> archived =
+                jdbc.query(
+                        "SELECT content FROM knowledge_document_content_archive WHERE document_id = ?",
+                        (rs, row) -> rs.getString("content"),
+                        document.getId());
         if (!archived.isEmpty() && archived.get(0) != null && !archived.get(0).isBlank()) {
-            return new ParsedSource("archive", List.of(new DocumentParser.PageText(null, null, archived.get(0))));
+            return new ParsedSource(
+                    "archive", List.of(new DocumentParser.PageText(null, null, archived.get(0))));
         }
         throw new IllegalStateException("原始文件缺失且无历史文本，无法重建索引，请重新上传该文档");
     }
 
-    private List<PlannedChunk> planChunks(KnowledgeDocument document, ParsedSource source, String strategy, String jobId) {
+    private List<PlannedChunk> planChunks(
+            KnowledgeDocument document, ParsedSource source, String strategy, String jobId) {
         List<PlannedChunk> planned = new ArrayList<>();
         int index = 0;
         for (DocumentParser.PageText page : source.pages()) {
@@ -177,25 +201,40 @@ public class KnowledgeIndexingService {
     }
 
     private String resolveStrategy(KnowledgeBase base, KnowledgeDocument document) {
-        if (document.getChunkStrategy() != null && !document.getChunkStrategy().isBlank()) return document.getChunkStrategy();
-        if (base.getChunkStrategy() != null && !base.getChunkStrategy().isBlank()) return base.getChunkStrategy();
+        if (document.getChunkStrategy() != null && !document.getChunkStrategy().isBlank())
+            return document.getChunkStrategy();
+        if (base.getChunkStrategy() != null && !base.getChunkStrategy().isBlank())
+            return base.getChunkStrategy();
         return chunker.defaultStrategy();
     }
 
-    private void advance(KnowledgeDocument document, String status, IntConsumer progress, int value) {
+    private void advance(
+            KnowledgeDocument document, String status, IntConsumer progress, int value) {
         document.setStatus(status);
         document.touch();
         documents.save(document);
         progress.accept(value);
     }
 
-    private void storeEmbedding(DocumentChunk chunk, KnowledgeBase base, EmbeddingProfile profile, List<Double> vector) {
+    private void storeEmbedding(
+            DocumentChunk chunk,
+            KnowledgeBase base,
+            EmbeddingProfile profile,
+            List<Double> vector) {
         String table = schema.tableFor(profile.getDimension());
         String cast = schema.castFor(profile.getDimension());
-        jdbc.update("INSERT INTO " + table
-                        + " (chunk_id, knowledge_base_id, embedding_profile_id, config_version, embedding) VALUES (?, ?, ?, ?, " + cast + ")"
+        jdbc.update(
+                "INSERT INTO "
+                        + table
+                        + " (chunk_id, knowledge_base_id, embedding_profile_id, config_version, embedding) VALUES (?, ?, ?, ?, "
+                        + cast
+                        + ")"
                         + " ON CONFLICT (chunk_id) DO UPDATE SET embedding = EXCLUDED.embedding, embedding_profile_id = EXCLUDED.embedding_profile_id, config_version = EXCLUDED.config_version",
-                chunk.getId(), base.getId(), profile.getId(), profile.getConfigVersion(), EmbeddingClient.literal(vector));
+                chunk.getId(),
+                base.getId(),
+                profile.getId(),
+                profile.getConfigVersion(),
+                EmbeddingClient.literal(vector));
     }
 
     private record ParsedSource(String parserId, List<DocumentParser.PageText> pages) {}
