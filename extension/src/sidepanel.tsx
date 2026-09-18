@@ -1169,6 +1169,9 @@ function App() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [session, setSession] = useState<any>();
   const [msgs, setMsgs] = useState<Msg[]>([]);
+  const sessionRef = useRef<any>(undefined);
+  const messagesBySessionRef = useRef(new Map<string, Msg[]>());
+  const streamingSessionIdRef = useRef<string | undefined>(undefined);
   const [messageFeedback, setMessageFeedback] = useState<
     Record<number, Feedback>
   >({});
@@ -1718,6 +1721,30 @@ function App() {
     return fetcher(path, init);
   }
 
+  function updateSessionMessages(
+    sessionId: string,
+    update: Msg[] | ((items: Msg[]) => Msg[]),
+  ): Msg[] {
+    const current = messagesBySessionRef.current.get(sessionId) || [];
+    const next =
+      typeof update === "function"
+        ? (update as (items: Msg[]) => Msg[])(current)
+        : update;
+    messagesBySessionRef.current.set(sessionId, next);
+    if (sessionRef.current?.id === sessionId) setMsgs(next);
+    return next;
+  }
+
+  function activateSession(conversation: any, initialMessages: Msg[] = []) {
+    sessionRef.current = conversation;
+    setSession(conversation);
+    const cached = messagesBySessionRef.current.get(conversation.id);
+    if (!cached && initialMessages.length) {
+      messagesBySessionRef.current.set(conversation.id, initialMessages);
+    }
+    setMsgs(cached || initialMessages);
+  }
+
   async function loadAgents() {
     const fetcher = authedFetchRef.current;
     if (!fetcher) return;
@@ -1768,8 +1795,8 @@ function App() {
       if (!response.ok) throw Error(t.createFailed);
       const conversation = await response.json();
       setSessions((items) => [conversation, ...items]);
-      setSession(conversation);
-      setMsgs([]);
+      messagesBySessionRef.current.set(conversation.id, []);
+      activateSession(conversation, []);
       setMessageFeedback({});
     } catch (e) {
       setError((e as Error).message);
@@ -1777,25 +1804,31 @@ function App() {
   }
 
   async function select(conversation: any) {
-    setSession(conversation);
+    const cached = messagesBySessionRef.current.get(conversation.id) || [];
+    activateSession(conversation, cached);
     try {
       const response = await apiFetch(`/sessions/${conversation.id}/messages`);
       if (!response.ok) throw new Error(`messages: ${response.status}`);
       const payload = await response.json();
       const history: Msg[] = Array.isArray(payload) ? payload : [];
-      setMsgs(
-        history.map((message) =>
-          message.role === "assistant" && !message.content.trim()
-            ? {
-                ...message,
-                content: t.responseUnavailable,
-                stopped: true,
-              }
-            : message,
-        ),
+      const normalizedHistory = history.map((message) =>
+        message.role === "assistant" && !message.content.trim()
+          ? {
+              ...message,
+              content: t.responseUnavailable,
+              stopped: true,
+            }
+          : message,
       );
+      const latestCache =
+        messagesBySessionRef.current.get(conversation.id) || [];
+      const merged =
+        latestCache.length >= normalizedHistory.length
+          ? latestCache
+          : normalizedHistory;
+      updateSessionMessages(conversation.id, merged);
     } catch {
-      setMsgs([]);
+      if (!cached.length) updateSessionMessages(conversation.id, []);
       setError(t.backendError);
     }
     loadFeedback(conversation.id);
@@ -1910,9 +1943,11 @@ function App() {
       setSessions((items) =>
         items.map((item) => (item.id === updated.id ? updated : item)),
       );
-      setSession((current: any) =>
-        current?.id === updated.id ? updated : current,
-      );
+      setSession((current: any) => {
+        if (current?.id !== updated.id) return current;
+        sessionRef.current = updated;
+        return updated;
+      });
       cancelRename();
     } catch (e) {
       setError((e as Error).message);
@@ -2156,8 +2191,12 @@ function App() {
     image.src = screenshotSelection;
   }
 
-  function markGenerationStopped(messageIndex?: number) {
-    setMsgs((items) => {
+  function markGenerationStopped(
+    messageIndex?: number,
+    targetSessionId = sessionRef.current?.id,
+  ) {
+    if (!targetSessionId) return;
+    updateSessionMessages(targetSessionId, (items) => {
       if (!items.length) return items;
       const next = [...items];
       const index = messageIndex ?? next.length - 1;
@@ -2174,10 +2213,15 @@ function App() {
     });
   }
 
-  function markGenerationFailed(message: string, messageIndex?: number) {
+  function markGenerationFailed(
+    message: string,
+    messageIndex?: number,
+    targetSessionId = sessionRef.current?.id,
+  ) {
+    if (!targetSessionId) return;
     const visibleMessage = message || t.requestFailed;
-    setError(visibleMessage);
-    setMsgs((items) => {
+    if (sessionRef.current?.id === targetSessionId) setError(visibleMessage);
+    updateSessionMessages(targetSessionId, (items) => {
       if (!items.length) return items;
       const next = [...items];
       const index = messageIndex ?? next.length - 1;
@@ -2267,10 +2311,14 @@ function App() {
 
   async function editAndResend(message: Msg, messageIndex: number) {
     if (busy) return;
+    const targetSessionId = sessionRef.current?.id;
+    if (!targetSessionId) return;
     setInput(message.content.replace(new RegExp(`\\n\\n${t.stopped}$`), ""));
     setScreenshot(undefined);
     setAttachments([]);
-    setMsgs((items) => items.slice(0, messageIndex));
+    updateSessionMessages(targetSessionId, (items) =>
+      items.slice(0, messageIndex),
+    );
     if (message.attachments?.length) {
       try {
         await restoreAttachments(message.attachments);
@@ -2288,6 +2336,9 @@ function App() {
     // 防重复发送：busyRef 同步拦截毫秒级内的重复调用（Enter 连发 / 按钮重复点击），
     // 避免同一请求产生两条相同助手消息。状态更新是异步的，故不能用 busy 在这里判断。
     if (busyRef.current) return;
+    const targetSession = sessionRef.current;
+    const targetSessionId = targetSession?.id;
+    if (!targetSessionId) return;
     const text = retryRequest
       ? retryRequest.userMessage.content.trim()
       : input.trim();
@@ -2301,11 +2352,7 @@ function App() {
         }))
       : attachments;
     const pendingScreenshot = retryRequest ? undefined : screenshot;
-    if (
-      (!text && !pendingAttachments.length && !pendingScreenshot) ||
-      busy ||
-      !session
-    )
+    if ((!text && !pendingAttachments.length && !pendingScreenshot) || busy)
       return;
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -2350,7 +2397,7 @@ function App() {
       : [];
     const assistantIndex = retryRequest
       ? retryRequest.assistantIndex
-      : msgs.length + 1;
+      : (messagesBySessionRef.current.get(targetSessionId) || []).length + 1;
 
     if (!retryRequest) {
       setInput("");
@@ -2358,11 +2405,12 @@ function App() {
       setScreenshot(undefined);
     }
     busyRef.current = true;
+    streamingSessionIdRef.current = targetSessionId;
     setBusy(true);
     setError("");
 
     if (retryRequest) {
-      setMsgs((items) =>
+      updateSessionMessages(targetSessionId, (items) =>
         items.map((item, index) =>
           index === assistantIndex
             ? {
@@ -2386,7 +2434,7 @@ function App() {
         if (attachment.file) messageAttachments.push(uploaded[uploadIndex++]);
       }
       if (pendingScreenshot) messageAttachments.push(uploaded[uploadIndex++]);
-      setMsgs((items) => [
+      updateSessionMessages(targetSessionId, (items) => [
         ...items,
         { role: "user", content: text, attachments: messageAttachments },
         { role: "assistant", content: "" },
@@ -2441,7 +2489,7 @@ function App() {
     let timeoutId: number | undefined;
     try {
       if (controller.signal.aborted) {
-        markGenerationStopped(assistantIndex);
+        markGenerationStopped(assistantIndex, targetSessionId);
         return;
       }
       timeoutId = window.setTimeout(() => {
@@ -2453,7 +2501,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          sessionId: session.id,
+          sessionId: targetSessionId,
           message: text,
           attachmentIds: retryRequest
             ? retryAttachmentIds
@@ -2473,7 +2521,7 @@ function App() {
       let buffer = "";
       // 修改当前助手消息的元信息（内容、Agent 归属、委派关系等）。
       const patchAssistantMsg = (patch: (last: Msg) => Partial<Msg>) => {
-        setMsgs((items) => {
+        updateSessionMessages(targetSessionId, (items) => {
           const target = items[assistantIndex];
           if (!target || target.role !== "assistant") return items;
           const next = [...items];
@@ -2723,17 +2771,22 @@ function App() {
               /* 非 JSON 时按纯文本处理 */
             }
             streamError = message;
-            markGenerationFailed(message, assistantIndex);
+            markGenerationFailed(message, assistantIndex, targetSessionId);
           }
         }
       }
       flushTokens();
       if (!sawContent && !streamError)
-        markGenerationFailed(t.requestFailed, assistantIndex);
+        markGenerationFailed(t.requestFailed, assistantIndex, targetSessionId);
     } catch (e) {
       if ((e as { name?: string })?.name === "AbortError") {
-        if (timedOut) markGenerationFailed(t.requestTimeout, assistantIndex);
-        else markGenerationStopped(assistantIndex);
+        if (timedOut)
+          markGenerationFailed(
+            t.requestTimeout,
+            assistantIndex,
+            targetSessionId,
+          );
+        else markGenerationStopped(assistantIndex, targetSessionId);
       } else if (!streamError) {
         const rawMessage = (e as Error).message?.trim();
         markGenerationFailed(
@@ -2741,6 +2794,7 @@ function App() {
             ? t.backendError
             : rawMessage,
           assistantIndex,
+          targetSessionId,
         );
       }
     } finally {
@@ -2749,6 +2803,9 @@ function App() {
         abortControllerRef.current = null;
       }
       busyRef.current = false;
+      if (streamingSessionIdRef.current === targetSessionId) {
+        streamingSessionIdRef.current = undefined;
+      }
       setBusy(false);
     }
   }
