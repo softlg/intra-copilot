@@ -3005,7 +3005,7 @@ export function AdminCopilotPanel({
                     ? text.inputPlaceholderBuild
                     : text.inputPlaceholder
                 }
-                rows={1}
+                rows={2}
                 maxLength={16000}
                 onKeyDown={(event) => {
                   if (
