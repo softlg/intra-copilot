@@ -142,7 +142,6 @@ async function executeEditorAction(tabId: number, action: any) {
       type: "EXECUTE_ACTION",
       action,
     });
-    if (contentResult?.ok) return contentResult;
   } catch {
     contentResult = { ok: false, error: "Content script unavailable" };
   }
@@ -153,7 +152,9 @@ async function executeEditorAction(tabId: number, action: any) {
     args: [action.arguments],
   });
   const mainResult = results[0]?.result;
-  return mainResult ?? contentResult;
+  return (mainResult as { ok?: boolean } | undefined)?.ok
+    ? mainResult
+    : contentResult;
 }
 
 async function resolveAttachment(
