@@ -1196,10 +1196,11 @@ function App() {
   const [copiedCode, setCopiedCode] = useState<string>();
   const [input, setInput] = useState("");
   const [composerExpanded, setComposerExpanded] = useState(false);
-  const [busy, setBusy] = useState(false);
-  // 同步版发送锁：状态更新是异步的，busyRef 能在毫秒级内拦截重复 send()（Enter 连发 /
-  // 按钮重复点击），避免同一请求产生两条相同助手消息。
-  const busyRef = useRef(false);
+  const [busySessionIds, setBusySessionIds] = useState<Set<string>>(new Set());
+  // 每个会话独立维护发送锁和 AbortController，避免一个会话阻塞其他会话。
+  const busySessionsRef = useRef(new Set<string>());
+  const streamControllersRef = useRef(new Map<string, AbortController>());
+  const sessionBusy = Boolean(session?.id && busySessionIds.has(session.id));
   const actionTabIdRef = useRef<number | undefined>(undefined);
   const [error, setError] = useState("");
   const [theme, setTheme] = useState<Theme>("system");
@@ -1264,7 +1265,6 @@ function App() {
   const composerToolsRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const end = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
   const authedFetchRef = useRef<AuthedFetch | null>(null);
   const agentsRequestRef = useRef<AbortController | null>(null);
 
@@ -2320,7 +2320,7 @@ function App() {
   }
 
   async function editAndResend(message: Msg, messageIndex: number) {
-    if (busy) return;
+    if (sessionBusy) return;
     const targetSessionId = sessionRef.current?.id;
     if (!targetSessionId) return;
     setInput(message.content.replace(new RegExp(`\\n\\n${t.stopped}$`), ""));
@@ -2343,12 +2343,11 @@ function App() {
     assistantIndex: number;
     userMessage: Msg;
   }) {
-    // 防重复发送：busyRef 同步拦截毫秒级内的重复调用（Enter 连发 / 按钮重复点击），
-    // 避免同一请求产生两条相同助手消息。状态更新是异步的，故不能用 busy 在这里判断。
-    if (busyRef.current) return;
+    // 每个会话使用独立的同步发送锁，防止同一会话被重复提交，同时允许其他会话并行发送。
     const targetSession = sessionRef.current;
     const targetSessionId = targetSession?.id;
-    if (!targetSessionId) return;
+    if (!targetSessionId || busySessionsRef.current.has(targetSessionId))
+      return;
     const text = retryRequest
       ? retryRequest.userMessage.content.trim()
       : input.trim();
@@ -2362,10 +2361,9 @@ function App() {
         }))
       : attachments;
     const pendingScreenshot = retryRequest ? undefined : screenshot;
-    if ((!text && !pendingAttachments.length && !pendingScreenshot) || busy)
-      return;
+    if (!text && !pendingAttachments.length && !pendingScreenshot) return;
     const controller = new AbortController();
-    abortControllerRef.current = controller;
+    streamControllersRef.current.set(targetSessionId, controller);
 
     // 先把附件（含截图）上传到后端（MinIO/本地），拿到带 id 与取回地址的视图。
     // 这样无论图片还是文件，重进会话后都能从历史接口恢复。
@@ -2393,8 +2391,7 @@ function App() {
           uploaded = await response.json();
         } catch (e) {
           setError((e as Error).message || t.uploadFailed);
-          busyRef.current = false;
-          setBusy(false);
+          streamControllersRef.current.delete(targetSessionId);
           return;
         }
       }
@@ -2414,9 +2411,9 @@ function App() {
       setAttachments([]);
       setScreenshot(undefined);
     }
-    busyRef.current = true;
+    busySessionsRef.current.add(targetSessionId);
+    setBusySessionIds((current) => new Set(current).add(targetSessionId));
     streamingSessionIdRef.current = targetSessionId;
-    setBusy(true);
     setError("");
 
     if (retryRequest) {
@@ -2809,19 +2806,23 @@ function App() {
       }
     } finally {
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
+      if (streamControllersRef.current.get(targetSessionId) === controller) {
+        streamControllersRef.current.delete(targetSessionId);
       }
-      busyRef.current = false;
+      busySessionsRef.current.delete(targetSessionId);
+      setBusySessionIds((current) => {
+        const next = new Set(current);
+        next.delete(targetSessionId);
+        return next;
+      });
       if (streamingSessionIdRef.current === targetSessionId) {
         streamingSessionIdRef.current = undefined;
       }
-      setBusy(false);
     }
   }
 
   function retryMessage(messageIndex: number) {
-    if (busy || messageIndex !== msgs.length - 1) return;
+    if (sessionBusy || messageIndex !== msgs.length - 1) return;
     const assistantMessage = msgs[messageIndex];
     const userMessage = msgs[messageIndex - 1];
     if (
@@ -2836,7 +2837,9 @@ function App() {
   }
 
   function stopGeneration() {
-    abortControllerRef.current?.abort();
+    const sessionId = sessionRef.current?.id;
+    if (!sessionId) return;
+    streamControllersRef.current.get(sessionId)?.abort();
   }
 
   const generalAgents = agents.filter((agent) => agent.role === "GENERAL");
@@ -3242,7 +3245,7 @@ function App() {
                             type="button"
                             className="message-action retry-action"
                             onClick={() => retryMessage(index)}
-                            disabled={busy}
+                            disabled={sessionBusy}
                             title={t.retry}
                             aria-label={t.retry}
                           >
@@ -3549,7 +3552,7 @@ function App() {
               <select
                 value={selectedAgentId}
                 onChange={(event) => setSelectedAgentId(event.target.value)}
-                disabled={busy}
+                disabled={sessionBusy}
                 aria-label={t.agentSelector}
               >
                 <option value="">{t.agentAuto}</option>
@@ -3695,12 +3698,12 @@ function App() {
               />
             </div>
             <button
-              className={"send-button" + (busy ? " stop-button" : "")}
-              onClick={busy ? stopGeneration : () => void send()}
-              title={busy ? t.stop : t.send}
-              aria-label={busy ? t.stop : t.send}
+              className={"send-button" + (sessionBusy ? " stop-button" : "")}
+              onClick={sessionBusy ? stopGeneration : () => void send()}
+              title={sessionBusy ? t.stop : t.send}
+              aria-label={sessionBusy ? t.stop : t.send}
             >
-              {busy ? "■" : t.send}
+              {sessionBusy ? "■" : t.send}
             </button>
           </div>
           <div className="composer-tools" ref={composerToolsRef}>
