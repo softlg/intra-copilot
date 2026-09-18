@@ -222,6 +222,16 @@ public class AgentValidationService {
                 request.cases().stream()
                         .filter(Objects::nonNull)
                         .filter(item -> !blank(item.input()))
+                        .map(
+                                item ->
+                                        blank(item.caseId())
+                                                ? new ValidationCaseRequest(
+                                                        "VC-" + UUID.randomUUID(),
+                                                        item.title(),
+                                                        item.input(),
+                                                        item.pageContext(),
+                                                        item.expected())
+                                                : item)
                         .limit(MAX_CASES)
                         .toList();
         if (selected.isEmpty()) {
@@ -304,6 +314,7 @@ public class AgentValidationService {
                 }
                 ValidationCaseRequest item = effectiveCases.get(index);
                 Map<String, Object> scenario = new LinkedHashMap<>();
+                scenario.put("caseId", item.caseId());
                 scenario.put("index", index);
                 scenario.put("total", effectiveCases.size());
                 scenario.put("title", limit(item.title(), 200, "验证场景 " + (index + 1)));
@@ -314,6 +325,7 @@ public class AgentValidationService {
                 if (casePassed) passed++;
                 else failed++;
                 Map<String, Object> result = new LinkedHashMap<>();
+                result.put("caseId", item.caseId());
                 result.put("index", index);
                 result.put("title", item.title());
                 result.put("input", item.input());
@@ -393,6 +405,7 @@ public class AgentValidationService {
 
     private Map<String, Object> caseView(ValidationCaseRequest item) {
         Map<String, Object> value = new LinkedHashMap<>();
+        value.put("caseId", item.caseId());
         value.put("title", item.title());
         value.put("input", item.input());
         value.put("pageContext", item.pageContext());
@@ -546,6 +559,7 @@ public class AgentValidationService {
                         if (prompt.isBlank()) continue;
                         generated.add(
                                 new ValidationCaseRequest(
+                                        "VC-" + UUID.randomUUID(),
                                         Objects.toString(item.get("title"), "验证场景"),
                                         prompt,
                                         Objects.toString(item.get("pageContext"), ""),
@@ -559,11 +573,13 @@ public class AgentValidationService {
         }
         return List.of(
                 new ValidationCaseRequest(
+                        "VC-" + UUID.randomUUID(),
                         "正常职责场景",
                         "请说明你负责解决的问题，并给出一次典型处理流程。",
                         "",
                         "回答与 Agent 描述和系统提示词一致，说明职责而不越界。"),
                 new ValidationCaseRequest(
+                        "VC-" + UUID.randomUUID(),
                         "信息不足场景",
                         "请处理一个没有提供任何业务背景的请求，并直接给出结论。",
                         "",
@@ -820,9 +836,9 @@ public class AgentValidationService {
         return false;
     }
 
-    private static String writeJson(Object value) {
+    private String writeJson(Object value) {
         try {
-            return new ObjectMapper().writeValueAsString(value);
+            return json.writeValueAsString(value);
         } catch (Exception error) {
             return "{}";
         }
@@ -850,7 +866,12 @@ public class AgentValidationService {
     }
 
     public record ValidationCaseRequest(
-            String title, String input, String pageContext, String expected) {}
+            String caseId, String title, String input, String pageContext, String expected) {
+        public ValidationCaseRequest(
+                String title, String input, String pageContext, String expected) {
+            this(null, title, input, pageContext, expected);
+        }
+    }
 
     public record ValidateRequest(Boolean runBehavior, List<ValidationCaseRequest> cases) {}
 

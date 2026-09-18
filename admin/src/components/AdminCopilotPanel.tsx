@@ -1,4 +1,5 @@
 import {
+  type ComponentPropsWithoutRef,
   useEffect,
   useMemo,
   useRef,
@@ -6,10 +7,15 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 import type { Language } from "../i18n/translations";
 import {
   applyCopilotProposal,
+  cancelCopilotResponse,
   cancelValidationStream,
   createCopilotSession,
   deleteCopilotSessions,
@@ -18,9 +24,9 @@ import {
   getCopilotSession,
   listAgentValidationHistory,
   listCopilotSessions,
-  renameCopilotSession,
-  respondCopilot,
+  streamCopilotResponse,
   streamValidateAgentBehavior,
+  updateCopilotSession,
   validateAgentStatic,
   type AgentValidationCase,
   type AgentValidationHistoryItem,
@@ -40,11 +46,15 @@ import { toast } from "./Toast";
 import "./AdminCopilotPanel.css";
 
 type PanelView = "assist" | "build" | "validate";
+type ValidationSection = "issues" | "cases" | "remediation" | "history";
+type ValidationCaseFilter = "all" | "failed" | "passed";
+type ValidationStep = "static" | "cases" | "behavior";
 
 type CaseRunState = "queued" | "running" | "passed" | "failed" | "skipped";
 
 type ValidationRunItem = {
   key: string;
+  caseId?: string;
   index: number;
   title: string;
   state: CaseRunState;
@@ -67,11 +77,51 @@ type AppliedPatchRecord = {
   before: Record<string, unknown>;
 };
 
+type ChatRunState = {
+  sessionId: string;
+  runId?: string;
+  phase?: string;
+  canceling: boolean;
+};
+
+type FailedChatMessage = {
+  sessionId?: string;
+  content: string;
+};
+
 const DEFAULT_PANEL_WIDTH = 430;
 const MIN_PANEL_WIDTH = 360;
 const MAX_PANEL_WIDTH = 900;
 const MIN_MAIN_CONTENT_WIDTH = 420;
 const PANEL_WIDTH_STORAGE_KEY = "admin-copilot-width";
+const PANEL_VIEW_STORAGE_KEY = "admin-copilot-view";
+const ACTIVE_SESSION_STORAGE_KEY = "admin-copilot-active-session";
+const COMPOSER_DRAFT_STORAGE_KEY = "admin-copilot-composer-draft";
+const APPLIED_PATCH_STORAGE_KEY = "admin-copilot-applied-patches";
+
+function activeSessionStorageKey(mode: CopilotMode) {
+  return `${ACTIVE_SESSION_STORAGE_KEY}:${mode}`;
+}
+
+function composerDraftStorageKey(mode: CopilotMode, sessionId?: string) {
+  return `${COMPOSER_DRAFT_STORAGE_KEY}:${mode}:${sessionId || "new"}`;
+}
+
+function appliedPatchStorageKey(agentId?: string) {
+  return agentId ? `${APPLIED_PATCH_STORAGE_KEY}:${agentId}` : "";
+}
+
+function validationCaseKey(item: AgentValidationCase, index: number) {
+  return item.caseId?.trim() || `index-${index}`;
+}
+
+function sessionSortValue(session: CopilotSessionSummary) {
+  return (session.pinned ? 1 : 0) * 10 ** 15 + Date.parse(session.updatedAt);
+}
+
+function isPanelView(value: string | null): value is PanelView {
+  return value === "assist" || value === "build" || value === "validate";
+}
 
 function panelWidthLimit(workspaceWidth?: number) {
   if (!workspaceWidth || workspaceWidth <= 0) return MAX_PANEL_WIDTH;
@@ -92,13 +142,15 @@ export type AdminCopilotPanelProps = {
   language: Language;
   currentAgentId?: string;
   currentAgentName?: string;
+  currentAgentVersion?: number;
   currentAgentSnapshot: Record<string, unknown>;
   onClose: () => void;
   onApplyPatch: (changes: Record<string, unknown>) => void;
   onAppliedAgent: (agentId: string) => void;
   onResourcesChanged: () => void;
   resourceLabels?: Record<string, string>;
-  onSaveDraft?: () => void;
+  agentConfigDirty?: boolean;
+  onSaveDraft?: () => Promise<boolean> | boolean;
   onPublishDraft?: () => void;
 };
 
@@ -230,6 +282,49 @@ const copy = {
     saveForm: "保存表单",
     saveDraft: "保存草稿",
     saveAndPublish: "保存并发布",
+    contextAssist: "正在修改",
+    contextBuild: "将创建",
+    contextValidate: "验证对象",
+    contextNoAgent: "未选择 Agent",
+    contextUnsaved: "有未保存修改",
+    contextSaved: "已保存",
+    validationDirtyTitle: "当前表单有未保存修改",
+    validationDirtyDesc:
+      "验证使用后端已保存的 Agent 版本。继续验证不会包含当前未保存内容。",
+    saveAndValidate: "保存并验证",
+    validateSavedVersion: "验证已保存版本",
+    validationSaveFailed: "保存失败，已取消验证。",
+    runFailedCases: "重跑未通过场景",
+    validationIssues: "静态问题",
+    validationCases: "验证场景",
+    validationRemediation: "修订建议",
+    validationHistory: "历史记录",
+    filterAll: "全部",
+    filterFailed: "未通过",
+    filterPassed: "通过",
+    expandCase: "展开场景",
+    collapseCase: "收起场景",
+    editCaseInput: "场景输入",
+    editCaseExpected: "预期标准",
+    streaming: "正在生成",
+    cancelGeneration: "停止生成",
+    cancelingGeneration: "正在停止…",
+    generationCancelled: "已停止生成，本轮不会写入会话。",
+    retryMessage: "重试",
+    copyMessage: "复制",
+    copiedMessage: "已复制。",
+    editAndResend: "编辑后重发",
+    newMessages: "有新消息",
+    searchSessions: "搜索会话",
+    pinSession: "置顶",
+    unpinSession: "取消置顶",
+    noMatchingSessions: "没有匹配的会话。",
+    lastMessage: "最后消息",
+    exportHistory: "导出报告",
+    selectFieldsToApply: "选择要应用的字段",
+    noFieldsSelected: "请至少选择一个字段。",
+    validationSavedVersion: "已保存版本 v{version}",
+    validationDraftVersion: "当前未保存草稿 v{version}",
   },
   en: {
     title: "AI Workspace",
@@ -371,6 +466,49 @@ const copy = {
     saveForm: "Save form",
     saveDraft: "Save draft",
     saveAndPublish: "Save & publish",
+    contextAssist: "Editing",
+    contextBuild: "Creating",
+    contextValidate: "Validating",
+    contextNoAgent: "No Agent selected",
+    contextUnsaved: "Unsaved changes",
+    contextSaved: "Saved",
+    validationDirtyTitle: "The form has unsaved changes",
+    validationDirtyDesc:
+      "Validation uses the saved Agent version and will not include unsaved form changes.",
+    saveAndValidate: "Save and validate",
+    validateSavedVersion: "Validate saved version",
+    validationSaveFailed: "Save failed. Validation was cancelled.",
+    runFailedCases: "Re-run failed scenarios",
+    validationIssues: "Static issues",
+    validationCases: "Scenarios",
+    validationRemediation: "Remediation",
+    validationHistory: "History",
+    filterAll: "All",
+    filterFailed: "Failed",
+    filterPassed: "Passed",
+    expandCase: "Expand scenario",
+    collapseCase: "Collapse scenario",
+    editCaseInput: "Scenario input",
+    editCaseExpected: "Expected result",
+    streaming: "Generating",
+    cancelGeneration: "Stop generating",
+    cancelingGeneration: "Stopping…",
+    generationCancelled: "Generation stopped. This turn was not saved.",
+    retryMessage: "Retry",
+    copyMessage: "Copy",
+    copiedMessage: "Copied.",
+    editAndResend: "Edit and resend",
+    newMessages: "New messages",
+    searchSessions: "Search sessions",
+    pinSession: "Pin",
+    unpinSession: "Unpin",
+    noMatchingSessions: "No matching sessions.",
+    lastMessage: "Last message",
+    exportHistory: "Export report",
+    selectFieldsToApply: "Select fields to apply",
+    noFieldsSelected: "Select at least one field.",
+    validationSavedVersion: "Saved version v{version}",
+    validationDraftVersion: "Unsaved draft v{version}",
   },
 } as const;
 
@@ -381,6 +519,95 @@ function parseJson<T>(value?: string): T | undefined {
   } catch {
     return undefined;
   }
+}
+
+function readStorageJson<T>(storage: Storage, key: string): T | undefined {
+  return parseJson<T>(storage.getItem(key) ?? undefined);
+}
+
+function writeStorageJson(storage: Storage, key: string, value: unknown) {
+  storage.setItem(key, JSON.stringify(value));
+}
+
+function downloadJson(filename: string, value: unknown) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function nodeText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join("");
+  if (node && typeof node === "object" && "props" in node) {
+    return nodeText(
+      (node as { props?: { children?: ReactNode } }).props?.children,
+    );
+  }
+  return "";
+}
+
+function CopilotMarkdown({
+  children,
+  text,
+}: {
+  children: string;
+  text: (typeof copy)[Language];
+}) {
+  return (
+    <div className="copilot-message-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        components={{
+          pre({ children }) {
+            const value = nodeText(children);
+            return (
+              <div className="copilot-code-block">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(value).then(() => {
+                      toast.success(text.copiedMessage);
+                    });
+                  }}
+                >
+                  <Icon name="copy" size={13} />
+                  {text.copyMessage}
+                </button>
+                <pre>{children}</pre>
+              </div>
+            );
+          },
+          a({ children, ...props }) {
+            return (
+              <a {...props} target="_blank" rel="noreferrer">
+                {children}
+              </a>
+            );
+          },
+          code({
+            className,
+            children,
+            ...props
+          }: ComponentPropsWithoutRef<"code">) {
+            return (
+              <code className={className} {...props}>
+                {children}
+              </code>
+            );
+          },
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -436,13 +663,13 @@ function getFocusableElements(root: HTMLElement | null): HTMLElement[] {
 
 function patchRunItem(
   tracker: ValidationRunTracker,
-  position: number,
+  caseId: string,
   patch: Partial<ValidationRunItem>,
 ) {
   return {
     ...tracker,
-    items: tracker.items.map((item, index) =>
-      index === position ? { ...item, ...patch } : item,
+    items: tracker.items.map((item) =>
+      item.caseId === caseId ? { ...item, ...patch } : item,
     ),
   };
 }
@@ -475,10 +702,12 @@ function ValidationHistoryDetails({
   text,
   language,
   item,
+  onExport,
 }: {
   text: (typeof copy)[Language];
   language: Language;
   item: AgentValidationHistoryItem;
+  onExport: () => void;
 }) {
   const report = parseJson<AgentValidationReport>(item.reportJson);
   if (!report) {
@@ -486,7 +715,21 @@ function ValidationHistoryDetails({
       <p className="copilot-history-unavailable">{text.historyUnavailable}</p>
     );
   }
-  const summary = report.summary;
+  const staticIssues = Array.isArray(report.staticIssues)
+    ? report.staticIssues
+    : [];
+  const validationCases = Array.isArray(report.cases) ? report.cases : [];
+  const summary = report.summary ?? {
+    issueCount: staticIssues.length,
+    critical: 0,
+    error: 0,
+    warning: 0,
+    info: 0,
+    testsRun: validationCases.length,
+    testsPassed: validationCases.filter((item) => item?.passed).length,
+    testsFailed: validationCases.filter((item) => item?.passed === false)
+      .length,
+  };
   return (
     <div className="copilot-history-detail">
       <div className="copilot-history-summary">
@@ -502,14 +745,18 @@ function ValidationHistoryDetails({
             {text.staticCheck}: {summary.issueCount}
           </span>
         )}
+        <button type="button" className="secondary" onClick={onExport}>
+          <Icon name="copy" size={13} />
+          {text.exportHistory}
+        </button>
       </div>
       <p className="copilot-history-readonly">{text.historyReadOnlyHint}</p>
 
-      {report.staticIssues.length > 0 && (
+      {staticIssues.length > 0 && (
         <section className="copilot-history-block">
           <strong>{text.historyStaticIssues}</strong>
           <ul>
-            {report.staticIssues.map((issue, index) => (
+            {staticIssues.map((issue, index) => (
               <li key={`${issue.code}-${index}`}>
                 <span>{severityLabel(issue.severity, language)}</span>
                 <div>
@@ -522,11 +769,11 @@ function ValidationHistoryDetails({
         </section>
       )}
 
-      {report.cases.length > 0 && (
+      {validationCases.length > 0 && (
         <section className="copilot-history-block">
           <strong>{text.historyCases}</strong>
           <div className="copilot-history-cases">
-            {report.cases.map((item, index) => (
+            {validationCases.map((item, index) => (
               <article
                 className={
                   item.passed
@@ -707,12 +954,16 @@ function PatchDiffList({
   patch,
   before,
   labels,
+  selectedFields,
+  onToggleField,
 }: {
   text: (typeof copy)[Language];
   language: Language;
   patch: Record<string, unknown>;
   before: Record<string, unknown>;
   labels?: Record<string, string>;
+  selectedFields?: Set<string>;
+  onToggleField?: (field: string) => void;
 }) {
   const entries = changedPatchEntries(patch, before);
   if (entries.length === 0) return null;
@@ -721,6 +972,14 @@ function PatchDiffList({
       {entries.map(([field, value]) => (
         <li key={field}>
           <span className="copilot-applied-field">
+            {onToggleField && selectedFields && (
+              <input
+                type="checkbox"
+                checked={selectedFields.has(field)}
+                onChange={() => onToggleField(field)}
+                aria-label={`${text.applyThisPatch}: ${FIELD_LABELS[field]?.[language] ?? field}`}
+              />
+            )}
             {FIELD_LABELS[field]?.[language] ?? field}
           </span>
           <div className="copilot-applied-diff">
@@ -773,11 +1032,33 @@ function SuggestedPatchPreview({
   applied: boolean;
   canUndo?: boolean;
   canApply?: boolean;
-  onApply: () => void;
+  onApply: (patch: Record<string, unknown>) => void;
   onUndo: () => void;
 }) {
-  const count = changedPatchEntries(patch, before).length;
+  const entries = changedPatchEntries(patch, before);
+  const patchKey = useMemo(
+    () => JSON.stringify([patch, before]),
+    [patch, before],
+  );
+  const [selectedFields, setSelectedFields] = useState<Set<string>>(
+    () => new Set(entries.map(([field]) => field)),
+  );
+  useEffect(() => {
+    setSelectedFields(new Set(entries.map(([field]) => field)));
+  }, [patchKey]);
+  const count = entries.length;
   if (count === 0) return null;
+  const selectedPatch = Object.fromEntries(
+    entries.filter(([field]) => selectedFields.has(field)),
+  );
+  const toggleField = (field: string) => {
+    setSelectedFields((current) => {
+      const next = new Set(current);
+      if (next.has(field)) next.delete(field);
+      else next.add(field);
+      return next;
+    });
+  };
   return (
     <section className="copilot-suggestion" aria-live="polite">
       <div className="copilot-suggestion-heading">
@@ -793,7 +1074,14 @@ function SuggestedPatchPreview({
         patch={patch}
         before={before}
         labels={labels}
+        selectedFields={applied ? undefined : selectedFields}
+        onToggleField={applied ? undefined : toggleField}
       />
+      {!applied && count > 1 && (
+        <p className="copilot-suggestion-selection">
+          {text.selectFieldsToApply}
+        </p>
+      )}
       <div className="copilot-suggestion-actions">
         {applied ? (
           <button
@@ -810,8 +1098,13 @@ function SuggestedPatchPreview({
           <button
             type="button"
             className="secondary"
-            onClick={onApply}
-            disabled={!canApply}
+            onClick={() => onApply(selectedPatch)}
+            disabled={!canApply || Object.keys(selectedPatch).length === 0}
+            title={
+              Object.keys(selectedPatch).length === 0
+                ? text.noFieldsSelected
+                : undefined
+            }
           >
             <Icon name="edit" size={14} />
             {text.applyThisPatch}
@@ -951,24 +1244,36 @@ export function AdminCopilotPanel({
   language,
   currentAgentId,
   currentAgentName,
+  currentAgentVersion,
   currentAgentSnapshot,
   onClose,
   onApplyPatch,
   onAppliedAgent,
   onResourcesChanged,
   resourceLabels,
+  agentConfigDirty = false,
   onSaveDraft,
   onPublishDraft,
 }: AdminCopilotPanelProps) {
   const text = copy[language];
-  const [view, setView] = useState<PanelView>("assist");
+  const [view, setView] = useState<PanelView>(() => {
+    const stored = localStorage.getItem(PANEL_VIEW_STORAGE_KEY);
+    return isPanelView(stored) ? stored : "assist";
+  });
   const [sessions, setSessions] = useState<CopilotSessionSummary[]>([]);
   const [activeSession, setActiveSession] = useState<CopilotSession>();
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [pendingUserMessage, setPendingUserMessage] = useState<string>();
-  const pendingMessageRef = useRef<HTMLDivElement>(null);
+  const [chatRun, setChatRun] = useState<ChatRunState>();
+  const [failedChatMessage, setFailedChatMessage] =
+    useState<FailedChatMessage>();
+  const [hasNewMessages, setHasNewMessages] = useState(false);
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const chatAbortRef = useRef<AbortController | undefined>(undefined);
+  const messagesShouldStickRef = useRef(true);
   const [applyingProposalId, setApplyingProposalId] = useState<string>();
   const [panelError, setPanelError] = useState("");
   const [validationReport, setValidationReport] =
@@ -976,7 +1281,7 @@ export function AdminCopilotPanel({
   const [validationCases, setValidationCases] = useState<AgentValidationCase[]>(
     [],
   );
-  const [selectedCases, setSelectedCases] = useState<Set<number>>(new Set());
+  const [selectedCases, setSelectedCases] = useState<Set<string>>(new Set());
   const [validationBusy, setValidationBusy] = useState<
     "static" | "cases" | "behavior"
   >();
@@ -1007,6 +1312,8 @@ export function AdminCopilotPanel({
   );
   const [resizingPanel, setResizingPanel] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
+  const appliedPatchAgentRef = useRef<string | undefined>(undefined);
+  const patchHydratingRef = useRef(false);
   const resizeStateRef = useRef({ active: false, pointerId: -1 });
   const [isModal, setIsModal] = useState(
     () => typeof window !== "undefined" && window.innerWidth < 1200,
@@ -1037,8 +1344,26 @@ export function AdminCopilotPanel({
   );
 
   useEffect(() => {
-    void loadSessions();
+    void (async () => {
+      const values = await loadSessions();
+      if (view === "validate") return;
+      const nextMode: CopilotMode = view === "build" ? "BUILD" : "ASSIST";
+      const storedId = localStorage.getItem(activeSessionStorageKey(nextMode));
+      const candidate =
+        values.find((session) => session.id === storedId) ??
+        values.find((session) => session.mode === nextMode);
+      if (candidate) await loadSession(candidate.id);
+      else {
+        setMessage(
+          localStorage.getItem(composerDraftStorageKey(nextMode)) ?? "",
+        );
+      }
+    })();
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(PANEL_VIEW_STORAGE_KEY, view);
+  }, [view]);
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -1113,20 +1438,61 @@ export function AdminCopilotPanel({
     setSelectedCases(new Set());
     setRemediation(undefined);
     setAppliedPatchSummary(undefined);
-    setAppliedPatchRecords({});
     setAppliedProposalSummary(undefined);
     setValidationRunTracker(undefined);
+    const storedAgentId = appliedPatchAgentRef.current;
+    appliedPatchAgentRef.current = currentAgentId;
+    patchHydratingRef.current = true;
+    setAppliedPatchRecords(
+      currentAgentId
+        ? (readStorageJson<Record<string, AppliedPatchRecord>>(
+            localStorage,
+            appliedPatchStorageKey(currentAgentId),
+          ) ?? {})
+        : {},
+    );
     if (!currentAgentId) {
       setValidationHistory([]);
       return;
     }
+    if (storedAgentId !== currentAgentId) setAppliedPatchSummary(undefined);
     void loadValidationHistory(currentAgentId);
   }, [currentAgentId]);
 
   useEffect(() => {
-    if (!pendingUserMessage) return;
-    pendingMessageRef.current?.scrollIntoView({ block: "nearest" });
-  }, [pendingUserMessage, activeSession?.messages.length]);
+    if (!currentAgentId || appliedPatchAgentRef.current !== currentAgentId) {
+      return;
+    }
+    if (patchHydratingRef.current) {
+      patchHydratingRef.current = false;
+      return;
+    }
+    const key = appliedPatchStorageKey(currentAgentId);
+    if (Object.keys(appliedPatchRecords).length > 0) {
+      writeStorageJson(localStorage, key, appliedPatchRecords);
+    } else {
+      localStorage.removeItem(key);
+    }
+  }, [appliedPatchRecords, currentAgentId]);
+
+  useEffect(
+    () => () => {
+      chatAbortRef.current?.abort();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!activeSession?.messages.length && !pendingUserMessage) return;
+    if (messagesShouldStickRef.current) {
+      window.requestAnimationFrame(() => {
+        const container = messagesRef.current;
+        if (container) container.scrollTop = container.scrollHeight;
+      });
+    } else {
+      setHasNewMessages(true);
+    }
+  }, [activeSession?.messages.length, pendingUserMessage]);
 
   const loadSessions = async () => {
     try {
@@ -1143,6 +1509,15 @@ export function AdminCopilotPanel({
     try {
       const session = await getCopilotSession(id);
       setActiveSession(session);
+      localStorage.setItem(activeSessionStorageKey(session.mode), session.id);
+      setMessage(
+        localStorage.getItem(
+          composerDraftStorageKey(session.mode, session.id),
+        ) ?? "",
+      );
+      setFailedChatMessage(undefined);
+      setChatRun(undefined);
+      setHasNewMessages(false);
       setPanelError("");
       return session;
     } catch (error) {
@@ -1155,6 +1530,9 @@ export function AdminCopilotPanel({
     try {
       const session = await createCopilotSession(mode, currentAgentId);
       setActiveSession(session);
+      localStorage.setItem(activeSessionStorageKey(mode), session.id);
+      setMessage("");
+      setFailedChatMessage(undefined);
       await loadSessions();
       setPanelError("");
       return session;
@@ -1168,7 +1546,7 @@ export function AdminCopilotPanel({
     setSessionActionBusy(true);
     setPanelError("");
     try {
-      const updated = await renameCopilotSession(id, title);
+      const updated = await updateCopilotSession(id, { title });
       setSessions((current) =>
         current.map((session) =>
           session.id === id
@@ -1195,6 +1573,37 @@ export function AdminCopilotPanel({
     }
   };
 
+  const toggleSessionPinned = async (session: CopilotSessionSummary) => {
+    setSessionActionBusy(true);
+    setPanelError("");
+    try {
+      const updated = await updateCopilotSession(session.id, {
+        pinned: !session.pinned,
+      });
+      setSessions((current) =>
+        current.map((item) =>
+          item.id === session.id
+            ? {
+                ...item,
+                pinned: updated.pinned,
+                updatedAt: updated.updatedAt,
+              }
+            : item,
+        ),
+      );
+      setActiveSession((current) =>
+        current?.id === session.id
+          ? { ...current, pinned: updated.pinned, updatedAt: updated.updatedAt }
+          : current,
+      );
+      toast.success(session.pinned ? text.unpinSession : text.pinSession);
+    } catch (error) {
+      setPanelError(errorMessage(error, text.error));
+    } finally {
+      setSessionActionBusy(false);
+    }
+  };
+
   const deleteSessions = async (ids: string[]) => {
     if (ids.length === 0) return false;
     const uniqueIds = [...new Set(ids)];
@@ -1204,6 +1613,7 @@ export function AdminCopilotPanel({
       const result = await deleteCopilotSessions(uniqueIds);
       const remaining = await loadSessions();
       if (activeSession && uniqueIds.includes(activeSession.id)) {
+        localStorage.removeItem(activeSessionStorageKey(activeSession.mode));
         const replacement = remaining.find(
           (session) => session.mode === activeSession.mode,
         );
@@ -1224,14 +1634,21 @@ export function AdminCopilotPanel({
 
   const switchView = (next: PanelView) => {
     setView(next);
+    localStorage.setItem(PANEL_VIEW_STORAGE_KEY, next);
     if (next === "validate") {
       setActiveSession(undefined);
       return;
     }
     const nextMode: CopilotMode = next === "build" ? "BUILD" : "ASSIST";
-    const candidate = sessions.find((session) => session.mode === nextMode);
+    const storedId = localStorage.getItem(activeSessionStorageKey(nextMode));
+    const candidate =
+      sessions.find((session) => session.id === storedId) ??
+      sessions.find((session) => session.mode === nextMode);
     if (candidate) void loadSession(candidate.id);
-    else setActiveSession(undefined);
+    else {
+      setActiveSession(undefined);
+      setMessage(localStorage.getItem(composerDraftStorageKey(nextMode)) ?? "");
+    }
   };
 
   const currentAgentContext = useMemo(
@@ -1244,39 +1661,146 @@ export function AdminCopilotPanel({
     [currentAgentId, currentAgentName, currentAgentSnapshot],
   );
 
-  const send = async () => {
-    const content = message.trim();
+  const scrollMessagesToBottom = () => {
+    messagesShouldStickRef.current = true;
+    window.requestAnimationFrame(() => {
+      const container = messagesRef.current;
+      if (!container) return;
+      container.scrollTop = container.scrollHeight;
+      setHasNewMessages(false);
+    });
+  };
+
+  const handleMessagesScroll = () => {
+    const container = messagesRef.current;
+    if (!container) return;
+    const nearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight <
+      72;
+    messagesShouldStickRef.current = nearBottom;
+    if (nearBottom) setHasNewMessages(false);
+  };
+
+  const writeComposerDraft = (value: string, sessionId = activeSession?.id) => {
+    setMessage(value);
+    const key = composerDraftStorageKey(mode, sessionId);
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  };
+
+  const send = async (contentOverride?: string) => {
+    const content = (contentOverride ?? message).trim();
     if (!content || sending) return;
+    const container = messagesRef.current;
+    const shouldFollow =
+      !container ||
+      container.scrollHeight - container.scrollTop - container.clientHeight <
+        96;
+    writeComposerDraft("");
+    setFailedChatMessage(undefined);
+    setPendingUserMessage(content);
     setSending(true);
     setPanelError("");
-    setMessage("");
-    setPendingUserMessage(content);
+    if (shouldFollow) setHasNewMessages(false);
+
+    const abort = new AbortController();
+    chatAbortRef.current = abort;
+    let session = activeSession;
+    let streamError = "";
+    let streamCancelled = false;
     try {
-      let session = activeSession;
       if (!session || session.mode !== mode) {
         session = await startSession();
       }
       if (!session) {
-        setMessage(content);
+        writeComposerDraft(content);
         setPendingUserMessage(undefined);
         return;
       }
-      await respondCopilot(
-        session.id,
+      const sessionId = session.id;
+      setChatRun({ sessionId, canceling: false });
+      await streamCopilotResponse(
+        sessionId,
         content,
         currentAgentId,
         currentAgentContext,
+        {
+          onRunStart: (payload) =>
+            setChatRun((current) =>
+              current?.sessionId === sessionId
+                ? { ...current, runId: payload.runId }
+                : current,
+            ),
+          onPhase: (payload) =>
+            setChatRun((current) =>
+              current?.sessionId === sessionId
+                ? { ...current, phase: payload.message || payload.phase }
+                : current,
+            ),
+          onCancelled: () => {
+            streamCancelled = true;
+          },
+          onStreamError: (payload) => {
+            streamError = payload.message || text.error;
+          },
+        },
+        abort.signal,
       );
-      setPendingUserMessage(undefined);
-      await loadSession(session.id);
+      if (streamCancelled || abort.signal.aborted) {
+        writeComposerDraft(content, sessionId);
+        toast.info(text.generationCancelled);
+        return;
+      }
+      if (streamError) throw new Error(streamError);
+      await loadSession(sessionId);
       await loadSessions();
+      scrollMessagesToBottom();
+      if (!shouldFollow) setHasNewMessages(true);
+    } catch (error) {
+      if (abort.signal.aborted) {
+        writeComposerDraft(content, session?.id);
+        toast.info(text.generationCancelled);
+      } else {
+        setPanelError(errorMessage(error, text.error));
+        writeComposerDraft(content, session?.id);
+        setFailedChatMessage({
+          sessionId: session?.id,
+          content,
+        });
+      }
+    } finally {
+      setPendingUserMessage(undefined);
+      setChatRun(undefined);
+      setSending(false);
+      if (chatAbortRef.current === abort) chatAbortRef.current = undefined;
+    }
+  };
+
+  const cancelChatRun = async () => {
+    const run = chatRun;
+    if (!run || run.canceling) return;
+    setChatRun({ ...run, canceling: true });
+    try {
+      if (run.runId) await cancelCopilotResponse(run.sessionId, run.runId);
     } catch (error) {
       setPanelError(errorMessage(error, text.error));
-      setMessage(content);
-      setPendingUserMessage(undefined);
     } finally {
-      setSending(false);
+      chatAbortRef.current?.abort();
     }
+  };
+
+  const copyChatMessage = (content: string) => {
+    void navigator.clipboard.writeText(content).then(() => {
+      toast.success(text.copiedMessage);
+    });
+  };
+
+  const editAndResend = (content: string) => {
+    writeComposerDraft(content);
+    window.requestAnimationFrame(() => {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(content.length, content.length);
+    });
   };
 
   const applyProposal = async (proposal: CopilotProposal) => {
@@ -1333,7 +1857,11 @@ export function AdminCopilotPanel({
     try {
       const result = await generateAgentValidationCases(currentAgentId);
       setValidationCases(result.cases);
-      setSelectedCases(new Set());
+      setSelectedCases(
+        new Set(
+          result.cases.map((item, index) => validationCaseKey(item, index)),
+        ),
+      );
       setRemediation(undefined);
     } catch (error) {
       setPanelError(errorMessage(error, text.error));
@@ -1342,10 +1870,38 @@ export function AdminCopilotPanel({
     }
   };
 
-  const runBehaviorValidation = async () => {
+  const runValidationStep = async (
+    step: ValidationStep,
+    allowDirty = false,
+  ) => {
+    if (validationBusy) return;
+    if (agentConfigDirty && !allowDirty) {
+      if (!onSaveDraft) {
+        setPanelError(text.validationSaveFailed);
+        return;
+      }
+      const saved = await onSaveDraft();
+      if (!saved) {
+        setPanelError(text.validationSaveFailed);
+        return;
+      }
+    }
+    if (step === "static") await runStaticValidation();
+    else if (step === "cases") await generateCases();
+    else await runBehaviorValidation();
+  };
+
+  const runBehaviorValidation = async (targetCaseKeys?: string[]) => {
     if (!currentAgentId || validationBusy) return;
-    const order = [...selectedCases].sort((a, b) => a - b);
-    if (order.length === 0) return;
+    const targetKeys = new Set(targetCaseKeys ?? [...selectedCases]);
+    const selectedEntries = validationCases
+      .map((item, index) => ({
+        item: { ...item, caseId: validationCaseKey(item, index) },
+        index,
+        key: validationCaseKey(item, index),
+      }))
+      .filter((entry) => targetKeys.has(entry.key));
+    if (selectedEntries.length === 0) return;
     setValidationBusy("behavior");
     setRemediation(undefined);
     setPanelError("");
@@ -1356,17 +1912,22 @@ export function AdminCopilotPanel({
       finished: false,
       startedAt: Date.now(),
       elapsedMs: 0,
-      items: order.map((index) => ({
-        key: `run-${index}`,
+      items: selectedEntries.map(({ item, index, key }) => ({
+        key,
+        caseId: item.caseId,
         index,
-        title: validationCases[index]?.title || `#${index + 1}`,
+        title: item.title || `#${index + 1}`,
         state: "queued",
       })),
     });
 
-    const collected: AgentValidationCase[] = [];
+    const collected = new Map<string, AgentValidationCase>();
+    const orderedCaseIds = selectedEntries.map((entry) => entry.key);
     const previousIssues = validationReport?.staticIssues ?? [];
     const pushLiveReport = () => {
+      const cases = orderedCaseIds
+        .map((caseId) => collected.get(caseId))
+        .filter((item): item is AgentValidationCase => Boolean(item));
       setValidationReport({
         runId: "",
         agentId: currentAgentId,
@@ -1374,16 +1935,16 @@ export function AdminCopilotPanel({
         configHash: "",
         status: "RUNNING",
         staticIssues: previousIssues,
-        cases: [...collected],
+        cases,
         summary: {
           issueCount: previousIssues.length,
           critical: 0,
           error: 0,
           warning: 0,
           info: 0,
-          testsRun: collected.length,
-          testsPassed: collected.filter((item) => item.passed).length,
-          testsFailed: collected.filter((item) => !item.passed).length,
+          testsRun: cases.length,
+          testsPassed: cases.filter((item) => item.passed).length,
+          testsFailed: cases.filter((item) => !item.passed).length,
         },
         createdAt: new Date().toISOString(),
       });
@@ -1392,7 +1953,7 @@ export function AdminCopilotPanel({
     try {
       await streamValidateAgentBehavior(
         currentAgentId,
-        order.map((index) => validationCases[index]),
+        selectedEntries.map((entry) => entry.item),
         {
           onRunStart: (payload) =>
             setValidationRunTracker((current) =>
@@ -1401,15 +1962,21 @@ export function AdminCopilotPanel({
           onCaseStart: (payload) =>
             setValidationRunTracker((current) =>
               current
-                ? patchRunItem(current, payload.index, { state: "running" })
+                ? patchRunItem(current, payload.caseId, { state: "running" })
                 : current,
             ),
           onCaseResult: (payload) => {
-            collected[payload.index] = payload.case;
+            const caseId =
+              payload.case.caseId || orderedCaseIds[payload.index] || "";
+            if (!caseId) return;
+            collected.set(caseId, {
+              ...payload.case,
+              caseId,
+            });
             pushLiveReport();
             setValidationRunTracker((current) =>
               current
-                ? patchRunItem(current, payload.index, {
+                ? patchRunItem(current, caseId, {
                     state: payload.passed ? "passed" : "failed",
                     detail: payload.case.reason,
                   })
@@ -1477,21 +2044,48 @@ export function AdminCopilotPanel({
     }
   };
 
-  const toggleCase = (index: number) => {
+  const toggleCase = (caseId: string) => {
     setSelectedCases((current) => {
       const next = new Set(current);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
+      if (next.has(caseId)) next.delete(caseId);
+      else next.add(caseId);
       return next;
     });
   };
 
   const selectAllCases = () => {
-    setSelectedCases(new Set(validationCases.map((_, index) => index)));
+    setSelectedCases(
+      new Set(
+        validationCases.map((item, index) => validationCaseKey(item, index)),
+      ),
+    );
   };
 
   const clearSelectedCases = () => {
     setSelectedCases(new Set());
+  };
+
+  const updateValidationCase = (
+    caseId: string,
+    changes: Pick<AgentValidationCase, "input" | "expected">,
+  ) => {
+    setValidationCases((current) =>
+      current.map((item, index) =>
+        validationCaseKey(item, index) === caseId
+          ? { ...item, ...changes }
+          : item,
+      ),
+    );
+  };
+
+  const rerunFailedCases = () => {
+    const failedIds =
+      validationReport?.cases
+        .filter((item) => item.passed === false)
+        .map((item, index) => item.caseId || `index-${index}`) ?? [];
+    if (failedIds.length === 0) return;
+    setSelectedCases(new Set(failedIds));
+    void runBehaviorValidation(failedIds);
   };
 
   const applySuggestedPatch = (
@@ -1752,6 +2346,8 @@ export function AdminCopilotPanel({
             language={language}
             agentId={currentAgentId}
             agentName={currentAgentName}
+            agentVersion={currentAgentVersion}
+            dirty={agentConfigDirty}
             report={validationReport}
             cases={validationCases}
             selectedCases={selectedCases}
@@ -1764,8 +2360,10 @@ export function AdminCopilotPanel({
             onCancelRun={() => void cancelBehaviorRun()}
             onDismissRun={dismissRunTracker}
             onToggleCase={toggleCase}
+            onUpdateCase={updateValidationCase}
             onSelectAll={selectAllCases}
             onClearSelection={clearSelectedCases}
+            onRerunFailed={rerunFailedCases}
             onApplyPatch={applySuggestedPatch}
             onUndoPatch={undoSuggestedPatch}
             appliedPatchSummary={appliedPatchSummary}
@@ -1778,9 +2376,30 @@ export function AdminCopilotPanel({
             resourceLabels={resourceLabels}
             onDismissAppliedPatch={dismissAppliedPatch}
             onSaveDraft={onSaveDraft}
+            onSaveAndValidate={(step) => void runValidationStep(step)}
+            onValidateSaved={(step) => {
+              if (step === "static") void runStaticValidation();
+              else if (step === "cases") void generateCases();
+              else void runBehaviorValidation();
+            }}
           />
         ) : (
           <div className="copilot-chat">
+            <div
+              className={`copilot-context-bar ${agentConfigDirty ? "is-dirty" : ""}`}
+            >
+              <span>
+                {view === "build" ? text.contextBuild : text.contextAssist}
+              </span>
+              <strong>
+                {currentAgentId
+                  ? currentAgentName || currentAgentId
+                  : text.contextNoAgent}
+              </strong>
+              <em>
+                {agentConfigDirty ? text.contextUnsaved : text.contextSaved}
+              </em>
+            </div>
             <p className="copilot-mode-desc" aria-live="polite">
               {view === "build" ? text.modeBuildDesc : text.modeAssistDesc}
             </p>
@@ -1793,6 +2412,7 @@ export function AdminCopilotPanel({
               onSelect={(id) => void loadSession(id)}
               onNew={() => void startSession()}
               onRename={renameSession}
+              onPin={(session) => void toggleSessionPinned(session)}
               onDelete={deleteSessions}
             />
 
@@ -1824,44 +2444,125 @@ export function AdminCopilotPanel({
               />
             )}
 
-            <div className="copilot-messages" aria-live="polite">
+            <div
+              className="copilot-messages"
+              ref={messagesRef}
+              aria-live="polite"
+              aria-busy={sending}
+              onScroll={handleMessagesScroll}
+            >
               {!activeSession && visibleSessions.length === 0 && (
                 <p className="copilot-empty">{text.noSessions}</p>
               )}
-              {activeSession?.messages.map((item) => (
-                <article
-                  className={`copilot-message is-${item.role}`}
-                  key={item.id}
-                >
-                  <span className="copilot-message-role">
-                    {item.role === "assistant" ? text.title : "Admin"}
-                  </span>
-                  <p>{item.content}</p>
-                  <time>{formatDateTime(item.createdAt)}</time>
-                  {item.role === "assistant" &&
-                    (() => {
-                      const payload = parseJson<CopilotRespondResult>(
-                        item.payloadJson,
-                      );
-                      return (
-                        <AssistantDetails
-                          text={text}
-                          language={language}
-                          payload={payload}
-                          before={currentAgentSnapshot}
-                          resourceLabels={resourceLabels}
-                          onApplyPatch={(patch) =>
-                            applySuggestedPatch(patch, "assist-patch")
-                          }
-                          appliedKeys={appliedPatchKeys}
-                          canApplyPatch={Boolean(currentAgentId)}
-                        />
-                      );
-                    })()}
-                </article>
-              ))}
+              {activeSession?.messages.map((item) => {
+                const retryable =
+                  failedChatMessage?.content === item.content &&
+                  item.role === "user";
+                return (
+                  <article
+                    className={`copilot-message is-${item.role}${retryable ? " is-failed" : ""}`}
+                    key={item.id}
+                  >
+                    <span className="copilot-message-role">
+                      {item.role === "assistant" ? text.title : "Admin"}
+                    </span>
+                    {item.role === "assistant" ? (
+                      <CopilotMarkdown text={text}>
+                        {item.content}
+                      </CopilotMarkdown>
+                    ) : (
+                      <p>{item.content}</p>
+                    )}
+                    <div className="copilot-message-actions">
+                      <button
+                        type="button"
+                        onClick={() => copyChatMessage(item.content)}
+                        aria-label={text.copyMessage}
+                        title={text.copyMessage}
+                      >
+                        <Icon name="copy" size={13} />
+                        {text.copyMessage}
+                      </button>
+                      {item.role === "user" && (
+                        <>
+                          {retryable && (
+                            <button
+                              type="button"
+                              onClick={() => void send(item.content)}
+                              disabled={sending}
+                            >
+                              <Icon name="refresh" size={13} />
+                              {text.retryMessage}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => editAndResend(item.content)}
+                            disabled={sending}
+                          >
+                            <Icon name="edit" size={13} />
+                            {text.editAndResend}
+                          </button>
+                        </>
+                      )}
+                      <time>{formatDateTime(item.createdAt)}</time>
+                    </div>
+                    {item.role === "assistant" &&
+                      (() => {
+                        const payload = parseJson<CopilotRespondResult>(
+                          item.payloadJson,
+                        );
+                        const patchKey = `assist-${item.id}`;
+                        return (
+                          <AssistantDetails
+                            text={text}
+                            language={language}
+                            payload={payload}
+                            before={currentAgentSnapshot}
+                            resourceLabels={resourceLabels}
+                            patchKey={patchKey}
+                            appliedKeys={appliedPatchKeys}
+                            appliedRecord={appliedPatchRecords[patchKey]}
+                            canApplyPatch={Boolean(currentAgentId)}
+                            onApplyPatch={applySuggestedPatch}
+                            onUndoPatch={undoSuggestedPatch}
+                          />
+                        );
+                      })()}
+                  </article>
+                );
+              })}
+              {failedChatMessage &&
+                !activeSession?.messages.some(
+                  (item) =>
+                    item.role === "user" &&
+                    item.content === failedChatMessage.content,
+                ) && (
+                  <article className="copilot-message is-user is-failed">
+                    <span className="copilot-message-role">Admin</span>
+                    <p>{failedChatMessage.content}</p>
+                    <div className="copilot-message-actions">
+                      <button
+                        type="button"
+                        onClick={() => void send(failedChatMessage.content)}
+                        disabled={sending}
+                      >
+                        <Icon name="refresh" size={13} />
+                        {text.retryMessage}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => editAndResend(failedChatMessage.content)}
+                        disabled={sending}
+                      >
+                        <Icon name="edit" size={13} />
+                        {text.editAndResend}
+                      </button>
+                    </div>
+                  </article>
+                )}
               {pendingUserMessage && (
-                <div ref={pendingMessageRef}>
+                <div className="copilot-pending-turn">
                   <article className="copilot-message is-user">
                     <span className="copilot-message-role">Admin</span>
                     <p>{pendingUserMessage}</p>
@@ -1875,12 +2576,34 @@ export function AdminCopilotPanel({
                       <span aria-hidden="true" />
                       <span aria-hidden="true" />
                       <span aria-hidden="true" />
-                      {text.thinking}
+                      {chatRun?.phase || text.thinking}
                     </p>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => void cancelChatRun()}
+                      disabled={chatRun?.canceling}
+                    >
+                      <Icon name="pause" size={13} />
+                      {chatRun?.canceling
+                        ? text.cancelingGeneration
+                        : text.cancelGeneration}
+                    </button>
                   </article>
                 </div>
               )}
             </div>
+
+            {hasNewMessages && (
+              <button
+                type="button"
+                className="copilot-new-messages"
+                onClick={scrollMessagesToBottom}
+              >
+                <Icon name="chevron-down" size={14} />
+                {text.newMessages}
+              </button>
+            )}
 
             {view === "build" && latestAssistantPayload && (
               <p className="copilot-phase-note">
@@ -1943,8 +2666,9 @@ export function AdminCopilotPanel({
               </label>
               <textarea
                 id="admin-copilot-message"
+                ref={composerRef}
                 value={message}
-                onChange={(event) => setMessage(event.target.value)}
+                onChange={(event) => writeComposerDraft(event.target.value)}
                 placeholder={text.inputPlaceholder}
                 rows={4}
                 maxLength={16000}
@@ -1963,13 +2687,27 @@ export function AdminCopilotPanel({
                 }}
               />
               <p className="copilot-input-hint">{text.inputHint}</p>
-              <button
-                type="button"
-                onClick={() => void send()}
-                disabled={sending || !message.trim()}
-              >
-                {text.send}
-              </button>
+              {sending ? (
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void cancelChatRun()}
+                  disabled={chatRun?.canceling}
+                >
+                  <Icon name="pause" size={14} />
+                  {chatRun?.canceling
+                    ? text.cancelingGeneration
+                    : text.cancelGeneration}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  disabled={!message.trim()}
+                >
+                  {text.send}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1989,6 +2727,7 @@ function SessionHistoryPicker({
   onSelect,
   onNew,
   onRename,
+  onPin,
   onDelete,
 }: {
   text: (typeof copy)[Language];
@@ -1999,6 +2738,7 @@ function SessionHistoryPicker({
   onSelect: (id: string) => void;
   onNew: () => void;
   onRename: (id: string, title: string) => Promise<boolean>;
+  onPin: (session: CopilotSessionSummary) => void;
   onDelete: (ids: string[]) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
@@ -2006,30 +2746,39 @@ function SessionHistoryPicker({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [renamingId, setRenamingId] = useState<string>();
   const [renameValue, setRenameValue] = useState("");
+  const [query, setQuery] = useState("");
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   const orderedSessions = useMemo(
     () =>
       [...sessions].sort(
-        (left, right) =>
-          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+        (left, right) => sessionSortValue(right) - sessionSortValue(left),
       ),
     [sessions],
   );
+  const filteredSessions = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return orderedSessions;
+    return orderedSessions.filter((session) =>
+      [session.title, session.lastMessagePreview ?? ""].some((value) =>
+        value.toLocaleLowerCase().includes(normalized),
+      ),
+    );
+  }, [orderedSessions, query]);
   const visibleSessions = expanded
-    ? orderedSessions
-    : orderedSessions.slice(0, RECENT_SESSION_LIMIT);
+    ? filteredSessions
+    : filteredSessions.slice(0, RECENT_SESSION_LIMIT);
   const hiddenSessionCount = Math.max(
     0,
-    orderedSessions.length - RECENT_SESSION_LIMIT,
+    filteredSessions.length - RECENT_SESSION_LIMIT,
   );
-  const activeSession = orderedSessions.find(
-    (session) => session.id === activeSessionId,
-  );
+  const activeSession =
+    filteredSessions.find((session) => session.id === activeSessionId) ??
+    orderedSessions.find((session) => session.id === activeSessionId);
   const allSessionsSelected =
-    orderedSessions.length > 0 &&
-    orderedSessions.every((session) => selectedIds.has(session.id));
+    filteredSessions.length > 0 &&
+    filteredSessions.every((session) => selectedIds.has(session.id));
 
   useEffect(() => {
     if (!open) return;
@@ -2077,7 +2826,7 @@ function SessionHistoryPicker({
     setSelectedIds(
       allSessionsSelected
         ? new Set()
-        : new Set(orderedSessions.map((session) => session.id)),
+        : new Set(filteredSessions.map((session) => session.id)),
     );
   };
 
@@ -2202,8 +2951,21 @@ function SessionHistoryPicker({
                   </div>
                 </div>
 
+                <label className="copilot-history-search">
+                  <Icon name="search" size={14} />
+                  <input
+                    type="search"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={text.searchSessions}
+                    aria-label={text.searchSessions}
+                  />
+                </label>
+
                 {visibleSessions.length === 0 ? (
-                  <p className="copilot-history-empty">{text.noSessions}</p>
+                  <p className="copilot-history-empty">
+                    {query.trim() ? text.noMatchingSessions : text.noSessions}
+                  </p>
                 ) : (
                   <div className="copilot-history-list">
                     {visibleSessions.map((session) => (
@@ -2278,7 +3040,34 @@ function SessionHistoryPicker({
                               disabled={busy}
                             >
                               <span title={session.title}>{session.title}</span>
+                              <small>
+                                {text.lastMessage}:{" "}
+                                {session.lastMessagePreview || text.noSessions}
+                              </small>
                               <time>{formatDateTime(session.updatedAt)}</time>
+                            </button>
+                            <button
+                              type="button"
+                              className={
+                                session.pinned
+                                  ? "copilot-history-icon is-pinned"
+                                  : "copilot-history-icon"
+                              }
+                              onClick={() => onPin(session)}
+                              aria-label={
+                                session.pinned
+                                  ? text.unpinSession
+                                  : text.pinSession
+                              }
+                              title={
+                                session.pinned
+                                  ? text.unpinSession
+                                  : text.pinSession
+                              }
+                              aria-pressed={Boolean(session.pinned)}
+                              disabled={busy}
+                            >
+                              <Icon name="star" size={14} />
                             </button>
                             <button
                               type="button"
@@ -2347,28 +3136,36 @@ function AssistantDetails({
   payload,
   before,
   resourceLabels,
+  patchKey,
   onApplyPatch,
+  onUndoPatch,
   canApplyPatch,
   appliedKeys,
+  appliedRecord,
 }: {
   text: (typeof copy)[Language];
   language: Language;
   payload?: CopilotRespondResult;
   before?: Record<string, unknown>;
   resourceLabels?: Record<string, string>;
+  patchKey: string;
   onApplyPatch: (patch?: Record<string, unknown>, key?: string) => void;
+  onUndoPatch: (key: string) => void;
   canApplyPatch: boolean;
   appliedKeys: Set<string>;
+  appliedRecord?: AppliedPatchRecord;
 }) {
   if (!payload) return null;
   const questions = payload.questions ?? [];
   const changes = payload.patch?.changes;
   const hasChanges = changes && Object.keys(changes).length > 0;
-  const changeEntries = hasChanges
-    ? Object.entries(changes as Record<string, unknown>).filter(
-        ([field]) => field !== "agentId",
+  const effectiveChanges = hasChanges
+    ? Object.fromEntries(
+        Object.entries(changes as Record<string, unknown>).filter(
+          ([field]) => field !== "agentId",
+        ),
       )
-    : [];
+    : undefined;
   return (
     <div className="copilot-assistant-details">
       {questions.length > 0 && (
@@ -2380,55 +3177,24 @@ function AssistantDetails({
           ))}
         </ol>
       )}
-      {hasChanges && (
-        <div className="copilot-patch">
-          <div className="copilot-patch-title">
-            <strong>{text.applyPatch}</strong>
-            <button
-              type="button"
-              onClick={() => onApplyPatch(changes, "assist-patch")}
-              disabled={!canApplyPatch || appliedKeys.has("assist-patch")}
-            >
-              <Icon name="edit" size={14} />
-              {appliedKeys.has("assist-patch") ? text.applied : text.applyPatch}
-            </button>
-          </div>
-          <ul className="copilot-applied-list copilot-patch-diff">
-            {changeEntries.map(([field, value]) => (
-              <li key={field}>
-                <span className="copilot-applied-field">
-                  {FIELD_LABELS[field]?.[language] ?? field}
-                </span>
-                <div className="copilot-applied-diff">
-                  <div className="copilot-applied-side">
-                    <span className="copilot-applied-tag">{text.before}</span>
-                    <PatchValue
-                      field={field}
-                      value={before?.[field]}
-                      labels={resourceLabels}
-                    />
-                  </div>
-                  <Icon
-                    name="chevron-right"
-                    size={13}
-                    className="copilot-applied-arrow"
-                  />
-                  <div className="copilot-applied-side is-after">
-                    <span className="copilot-applied-tag">{text.after}</span>
-                    <PatchValue
-                      field={field}
-                      value={value}
-                      labels={resourceLabels}
-                      highlight
-                    />
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-          {!canApplyPatch && <p>{text.noCurrentAgent}</p>}
-        </div>
+      {effectiveChanges && Object.keys(effectiveChanges).length > 0 && (
+        <SuggestedPatchPreview
+          text={text}
+          language={language}
+          title={text.applyPatch}
+          patch={effectiveChanges}
+          before={before ?? {}}
+          labels={resourceLabels}
+          applied={appliedKeys.has(patchKey)}
+          canApply={canApplyPatch}
+          canUndo={
+            appliedRecord ? canUndoPatch(appliedRecord, before ?? {}) : true
+          }
+          onApply={(patch) => onApplyPatch(patch, patchKey)}
+          onUndo={() => onUndoPatch(patchKey)}
+        />
       )}
+      {!canApplyPatch && hasChanges && <p>{text.noCurrentAgent}</p>}
     </div>
   );
 }
@@ -2509,7 +3275,9 @@ function RunProgressPanel({
     : text.runStep
         .replace(
           "{current}",
-          String(Math.min(settled + (running ? 1 : 0), total)),
+          String(
+            Math.min(settled + (running || tracker.active ? 1 : 0), total),
+          ),
         )
         .replace("{total}", String(total));
 
@@ -2602,6 +3370,8 @@ function ValidationView({
   language,
   agentId,
   agentName,
+  agentVersion,
+  dirty,
   report,
   cases,
   selectedCases,
@@ -2614,8 +3384,10 @@ function ValidationView({
   onCancelRun,
   onDismissRun,
   onToggleCase,
+  onUpdateCase,
   onSelectAll,
   onClearSelection,
+  onRerunFailed,
   onApplyPatch,
   onUndoPatch,
   appliedPatchSummary,
@@ -2628,14 +3400,18 @@ function ValidationView({
   resourceLabels,
   onDismissAppliedPatch,
   onSaveDraft,
+  onSaveAndValidate,
+  onValidateSaved,
 }: {
   text: (typeof copy)[Language];
   language: Language;
   agentId?: string;
   agentName?: string;
+  agentVersion?: number;
+  dirty: boolean;
   report?: AgentValidationReport;
   cases: AgentValidationCase[];
-  selectedCases: Set<number>;
+  selectedCases: Set<string>;
   busy?: "static" | "cases" | "behavior";
   history: AgentValidationHistoryItem[];
   runTracker?: ValidationRunTracker;
@@ -2644,9 +3420,14 @@ function ValidationView({
   onRun: () => void;
   onCancelRun: () => void;
   onDismissRun: () => void;
-  onToggleCase: (index: number) => void;
+  onToggleCase: (caseId: string) => void;
+  onUpdateCase: (
+    caseId: string,
+    changes: Pick<AgentValidationCase, "input" | "expected">,
+  ) => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
+  onRerunFailed: () => void;
   onApplyPatch: (patch?: Record<string, unknown>, key?: string) => void;
   onUndoPatch: (key: string) => void;
   appliedPatchSummary?: {
@@ -2663,18 +3444,157 @@ function ValidationView({
   resourceLabels?: Record<string, string>;
   onDismissAppliedPatch: () => void;
   onSaveDraft?: () => void;
+  onSaveAndValidate: (step: ValidationStep) => void;
+  onValidateSaved: (step: ValidationStep) => void;
 }) {
+  const [section, setSection] = useState<ValidationSection>("issues");
+  const [caseFilter, setCaseFilter] = useState<ValidationCaseFilter>("all");
+  const [expandedCaseIds, setExpandedCaseIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [pendingStep, setPendingStep] = useState<ValidationStep>();
   const [expandedHistoryId, setExpandedHistoryId] = useState<string>();
+  useEffect(() => {
+    const failedIds =
+      report?.cases
+        ?.filter((item) => item.passed === false)
+        .map((item, index) => item.caseId || `index-${index}`) ?? [];
+    setExpandedCaseIds(new Set(failedIds));
+    setCaseFilter(failedIds.length > 0 ? "failed" : "all");
+  }, [report?.runId]);
+  const resultByCaseId = useMemo(
+    () =>
+      new Map(
+        (report?.cases ?? []).map((item, index) => [
+          item.caseId || `index-${index}`,
+          item,
+        ]),
+      ),
+    [report?.cases],
+  );
+  const caseEntries = useMemo(
+    () =>
+      cases.map((item, index) => {
+        const caseId = validationCaseKey(item, index);
+        return {
+          item,
+          index,
+          caseId,
+          result: resultByCaseId.get(caseId),
+        };
+      }),
+    [cases, resultByCaseId],
+  );
+  const filteredCaseEntries = caseEntries.filter(({ result }) => {
+    if (caseFilter === "failed") return result?.passed === false;
+    if (caseFilter === "passed") return result?.passed === true;
+    return true;
+  });
+  const allCasesSelected =
+    cases.length > 0 && selectedCases.size === cases.length;
+  const requestStep = (step: ValidationStep) => {
+    if (dirty) {
+      setPendingStep(step);
+      return;
+    }
+    if (step === "static") onStatic();
+    else if (step === "cases") onGenerate();
+    else onRun();
+  };
   if (!agentId) {
     return <p className="copilot-empty">{text.validateNoAgent}</p>;
   }
   return (
     <div className="copilot-validation">
       <div className="copilot-validation-agent">
-        <span>{text.validationAgent}</span>
-        <strong>{agentName || agentId}</strong>
+        <div>
+          <span>{text.validationAgent}</span>
+          <strong>{agentName || agentId}</strong>
+        </div>
+        <em className={dirty ? "is-dirty" : undefined}>
+          {dirty
+            ? agentVersion
+              ? text.validationDraftVersion.replace(
+                  "{version}",
+                  String(agentVersion),
+                )
+              : text.contextUnsaved
+            : agentVersion
+              ? text.validationSavedVersion.replace(
+                  "{version}",
+                  String(agentVersion),
+                )
+              : text.contextSaved}
+        </em>
         <code>{agentId}</code>
       </div>
+
+      <nav className="copilot-validation-tabs" aria-label={text.validate}>
+        {(
+          [
+            ["issues", text.validationIssues],
+            ["cases", text.validationCases],
+            ["remediation", text.validationRemediation],
+            ["history", text.validationHistory],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            type="button"
+            className={section === key ? "active" : undefined}
+            aria-current={section === key ? "step" : undefined}
+            onClick={() => setSection(key)}
+            key={key}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {pendingStep && (
+        <section className="copilot-validation-dirty" role="alert">
+          <div>
+            <strong>{text.validationDirtyTitle}</strong>
+            <p>
+              {text.validationDirtyDesc}{" "}
+              {pendingStep === "static"
+                ? text.staticCheck
+                : pendingStep === "behavior"
+                  ? text.runSelected
+                  : text.generateCases}
+            </p>
+          </div>
+          <div>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setPendingStep(undefined)}
+            >
+              {text.cancel}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                const step = pendingStep;
+                setPendingStep(undefined);
+                onValidateSaved(step);
+              }}
+            >
+              {text.validateSavedVersion}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const step = pendingStep;
+                setPendingStep(undefined);
+                onSaveAndValidate(step);
+              }}
+            >
+              {text.saveAndValidate}
+            </button>
+          </div>
+        </section>
+      )}
 
       <p className="copilot-validation-guide">{text.validateGuide}</p>
 
@@ -2710,7 +3630,7 @@ function ValidationView({
         <button
           type="button"
           className="secondary"
-          onClick={onStatic}
+          onClick={() => requestStep("static")}
           disabled={Boolean(busy)}
         >
           <Icon name="check" size={14} />
@@ -2719,7 +3639,7 @@ function ValidationView({
         <button
           type="button"
           className="secondary"
-          onClick={onGenerate}
+          onClick={() => requestStep("cases")}
           disabled={Boolean(busy)}
         >
           <Icon name="sparkle" size={14} />
@@ -2727,7 +3647,7 @@ function ValidationView({
         </button>
         <button
           type="button"
-          onClick={onRun}
+          onClick={() => requestStep("behavior")}
           disabled={Boolean(busy) || selectedCases.size === 0}
           title={
             selectedCases.size === 0 && !busy ? text.runDisabledHint : undefined
@@ -2736,6 +3656,17 @@ function ValidationView({
           <Icon name="play" size={14} />
           {busy === "behavior" ? text.running : text.runSelected}
         </button>
+        {report && report.summary.testsFailed > 0 && (
+          <button
+            type="button"
+            className="secondary"
+            onClick={onRerunFailed}
+            disabled={Boolean(busy)}
+          >
+            <Icon name="refresh" size={14} />
+            {text.runFailedCases}
+          </button>
+        )}
       </div>
 
       {runTracker && (
@@ -2747,7 +3678,7 @@ function ValidationView({
         />
       )}
 
-      {report && (
+      {section === "issues" && report && (
         <section className="copilot-validation-section">
           <div className="copilot-section-heading">
             <h3>{text.staticCheck}</h3>
@@ -2788,7 +3719,7 @@ function ValidationView({
                             : true
                         }
                         canApply={Boolean(agentId)}
-                        onApply={() => onApplyPatch(issue.patch, issueKey)}
+                        onApply={(patch) => onApplyPatch(patch, issueKey)}
                         onUndo={() => onUndoPatch(issueKey)}
                       />
                     );
@@ -2799,235 +3730,326 @@ function ValidationView({
         </section>
       )}
 
-      <section className="copilot-validation-section">
-        <div className="copilot-section-heading copilot-case-heading">
-          <h3>{text.generateCases}</h3>
-          <div className="copilot-case-controls">
-            <span>
-              {text.selectedCount.replace(
-                "{count}",
-                String(selectedCases.size),
-              )}
-            </span>
-            <button
-              type="button"
-              className="secondary"
-              onClick={onSelectAll}
-              disabled={
-                Boolean(busy) ||
-                cases.length === 0 ||
-                selectedCases.size === cases.length
-              }
-            >
-              {text.selectAll}
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={onClearSelection}
-              disabled={Boolean(busy) || selectedCases.size === 0}
-            >
-              {text.clearSelection}
-            </button>
-          </div>
-        </div>
-        {cases.length === 0 ? (
-          <p className="copilot-empty">{text.noCases}</p>
-        ) : (
-          <div className="copilot-case-list">
-            {cases.map((item, index) => {
-              const result = report?.cases?.find(
-                (candidate) =>
-                  candidate.title === item.title &&
-                  candidate.input === item.input,
-              );
-              return (
-                <article
-                  className={
-                    result
-                      ? `copilot-case ${result.passed ? "is-pass" : "is-fail"}`
-                      : "copilot-case"
-                  }
-                  key={`${item.title}-${index}`}
-                >
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={selectedCases.has(index)}
-                      onChange={() => onToggleCase(index)}
-                    />
-                    <span>
-                      <strong>{item.title}</strong>
-                      <small>
-                        {text.input}: {item.input}
-                      </small>
-                    </span>
-                  </label>
-                  <p>
-                    <b>{text.expected}:</b> {item.expected}
-                  </p>
-                  {result && (
-                    <>
-                      <span
-                        className={
-                          result.passed
-                            ? "copilot-result is-pass"
-                            : "copilot-result is-fail"
-                        }
-                      >
-                        <Icon
-                          name={result.passed ? "check" : "close"}
-                          size={14}
-                        />
-                        {result.passed ? text.pass : text.fail}
-                      </span>
-                      <div className="copilot-case-output">
-                        <b>{text.actualResponse}</b>
-                        <pre>{result.actualResponse || "-"}</pre>
-                      </div>
-                      {result.reason && (
-                        <p>
-                          <b>{text.reason}:</b> {result.reason}
-                        </p>
-                      )}
-                      {result.suggestedPatch &&
-                        Object.keys(result.suggestedPatch).length > 0 &&
-                        (() => {
-                          const caseKey = `case-${index}`;
-                          const caseRecord = appliedPatchRecords[caseKey];
-                          return (
-                            <SuggestedPatchPreview
-                              text={text}
-                              language={language}
-                              title={text.scenarioSuggestion}
-                              description={result.reason}
-                              patch={result.suggestedPatch}
-                              before={currentAgentSnapshot}
-                              labels={resourceLabels}
-                              applied={appliedPatchKeys.has(caseKey)}
-                              canUndo={
-                                caseRecord
-                                  ? canUndoPatch(
-                                      caseRecord,
-                                      currentAgentSnapshot,
-                                    )
-                                  : true
-                              }
-                              canApply={Boolean(agentId)}
-                              onApply={() =>
-                                onApplyPatch(result.suggestedPatch, caseKey)
-                              }
-                              onUndo={() => onUndoPatch(caseKey)}
-                            />
-                          );
-                        })()}
-                    </>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {report && report.summary.testsFailed > 0 && (
+      {section === "cases" && (
         <section className="copilot-validation-section">
-          <div className="copilot-section-heading">
-            <h3>{text.remediationTitle}</h3>
-            <span>
-              {text.remediationSource.replace(
-                "{count}",
-                String(report.summary.testsFailed),
-              )}
-            </span>
+          <div className="copilot-section-heading copilot-case-heading">
+            <h3>{text.generateCases}</h3>
+            <div className="copilot-case-controls">
+              <span>
+                {text.selectedCount.replace(
+                  "{count}",
+                  String(selectedCases.size),
+                )}
+              </span>
+              <div
+                className="copilot-case-filter"
+                role="group"
+                aria-label={text.validationCases}
+              >
+                {(
+                  [
+                    ["all", text.filterAll],
+                    ["failed", text.filterFailed],
+                    ["passed", text.filterPassed],
+                  ] as const
+                ).map(([filter, label]) => (
+                  <button
+                    type="button"
+                    className={caseFilter === filter ? "active" : undefined}
+                    aria-pressed={caseFilter === filter}
+                    onClick={() => setCaseFilter(filter)}
+                    key={filter}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                onClick={onSelectAll}
+                disabled={
+                  Boolean(busy) || cases.length === 0 || allCasesSelected
+                }
+              >
+                {text.selectAll}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={onClearSelection}
+                disabled={Boolean(busy) || selectedCases.size === 0}
+              >
+                {text.clearSelection}
+              </button>
+            </div>
           </div>
-          <p className="copilot-remediation-guide">
-            {text.remediationGuide.replace(
-              "{count}",
-              String(report.summary.testsFailed),
-            )}
-          </p>
-          <button
-            type="button"
-            className="secondary"
-            onClick={onGenerateRemediation}
-            disabled={remediationBusy}
-          >
-            <Icon name="sparkle" size={14} />
-            {remediationBusy
-              ? text.generatingRemediation
-              : text.generateRemediation}
-          </button>
-          {remediation && (
-            <SuggestedPatchPreview
-              text={text}
-              language={language}
-              title={text.remediationTitle}
-              description={remediation.summary}
-              patch={remediation.patch}
-              before={currentAgentSnapshot}
-              labels={resourceLabels}
-              applied={appliedPatchKeys.has("remediation")}
-              canUndo={
-                appliedPatchRecords.remediation
-                  ? canUndoPatch(
-                      appliedPatchRecords.remediation,
-                      currentAgentSnapshot,
-                    )
-                  : true
-              }
-              canApply={Boolean(agentId)}
-              onApply={() => onApplyPatch(remediation.patch, "remediation")}
-              onUndo={() => onUndoPatch("remediation")}
-            />
+          {cases.length === 0 ? (
+            <p className="copilot-empty">{text.noCases}</p>
+          ) : filteredCaseEntries.length === 0 ? (
+            <p className="copilot-empty">{text.noCases}</p>
+          ) : (
+            <div className="copilot-case-list">
+              {filteredCaseEntries.map(({ item, caseId, result }) => {
+                const expanded = expandedCaseIds.has(caseId);
+                const casePatchKey = `case-${caseId}`;
+                const caseRecord = appliedPatchRecords[casePatchKey];
+                return (
+                  <article
+                    className={
+                      result
+                        ? `copilot-case ${result.passed ? "is-pass" : "is-fail"}`
+                        : "copilot-case"
+                    }
+                    key={caseId}
+                  >
+                    <div className="copilot-case-head">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={selectedCases.has(caseId)}
+                          onChange={() => onToggleCase(caseId)}
+                        />
+                        <span>
+                          <strong>{item.title}</strong>
+                          <small>
+                            {text.input}: {item.input}
+                          </small>
+                        </span>
+                      </label>
+                      <div>
+                        {result && (
+                          <span
+                            className={
+                              result.passed
+                                ? "copilot-result is-pass"
+                                : "copilot-result is-fail"
+                            }
+                          >
+                            <Icon
+                              name={result.passed ? "check" : "close"}
+                              size={14}
+                            />
+                            {result.passed ? text.pass : text.fail}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          className="copilot-case-toggle"
+                          aria-expanded={expanded}
+                          onClick={() =>
+                            setExpandedCaseIds((current) => {
+                              const next = new Set(current);
+                              if (next.has(caseId)) next.delete(caseId);
+                              else next.add(caseId);
+                              return next;
+                            })
+                          }
+                        >
+                          <Icon name="chevron-down" size={14} />
+                          {expanded ? text.collapseCase : text.expandCase}
+                        </button>
+                      </div>
+                    </div>
+                    {expanded && (
+                      <div className="copilot-case-details">
+                        <div className="copilot-case-editor">
+                          <label>
+                            <span>{text.editCaseInput}</span>
+                            <textarea
+                              value={item.input}
+                              rows={3}
+                              onChange={(event) =>
+                                onUpdateCase(caseId, {
+                                  input: event.target.value,
+                                  expected: item.expected,
+                                })
+                              }
+                            />
+                          </label>
+                          <label>
+                            <span>{text.editCaseExpected}</span>
+                            <textarea
+                              value={item.expected}
+                              rows={3}
+                              onChange={(event) =>
+                                onUpdateCase(caseId, {
+                                  input: item.input,
+                                  expected: event.target.value,
+                                })
+                              }
+                            />
+                          </label>
+                        </div>
+                        {result && (
+                          <>
+                            <div className="copilot-case-output">
+                              <b>{text.actualResponse}</b>
+                              <pre>{result.actualResponse || "-"}</pre>
+                            </div>
+                            {result.reason && (
+                              <p>
+                                <b>{text.reason}:</b> {result.reason}
+                              </p>
+                            )}
+                            {result.suggestedPatch &&
+                              Object.keys(result.suggestedPatch).length > 0 && (
+                                <SuggestedPatchPreview
+                                  text={text}
+                                  language={language}
+                                  title={text.scenarioSuggestion}
+                                  description={result.reason}
+                                  patch={result.suggestedPatch}
+                                  before={currentAgentSnapshot}
+                                  labels={resourceLabels}
+                                  applied={appliedPatchKeys.has(casePatchKey)}
+                                  canUndo={
+                                    caseRecord
+                                      ? canUndoPatch(
+                                          caseRecord,
+                                          currentAgentSnapshot,
+                                        )
+                                      : true
+                                  }
+                                  canApply={Boolean(agentId)}
+                                  onApply={(patch) =>
+                                    onApplyPatch(patch, casePatchKey)
+                                  }
+                                  onUndo={() => onUndoPatch(casePatchKey)}
+                                />
+                              )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
           )}
         </section>
       )}
 
-      <section className="copilot-validation-section">
-        <div className="copilot-section-heading">
-          <h3>{text.historyTitle}</h3>
-        </div>
-        {history.length === 0 ? (
-          <p className="copilot-empty">{text.emptyHistory}</p>
-        ) : (
-          <ul className="copilot-history">
-            {history.map((item) => {
-              const expanded = expandedHistoryId === item.id;
-              const report = parseJson<AgentValidationReport>(item.reportJson);
-              return (
-                <li className={expanded ? "is-open" : undefined} key={item.id}>
-                  <button
-                    type="button"
-                    className="copilot-history-row"
-                    aria-expanded={expanded}
-                    onClick={() =>
-                      setExpandedHistoryId(expanded ? undefined : item.id)
-                    }
-                    title={expanded ? text.historyHide : text.historyShow}
-                  >
-                    <span>{text.status}</span>
-                    <strong>{historyStatusLabel(item.status, text)}</strong>
-                    <span className="copilot-history-row-meta">
-                      {report &&
-                        `${report.summary.testsPassed}/${report.summary.testsRun}`}
-                      <time>{formatDateTime(item.createdAt)}</time>
-                    </span>
-                    <Icon name="chevron-down" size={15} />
-                  </button>
-                  {expanded && (
-                    <ValidationHistoryDetails
-                      text={text}
-                      language={language}
-                      item={item}
-                    />
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+      {section === "remediation" &&
+        report &&
+        report.summary.testsFailed > 0 && (
+          <section className="copilot-validation-section">
+            <div className="copilot-section-heading">
+              <h3>{text.remediationTitle}</h3>
+              <span>
+                {text.remediationSource.replace(
+                  "{count}",
+                  String(report.summary.testsFailed),
+                )}
+              </span>
+            </div>
+            <p className="copilot-remediation-guide">
+              {text.remediationGuide.replace(
+                "{count}",
+                String(report.summary.testsFailed),
+              )}
+            </p>
+            <button
+              type="button"
+              className="secondary"
+              onClick={onGenerateRemediation}
+              disabled={remediationBusy}
+            >
+              <Icon name="sparkle" size={14} />
+              {remediationBusy
+                ? text.generatingRemediation
+                : text.generateRemediation}
+            </button>
+            {remediation && (
+              <SuggestedPatchPreview
+                text={text}
+                language={language}
+                title={text.remediationTitle}
+                description={remediation.summary}
+                patch={remediation.patch}
+                before={currentAgentSnapshot}
+                labels={resourceLabels}
+                applied={appliedPatchKeys.has("remediation")}
+                canUndo={
+                  appliedPatchRecords.remediation
+                    ? canUndoPatch(
+                        appliedPatchRecords.remediation,
+                        currentAgentSnapshot,
+                      )
+                    : true
+                }
+                canApply={Boolean(agentId)}
+                onApply={(patch) => onApplyPatch(patch, "remediation")}
+                onUndo={() => onUndoPatch("remediation")}
+              />
+            )}
+          </section>
         )}
-      </section>
+
+      {section === "history" && (
+        <section className="copilot-validation-section">
+          <div className="copilot-section-heading">
+            <h3>{text.historyTitle}</h3>
+          </div>
+          {history.length === 0 ? (
+            <p className="copilot-empty">{text.emptyHistory}</p>
+          ) : (
+            <ul className="copilot-history">
+              {history.map((item) => {
+                const expanded = expandedHistoryId === item.id;
+                const report = parseJson<AgentValidationReport>(
+                  item.reportJson,
+                );
+                const reportCases = Array.isArray(report?.cases)
+                  ? report.cases
+                  : [];
+                const passedCount =
+                  report?.summary?.testsPassed ??
+                  reportCases.filter((entry) => entry.passed).length;
+                const totalCount =
+                  report?.summary?.testsRun ?? reportCases.length;
+                return (
+                  <li
+                    className={expanded ? "is-open" : undefined}
+                    key={item.id}
+                  >
+                    <button
+                      type="button"
+                      className="copilot-history-row"
+                      aria-expanded={expanded}
+                      onClick={() =>
+                        setExpandedHistoryId(expanded ? undefined : item.id)
+                      }
+                      title={expanded ? text.historyHide : text.historyShow}
+                    >
+                      <span>{text.status}</span>
+                      <strong>{historyStatusLabel(item.status, text)}</strong>
+                      <span className="copilot-history-row-meta">
+                        {report && `${passedCount}/${totalCount}`}
+                        <time>{formatDateTime(item.createdAt)}</time>
+                      </span>
+                      <Icon name="chevron-down" size={15} />
+                    </button>
+                    {expanded && (
+                      <ValidationHistoryDetails
+                        text={text}
+                        language={language}
+                        item={item}
+                        onExport={() =>
+                          downloadJson(
+                            `agent-validation-${agentId}-${item.id}.json`,
+                            report ?? item,
+                          )
+                        }
+                      />
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
     </div>
   );
 }

@@ -3656,6 +3656,7 @@ function AdminApp({
             language={language}
             currentAgentId={agentConfigId}
             currentAgentName={agentDisplayName}
+            currentAgentVersion={configuredAgent?.publishedVersion}
             currentAgentSnapshot={copilotAgentSnapshot}
             onClose={() => setCopilotOpen(false)}
             onApplyPatch={applyCopilotPatch}
@@ -3663,7 +3664,8 @@ function AdminApp({
               void handleCopilotAppliedAgent(agentId);
             }}
             onResourcesChanged={refreshCopilotResources}
-            onSaveDraft={() => void saveAgentDraft()}
+            agentConfigDirty={agentConfigDirty}
+            onSaveDraft={async () => Boolean(await saveAgentDraft())}
             onPublishDraft={() => void saveAndPublishAgent()}
           />
         )}

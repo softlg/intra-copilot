@@ -1,11 +1,11 @@
 package com.intra.copilot.web;
 
-import com.intra.copilot.model.AdminCopilotSession;
 import com.intra.copilot.service.AdminCopilotService;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/api/v1/admin/copilot")
@@ -17,7 +17,7 @@ public class AdminCopilotController {
     }
 
     @GetMapping("/sessions")
-    public List<AdminCopilotSession> sessions() {
+    public List<Map<String, Object>> sessions() {
         return copilot.listSessions();
     }
 
@@ -42,6 +42,18 @@ public class AdminCopilotController {
         return copilot.respond(id, request);
     }
 
+    @PostMapping("/sessions/{id}/respond/stream")
+    public SseEmitter streamRespond(
+            @PathVariable String id, @RequestBody AdminCopilotService.RespondRequest request) {
+        return copilot.streamRespond(id, request);
+    }
+
+    @PostMapping("/sessions/{id}/respond/{runId}/cancel")
+    public Map<String, Object> cancelRespond(
+            @PathVariable String id, @PathVariable String runId) {
+        return copilot.cancelRespond(runId);
+    }
+
     @PostMapping("/sessions/{id}/cancel")
     public Map<String, Object> cancel(@PathVariable String id) {
         return copilot.cancel(id);
@@ -50,7 +62,10 @@ public class AdminCopilotController {
     @PatchMapping("/sessions/{id}")
     public Map<String, Object> rename(
             @PathVariable String id, @RequestBody RenameSessionRequest request) {
-        return copilot.renameSession(id, request == null ? null : request.title());
+        return copilot.updateSession(
+                id,
+                request == null ? null : request.title(),
+                request == null ? null : request.pinned());
     }
 
     @PostMapping("/sessions/delete")
@@ -65,7 +80,11 @@ public class AdminCopilotController {
 
     public record CreateSessionRequest(String mode, String title, String currentAgentId) {}
 
-    public record RenameSessionRequest(String title) {}
+    public record RenameSessionRequest(String title, Boolean pinned) {
+        public RenameSessionRequest(String title) {
+            this(title, null);
+        }
+    }
 
     public record DeleteSessionsRequest(List<String> ids) {}
 }

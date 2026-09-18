@@ -13,6 +13,7 @@ public class AdminCopilotSession {
     private String mode;
     private String status = "ACTIVE";
     private String currentAgentId;
+    private boolean pinned;
     private String stateJson = "{}";
     private Instant createdAt = Instant.now();
     private Instant updatedAt = Instant.now();
@@ -63,6 +64,14 @@ public class AdminCopilotSession {
 
     public void setCurrentAgentId(String value) {
         currentAgentId = value;
+    }
+
+    public boolean isPinned() {
+        return pinned;
+    }
+
+    public void setPinned(boolean value) {
+        pinned = value;
     }
 
     public String getStateJson() {

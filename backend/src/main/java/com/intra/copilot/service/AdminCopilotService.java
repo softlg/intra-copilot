@@ -20,7 +20,9 @@ import com.intra.copilot.repo.AdminCopilotSessionRepository;
 import com.intra.copilot.repo.KnowledgeBaseRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
+import com.intra.copilot.service.auth.RequestContext;
 import com.intra.copilot.util.EntityIdGenerator;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,9 +34,20 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
+import java.util.function.BiConsumer;
+import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
 
 /** Stateful management-console assistant with explicit proposal generation and application. */
 @Service
@@ -42,6 +55,9 @@ public class AdminCopilotService {
     private static final int MAX_HISTORY_MESSAGES = 16;
     private static final int MAX_MESSAGE_CHARS = 16_000;
     private static final Duration MODEL_TIMEOUT = Duration.ofSeconds(45);
+    private static final long STREAM_TIMEOUT_MS = Duration.ofMinutes(20).toMillis();
+    private static final int DEFAULT_TITLE_LIMIT = 60;
+    private static final Set<String> DEFAULT_SESSION_TITLES = Set.of("配置助手", "新建 Agent");
     private static final Pattern EMBEDDED_SECRET =
             Pattern.compile(
                     "(?i)(sk-[a-z0-9_-]{12,}|bearer\\s+[a-z0-9._~+/-]{12,}|-----begin [^-]*private key-----)");
@@ -91,6 +107,8 @@ public class AdminCopilotService {
     private final KnowledgeBaseRepository knowledgeBases;
     private final ToolDefinitionRepository toolDefinitions;
     private final SkillDefinitionRepository skillDefinitions;
+    private final TransactionTemplate transactionTemplate;
+    private final Map<String, RespondCancellation> respondCancellations = new ConcurrentHashMap<>();
 
     public AdminCopilotService(
             AdminCopilotSessionRepository sessions,
@@ -110,6 +128,47 @@ public class AdminCopilotService {
             KnowledgeBaseRepository knowledgeBases,
             ToolDefinitionRepository toolDefinitions,
             SkillDefinitionRepository skillDefinitions) {
+        this(
+                sessions,
+                messages,
+                proposals,
+                users,
+                audits,
+                llm,
+                json,
+                agents,
+                agentConfigurations,
+                toolManagement,
+                knowledge,
+                skills,
+                hooks,
+                mcpServers,
+                knowledgeBases,
+                toolDefinitions,
+                skillDefinitions,
+                null);
+    }
+
+    @Autowired
+    public AdminCopilotService(
+            AdminCopilotSessionRepository sessions,
+            AdminCopilotMessageRepository messages,
+            AdminCopilotProposalRepository proposals,
+            AdminUserService users,
+            AdminAuditService audits,
+            LlmClient llm,
+            ObjectMapper json,
+            AgentRegistry agents,
+            AgentConfigurationService agentConfigurations,
+            ToolManagementService toolManagement,
+            KnowledgeService knowledge,
+            SkillManagementService skills,
+            HookService hooks,
+            McpServerService mcpServers,
+            KnowledgeBaseRepository knowledgeBases,
+            ToolDefinitionRepository toolDefinitions,
+            SkillDefinitionRepository skillDefinitions,
+            PlatformTransactionManager transactionManager) {
         this.sessions = sessions;
         this.messages = messages;
         this.proposals = proposals;
@@ -127,10 +186,14 @@ public class AdminCopilotService {
         this.knowledgeBases = knowledgeBases;
         this.toolDefinitions = toolDefinitions;
         this.skillDefinitions = skillDefinitions;
+        this.transactionTemplate =
+                transactionManager == null ? null : new TransactionTemplate(transactionManager);
     }
 
-    public List<AdminCopilotSession> listSessions() {
-        return sessions.findByOwner(users.requireCurrent().getId());
+    public List<Map<String, Object>> listSessions() {
+        return sessions.findByOwner(users.requireCurrent().getId()).stream()
+                .map(this::sessionSummaryView)
+                .toList();
     }
 
     public Map<String, Object> getSession(String id) {
@@ -154,6 +217,104 @@ public class AdminCopilotService {
 
     @Transactional
     public Map<String, Object> respond(String sessionId, RespondRequest request) {
+        return respondInternal(sessionId, request, null, null);
+    }
+
+    /**
+     * Streams progress for a chat turn and exposes a cancellation token so the underlying model
+     * subscription can be stopped instead of merely marking the session as cancelled.
+     */
+    public SseEmitter streamRespond(String sessionId, RespondRequest request) {
+        String runId = "CR-" + UUID.randomUUID();
+        RespondCancellation cancellation =
+                new RespondCancellation(new AtomicBoolean(false), Sinks.one());
+        respondCancellations.put(runId, cancellation);
+        SseEmitter out = new SseEmitter(STREAM_TIMEOUT_MS);
+        AtomicBoolean finished = new AtomicBoolean(false);
+        Runnable cleanup =
+                () -> {
+                    finished.set(true);
+                    respondCancellations.remove(runId);
+                };
+        out.onCompletion(cleanup);
+        out.onTimeout(cleanup);
+        out.onError(error -> cleanup.run());
+
+        RequestContext.Identity identity = RequestContext.currentOrNull();
+        Thread worker =
+                new Thread(
+                        () ->
+                                RequestContext.runWith(
+                                        identity,
+                                        () -> {
+                                            try {
+                                                emitStream(
+                                                        out,
+                                                        finished,
+                                                        "run_start",
+                                                        Map.of("runId", runId));
+                                                emitStream(
+                                                        out,
+                                                        finished,
+                                                        "phase",
+                                                        Map.of(
+                                                                "phase",
+                                                                "MODEL",
+                                                                "message",
+                                                                "正在分析上下文并生成回复"));
+                                                Map<String, Object> result =
+                                                        inTransaction(
+                                                                () ->
+                                                                        respondInternal(
+                                                                                sessionId,
+                                                                                request,
+                                                                                runId,
+                                                                                (name, payload) ->
+                                                                                        emitStream(
+                                                                                                out,
+                                                                                                finished,
+                                                                                                name,
+                                                                                                payload)));
+                                                emitStream(out, finished, "done", result);
+                                            } catch (ModelCancelledException error) {
+                                                emitStream(
+                                                        out,
+                                                        finished,
+                                                        "cancelled",
+                                                        Map.of("runId", runId));
+                                            } catch (RuntimeException error) {
+                                                emitStream(
+                                                        out,
+                                                        finished,
+                                                        "error",
+                                                        Map.of("message", safeMessage(error)));
+                                            } finally {
+                                                cleanup.run();
+                                                out.complete();
+                                            }
+                                        }),
+                        "admin-copilot-" + runId.substring(3, 11));
+        worker.setDaemon(true);
+        worker.start();
+        return out;
+    }
+
+    public Map<String, Object> cancelRespond(String runId) {
+        RespondCancellation cancellation =
+                runId == null ? null : respondCancellations.get(runId);
+        if (cancellation != null) {
+            cancellation.cancelled().set(true);
+            cancellation.signal().tryEmitValue(true);
+        }
+        return Map.of(
+                "runId", runId == null ? "" : runId, "canceled", cancellation != null);
+    }
+
+    private Map<String, Object> respondInternal(
+            String sessionId,
+            RespondRequest request,
+            String runId,
+            BiConsumer<String, Map<String, Object>> progress) {
         AdminCopilotSession session = requireSession(sessionId);
         String userText =
                 redactEmbeddedSecrets(
@@ -166,26 +327,36 @@ public class AdminCopilotService {
         }
 
         AdminUser actor = users.requireCurrent();
+        if (request != null && request.currentAgentId() != null) {
+            session.setCurrentAgentId(trimToNull(request.currentAgentId()));
+        }
+        Map<String, Object> state = readMap(session.getStateJson());
+        Map<String, Object> context = buildContext(session, request == null ? null : request.context());
+        Mono<Void> cancellation = cancellationSignal(runId);
+        Map<String, Object> result;
+        if ("BUILD".equals(session.getMode())) {
+            result =
+                    respondBuild(
+                            session,
+                            state,
+                            context,
+                            userText,
+                            actor,
+                            cancellation,
+                            progress);
+        } else {
+            result = respondAssist(session, context, userText, cancellation, progress);
+        }
+        if (isCancelled(runId)) throw new ModelCancelledException();
+
+        String reply = Objects.toString(result.get("reply"), "").trim();
+        if (reply.isBlank()) reply = "我没有得到可用回复，请补充信息后重试。";
         AdminCopilotMessage userMessage = new AdminCopilotMessage();
         userMessage.setSessionId(sessionId);
         userMessage.setRole("user");
         userMessage.setContent(userText);
         messages.append(userMessage);
 
-        if (request != null && request.currentAgentId() != null) {
-            session.setCurrentAgentId(trimToNull(request.currentAgentId()));
-        }
-        Map<String, Object> state = readMap(session.getStateJson());
-        Map<String, Object> context = buildContext(session, request == null ? null : request.context());
-        Map<String, Object> result;
-        if ("BUILD".equals(session.getMode())) {
-            result = respondBuild(session, state, context, userText, actor);
-        } else {
-            result = respondAssist(session, context, userText);
-        }
-
-        String reply = Objects.toString(result.get("reply"), "").trim();
-        if (reply.isBlank()) reply = "我没有得到可用回复，请补充信息后重试。";
         AdminCopilotMessage assistantMessage = new AdminCopilotMessage();
         assistantMessage.setSessionId(sessionId);
         assistantMessage.setRole("assistant");
@@ -195,9 +366,7 @@ public class AdminCopilotService {
         messages.append(assistantMessage);
 
         session.setStateJson(writeJson(state));
-        if (session.getTitle() == null || session.getTitle().isBlank()) {
-            session.setTitle(userText.substring(0, Math.min(60, userText.length())));
-        }
+        if (isDefaultTitle(session.getTitle())) session.setTitle(titleFrom(userText));
         session.touch();
         sessions.save(session);
         return result;
@@ -214,16 +383,26 @@ public class AdminCopilotService {
 
     @Transactional
     public Map<String, Object> renameSession(String sessionId, String title) {
+        return updateSession(sessionId, title, null);
+    }
+
+    @Transactional
+    public Map<String, Object> updateSession(String sessionId, String title, Boolean pinned) {
         AdminCopilotSession session = requireSession(sessionId);
-        String normalized = title == null ? "" : title.trim();
-        if (normalized.isBlank()) throw new IllegalArgumentException("会话名称不能为空");
-        if (normalized.length() > 200) {
-            throw new IllegalArgumentException("会话名称不能超过 200 个字符");
+        if (title != null) {
+            String normalized = title.trim();
+            if (normalized.isBlank()) throw new IllegalArgumentException("会话名称不能为空");
+            if (normalized.length() > 200) {
+                throw new IllegalArgumentException("会话名称不能超过 200 个字符");
+            }
+            session.setTitle(normalized);
         }
-        session.setTitle(normalized);
+        if (pinned != null) {
+            session.setPinned(pinned);
+        }
         session.touch();
         sessions.save(session);
-        return sessionView(session);
+        return sessionSummaryView(session);
     }
 
     @Transactional
@@ -365,7 +544,11 @@ public class AdminCopilotService {
     }
 
     private Map<String, Object> respondAssist(
-            AdminCopilotSession session, Map<String, Object> context, String userText) {
+            AdminCopilotSession session,
+            Map<String, Object> context,
+            String userText,
+            Mono<Void> cancellation,
+            BiConsumer<String, Map<String, Object>> progress) {
         String system =
                 """
                 你是 Intra Copilot 管理后台的配置助手。你只提供解释、提示词改写、配置建议和修改补丁，
@@ -392,7 +575,8 @@ public class AdminCopilotService {
                         + session.getStateJson()
                         + "\n\n管理员消息：\n"
                         + userText;
-        Map<String, Object> parsed = completeJson(system, history(session.getId()), input);
+        Map<String, Object> parsed =
+                completeJson(system, history(session.getId()), input, cancellation, progress);
         if (parsed.isEmpty()) {
             return Map.of(
                     "reply",
@@ -415,7 +599,9 @@ public class AdminCopilotService {
             Map<String, Object> state,
             Map<String, Object> context,
             String userText,
-            AdminUser actor) {
+            AdminUser actor,
+            Mono<Void> cancellation,
+            BiConsumer<String, Map<String, Object>> progress) {
         String system =
                 """
                 你是 Agent 配置访谈助手。你的任务是先把需求问清楚，任何不确定的信息都必须继续询问，
@@ -452,7 +638,8 @@ public class AdminCopilotService {
                         + writeJson(state)
                         + "\n\n管理员本轮回答：\n"
                         + userText;
-        Map<String, Object> parsed = completeJson(system, history(session.getId()), input);
+        Map<String, Object> parsed =
+                completeJson(system, history(session.getId()), input, cancellation, progress);
         if (parsed.isEmpty()) {
             return Map.of(
                     "reply",
@@ -478,7 +665,7 @@ public class AdminCopilotService {
             return response;
         }
 
-        Map<String, Object> proposal = generateProposal(context, state);
+        Map<String, Object> proposal = generateProposal(context, state, cancellation, progress);
         if (proposal.isEmpty()) {
             return Map.of(
                     "reply",
@@ -510,7 +697,10 @@ public class AdminCopilotService {
     }
 
     private Map<String, Object> generateProposal(
-            Map<String, Object> context, Map<String, Object> state) {
+            Map<String, Object> context,
+            Map<String, Object> state,
+            Mono<Void> cancellation,
+            BiConsumer<String, Map<String, Object>> progress) {
         String system =
                 """
                 你是 Agent 配置生成器。根据已经确认的需求生成可审核的 JSON 提案，不得补写未确认的业务事实。
@@ -547,7 +737,12 @@ public class AdminCopilotService {
                 MCP 只生成连接配置，实际健康检查必须由管理员执行。知识库只能创建空容器，不能编造文档。
                 """;
         Map<String, Object> parsed =
-                completeJson(system, List.of(), "资源目录：\n" + writeJson(context) + "\n已确认需求：\n" + writeJson(state));
+                completeJson(
+                        system,
+                        List.of(),
+                        "资源目录：\n" + writeJson(context) + "\n已确认需求：\n" + writeJson(state),
+                        cancellation,
+                        progress);
         return asMap(parsed);
     }
 
@@ -645,12 +840,28 @@ public class AdminCopilotService {
         view.put("title", session.getTitle());
         view.put("mode", session.getMode());
         view.put("status", session.getStatus());
+        view.put("pinned", session.isPinned());
         view.put("currentAgentId", session.getCurrentAgentId());
         view.put("state", readMap(session.getStateJson()));
         view.put("createdAt", session.getCreatedAt());
         view.put("updatedAt", session.getUpdatedAt());
         view.put("messages", messages.findBySession(session.getId()));
         view.put("proposals", proposals.findBySession(session.getId()));
+        return view;
+    }
+
+    private Map<String, Object> sessionSummaryView(AdminCopilotSession session) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("id", session.getId());
+        view.put("title", session.getTitle());
+        view.put("mode", session.getMode());
+        view.put("status", session.getStatus());
+        view.put("pinned", session.isPinned());
+        view.put("currentAgentId", session.getCurrentAgentId());
+        view.put("createdAt", session.getCreatedAt());
+        view.put("updatedAt", session.getUpdatedAt());
+        Optional<AdminCopilotMessage> last = messages.findLastBySession(session.getId());
+        view.put("lastMessagePreview", last.map(AdminCopilotMessage::getContent).orElse(""));
         return view;
     }
 
@@ -663,10 +874,18 @@ public class AdminCopilotService {
     }
 
     private Map<String, Object> completeJson(
-            String system, List<Map<String, String>> history, String input) {
+            String system,
+            List<Map<String, String>> history,
+            String input,
+            Mono<Void> cancellation,
+            BiConsumer<String, Map<String, Object>> progress) {
         try {
-            Optional<String> response =
-                    llm.complete(system, history, input).blockOptional(MODEL_TIMEOUT);
+            if (progress != null) {
+                progress.accept("phase", Map.of("phase", "MODEL", "message", "正在生成结构化结果"));
+            }
+            reactor.core.publisher.Mono<String> request = llm.complete(system, history, input);
+            if (cancellation != null) request = request.takeUntilOther(cancellation);
+            Optional<String> response = request.blockOptional(MODEL_TIMEOUT);
             if (response.isEmpty()) return Map.of();
             return parseObject(response.get());
         } catch (RuntimeException error) {
@@ -927,6 +1146,52 @@ public class AdminCopilotService {
         }
     }
 
+    private <T> T inTransaction(Supplier<T> action) {
+        if (transactionTemplate == null) return action.get();
+        return transactionTemplate.execute(status -> action.get());
+    }
+
+    private Mono<Void> cancellationSignal(String runId) {
+        RespondCancellation state = runId == null ? null : respondCancellations.get(runId);
+        return state == null ? null : state.signal().asMono().then();
+    }
+
+    private boolean isCancelled(String runId) {
+        RespondCancellation state = runId == null ? null : respondCancellations.get(runId);
+        return state != null && state.cancelled().get();
+    }
+
+    private static void emitStream(
+            SseEmitter out,
+            AtomicBoolean finished,
+            String name,
+            Map<String, Object> payload) {
+        if (finished.get()) return;
+        try {
+            out.send(SseEmitter.event().name(name).data(payload));
+        } catch (IOException | IllegalStateException error) {
+            finished.set(true);
+        }
+    }
+
+    private static String safeMessage(Throwable error) {
+        return error.getMessage() == null || error.getMessage().isBlank()
+                ? error.getClass().getSimpleName()
+                : error.getMessage();
+    }
+
+    private static boolean isDefaultTitle(String title) {
+        return title == null || title.isBlank() || DEFAULT_SESSION_TITLES.contains(title.trim());
+    }
+
+    private static String titleFrom(String userText) {
+        String normalized = userText == null ? "" : userText.replaceAll("\\s+", " ").trim();
+        if (normalized.isBlank()) return "新会话";
+        return normalized.length() <= DEFAULT_TITLE_LIMIT
+                ? normalized
+                : normalized.substring(0, DEFAULT_TITLE_LIMIT);
+    }
+
     private static String first(Iterable<String> values) {
         for (String value : values) return value;
         return null;
@@ -955,6 +1220,10 @@ public class AdminCopilotService {
             String message,
             String currentAgentId,
             Map<String, Object> context) {}
+
+    private record RespondCancellation(AtomicBoolean cancelled, Sinks.One<Boolean> signal) {}
+
+    private static final class ModelCancelledException extends RuntimeException {}
 
     protected record AppliedTarget(String type, String id) {}
 }

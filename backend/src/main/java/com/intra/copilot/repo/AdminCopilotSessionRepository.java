@@ -28,6 +28,7 @@ public interface AdminCopilotSessionRepository extends BaseMapper<AdminCopilotSe
         return selectList(
                 Wrappers.<AdminCopilotSession>query()
                         .eq("admin_user_id", adminUserId)
+                        .orderByDesc("pinned")
                         .orderByDesc("updated_at"));
     }
 }

@@ -22,6 +22,7 @@ import com.intra.copilot.repo.ToolDefinitionRepository;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Mono;
 
 class AgentValidationServiceTest {
@@ -47,6 +48,7 @@ class AgentValidationServiceTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> values = (List<Map<String, Object>>) result.get("cases");
         assertEquals(1, values.size());
+        assertTrue(String.valueOf(values.get(0).get("caseId")).startsWith("VC-"));
         assertEquals("正常", values.get(0).get("title"));
         verify(runs, never()).save(any());
     }
@@ -187,7 +189,7 @@ class AgentValidationServiceTest {
                         mock(ToolDefinitionRepository.class),
                         mock(SkillDefinitionRepository.class),
                         llm,
-                        new ObjectMapper(),
+                        new ObjectMapper().findAndRegisterModules(),
                         users,
                         mock(AdminAuditService.class));
 
@@ -205,6 +207,7 @@ class AgentValidationServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> result =
                 (Map<String, Object>) ((List<?>) report.get("cases")).get(0);
+        assertTrue(String.valueOf(result.get("caseId")).startsWith("VC-"));
         @SuppressWarnings("unchecked")
         Map<String, Object> patch = (Map<String, Object>) result.get("suggestedPatch");
         String systemPrompt = String.valueOf(patch.get("systemPrompt"));
@@ -237,7 +240,7 @@ class AgentValidationServiceTest {
                         mock(ToolDefinitionRepository.class),
                         mock(SkillDefinitionRepository.class),
                         mock(LlmClient.class),
-                        new ObjectMapper(),
+                        new ObjectMapper().findAndRegisterModules(),
                         users,
                         audits);
 
@@ -245,7 +248,15 @@ class AgentValidationServiceTest {
 
         assertEquals("STATIC_COMPLETE", report.get("status"));
         assertTrue(((List<?>) report.get("cases")).isEmpty());
-        verify(runs, times(2)).save(any(AgentValidationRun.class));
+        ArgumentCaptor<AgentValidationRun> savedRuns =
+                ArgumentCaptor.forClass(AgentValidationRun.class);
+        verify(runs, times(2)).save(savedRuns.capture());
+        assertTrue(
+                savedRuns
+                        .getAllValues()
+                        .get(1)
+                        .getReportJson()
+                        .contains("\"status\":\"STATIC_COMPLETE\""));
         verify(audits).record(any(), any(), any(), any(), any(), any());
     }
 
@@ -261,7 +272,7 @@ class AgentValidationServiceTest {
                 mock(ToolDefinitionRepository.class),
                 mock(SkillDefinitionRepository.class),
                 llm,
-                new ObjectMapper(),
+                new ObjectMapper().findAndRegisterModules(),
                 mock(AdminUserService.class),
                 mock(AdminAuditService.class));
     }

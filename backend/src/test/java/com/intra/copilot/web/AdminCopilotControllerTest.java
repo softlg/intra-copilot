@@ -22,7 +22,7 @@ class AdminCopilotControllerTest {
     void renameDelegatesToOwnedSession() {
         AdminCopilotService service = mock(AdminCopilotService.class);
         Map<String, Object> expected = Map.of("id", "session-1", "title", "New title");
-        when(service.renameSession("session-1", "New title")).thenReturn(expected);
+        when(service.updateSession("session-1", "New title", null)).thenReturn(expected);
         AdminCopilotController controller = new AdminCopilotController(service);
 
         Map<String, Object> result =
@@ -31,7 +31,7 @@ class AdminCopilotControllerTest {
                         new AdminCopilotController.RenameSessionRequest("New title"));
 
         assertEquals(expected, result);
-        verify(service).renameSession("session-1", "New title");
+        verify(service).updateSession("session-1", "New title", null);
     }
 
     @Test

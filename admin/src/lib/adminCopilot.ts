@@ -8,8 +8,10 @@ export type CopilotSessionSummary = {
   title: string;
   mode: CopilotMode;
   status: string;
+  pinned: boolean;
   currentAgentId?: string;
   stateJson?: string;
+  lastMessagePreview?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -92,6 +94,7 @@ export type AgentValidationIssue = {
 };
 
 export type AgentValidationCase = {
+  caseId?: string;
   title: string;
   input: string;
   pageContext?: string;
@@ -163,9 +166,16 @@ export function getCopilotSession(id: string) {
 }
 
 export function renameCopilotSession(id: string, title: string) {
+  return updateCopilotSession(id, { title });
+}
+
+export function updateCopilotSession(
+  id: string,
+  changes: { title?: string; pinned?: boolean },
+) {
   return request<CopilotSession>(`/admin/copilot/sessions/${id}`, {
     method: "PATCH",
-    body: JSON.stringify({ title }),
+    body: JSON.stringify(changes),
   });
 }
 
@@ -195,6 +205,97 @@ export function respondCopilot(
         context,
       }),
     },
+  );
+}
+
+export type CopilotRespondStreamHandlers = {
+  onRunStart?: (payload: { runId: string }) => void;
+  onPhase?: (payload: { phase: string; message: string }) => void;
+  onDone?: (result: CopilotRespondResult) => void;
+  onCancelled?: (payload: { runId: string }) => void;
+  onStreamError?: (payload: { message: string }) => void;
+};
+
+function handleCopilotFrame(
+  frame: string,
+  handlers: CopilotRespondStreamHandlers,
+) {
+  let name = "";
+  const data: string[] = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("event:")) name = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).trim());
+  }
+  if (!name || data.length === 0) return;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(data.join("\n"));
+  } catch {
+    return;
+  }
+  if (name === "run_start") {
+    handlers.onRunStart?.(payload as { runId: string });
+  } else if (name === "phase") {
+    handlers.onPhase?.(payload as { phase: string; message: string });
+  } else if (name === "done") {
+    handlers.onDone?.(payload as CopilotRespondResult);
+  } else if (name === "cancelled") {
+    handlers.onCancelled?.(payload as { runId: string });
+  } else if (name === "error") {
+    handlers.onStreamError?.(payload as { message: string });
+  }
+}
+
+export async function streamCopilotResponse(
+  id: string,
+  message: string,
+  currentAgentId: string | undefined,
+  context: Record<string, unknown>,
+  handlers: CopilotRespondStreamHandlers,
+  signal?: AbortSignal,
+) {
+  const response = await apiFetch(
+    `/admin/copilot/sessions/${id}/respond/stream`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        message,
+        currentAgentId: currentAgentId || null,
+        context,
+      }),
+      headers: {
+        Accept: "text/event-stream",
+        "Content-Type": "application/json",
+      },
+      signal,
+    },
+  );
+  if (!response.ok) {
+    const detail = await response.text();
+    throw buildApiError(response, detail);
+  }
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      handleCopilotFrame(buffer.slice(0, boundary), handlers);
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+}
+
+export function cancelCopilotResponse(sessionId: string, runId: string) {
+  return request<{ runId: string; canceled: boolean }>(
+    `/admin/copilot/sessions/${sessionId}/respond/${runId}/cancel`,
+    { method: "POST" },
   );
 }
 
@@ -256,6 +357,7 @@ export function generateAgentValidationRemediation(
 export type ValidationStreamHandlers = {
   onRunStart?: (payload: { runId: string; total: number }) => void;
   onCaseStart?: (payload: {
+    caseId: string;
     index: number;
     total: number;
     title: string;
@@ -292,7 +394,13 @@ function handleValidationFrame(
     handlers.onRunStart?.(payload as { runId: string; total: number });
   } else if (name === "case_start") {
     handlers.onCaseStart?.(
-      payload as { index: number; total: number; title: string; input: string },
+      payload as {
+        caseId: string;
+        index: number;
+        total: number;
+        title: string;
+        input: string;
+      },
     );
   } else if (name === "case_result") {
     handlers.onCaseResult?.(
