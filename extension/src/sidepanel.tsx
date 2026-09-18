@@ -784,22 +784,27 @@ const translations = {
     pagePermission: "页面权限",
     readPage: "允许读取当前页面上下文",
     permissionNote: "写入页面的操作仍会逐项请求确认。",
-    actionConfirmTitle: "允许页面操作",
+    actionConfirmTitle: "确认下一步",
     actionConfirm: (type: string, reason: string, risk: string) => {
-      const action =
+      const fallback =
         {
-          SET_EDITOR: "将代码写入当前编辑器",
-          CLICK: "点击当前页面中的按钮",
-          FILL: "填写当前页面中的输入框",
-          NAVIGATE: "跳转到指定网页",
-        }[type] || "操作当前页面";
+          SET_EDITOR: "将代码写入当前页面的编辑器。",
+          CLICK: "点击当前页面中完成任务所需的按钮。",
+          FILL: "填写当前页面中完成任务所需的输入框。",
+          NAVIGATE: "打开完成任务所需的网页。",
+        }[type] || "继续操作当前页面。";
+      const dynamicText = (reason || "")
+        .replace(/\bref_\d+\b/gi, "当前页面元素")
+        .replace(/\b(?:SET_EDITOR|CLICK|FILL|NAVIGATE|medium|low|high)\b/gi, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
       const riskText =
         {
           low: "低",
           medium: "中",
           high: "高",
         }[risk] || "中";
-      return `${action}\n\n原因：${reason || "这是完成任务所需的下一步"}\n影响：本次操作只作用于当前页面，风险等级为${riskText}。\n\n允许后助手才会执行。`;
+      return `${dynamicText || fallback}\n\n影响：本次操作只作用于当前页面，风险等级为${riskText}。\n\n确认后助手才会执行。`;
     },
   },
   en: {
@@ -961,22 +966,27 @@ const translations = {
     readPage: "Allow reading the current page context",
     permissionNote:
       "Write actions on the page will still ask for confirmation one by one.",
-    actionConfirmTitle: "Allow page action",
+    actionConfirmTitle: "Confirm next step",
     actionConfirm: (type: string, reason: string, risk: string) => {
-      const action =
+      const fallback =
         {
-          SET_EDITOR: "Write the generated code into the current editor",
-          CLICK: "Click a button on the current page",
-          FILL: "Fill an input on the current page",
-          NAVIGATE: "Open another web page",
-        }[type] || "Interact with the current page";
+          SET_EDITOR: "Write the code into the current page editor.",
+          CLICK: "Click the button needed to continue the task.",
+          FILL: "Fill the input needed to continue the task.",
+          NAVIGATE: "Open the page needed to continue the task.",
+        }[type] || "Continue operating on the current page.";
+      const dynamicText = (reason || "")
+        .replace(/\bref_\d+\b/gi, "the current page element")
+        .replace(/\b(?:SET_EDITOR|CLICK|FILL|NAVIGATE|medium|low|high)\b/gi, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
       const riskText =
         {
           low: "low",
           medium: "medium",
           high: "high",
         }[risk] || "medium";
-      return `${action}\n\nReason: ${reason || "This is the next step required to finish the task."}\nImpact: This action only affects the current page. Risk level: ${riskText}.\n\nThe assistant will not act until you allow it.`;
+      return `${dynamicText || fallback}\n\nImpact: This action only affects the current page. Risk level: ${riskText}.\n\nThe assistant will not act until you confirm.`;
     },
   },
 } as const;

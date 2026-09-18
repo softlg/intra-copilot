@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Intra Copilot",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "页面助手",
   "permissions": ["sidePanel", "storage", "activeTab", "scripting", "tabs"],
   "host_permissions": ["<all_urls>", "http://localhost:8080/*"],
