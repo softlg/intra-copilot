@@ -34,6 +34,8 @@ import {
   type AgentValidationIssue,
   type AgentValidationRemediation,
   type AgentValidationReport,
+  type AgentBuildPlan,
+  type AgentBuildPlanStepStatus,
   type CopilotMode,
   type CopilotProposal,
   type CopilotProposalPayload,
@@ -335,6 +337,26 @@ const copy = {
     validateGuide: "步骤：① 静态检查　② 生成场景　③ 勾选并执行",
     runDisabledHint: "请先生成场景并勾选至少一个再执行",
     inputHint: "Enter 发送 · Shift + Enter 换行",
+    questionGuideTitle: "请选择，或补充说明",
+    questionSupplement: "补充说明",
+    questionSubmit: "提交这些选择",
+    questionRequired: "请回答所有必填问题，或填写补充说明。",
+    planTitle: "Agent 生成计划",
+    planReadyNote: "计划已生成，确认后才会开始生成。",
+    planAwaiting: "等待确认",
+    planRunning: "执行中",
+    planCompleted: "已生成草案",
+    planFailed: "执行失败",
+    planConfirm: "确认并执行计划",
+    planConfirming: "正在执行计划…",
+    planConfirmHint:
+      "确认后才会按计划生成提案；生成过程不会创建资源，应用提案前还会再次确认。",
+    planCompletedHint: "计划已执行完成，请检查下方配置提案并手动确认应用。",
+    planFailedHint: "计划未执行完成，请根据步骤信息调整后重试。",
+    planStepCount: "{done}/{total} 子步骤",
+    planNeedsConfirmation: "需确认",
+    planExpandStep: "展开步骤",
+    planCollapseStep: "收起步骤",
     saveForm: "保存表单",
     saveDraft: "保存草稿",
     saveAndPublish: "保存并发布",
@@ -532,6 +554,29 @@ const copy = {
     runDisabledHint:
       "Generate scenarios and select at least one before running",
     inputHint: "Enter to send · Shift + Enter for newline",
+    questionGuideTitle: "Choose an option or add details",
+    questionSupplement: "Additional details",
+    questionSubmit: "Submit choices",
+    questionRequired: "Answer all required questions or add details.",
+    planTitle: "Agent generation plan",
+    planReadyNote:
+      "The plan is ready. Generation starts only after you confirm it.",
+    planAwaiting: "Awaiting confirmation",
+    planRunning: "Running",
+    planCompleted: "Draft generated",
+    planFailed: "Failed",
+    planConfirm: "Confirm and run plan",
+    planConfirming: "Running plan…",
+    planConfirmHint:
+      "The proposal is generated only after confirmation. No resources are created before you explicitly apply it.",
+    planCompletedHint:
+      "The plan is complete. Review the proposal below and confirm whether to apply it.",
+    planFailedHint:
+      "The plan did not complete. Review the step details and retry.",
+    planStepCount: "{done}/{total} substeps",
+    planNeedsConfirmation: "Needs confirmation",
+    planExpandStep: "Expand step",
+    planCollapseStep: "Collapse step",
     saveForm: "Save form",
     saveDraft: "Save draft",
     saveAndPublish: "Save & publish",
@@ -1447,6 +1492,7 @@ export function AdminCopilotPanel({
   const [sending, setSending] = useState(false);
   const [pendingUserMessage, setPendingUserMessage] = useState<string>();
   const [chatRun, setChatRun] = useState<ChatRunState>();
+  const [liveBuildPlan, setLiveBuildPlan] = useState<AgentBuildPlan>();
   const [failedChatMessage, setFailedChatMessage] =
     useState<FailedChatMessage>();
   const [hasNewMessages, setHasNewMessages] = useState(false);
@@ -1525,6 +1571,10 @@ export function AdminCopilotPanel({
       .find((entry) => entry.role === "assistant");
     return parseJson<CopilotRespondResult>(item?.payloadJson);
   }, [activeSession]);
+  const activeBuildPlan = useMemo(
+    () => liveBuildPlan ?? latestAssistantPayload?.plan,
+    [latestAssistantPayload?.plan, liveBuildPlan],
+  );
   const readyProposals = useMemo(
     () =>
       (activeSession?.proposals ?? []).filter(
@@ -1795,6 +1845,7 @@ export function AdminCopilotPanel({
       setMessage("");
       setFailedChatMessage(undefined);
       setChatRun(undefined);
+      setLiveBuildPlan(undefined);
       setHasNewMessages(false);
       setPanelError("");
       if (session.mode === "VALIDATE") {
@@ -1834,6 +1885,7 @@ export function AdminCopilotPanel({
       localStorage.setItem(activeSessionStorageKey(mode), session.id);
       setMessage("");
       setFailedChatMessage(undefined);
+      setLiveBuildPlan(undefined);
       await loadSessions();
       setPanelError("");
       return session;
@@ -2011,7 +2063,10 @@ export function AdminCopilotPanel({
 
   const writeComposerDraft = (value: string) => setMessage(value);
 
-  const send = async (contentOverride?: string) => {
+  const send = async (
+    contentOverride?: string,
+    contextOverride?: Record<string, unknown>,
+  ) => {
     const content = (contentOverride ?? message).trim();
     if (!content || sending) return;
     const container = messagesRef.current;
@@ -2024,6 +2079,7 @@ export function AdminCopilotPanel({
     setPendingUserMessage(content);
     setSending(true);
     setPanelError("");
+    setLiveBuildPlan(undefined);
     if (shouldFollow) setHasNewMessages(false);
 
     const abort = new AbortController();
@@ -2046,7 +2102,7 @@ export function AdminCopilotPanel({
         sessionId,
         content,
         currentAgentId,
-        currentAgentContext,
+        contextOverride ?? currentAgentContext,
         {
           onRunStart: (payload) =>
             setChatRun((current) =>
@@ -2060,6 +2116,9 @@ export function AdminCopilotPanel({
                 ? { ...current, phase: payload.message || payload.phase }
                 : current,
             ),
+          onPlanStep: (payload) => {
+            setLiveBuildPlan(payload.plan);
+          },
           onCancelled: () => {
             streamCancelled = true;
           },
@@ -2110,6 +2169,14 @@ export function AdminCopilotPanel({
     } finally {
       chatAbortRef.current?.abort();
     }
+  };
+
+  const confirmBuildPlan = async (plan: AgentBuildPlan) => {
+    await send("确认并执行当前生成计划", {
+      ...currentAgentContext,
+      copilotAction: "CONFIRM_BUILD_PLAN",
+      planId: plan.id,
+    });
   };
 
   const copyChatMessage = (content: string) => {
@@ -2872,6 +2939,7 @@ export function AdminCopilotPanel({
                             appliedKeys={appliedPatchKeys}
                             appliedRecord={appliedPatchRecords[patchKey]}
                             canApplyPatch={Boolean(currentAgentId)}
+                            onRespond={(content) => void send(content)}
                             onApplyPatch={applySuggestedPatch}
                             onUndoPatch={undoSuggestedPatch}
                           />
@@ -2953,6 +3021,15 @@ export function AdminCopilotPanel({
               </button>
             )}
 
+            {view === "build" && activeBuildPlan && (
+              <BuildPlanPreview
+                text={text}
+                plan={activeBuildPlan}
+                busy={sending}
+                onConfirm={() => void confirmBuildPlan(activeBuildPlan)}
+              />
+            )}
+
             {view === "build" && latestAssistantPayload && (
               <p className="copilot-phase-note">
                 <Icon
@@ -2965,7 +3042,9 @@ export function AdminCopilotPanel({
                 />
                 {latestAssistantPayload.phase === "READY_TO_APPLY"
                   ? text.readyToApply
-                  : text.clarifying}
+                  : latestAssistantPayload.phase === "PLAN_READY"
+                    ? text.planReadyNote
+                    : text.clarifying}
                 {latestAssistantPayload.requirements && (
                   <span>
                     {text.checklist}:{" "}
@@ -3580,6 +3659,115 @@ function SessionHistoryPicker({
   );
 }
 
+function GuidedQuestions({
+  text,
+  questions,
+  onSubmit,
+}: {
+  text: (typeof copy)[Language];
+  questions: NonNullable<CopilotRespondResult["questions"]>;
+  onSubmit: (content: string) => void;
+}) {
+  const [selected, setSelected] = useState<Record<string, string[]>>({});
+  const [details, setDetails] = useState<Record<string, string>>({});
+
+  const toggleOption = (field: string, value: string, multiple: boolean) => {
+    setSelected((current) => {
+      const previous = current[field] ?? [];
+      const next = multiple
+        ? previous.includes(value)
+          ? previous.filter((item) => item !== value)
+          : [...previous, value]
+        : [value];
+      return { ...current, [field]: next };
+    });
+  };
+
+  const complete = questions.every((question) => {
+    if (!question.required) return true;
+    const field = question.field || "";
+    return (
+      (selected[field]?.length ?? 0) > 0 || Boolean(details[field]?.trim())
+    );
+  });
+
+  const submit = () => {
+    const lines = questions.map((question, index) => {
+      const field = question.field || `question-${index + 1}`;
+      const values = selected[field] ?? [];
+      const detail = details[field]?.trim();
+      const answer = [...values, detail].filter(Boolean).join("；");
+      return `- ${field}: ${answer}`;
+    });
+    onSubmit(`请按以下选择继续：\n${lines.join("\n")}`);
+  };
+
+  return (
+    <section className="copilot-guided-questions">
+      <div className="copilot-guided-heading">
+        <Icon name="info" size={14} />
+        <strong>{text.questionGuideTitle}</strong>
+      </div>
+      {questions.map((question, index) => {
+        const field = question.field || `question-${index + 1}`;
+        const selectedValues = selected[field] ?? [];
+        const options = question.options ?? [];
+        return (
+          <article className="copilot-question-card" key={field}>
+            <strong>{question.prompt || field}</strong>
+            {options.length > 0 && (
+              <div className="copilot-question-options">
+                {options.map((option) => {
+                  const value = String(option.value ?? option.label ?? "");
+                  const active = selectedValues.includes(value);
+                  return (
+                    <button
+                      type="button"
+                      className={active ? "is-active" : undefined}
+                      aria-pressed={active}
+                      onClick={() =>
+                        toggleOption(field, value, Boolean(question.multiple))
+                      }
+                      key={value}
+                    >
+                      <strong>{option.label || value}</strong>
+                      {option.description && (
+                        <small>{option.description}</small>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {question.allowCustom !== false && (
+              <label className="copilot-question-custom">
+                <span>{text.questionSupplement}</span>
+                <textarea
+                  rows={2}
+                  value={details[field] ?? ""}
+                  placeholder={question.placeholder}
+                  onChange={(event) =>
+                    setDetails((current) => ({
+                      ...current,
+                      [field]: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            )}
+          </article>
+        );
+      })}
+      <div className="copilot-guided-actions">
+        {!complete && <span>{text.questionRequired}</span>}
+        <button type="button" onClick={submit} disabled={!complete}>
+          {text.questionSubmit}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function AssistantDetails({
   text,
   language,
@@ -3590,6 +3778,7 @@ function AssistantDetails({
   onApplyPatch,
   onUndoPatch,
   canApplyPatch,
+  onRespond,
   appliedKeys,
   appliedRecord,
 }: {
@@ -3602,6 +3791,7 @@ function AssistantDetails({
   onApplyPatch: (patch?: Record<string, unknown>, key?: string) => void;
   onUndoPatch: (key: string) => void;
   canApplyPatch: boolean;
+  onRespond: (content: string) => void;
   appliedKeys: Set<string>;
   appliedRecord?: AppliedPatchRecord;
 }) {
@@ -3619,13 +3809,11 @@ function AssistantDetails({
   return (
     <div className="copilot-assistant-details">
       {questions.length > 0 && (
-        <ol className="copilot-questions">
-          {questions.map((question, index) => (
-            <li key={`${question.field}-${index}`}>
-              {question.prompt || question.field}
-            </li>
-          ))}
-        </ol>
+        <GuidedQuestions
+          text={text}
+          questions={questions}
+          onSubmit={onRespond}
+        />
       )}
       {effectiveChanges && Object.keys(effectiveChanges).length > 0 && (
         <SuggestedPatchPreview
@@ -3646,6 +3834,191 @@ function AssistantDetails({
       )}
       {!canApplyPatch && hasChanges && <p>{text.noCurrentAgent}</p>}
     </div>
+  );
+}
+
+function planStatusLabel(
+  status: AgentBuildPlan["status"],
+  text: (typeof copy)[Language],
+) {
+  if (status === "AWAITING_CONFIRMATION") return text.planAwaiting;
+  if (status === "RUNNING") return text.planRunning;
+  if (status === "COMPLETED") return text.planCompleted;
+  if (status === "FAILED") return text.planFailed;
+  return status;
+}
+
+function planStatusIcon(status: AgentBuildPlanStepStatus) {
+  if (status === "COMPLETED") return "check";
+  if (status === "RUNNING") return "refresh";
+  if (status === "BLOCKED") return "alert";
+  if (status === "NEEDS_CONFIRMATION") return "flag";
+  return "clock";
+}
+
+function BuildPlanPreview({
+  text,
+  plan,
+  busy,
+  onConfirm,
+}: {
+  text: (typeof copy)[Language];
+  plan: AgentBuildPlan;
+  busy: boolean;
+  onConfirm: () => void;
+}) {
+  const steps = plan.steps ?? [];
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      steps
+        .filter(
+          (step) =>
+            step.status === "RUNNING" ||
+            step.status === "BLOCKED" ||
+            step.status === "NEEDS_CONFIRMATION",
+        )
+        .forEach((step) => next.add(step.id));
+      return next.size === current.size ? current : next;
+    });
+  }, [plan.updatedAt, steps]);
+
+  return (
+    <section
+      className={`copilot-plan is-${plan.status.toLowerCase()}`}
+      aria-live="polite"
+    >
+      <div className="copilot-plan-heading">
+        <div>
+          <span>{text.planTitle}</span>
+          <strong>{plan.title}</strong>
+          {plan.summary && <p>{plan.summary}</p>}
+        </div>
+        <em>
+          <Icon
+            name={
+              plan.status === "RUNNING"
+                ? "refresh"
+                : plan.status === "COMPLETED"
+                  ? "check"
+                  : plan.status === "FAILED"
+                    ? "alert"
+                    : "info"
+            }
+            size={13}
+            className={
+              plan.status === "RUNNING" ? "copilot-run-spin" : undefined
+            }
+          />
+          {planStatusLabel(plan.status, text)}
+        </em>
+      </div>
+
+      <div className="copilot-plan-steps">
+        {steps.map((step) => {
+          const substeps = step.substeps ?? [];
+          const done = substeps.filter(
+            (item) =>
+              item.status === "COMPLETED" ||
+              item.status === "NEEDS_CONFIRMATION",
+          ).length;
+          const isExpanded = expanded.has(step.id);
+          return (
+            <article
+              className={`copilot-plan-step is-${step.status.toLowerCase()}`}
+              key={step.id}
+            >
+              <button
+                type="button"
+                className="copilot-plan-step-trigger"
+                aria-expanded={isExpanded}
+                onClick={() =>
+                  setExpanded((current) => {
+                    const next = new Set(current);
+                    if (next.has(step.id)) next.delete(step.id);
+                    else next.add(step.id);
+                    return next;
+                  })
+                }
+              >
+                <span className="copilot-plan-status-icon">
+                  <Icon
+                    name={planStatusIcon(step.status)}
+                    size={13}
+                    className={
+                      step.status === "RUNNING" ? "copilot-run-spin" : undefined
+                    }
+                  />
+                </span>
+                <span>
+                  <strong>{step.title}</strong>
+                  {step.description && <small>{step.description}</small>}
+                </span>
+                {substeps.length > 0 && (
+                  <em>
+                    {text.planStepCount
+                      .replace("{done}", String(done))
+                      .replace("{total}", String(substeps.length))}
+                  </em>
+                )}
+                <Icon name="chevron-down" size={14} />
+              </button>
+              {isExpanded && substeps.length > 0 && (
+                <ul className="copilot-plan-substeps">
+                  {substeps.map((substep) => (
+                    <li
+                      className={`is-${substep.status.toLowerCase()}`}
+                      key={substep.id}
+                    >
+                      <span>
+                        <Icon
+                          name={planStatusIcon(substep.status)}
+                          size={12}
+                          className={
+                            substep.status === "RUNNING"
+                              ? "copilot-run-spin"
+                              : undefined
+                          }
+                        />
+                      </span>
+                      <div>
+                        <strong>{substep.title}</strong>
+                        {(substep.detail || substep.description) && (
+                          <small>{substep.detail || substep.description}</small>
+                        )}
+                      </div>
+                      {substep.requiresConfirmation && (
+                        <em>{text.planNeedsConfirmation}</em>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="copilot-plan-footer">
+        <p>
+          {plan.status === "AWAITING_CONFIRMATION"
+            ? plan.confirmationPrompt || text.planConfirmHint
+            : plan.status === "COMPLETED"
+              ? text.planCompletedHint
+              : plan.status === "FAILED"
+                ? text.planFailedHint
+                : plan.lastMessage || text.planConfirmHint}
+        </p>
+        {plan.status === "AWAITING_CONFIRMATION" && (
+          <button type="button" onClick={onConfirm} disabled={busy}>
+            <Icon name="play" size={14} />
+            {busy ? text.planConfirming : text.planConfirm}
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 

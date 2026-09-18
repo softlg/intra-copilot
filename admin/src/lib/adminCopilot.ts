@@ -79,6 +79,14 @@ export type CopilotRespondResult = {
     field?: string;
     prompt?: string;
     required?: boolean;
+    allowCustom?: boolean;
+    multiple?: boolean;
+    placeholder?: string;
+    options?: Array<{
+      value?: string;
+      label?: string;
+      description?: string;
+    }>;
   }>;
   requirements?: Record<string, unknown>;
   patch?: {
@@ -87,6 +95,49 @@ export type CopilotRespondResult = {
   };
   proposal?: CopilotProposalPayload;
   proposalId?: string;
+  plan?: AgentBuildPlan;
+};
+
+export type AgentBuildPlanStatus =
+  "AWAITING_CONFIRMATION" | "RUNNING" | "COMPLETED" | "FAILED" | string;
+
+export type AgentBuildPlanStepStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "COMPLETED"
+  | "NEEDS_CONFIRMATION"
+  | "BLOCKED"
+  | string;
+
+export type AgentBuildPlanSubstep = {
+  id: string;
+  title: string;
+  description?: string;
+  detail?: string;
+  status: AgentBuildPlanStepStatus;
+  requiresConfirmation?: boolean;
+};
+
+export type AgentBuildPlanStep = {
+  id: string;
+  title: string;
+  description?: string;
+  detail?: string;
+  status: AgentBuildPlanStepStatus;
+  substeps?: AgentBuildPlanSubstep[];
+};
+
+export type AgentBuildPlan = {
+  id: string;
+  title: string;
+  summary?: string;
+  status: AgentBuildPlanStatus;
+  requiresConfirmation?: boolean;
+  confirmationPrompt?: string;
+  lastMessage?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  steps?: AgentBuildPlanStep[];
 };
 
 export type ValidationSeverity = "critical" | "error" | "warning" | "info";
@@ -232,6 +283,13 @@ export function respondCopilot(
 export type CopilotRespondStreamHandlers = {
   onRunStart?: (payload: { runId: string }) => void;
   onPhase?: (payload: { phase: string; message: string }) => void;
+  onPlanStep?: (payload: {
+    plan: AgentBuildPlan;
+    stepId: string;
+    substepId?: string;
+    status: AgentBuildPlanStepStatus;
+    message: string;
+  }) => void;
   onDone?: (result: CopilotRespondResult) => void;
   onCancelled?: (payload: { runId: string }) => void;
   onStreamError?: (payload: { message: string }) => void;
@@ -258,6 +316,16 @@ function handleCopilotFrame(
     handlers.onRunStart?.(payload as { runId: string });
   } else if (name === "phase") {
     handlers.onPhase?.(payload as { phase: string; message: string });
+  } else if (name === "plan_step") {
+    handlers.onPlanStep?.(
+      payload as {
+        plan: AgentBuildPlan;
+        stepId: string;
+        substepId?: string;
+        status: AgentBuildPlanStepStatus;
+        message: string;
+      },
+    );
   } else if (name === "done") {
     handlers.onDone?.(payload as CopilotRespondResult);
   } else if (name === "cancelled") {
