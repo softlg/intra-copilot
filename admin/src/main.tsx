@@ -2982,9 +2982,9 @@ function AdminApp({
         </div>
         {[
           ["knowledge", "knowledge"],
+          ["skills", "sparkle"],
           ["mcp-servers", "mcp"],
           ["tools", "tool"],
-          ["skills", "sparkle"],
           ["hooks", "flag"],
           ["ratings", "star"],
           ["conversation-logs", "chat"],
