@@ -218,7 +218,8 @@ const copy = {
     resizePanel: "拖动调整 AI 工作台宽度，双击恢复默认",
     history: "会话历史",
     newSession: "新会话",
-    noSessions: "暂无会话，发送消息时会自动创建。",
+    noSessions: "发送第一条消息后会创建会话并保存在这里。",
+    emptyTitle: "从这里开始",
     noValidationActivity: "尚未执行验证",
     noValidationSessions: "暂无验证会话，执行验证时会自动创建。",
     validationSummary: "已验证 {run} 个场景，通过 {passed} 个",
@@ -237,7 +238,8 @@ const copy = {
     collapseSessions: "收起",
     sessionRenamed: "会话已重命名。",
     sessionsDeleted: "已删除 {count} 个会话。",
-    inputPlaceholder: "描述你想修改的内容，或直接粘贴报错信息…",
+    inputPlaceholder: "描述要修改的内容，或粘贴报错信息…",
+    inputPlaceholderBuild: "描述你想创建的 Agent、目标和使用场景…",
     send: "发送",
     sendMessage: "发送消息",
     thinking: "正在思考…",
@@ -395,7 +397,8 @@ const copy = {
     resizePanel: "Drag to resize the AI workspace; double-click to reset",
     history: "Session history",
     newSession: "New session",
-    noSessions: "No session yet. One is created when you send a message.",
+    noSessions: "Send the first message to create and save a session here.",
+    emptyTitle: "Start here",
     noValidationActivity: "No validation activity yet",
     noValidationSessions:
       "No validation sessions yet. One is created when validation starts.",
@@ -415,8 +418,9 @@ const copy = {
     collapseSessions: "Collapse",
     sessionRenamed: "Session renamed.",
     sessionsDeleted: "{count} sessions deleted.",
-    inputPlaceholder:
-      "Describe the change, paste an error, or explain what the Agent should do…",
+    inputPlaceholder: "Describe the change or paste an error…",
+    inputPlaceholderBuild:
+      "Describe the Agent you want, its goal, and its use cases…",
     send: "Send",
     sendMessage: "Send message",
     thinking: "Thinking…",
@@ -1362,61 +1366,58 @@ function WorkspaceModePicker({
   }, [open]);
 
   return (
-    <div className="copilot-mode-bar">
-      <div className="copilot-mode-picker" ref={pickerRef}>
-        <button
-          type="button"
-          className="copilot-mode-trigger"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={() => setOpen((current) => !current)}
+    <div className="copilot-mode-picker" ref={pickerRef}>
+      <button
+        type="button"
+        className="copilot-mode-trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="copilot-mode-icon" aria-hidden="true">
+          <Icon name={active.icon} size={16} />
+        </span>
+        <span className="copilot-mode-label">
+          <strong>{active.label}</strong>
+        </span>
+        <Icon
+          name="chevron-down"
+          size={15}
+          className={open ? "is-open" : undefined}
+        />
+      </button>
+      {open && (
+        <div
+          className="copilot-mode-menu"
+          role="menu"
+          aria-label={text.workspaceMode}
         >
-          <span className="copilot-mode-icon" aria-hidden="true">
-            <Icon name={active.icon} size={16} />
-          </span>
-          <span className="copilot-mode-label">
-            <small>{text.workspaceMode}</small>
-            <strong>{active.label}</strong>
-          </span>
-          <Icon
-            name="chevron-down"
-            size={15}
-            className={open ? "is-open" : undefined}
-          />
-        </button>
-        {open && (
-          <div
-            className="copilot-mode-menu"
-            role="menu"
-            aria-label={text.workspaceMode}
-          >
-            {modes.map((mode) => (
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={mode.key === view}
-                className={mode.key === view ? "is-active" : undefined}
-                onClick={() => {
-                  if (mode.key !== view) onChange(mode.key);
-                  setOpen(false);
-                }}
-                key={mode.key}
-              >
-                <span className="copilot-mode-icon" aria-hidden="true">
-                  <Icon name={mode.icon} size={16} />
-                </span>
-                <span>
-                  <strong>{mode.label}</strong>
-                  <small>{mode.description}</small>
-                </span>
-                {mode.key === view && (
-                  <Icon name="check" size={15} title={mode.label} />
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+          {modes.map((mode) => (
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={mode.key === view}
+              className={mode.key === view ? "is-active" : undefined}
+              onClick={() => {
+                if (mode.key !== view) onChange(mode.key);
+                setOpen(false);
+              }}
+              key={mode.key}
+            >
+              <span className="copilot-mode-icon" aria-hidden="true">
+                <Icon name={mode.icon} size={16} />
+              </span>
+              <span>
+                <strong>{mode.label}</strong>
+                <small>{mode.description}</small>
+              </span>
+              {mode.key === view && (
+                <Icon name="check" size={15} title={mode.label} />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2660,8 +2661,6 @@ export function AdminCopilotPanel({
           </button>
         </header>
 
-        <WorkspaceModePicker view={view} text={text} onChange={switchView} />
-
         {panelError && (
           <p className="copilot-error" role="alert">
             <Icon name="alert" size={15} />
@@ -2671,23 +2670,30 @@ export function AdminCopilotPanel({
 
         {view === "validate" ? (
           <div className="copilot-validation-shell">
-            <SessionHistoryPicker
-              text={text}
-              sessions={visibleSessions}
-              activeSessionId={activeSession?.id}
-              busy={sessionActionBusy || Boolean(validationBusy)}
-              modeLabel={text.validate}
-              emptyPreview={text.noValidationActivity}
-              emptyMessage={text.noValidationSessions}
-              sessionPreview={(session) =>
-                validationSessionPreview(session, text)
-              }
-              onSelect={(id) => void loadSession(id)}
-              onNew={() => void startSession()}
-              onRename={renameSession}
-              onPin={(session) => void toggleSessionPinned(session)}
-              onDelete={deleteSessions}
-            />
+            <div className="copilot-toolbar">
+              <WorkspaceModePicker
+                view={view}
+                text={text}
+                onChange={switchView}
+              />
+              <SessionHistoryPicker
+                text={text}
+                sessions={visibleSessions}
+                activeSessionId={activeSession?.id}
+                busy={sessionActionBusy || Boolean(validationBusy)}
+                modeLabel={text.validate}
+                emptyPreview={text.noValidationActivity}
+                emptyMessage={text.noValidationSessions}
+                sessionPreview={(session) =>
+                  validationSessionPreview(session, text)
+                }
+                onSelect={(id) => void loadSession(id)}
+                onNew={() => void startSession()}
+                onRename={renameSession}
+                onPin={(session) => void toggleSessionPinned(session)}
+                onDelete={deleteSessions}
+              />
+            </div>
             <ValidationView
               text={text}
               language={language}
@@ -2735,33 +2741,25 @@ export function AdminCopilotPanel({
           </div>
         ) : (
           <div className="copilot-chat">
-            <div
-              className={`copilot-context-bar ${agentConfigDirty ? "is-dirty" : ""}`}
-            >
-              <span>
-                {view === "build" ? text.contextBuild : text.contextAssist}
-              </span>
-              <strong>
-                {currentAgentId
-                  ? currentAgentName || currentAgentId
-                  : text.contextNoAgent}
-              </strong>
-              <em>
-                {agentConfigDirty ? text.contextUnsaved : text.contextSaved}
-              </em>
+            <div className="copilot-toolbar">
+              <WorkspaceModePicker
+                view={view}
+                text={text}
+                onChange={switchView}
+              />
+              <SessionHistoryPicker
+                text={text}
+                sessions={visibleSessions}
+                activeSessionId={activeSession?.id}
+                busy={sessionActionBusy || sending}
+                modeLabel={view === "build" ? text.build : text.assist}
+                onSelect={(id) => void loadSession(id)}
+                onNew={() => void startSession()}
+                onRename={renameSession}
+                onPin={(session) => void toggleSessionPinned(session)}
+                onDelete={deleteSessions}
+              />
             </div>
-            <SessionHistoryPicker
-              text={text}
-              sessions={visibleSessions}
-              activeSessionId={activeSession?.id}
-              busy={sessionActionBusy || sending}
-              modeLabel={view === "build" ? text.build : text.assist}
-              onSelect={(id) => void loadSession(id)}
-              onNew={() => void startSession()}
-              onRename={renameSession}
-              onPin={(session) => void toggleSessionPinned(session)}
-              onDelete={deleteSessions}
-            />
 
             {appliedPatchSummary && (
               <AppliedPatchSummary
@@ -2798,9 +2796,18 @@ export function AdminCopilotPanel({
               aria-busy={sending}
               onScroll={handleMessagesScroll}
             >
-              {!activeSession && visibleSessions.length === 0 && (
-                <p className="copilot-empty">{text.noSessions}</p>
-              )}
+              {!pendingUserMessage &&
+                (activeSession?.messages.length ?? 0) === 0 && (
+                  <div className="copilot-welcome">
+                    <span aria-hidden="true">
+                      <Icon name="sparkle" size={18} />
+                    </span>
+                    <strong>{text.emptyTitle}</strong>
+                    <p>
+                      {view === "build" ? text.noProposal : text.noSessions}
+                    </p>
+                  </div>
+                )}
               {activeSession?.messages.map((item) => {
                 const retryable =
                   failedChatMessage?.content === item.content &&
@@ -2983,9 +2990,6 @@ export function AdminCopilotPanel({
               </p>
             )}
 
-            {readyProposals.length === 0 && view === "build" && (
-              <p className="copilot-empty">{text.noProposal}</p>
-            )}
             {readyProposals.map((proposal) => (
               <ProposalPreview
                 key={proposal.id}
@@ -3008,16 +3012,22 @@ export function AdminCopilotPanel({
             )}
 
             <div className="copilot-composer">
-              <div className="copilot-composer-field">
-                <label htmlFor="admin-copilot-message" className="sr-only">
-                  {text.inputPlaceholder}
-                </label>
+              <div className="copilot-composer-box">
                 <textarea
                   id="admin-copilot-message"
                   ref={composerRef}
+                  aria-label={
+                    view === "build"
+                      ? text.inputPlaceholderBuild
+                      : text.inputPlaceholder
+                  }
                   value={message}
                   onChange={(event) => writeComposerDraft(event.target.value)}
-                  placeholder={text.inputPlaceholder}
+                  placeholder={
+                    view === "build"
+                      ? text.inputPlaceholderBuild
+                      : text.inputPlaceholder
+                  }
                   rows={1}
                   maxLength={16000}
                   onKeyDown={(event) => {
@@ -3034,29 +3044,55 @@ export function AdminCopilotPanel({
                     }
                   }}
                 />
-                {sending ? (
-                  <button
-                    type="button"
-                    className="copilot-composer-action is-stop"
-                    onClick={() => void cancelChatRun()}
-                    aria-label={text.cancelGeneration}
-                    title={text.cancelGeneration}
-                    disabled={chatRun?.canceling}
+                <div className="copilot-composer-footer">
+                  <div
+                    className={
+                      agentConfigDirty
+                        ? "copilot-composer-context is-dirty"
+                        : "copilot-composer-context"
+                    }
                   >
-                    <Icon name="pause" size={15} />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="copilot-composer-action"
-                    onClick={() => void send()}
-                    aria-label={text.sendMessage}
-                    title={text.sendMessage}
-                    disabled={!message.trim()}
-                  >
-                    <Icon name="send" size={16} />
-                  </button>
-                )}
+                    <Icon name="agents" size={12} />
+                    <span>
+                      {view === "build"
+                        ? text.contextBuild
+                        : text.contextAssist}
+                    </span>
+                    <strong>
+                      {currentAgentId
+                        ? currentAgentName || currentAgentId
+                        : text.contextNoAgent}
+                    </strong>
+                    <em>
+                      {agentConfigDirty
+                        ? text.contextUnsaved
+                        : text.contextSaved}
+                    </em>
+                  </div>
+                  {sending ? (
+                    <button
+                      type="button"
+                      className="copilot-composer-action is-stop"
+                      onClick={() => void cancelChatRun()}
+                      aria-label={text.cancelGeneration}
+                      title={text.cancelGeneration}
+                      disabled={chatRun?.canceling}
+                    >
+                      <Icon name="pause" size={15} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="copilot-composer-action"
+                      onClick={() => void send()}
+                      aria-label={text.sendMessage}
+                      title={text.sendMessage}
+                      disabled={!message.trim()}
+                    >
+                      <Icon name="send" size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
