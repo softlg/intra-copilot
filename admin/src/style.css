@@ -2691,6 +2691,10 @@ article p {
   padding: 17px;
 }
 
+.tool-card-actions {
+  justify-content: space-between;
+}
+
 .resource-card-clickable {
   position: relative;
   cursor: pointer;

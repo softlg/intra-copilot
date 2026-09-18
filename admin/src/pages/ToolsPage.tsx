@@ -156,7 +156,7 @@ export function ToolsPage({
                     {tool.method ? ` · ${tool.method}` : ""}
                   </span>
                 </div>
-                <div className="agent-actions">
+                <div className="agent-actions tool-card-actions">
                   <button
                     className="secondary"
                     type="button"
