@@ -285,7 +285,7 @@ export function KnowledgePage({
                     <button
                       type="button"
                       className="resource-card-hit-area"
-                      aria-label={`${t.enter}: ${base.name}`}
+                      aria-label={`${t.edit}: ${base.name}`}
                       onClick={() => openKnowledgeBase(base)}
                     />
                     <div className="agent-card-header">
@@ -319,8 +319,8 @@ export function KnowledgePage({
                         type="button"
                         onClick={() => openKnowledgeBase(base)}
                       >
-                        {t.enter}
-                        <Icon name="chevron-right" size={14} />
+                        <Icon name="edit" size={14} />
+                        {t.edit}
                       </button>
                     </div>
                   </article>

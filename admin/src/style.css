@@ -1097,7 +1097,7 @@ article p {
 }
 
 .knowledge-card .agent-actions {
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-top: auto;
   padding-top: 16px;
 }
