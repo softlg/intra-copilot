@@ -94,6 +94,7 @@ import { KnowledgePage } from "./pages/KnowledgePage";
 import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { AdminCopilotPanel } from "./components/AdminCopilotPanel";
 import { SystemAgentHeroCard } from "./components/SystemAgentHeroCard";
+import { SystemAgentDashboard } from "./components/SystemAgentDashboard";
 
 type AgentConfigSnapshot = {
   id: string;
@@ -3410,6 +3411,21 @@ function AdminApp({
                     })}
                   </div>
                 )}
+                {agentListTab.role === "MAIN" &&
+                  !agentsLoading &&
+                  agentListTab.items[0] && (
+                    <SystemAgentDashboard
+                      systemAgent={agentListTab.items[0]}
+                      agents={agents}
+                      counts={agentRoleCounts}
+                      t={t}
+                      onNavigate={setTab}
+                      onCreateDomain={() => addAgent("DOMAIN")}
+                      onOpenSystemSettings={() =>
+                        openAgentSettings(agentListTab.items[0])
+                      }
+                    />
+                  )}
                 {agentListTab.items.length === 0 &&
                   (filteredAgents.length < agents.length ? (
                     <EmptyState

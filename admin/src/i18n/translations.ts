@@ -173,6 +173,65 @@ export const translations = {
     systemAgentDomainShort: "领域",
     systemAgentSubShort: "子 Agent",
     systemAgentFallback: "未匹配请求转交通用 Agent",
+    systemDashboardTitle: "系统运行看板",
+    systemDashboardSubtitle: "汇总入口状态、路由覆盖和执行节点健康度。",
+    systemDashboardHealthy: "运行正常",
+    systemDashboardAttention: "需要关注",
+    systemDashboardEntryStatus: "入口状态",
+    systemDashboardOnline: "在线",
+    systemDashboardOffline: "已停用",
+    systemDashboardEntryOnlineHint: "系统 Agent 正在接收并识别用户请求。",
+    systemDashboardEntryOfflineHint: "停用后所有请求都无法进入路由链路。",
+    systemDashboardActiveNodes: "活跃路由节点",
+    systemDashboardActiveNodesHint: "已启用执行 Agent / 全部执行 Agent",
+    systemDashboardFallback: "兜底能力",
+    systemDashboardFallbackReadyHint: "存在可承接未匹配请求的通用 Agent。",
+    systemDashboardFallbackMissingHint: "当前没有启用的通用 Agent。",
+    systemDashboardDelegation: "委派链路",
+    systemDashboardDelegationHint: "已绑定父 Agent 的子 Agent 数量。",
+    systemDashboardTopology: "路由拓扑",
+    systemDashboardTopologyHint: "从系统入口到执行节点的当前可用链路。",
+    systemDashboardTopologyLive: "实时配置",
+    systemDashboardFallbackLayer: "未匹配请求兜底",
+    systemDashboardDomainLayer: "领域意图承接",
+    systemDashboardSubLayer: "父 Agent 委派执行",
+    systemDashboardReady: "已就绪",
+    systemDashboardNoItems: "未配置",
+    systemDashboardCoverage: "Agent 覆盖",
+    systemDashboardCoverageHint: "按角色查看启用比例，点击可进入列表。",
+    systemDashboardSignals: "运行提示",
+    systemDashboardSignalsHint: "根据当前 Agent 配置自动生成。",
+    systemDashboardChecklist: "链路检查",
+    systemDashboardAllClear: "未发现配置风险",
+    systemDashboardAllClearHint: "入口、兜底、领域和委派链路均已就绪。",
+    systemDashboardSystemDisabled: "系统入口已停用",
+    systemDashboardSystemDisabledHint:
+      "启用系统 Agent 后，用户请求才会进入路由链路。",
+    systemDashboardMissingFallback: "缺少可用兜底",
+    systemDashboardMissingFallbackHint:
+      "至少启用一个通用 Agent，确保未匹配请求有承接节点。",
+    systemDashboardMissingDomain: "尚未启用领域 Agent",
+    systemDashboardMissingDomainHint:
+      "当前只能依赖通用 Agent，建议按业务场景配置领域路由。",
+    systemDashboardOrphanSub: (count: number) =>
+      `${count} 个子 Agent 缺少有效父节点`,
+    systemDashboardOrphanSubHint:
+      "这些子 Agent 无法被自动委派，请检查父子绑定关系。",
+    systemDashboardDisabledAgents: (count: number) =>
+      `${count} 个执行 Agent 已停用`,
+    systemDashboardDisabledAgentsHint:
+      "停用节点不会参与路由，可在对应角色列表中确认是否符合预期。",
+    systemDashboardOpenGeneral: "查看通用 Agent",
+    systemDashboardOpenSub: "查看子 Agent",
+    systemDashboardCreateDomain: "新增领域 Agent",
+    systemDashboardQuickActions: "快捷操作",
+    systemDashboardQuickActionsHint: "常用路由测试、日志与配置入口。",
+    systemDashboardTestRoute: "测试路由",
+    systemDashboardTestRouteHint: "输入一条请求验证分派结果。",
+    systemDashboardViewLogs: "查看调用日志",
+    systemDashboardViewLogsHint: "检查完整路由和执行轨迹。",
+    systemDashboardCreateDomainHint: "为新的业务领域补充专业节点。",
+    systemDashboardSystemSettingsHint: "调整入口模型、规划与路由策略。",
     systemAgentPageHint:
       "请求入口：识别用户意图，分派给通用或领域 Agent，全局唯一。",
     generalAgentPage: "通用 Agent",
@@ -1052,6 +1111,77 @@ export const translations = {
     systemAgentDomainShort: "Domain",
     systemAgentSubShort: "Sub-agent",
     systemAgentFallback: "Unmatched requests go to a General Agent",
+    systemDashboardTitle: "System operations dashboard",
+    systemDashboardSubtitle:
+      "Entry health, route coverage, and execution-node readiness at a glance.",
+    systemDashboardHealthy: "Healthy",
+    systemDashboardAttention: "Attention",
+    systemDashboardEntryStatus: "Entry status",
+    systemDashboardOnline: "Online",
+    systemDashboardOffline: "Disabled",
+    systemDashboardEntryOnlineHint:
+      "The System Agent is receiving and classifying user requests.",
+    systemDashboardEntryOfflineHint:
+      "All requests are blocked from routing while the entry is disabled.",
+    systemDashboardActiveNodes: "Active route nodes",
+    systemDashboardActiveNodesHint: "Enabled execution Agents / total",
+    systemDashboardFallback: "Fallback readiness",
+    systemDashboardFallbackReadyHint:
+      "A General Agent is available for unmatched requests.",
+    systemDashboardFallbackMissingHint:
+      "No enabled General Agent is currently available.",
+    systemDashboardDelegation: "Delegation links",
+    systemDashboardDelegationHint: "Sub-agents bound to a parent Agent.",
+    systemDashboardTopology: "Routing topology",
+    systemDashboardTopologyHint:
+      "Available paths from the System Agent to execution nodes.",
+    systemDashboardTopologyLive: "Live config",
+    systemDashboardFallbackLayer: "Unmatched-request fallback",
+    systemDashboardDomainLayer: "Domain intent handling",
+    systemDashboardSubLayer: "Parent-agent delegation",
+    systemDashboardReady: "Ready",
+    systemDashboardNoItems: "Not configured",
+    systemDashboardCoverage: "Agent coverage",
+    systemDashboardCoverageHint:
+      "Enabled ratio by role. Select a row to open the list.",
+    systemDashboardSignals: "Runtime signals",
+    systemDashboardSignalsHint:
+      "Generated from the current Agent configuration.",
+    systemDashboardChecklist: "Path checks",
+    systemDashboardAllClear: "No configuration risks found",
+    systemDashboardAllClearHint:
+      "Entry, fallback, domain, and delegation paths are ready.",
+    systemDashboardSystemDisabled: "System entry is disabled",
+    systemDashboardSystemDisabledHint:
+      "Enable the System Agent before user requests can enter routing.",
+    systemDashboardMissingFallback: "No fallback is available",
+    systemDashboardMissingFallbackHint:
+      "Enable at least one General Agent for unmatched requests.",
+    systemDashboardMissingDomain: "No domain Agent is enabled",
+    systemDashboardMissingDomainHint:
+      "Requests can only use the general path. Add domain routes for business scenarios.",
+    systemDashboardOrphanSub: (count: number) =>
+      `${count} sub-agent${count === 1 ? "" : "s"} missing a valid parent`,
+    systemDashboardOrphanSubHint:
+      "These sub-agents cannot be delegated automatically. Review their parent binding.",
+    systemDashboardDisabledAgents: (count: number) =>
+      `${count} execution Agent${count === 1 ? "" : "s"} disabled`,
+    systemDashboardDisabledAgentsHint:
+      "Disabled nodes do not participate in routing. Confirm this is intentional.",
+    systemDashboardOpenGeneral: "View General Agents",
+    systemDashboardOpenSub: "View Sub-agents",
+    systemDashboardCreateDomain: "Add Domain Agent",
+    systemDashboardQuickActions: "Quick actions",
+    systemDashboardQuickActionsHint:
+      "Common route testing, log, and configuration shortcuts.",
+    systemDashboardTestRoute: "Test routing",
+    systemDashboardTestRouteHint: "Enter a request to validate dispatch.",
+    systemDashboardViewLogs: "View conversation logs",
+    systemDashboardViewLogsHint: "Inspect full routing and execution traces.",
+    systemDashboardCreateDomainHint:
+      "Add a specialist node for a new business domain.",
+    systemDashboardSystemSettingsHint:
+      "Adjust the entry model, planning, and routing policy.",
     systemAgentPageHint:
       "Entry point: identifies user intent and routes to a general or domain Agent. Only one instance exists.",
     generalAgentPage: "General Agent",

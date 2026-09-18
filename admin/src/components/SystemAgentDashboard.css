@@ -1,0 +1,699 @@
+.system-agent-dashboard {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.system-agent-dashboard-header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 2px;
+}
+
+.system-agent-dashboard-header h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.system-agent-dashboard-header p,
+.system-agent-panel-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.system-agent-dashboard-health {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.system-agent-dashboard-health.is-healthy {
+  border-color: color-mix(in srgb, var(--success) 34%, transparent);
+  background: color-mix(in srgb, var(--success-surface) 74%, transparent);
+  color: var(--success);
+}
+
+.system-agent-dashboard-health.is-attention {
+  border-color: var(--warning-tint-border);
+  background: var(--warning-tint);
+  color: var(--warning);
+}
+
+.system-agent-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.system-agent-metric {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 11px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.system-agent-metric-icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+
+.system-agent-metric.is-brand .system-agent-metric-icon {
+  background: var(--brand-surface);
+  color: var(--brand-surface-text);
+}
+
+.system-agent-metric.is-success .system-agent-metric-icon {
+  background: color-mix(in srgb, var(--success-surface) 76%, transparent);
+  color: var(--success);
+}
+
+.system-agent-metric.is-warning .system-agent-metric-icon {
+  background: var(--warning-tint);
+  color: var(--warning);
+}
+
+.system-agent-metric.is-danger .system-agent-metric-icon {
+  background: var(--danger-tint);
+  color: var(--danger-text);
+}
+
+.system-agent-metric > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.system-agent-metric > div > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-agent-metric strong {
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+.system-agent-metric small {
+  margin-top: 4px;
+  color: var(--muted-subtle);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.system-agent-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 12px;
+}
+
+.system-agent-panel {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.system-agent-panel-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.system-agent-panel-heading h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.system-agent-panel-heading > span {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid var(--brand-border);
+  border-radius: 999px;
+  background: var(--brand-surface);
+  color: var(--brand-surface-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.system-agent-topology {
+  display: grid;
+  gap: 10px;
+}
+
+.system-agent-topology-entry,
+.system-agent-topology-branch {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border-faint);
+  border-radius: 9px;
+  background: var(--surface-sunken);
+}
+
+.system-agent-topology-entry {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  padding: 11px 12px;
+  border-color: var(--brand-border);
+  background: color-mix(in srgb, var(--surface-sunken) 84%, var(--brand) 16%);
+}
+
+.system-agent-topology-node-icon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--brand-surface);
+  color: var(--brand-surface-text);
+}
+
+.system-agent-topology-entry > div,
+.system-agent-topology-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.system-agent-topology-entry strong,
+.system-agent-topology-copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-agent-topology-entry div span,
+.system-agent-topology-copy small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-agent-topology-entry > span:last-child,
+.system-agent-topology-branch > span.is-ready,
+.system-agent-topology-branch > span.is-attention {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.system-agent-topology-entry > span.is-ready,
+.system-agent-topology-branch > span.is-ready {
+  background: color-mix(in srgb, var(--success-surface) 74%, transparent);
+  color: var(--success);
+}
+
+.system-agent-topology-entry > span.is-off,
+.system-agent-topology-branch > span.is-attention {
+  background: var(--warning-tint);
+  color: var(--warning);
+}
+
+.system-agent-topology-branches {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  padding-left: 18px;
+}
+
+.system-agent-topology-branches::before {
+  position: absolute;
+  top: -10px;
+  bottom: 18px;
+  left: 7px;
+  width: 1px;
+  background: var(--border);
+  content: "";
+}
+
+.system-agent-topology-branch {
+  position: relative;
+  grid-template-columns: 30px minmax(0, 1fr) auto auto 14px;
+  padding: 9px 10px;
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.system-agent-topology-branch:hover:not(:disabled) {
+  border-color: var(--brand-border);
+  background: var(--brand-surface);
+  color: var(--brand-surface-text);
+}
+
+.system-agent-topology-branch .system-agent-topology-node-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.system-agent-topology-branch:hover .system-agent-topology-node-icon {
+  background: var(--brand-surface);
+  color: var(--brand-surface-text);
+}
+
+.system-agent-topology-line {
+  position: absolute;
+  top: 50%;
+  left: -12px;
+  width: 12px;
+  height: 1px;
+  background: var(--border);
+}
+
+.system-agent-topology-count {
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.system-agent-topology-branch > svg {
+  color: var(--muted-subtle);
+}
+
+.system-agent-readiness-list {
+  display: grid;
+  gap: 8px;
+}
+
+.system-agent-readiness-row {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(120px, 1fr) minmax(72px, 0.8fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--text);
+  text-align: left;
+}
+
+.system-agent-readiness-row:hover:not(:disabled) {
+  border-color: var(--brand-border);
+  background: color-mix(in srgb, var(--surface-sunken) 86%, var(--brand) 14%);
+}
+
+.system-agent-readiness-label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.system-agent-readiness-label > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.system-agent-readiness-label > span svg {
+  color: var(--brand-surface-text);
+}
+
+.system-agent-readiness-label small {
+  overflow: hidden;
+  color: var(--muted-subtle);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-agent-readiness-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--off-surface);
+}
+
+.system-agent-readiness-track > span {
+  display: block;
+  width: var(--system-dashboard-role-progress);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand);
+  transition: width 0.22s ease;
+}
+
+.system-agent-readiness-row > strong {
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.system-agent-readiness-percent {
+  min-width: 32px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.system-agent-signals {
+  display: grid;
+  gap: 8px;
+}
+
+.system-agent-signal {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+}
+
+.system-agent-signal > span {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.system-agent-signal.is-success > span {
+  background: color-mix(in srgb, var(--success-surface) 74%, transparent);
+  color: var(--success);
+}
+
+.system-agent-signal.is-warning > span {
+  background: var(--warning-tint);
+  color: var(--warning);
+}
+
+.system-agent-signal.is-danger > span {
+  background: var(--danger-tint);
+  color: var(--danger-text);
+}
+
+.system-agent-signal > div {
+  min-width: 0;
+}
+
+.system-agent-signal strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.system-agent-signal p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.system-agent-signal button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--brand-surface-text);
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.system-agent-signal button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--brand-hover);
+}
+
+.system-agent-health-checks {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.system-agent-health-checks > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.system-agent-health-checks > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.system-agent-health-checks > div > span {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 8px;
+  border: 1px solid var(--border-faint);
+  border-radius: 7px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.system-agent-health-checks > div > span.is-ready > svg {
+  color: var(--success);
+}
+
+.system-agent-health-checks > div > span.is-attention > svg {
+  color: var(--warning);
+}
+
+.system-agent-health-checks > div > span > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-agent-health-checks strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.system-agent-quick-actions {
+  display: grid;
+  gap: 7px;
+}
+
+.system-agent-quick-actions > button {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 30px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--text);
+  text-align: left;
+}
+
+.system-agent-quick-actions > button:hover:not(:disabled) {
+  border-color: var(--brand-border);
+  background: color-mix(in srgb, var(--surface-sunken) 86%, var(--brand) 14%);
+}
+
+.system-agent-quick-actions > button > span:first-child {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--brand-surface);
+  color: var(--brand-surface-text);
+}
+
+.system-agent-quick-actions > button > span:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.system-agent-quick-actions strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-agent-quick-actions small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-agent-quick-actions > button > svg {
+  color: var(--muted-subtle);
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .system-agent-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .system-agent-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .system-agent-dashboard-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .system-agent-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .system-agent-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .system-agent-topology-branch {
+    grid-template-columns: 28px minmax(0, 1fr) auto 14px;
+  }
+
+  .system-agent-topology-branch > span.is-ready,
+  .system-agent-topology-branch > span.is-attention {
+    display: none;
+  }
+
+  .system-agent-readiness-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .system-agent-readiness-track {
+    grid-column: 1 / -1;
+  }
+
+  .system-agent-health-checks > div {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 479px) {
+  .system-agent-panel {
+    padding: 14px;
+  }
+
+  .system-agent-topology-entry {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .system-agent-topology-entry > span:last-child {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .system-agent-topology-branch {
+    grid-template-columns: 28px minmax(0, 1fr) 14px;
+  }
+
+  .system-agent-topology-count {
+    display: none;
+  }
+
+  .system-agent-topology-copy small {
+    white-space: normal;
+  }
+
+  .system-agent-readiness-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .system-agent-readiness-track {
+    grid-column: 1 / -1;
+  }
+
+  .system-agent-readiness-percent {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .system-agent-readiness-track > span {
+    transition: none;
+  }
+}
