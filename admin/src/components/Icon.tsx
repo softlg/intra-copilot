@@ -39,6 +39,7 @@ export type IconName =
   | "star"
   | "chat"
   | "router"
+  | "send"
   /* Resource kinds used by empty states */
   | "bot"
   | "plug"
@@ -85,6 +86,7 @@ const PATHS: Record<IconName, string> = {
   chat: "M20 12a7 7 0 0 1-7 7H9l-4 3v-4.4A7 7 0 0 1 11 5h2a7 7 0 0 1 7 7Z",
   router:
     "M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm-12 14a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0-14a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm3 3 6 6m0-6-6 6",
+  send: "M12 19V5m-6 6 6-6 6 6",
   bot: "M9 7h6a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3Zm0-3V3m6 1V3M9.5 12h.01m4.98 0h.01M6 10v3m12-3v3",
   plug: "M9 3v6m6-6v6M7 9h10v3a5 5 0 0 1-10 0V9Zm5 8v4",
   hook: "M18 6a4 4 0 0 0-4-4h-1v11a3 3 0 0 1-3 3 3 3 0 0 1-3-3v-1",

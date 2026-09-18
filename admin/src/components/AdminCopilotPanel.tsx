@@ -210,6 +210,7 @@ const copy = {
   zh: {
     title: "AI 工作台",
     subtitle: "辅助配置、生成 Agent 和验证执行效果",
+    workspaceMode: "工作模式",
     assist: "助手",
     build: "生成 Agent",
     validate: "验证 Agent",
@@ -238,6 +239,7 @@ const copy = {
     sessionsDeleted: "已删除 {count} 个会话。",
     inputPlaceholder: "描述你想修改的内容，或直接粘贴报错信息…",
     send: "发送",
+    sendMessage: "发送消息",
     thinking: "正在思考…",
     createSession: "新建会话",
     applyPatch: "应用到当前表单",
@@ -328,10 +330,9 @@ const copy = {
     appliedPatchHint:
       "已写入当前表单，请检查无误后保存；建议重新运行静态检查确认效果。",
     statusReady: "待确认",
-    modeAssistDesc:
-      "助手：用自然语言改进当前 Agent 的配置（提示词、模型、工具等）。确认差异后点“应用到当前表单”，再保存即可生效。",
-    modeBuildDesc:
-      "生成 Agent：从零描述你想要的 Agent，AI 会逐步确认需求并生成未发布草案。",
+    modeAssistDesc: "修改当前 Agent 的提示词、模型、工具等配置。",
+    modeBuildDesc: "从零描述需求，生成未发布的 Agent 草案。",
+    modeValidateDesc: "检查配置风险、生成场景并运行行为验证。",
     validateNoAgent: "请先在左侧打开或选择一个 Agent，再使用验证功能。",
     validateGuide: "步骤：① 静态检查　② 生成场景　③ 勾选并执行",
     runDisabledHint: "请先生成场景并勾选至少一个再执行",
@@ -386,6 +387,7 @@ const copy = {
   en: {
     title: "AI Workspace",
     subtitle: "Configure, generate, and validate agents",
+    workspaceMode: "Workspace mode",
     assist: "Assist",
     build: "Build Agent",
     validate: "Validate",
@@ -416,6 +418,7 @@ const copy = {
     inputPlaceholder:
       "Describe the change, paste an error, or explain what the Agent should do…",
     send: "Send",
+    sendMessage: "Send message",
     thinking: "Thinking…",
     createSession: "Create session",
     applyPatch: "Apply to current form",
@@ -516,9 +519,10 @@ const copy = {
       "Written to the form. Review and save; re-run the static check to confirm.",
     statusReady: "Ready",
     modeAssistDesc:
-      "Assist: improve the current Agent's config in plain language (prompts, model, tools…). Confirm the diff, then “Apply to current form” and save to take effect.",
-    modeBuildDesc:
-      "Build Agent: describe a new Agent from scratch; the AI confirms requirements step by step and drafts an unpublished Agent.",
+      "Change the current Agent's prompt, model, tools, and config.",
+    modeBuildDesc: "Describe a new Agent and draft it from scratch.",
+    modeValidateDesc:
+      "Inspect risks, generate scenarios, and run behavioral checks.",
     validateNoAgent:
       "Open or select an Agent on the left before using validation.",
     validateGuide:
@@ -1300,6 +1304,120 @@ function AppliedProposalBanner({
         <Icon name="close" size={14} />
       </button>
     </section>
+  );
+}
+
+function WorkspaceModePicker({
+  view,
+  text,
+  onChange,
+}: {
+  view: PanelView;
+  text: (typeof copy)[Language];
+  onChange: (view: PanelView) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const modes = [
+    {
+      key: "assist",
+      icon: "chat",
+      label: text.assist,
+      description: text.modeAssistDesc,
+    },
+    {
+      key: "build",
+      icon: "sparkle",
+      label: text.build,
+      description: text.modeBuildDesc,
+    },
+    {
+      key: "validate",
+      icon: "check",
+      label: text.validate,
+      description: text.modeValidateDesc,
+    },
+  ] as const;
+  const active = modes.find((mode) => mode.key === view) ?? modes[0];
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !pickerRef.current?.contains(event.target)
+      ) {
+        setOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className="copilot-mode-bar">
+      <div className="copilot-mode-picker" ref={pickerRef}>
+        <button
+          type="button"
+          className="copilot-mode-trigger"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <span className="copilot-mode-icon" aria-hidden="true">
+            <Icon name={active.icon} size={16} />
+          </span>
+          <span className="copilot-mode-label">
+            <small>{text.workspaceMode}</small>
+            <strong>{active.label}</strong>
+          </span>
+          <Icon
+            name="chevron-down"
+            size={15}
+            className={open ? "is-open" : undefined}
+          />
+        </button>
+        {open && (
+          <div
+            className="copilot-mode-menu"
+            role="menu"
+            aria-label={text.workspaceMode}
+          >
+            {modes.map((mode) => (
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={mode.key === view}
+                className={mode.key === view ? "is-active" : undefined}
+                onClick={() => {
+                  if (mode.key !== view) onChange(mode.key);
+                  setOpen(false);
+                }}
+                key={mode.key}
+              >
+                <span className="copilot-mode-icon" aria-hidden="true">
+                  <Icon name={mode.icon} size={16} />
+                </span>
+                <span>
+                  <strong>{mode.label}</strong>
+                  <small>{mode.description}</small>
+                </span>
+                {mode.key === view && (
+                  <Icon name="check" size={15} title={mode.label} />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2449,9 +2567,11 @@ export function AdminCopilotPanel({
   const handlePanelKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
       const target = event.target as HTMLElement | null;
-      if (target?.closest(".copilot-history-popover")) return;
+      if (target?.closest(".copilot-history-popover, .copilot-mode-menu")) {
+        return;
+      }
       const popover = panelRef.current?.querySelector(
-        ".copilot-history-popover",
+        ".copilot-history-popover, .copilot-mode-menu",
       );
       if (popover && popover.getClientRects().length > 0) return;
       event.preventDefault();
@@ -2540,26 +2660,7 @@ export function AdminCopilotPanel({
           </button>
         </header>
 
-        <div className="copilot-modes" role="tablist" aria-label={text.title}>
-          {(
-            [
-              ["assist", text.assist],
-              ["build", text.build],
-              ["validate", text.validate],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === key}
-              className={view === key ? "active" : undefined}
-              onClick={() => switchView(key)}
-              key={key}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <WorkspaceModePicker view={view} text={text} onChange={switchView} />
 
         {panelError && (
           <p className="copilot-error" role="alert">
@@ -2649,9 +2750,6 @@ export function AdminCopilotPanel({
                 {agentConfigDirty ? text.contextUnsaved : text.contextSaved}
               </em>
             </div>
-            <p className="copilot-mode-desc" aria-live="polite">
-              {view === "build" ? text.modeBuildDesc : text.modeAssistDesc}
-            </p>
             <SessionHistoryPicker
               text={text}
               sessions={visibleSessions}
@@ -2910,53 +3008,56 @@ export function AdminCopilotPanel({
             )}
 
             <div className="copilot-composer">
-              <label htmlFor="admin-copilot-message" className="sr-only">
-                {text.inputPlaceholder}
-              </label>
-              <textarea
-                id="admin-copilot-message"
-                ref={composerRef}
-                value={message}
-                onChange={(event) => writeComposerDraft(event.target.value)}
-                placeholder={text.inputPlaceholder}
-                rows={4}
-                maxLength={16000}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === "Enter" &&
-                    !event.shiftKey &&
-                    !event.altKey &&
-                    !event.ctrlKey &&
-                    !event.metaKey &&
-                    !event.nativeEvent.isComposing
-                  ) {
-                    event.preventDefault();
-                    void send();
-                  }
-                }}
-              />
-              <p className="copilot-input-hint">{text.inputHint}</p>
-              {sending ? (
-                <button
-                  type="button"
-                  className="danger"
-                  onClick={() => void cancelChatRun()}
-                  disabled={chatRun?.canceling}
-                >
-                  <Icon name="pause" size={14} />
-                  {chatRun?.canceling
-                    ? text.cancelingGeneration
-                    : text.cancelGeneration}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void send()}
-                  disabled={!message.trim()}
-                >
-                  {text.send}
-                </button>
-              )}
+              <div className="copilot-composer-field">
+                <label htmlFor="admin-copilot-message" className="sr-only">
+                  {text.inputPlaceholder}
+                </label>
+                <textarea
+                  id="admin-copilot-message"
+                  ref={composerRef}
+                  value={message}
+                  onChange={(event) => writeComposerDraft(event.target.value)}
+                  placeholder={text.inputPlaceholder}
+                  rows={1}
+                  maxLength={16000}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      !event.shiftKey &&
+                      !event.altKey &&
+                      !event.ctrlKey &&
+                      !event.metaKey &&
+                      !event.nativeEvent.isComposing
+                    ) {
+                      event.preventDefault();
+                      void send();
+                    }
+                  }}
+                />
+                {sending ? (
+                  <button
+                    type="button"
+                    className="copilot-composer-action is-stop"
+                    onClick={() => void cancelChatRun()}
+                    aria-label={text.cancelGeneration}
+                    title={text.cancelGeneration}
+                    disabled={chatRun?.canceling}
+                  >
+                    <Icon name="pause" size={15} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="copilot-composer-action"
+                    onClick={() => void send()}
+                    aria-label={text.sendMessage}
+                    title={text.sendMessage}
+                    disabled={!message.trim()}
+                  >
+                    <Icon name="send" size={16} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
