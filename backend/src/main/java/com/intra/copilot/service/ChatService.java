@@ -1913,7 +1913,7 @@ public class ChatService {
          * Executes one bounded ReAct segment. A plan step uses its own tool subset, while direct
          * chat passes the Agent's full allowlist.
          */
-        private ReActResult executeReAct(
+        ReActResult executeReAct(
                         SseEmitter out,
                         AtomicBoolean finished,
                         Conversation conversation,
