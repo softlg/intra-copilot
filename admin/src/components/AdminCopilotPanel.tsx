@@ -3022,26 +3022,6 @@ export function AdminCopilotPanel({
                 }}
               />
               <div className="copilot-composer-footer">
-                <div
-                  className={
-                    agentConfigDirty
-                      ? "copilot-composer-context is-dirty"
-                      : "copilot-composer-context"
-                  }
-                >
-                  <Icon name="agents" size={12} />
-                  <span>
-                    {view === "build" ? text.contextBuild : text.contextAssist}
-                  </span>
-                  <strong>
-                    {currentAgentId
-                      ? currentAgentName || currentAgentId
-                      : text.contextNoAgent}
-                  </strong>
-                  <em>
-                    {agentConfigDirty ? text.contextUnsaved : text.contextSaved}
-                  </em>
-                </div>
                 {sending ? (
                   <button
                     type="button"

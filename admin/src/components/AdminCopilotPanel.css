@@ -981,54 +981,9 @@ body.copilot-panel-resizing * {
 .copilot-composer-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: flex-end;
   min-height: 36px;
-  padding: 0 4px 4px 7px;
-}
-
-.copilot-composer-context {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: var(--surface-sunken);
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.copilot-composer-context > svg {
-  flex: 0 0 auto;
-  color: var(--accent-text);
-}
-
-.copilot-composer-context span {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-.copilot-composer-context strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.copilot-composer-context em {
-  flex: 0 0 auto;
-  margin-left: 2px;
-  color: var(--success);
-  font-size: 10px;
-  font-style: normal;
-  white-space: nowrap;
-}
-
-.copilot-composer-context.is-dirty em {
-  color: var(--warning);
+  padding: 0 4px 4px;
 }
 
 .copilot-composer-action {
@@ -2552,10 +2507,6 @@ body.copilot-panel-resizing * {
 
   .copilot-case-head > div {
     justify-content: space-between;
-  }
-
-  .copilot-composer-context span {
-    display: none;
   }
 }
 
