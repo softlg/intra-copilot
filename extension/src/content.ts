@@ -308,6 +308,12 @@ function fillElement(element: HTMLElement, value: string) {
 
 function setEditorElement(element: HTMLElement, value: string) {
   const editor = element.closest(".monaco-editor") || element;
+  document
+    .querySelectorAll("[data-intra-copilot-editor-target]")
+    .forEach((item) =>
+      item.removeAttribute("data-intra-copilot-editor-target"),
+    );
+  editor.setAttribute("data-intra-copilot-editor-target", "true");
   const input = editor.querySelector(
     "textarea.inputarea, textarea, [contenteditable='true']",
   ) as HTMLElement | null;
@@ -400,6 +406,15 @@ chrome.runtime.onMessage.addListener((msg: any, _sender: any, send: any) => {
   }
   if (msg?.type === "COLLECT_CONTEXT") {
     send(collectContext());
+    return true;
+  }
+  if (msg?.type === "CLEAR_EDITOR_TARGET") {
+    document
+      .querySelectorAll("[data-intra-copilot-editor-target]")
+      .forEach((item) =>
+        item.removeAttribute("data-intra-copilot-editor-target"),
+      );
+    send({ ok: true });
     return true;
   }
   if (msg?.type === "EXECUTE_ACTION") {

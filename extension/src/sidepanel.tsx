@@ -91,47 +91,265 @@ function collectPageContext() {
  * Runs in the page's MAIN world so it can access Monaco's JavaScript API. The function is
  * serialized by chrome.scripting.executeScript and must not reference module-level values.
  */
-function setEditorValueInPage(args: any) {
+async function setEditorValueInPage(args: any) {
   const code = typeof args?.code === "string" ? args.code : "";
+  if (!code.trim()) {
+    return { ok: false, action: "SET_EDITOR", error: "Code is empty" };
+  }
+  const normalize = (value: unknown) =>
+    String(value || "")
+      .replace(/\s+/g, "")
+      .trim();
+  const expected = normalize(code).slice(0, 240);
+  const verified = (value: unknown) => {
+    const actual = normalize(value);
+    const probe = expected.slice(0, Math.min(100, expected.length));
+    return probe.length > 0 && actual.includes(probe);
+  };
+  const applyModel = (model: any, method: string) => {
+    try {
+      if (!model || typeof model.setValue !== "function") return null;
+      model.setValue(code);
+      const current =
+        typeof model.getValue === "function" ? model.getValue() : "";
+      return verified(current)
+        ? {
+            ok: true,
+            action: "SET_EDITOR",
+            method,
+            preview: String(current).slice(0, 160),
+          }
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const applyEditor = (editor: any, method: string) => {
+    try {
+      const byModel = applyModel(editor?.getModel?.(), `${method}-model`);
+      if (byModel) return byModel;
+      if (!editor || typeof editor.setValue !== "function") return null;
+      editor.setValue(code);
+      const current =
+        typeof editor.getValue === "function" ? editor.getValue() : "";
+      return verified(current)
+        ? {
+            ok: true,
+            action: "SET_EDITOR",
+            method,
+            preview: String(current).slice(0, 160),
+          }
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const editorCandidate = (value: any) => {
+    if (!value || typeof value !== "object") return null;
+    if (
+      typeof value.getModel === "function" &&
+      typeof value.setValue === "function"
+    ) {
+      return { kind: "editor", value };
+    }
+    if (
+      typeof value.getValue === "function" &&
+      typeof value.setValue === "function"
+    ) {
+      return { kind: "model", value };
+    }
+    return null;
+  };
+  const applyCandidate = (candidate: any, method: string) =>
+    candidate?.kind === "model"
+      ? applyModel(candidate.value, method)
+      : applyEditor(candidate?.value, method);
+
+  const markedEditor = document.querySelector(
+    "[data-intra-copilot-editor-target='true']",
+  );
+  if (markedEditor instanceof HTMLElement) {
+    markedEditor.setAttribute("data-intra-copilot-editor-target", "true");
+  }
   const domEditors = Array.from(
     document.querySelectorAll(
-      ".monaco-editor textarea.inputarea, .monaco-editor [contenteditable='true'], .cm-content, .monaco-editor",
+      ".monaco-editor, .cm-editor, .cm-content, textarea[class*='inputarea']",
     ),
   ).filter((element): element is HTMLElement => element instanceof HTMLElement);
-  const domEditor = domEditors[0];
-  if (domEditor) {
-    domEditor.focus();
-    if (
-      domEditor instanceof HTMLInputElement ||
-      domEditor instanceof HTMLTextAreaElement
-    ) {
-      domEditor.select();
-    } else if (domEditor.isContentEditable) {
-      const selection = getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(domEditor);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
+  if (
+    markedEditor instanceof HTMLElement &&
+    !domEditors.includes(markedEditor)
+  ) {
+    domEditors.unshift(markedEditor);
+  }
+
+  if (!(markedEditor instanceof HTMLElement)) {
+    const host = window as any;
+    const globalMonaco = host.monaco;
+    const globalModels = globalMonaco?.editor?.getModels?.() || [];
+    if (Array.isArray(globalModels)) {
+      for (const model of globalModels) {
+        const result = applyModel(model, "monaco-global-model");
+        if (result) return result;
+      }
     }
-    if (document.execCommand("insertText", false, code)) {
-      return { ok: true, action: "SET_EDITOR", method: "dom-execCommand" };
+    const globalEditors = globalMonaco?.editor?.getEditors?.() || [];
+    if (Array.isArray(globalEditors)) {
+      for (const editor of globalEditors) {
+        const result = applyEditor(editor, "monaco-global-editor");
+        if (result) return result;
+      }
     }
   }
-  const host = window as any;
-  const monaco = host.monaco;
-  const models = monaco?.editor?.getModels?.() || [];
-  if (Array.isArray(models) && models.length > 0) {
-    models[0].setValue(code);
-    return { ok: true, action: "SET_EDITOR", method: "monaco-global" };
-  }
-  const monacoEditors = monaco?.editor?.getEditors?.() || [];
-  if (Array.isArray(monacoEditors) && monacoEditors.length > 0) {
-    monacoEditors[0].setValue?.(code);
-    return { ok: true, action: "SET_EDITOR", method: "monaco-editor" };
+
+  for (const domEditor of domEditors) {
+    const fiberKey = Object.keys(domEditor).find(
+      (key) =>
+        key.startsWith("__reactFiber$") ||
+        key.startsWith("__reactInternalInstance$"),
+    );
+    if (fiberKey) {
+      const seen = new Set<any>();
+      const queue: any[] = [(domEditor as any)[fiberKey]];
+      while (queue.length && seen.size < 3000) {
+        const node = queue.shift();
+        if (!node || seen.has(node)) continue;
+        seen.add(node);
+        for (const value of [
+          node.stateNode,
+          node.memoizedProps,
+          node.memoizedState,
+          node.ref,
+        ]) {
+          const candidate = editorCandidate(value);
+          if (candidate) {
+            const result = applyCandidate(candidate, "react-instance");
+            if (result) return result;
+          }
+          if (value && typeof value === "object") queue.push(value);
+        }
+        if (node.child) queue.push(node.child);
+        if (node.sibling) queue.push(node.sibling);
+        if (node.return) queue.push(node.return);
+      }
+    }
+
+    const surface =
+      domEditor.querySelector(
+        "textarea.inputarea, textarea, [contenteditable='true']",
+      ) || domEditor;
+    if (surface instanceof HTMLElement) {
+      surface.focus();
+      if (
+        surface instanceof HTMLInputElement ||
+        surface instanceof HTMLTextAreaElement
+      ) {
+        surface.select();
+      } else if (surface.isContentEditable) {
+        const selection = getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(surface);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+
+      try {
+        const pasteData = new DataTransfer();
+        pasteData.setData("text/plain", code);
+        surface.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: pasteData,
+          } as any),
+        );
+      } catch {
+        // ClipboardEvent is not supported on every Chromium version.
+      }
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const rendered = Array.from(domEditor.querySelectorAll(".view-line"))
+        .map((line) => line.textContent || "")
+        .join("\n");
+      if (verified(rendered)) {
+        return {
+          ok: true,
+          action: "SET_EDITOR",
+          method: "clipboard-event",
+          preview: rendered.slice(0, 160),
+        };
+      }
+
+      try {
+        document.execCommand("selectAll", false);
+        if (document.execCommand("insertText", false, code)) {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+          const nextRendered = Array.from(
+            domEditor.querySelectorAll(".view-line"),
+          )
+            .map((line) => line.textContent || "")
+            .join("\n");
+          if (verified(nextRendered)) {
+            return {
+              ok: true,
+              action: "SET_EDITOR",
+              method: "dom-execCommand",
+              preview: nextRendered.slice(0, 160),
+            };
+          }
+        }
+      } catch {
+        // Continue with direct input events below.
+      }
+
+      try {
+        if (
+          surface instanceof HTMLInputElement ||
+          surface instanceof HTMLTextAreaElement
+        ) {
+          const setter = Object.getOwnPropertyDescriptor(
+            Object.getPrototypeOf(surface),
+            "value",
+          )?.set;
+          if (setter) setter.call(surface, code);
+          else surface.value = code;
+          surface.dispatchEvent(
+            new InputEvent("input", {
+              bubbles: true,
+              inputType: "insertText",
+              data: code,
+            }),
+          );
+        } else if (surface.isContentEditable) {
+          surface.textContent = code;
+          surface.dispatchEvent(
+            new InputEvent("input", {
+              bubbles: true,
+              inputType: "insertText",
+              data: code,
+            }),
+          );
+        }
+      } catch {
+        // Continue to the final verification result.
+      }
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const finalRendered = Array.from(domEditor.querySelectorAll(".view-line"))
+        .map((line) => line.textContent || "")
+        .join("\n");
+      if (verified(finalRendered)) {
+        return {
+          ok: true,
+          action: "SET_EDITOR",
+          method: "input-event",
+          preview: finalRendered.slice(0, 160),
+        };
+      }
+    }
   }
   return {
     ok: false,
-    error: "Monaco editor not found in page main world",
+    action: "SET_EDITOR",
+    error: "未能在页面中确认代码写入，请刷新 LeetCode 页面后重试",
   };
 }
 
@@ -145,16 +363,29 @@ async function executeEditorAction(tabId: number, action: any) {
   } catch {
     contentResult = { ok: false, error: "Content script unavailable" };
   }
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: "MAIN",
-    func: setEditorValueInPage,
-    args: [action.arguments],
-  });
-  const mainResult = results[0]?.result;
-  return (mainResult as { ok?: boolean } | undefined)?.ok
-    ? mainResult
-    : contentResult;
+  let mainResult: unknown;
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: setEditorValueInPage,
+      args: [{ ...action.arguments, target: action.target }],
+    });
+    mainResult = results[0]?.result;
+  } finally {
+    void chrome.tabs
+      .sendMessage(tabId, { type: "CLEAR_EDITOR_TARGET" })
+      .catch(() => {});
+  }
+  if ((mainResult as { ok?: boolean } | undefined)?.ok) return mainResult;
+  return {
+    ok: false,
+    action: "SET_EDITOR",
+    error:
+      (mainResult as { error?: string } | undefined)?.error ||
+      contentResult?.error ||
+      "页面编辑器写入未成功",
+  };
 }
 
 async function resolveAttachment(
@@ -269,6 +500,9 @@ function ToolTraceView({
   resultLabel,
   okLabel,
   failLabel,
+  browserActionName,
+  browserActionReason,
+  browserActionLabels,
 }: {
   trace: ToolTraceStep[];
   title: string;
@@ -276,6 +510,9 @@ function ToolTraceView({
   resultLabel: string;
   okLabel: string;
   failLabel: string;
+  browserActionName: string;
+  browserActionReason: string;
+  browserActionLabels: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
   if (!trace.length) return null;
@@ -298,37 +535,52 @@ function ToolTraceView({
       </button>
       {open && (
         <ol className="tool-trace-list">
-          {trace.map((step, index) => (
-            <li key={index} className="tool-trace-step">
-              <div className="tool-trace-head">
-                <code className="tool-trace-name">{step.tool}</code>
-                {step.result != null && (
-                  <span
-                    className={
-                      "tool-trace-badge " +
-                      (step.success === false ? "failed" : "ok")
-                    }
-                  >
-                    {step.success === false ? failLabel : okLabel}
-                  </span>
+          {trace.map((step, index) => {
+            const displayName =
+              step.tool === "browser_action" ? browserActionName : step.tool;
+            let displayArguments = step.arguments;
+            if (step.tool === "browser_action" && step.arguments) {
+              try {
+                const parsed = JSON.parse(step.arguments);
+                const actionLabel =
+                  browserActionLabels[parsed.type] || parsed.type;
+                displayArguments = `${actionLabel}${parsed.reason ? `\n${browserActionReason}：${parsed.reason}` : ""}`;
+              } catch {
+                /* Keep the original value when the trace is not valid JSON. */
+              }
+            }
+            return (
+              <li key={index} className="tool-trace-step">
+                <div className="tool-trace-head">
+                  <code className="tool-trace-name">{displayName}</code>
+                  {step.result != null && (
+                    <span
+                      className={
+                        "tool-trace-badge " +
+                        (step.success === false ? "failed" : "ok")
+                      }
+                    >
+                      {step.success === false ? failLabel : okLabel}
+                    </span>
+                  )}
+                </div>
+                {displayArguments ? (
+                  <pre className="tool-trace-args">
+                    {argsLabel}
+                    {displayArguments}
+                  </pre>
+                ) : null}
+                {step.result != null ? (
+                  <pre className="tool-trace-result">
+                    {resultLabel}
+                    {step.result}
+                  </pre>
+                ) : (
+                  <div className="tool-trace-pending">{resultLabel}…</div>
                 )}
-              </div>
-              {step.arguments ? (
-                <pre className="tool-trace-args">
-                  {argsLabel}
-                  {step.arguments}
-                </pre>
-              ) : null}
-              {step.result != null ? (
-                <pre className="tool-trace-result">
-                  {resultLabel}
-                  {step.result}
-                </pre>
-              ) : (
-                <div className="tool-trace-pending">{resultLabel}…</div>
-              )}
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ol>
       )}
     </div>
@@ -378,6 +630,7 @@ const PAGE_INFO_KEYS: PageInfoKey[] = [
   "visibleText",
   "domSummary",
 ];
+const MAX_VISIBLE_SESSION_TABS = 5;
 
 const translations = {
   zh: {
@@ -461,6 +714,12 @@ const translations = {
     toolInvoked: "调用工具",
     toolResult: "工具返回",
     toolTrace: "执行过程",
+    browserActionName: "页面操作",
+    browserActionReason: "原因",
+    browserActionSetEditor: "写入代码编辑器",
+    browserActionClick: "点击页面按钮",
+    browserActionFill: "填写输入框",
+    browserActionNavigate: "打开网页",
     toolArgs: "参数",
     toolOk: "成功",
     toolFail: "失败",
@@ -525,8 +784,23 @@ const translations = {
     pagePermission: "页面权限",
     readPage: "允许读取当前页面上下文",
     permissionNote: "写入页面的操作仍会逐项请求确认。",
-    actionConfirm: (type: string, reason: string, risk: string) =>
-      `助手请求执行 ${type} 操作。\n原因：${reason}\n风险：${risk}\n\n是否执行？`,
+    actionConfirmTitle: "允许页面操作",
+    actionConfirm: (type: string, reason: string, risk: string) => {
+      const action =
+        {
+          SET_EDITOR: "将代码写入当前编辑器",
+          CLICK: "点击当前页面中的按钮",
+          FILL: "填写当前页面中的输入框",
+          NAVIGATE: "跳转到指定网页",
+        }[type] || "操作当前页面";
+      const riskText =
+        {
+          low: "低",
+          medium: "中",
+          high: "高",
+        }[risk] || "中";
+      return `${action}\n\n原因：${reason || "这是完成任务所需的下一步"}\n影响：本次操作只作用于当前页面，风险等级为${riskText}。\n\n允许后助手才会执行。`;
+    },
   },
   en: {
     appSubtitle: "Browser AI assistant",
@@ -612,6 +886,12 @@ const translations = {
     toolInvoked: "Calling tool",
     toolResult: "Tool returned",
     toolTrace: "Tool calls",
+    browserActionName: "Page action",
+    browserActionReason: "Reason",
+    browserActionSetEditor: "Write to code editor",
+    browserActionClick: "Click page button",
+    browserActionFill: "Fill input",
+    browserActionNavigate: "Open web page",
     toolArgs: "Arguments",
     toolOk: "Success",
     toolFail: "Failed",
@@ -681,8 +961,23 @@ const translations = {
     readPage: "Allow reading the current page context",
     permissionNote:
       "Write actions on the page will still ask for confirmation one by one.",
-    actionConfirm: (type: string, reason: string, risk: string) =>
-      `The assistant requests to perform ${type}.\nReason: ${reason}\nRisk: ${risk}\n\nProceed?`,
+    actionConfirmTitle: "Allow page action",
+    actionConfirm: (type: string, reason: string, risk: string) => {
+      const action =
+        {
+          SET_EDITOR: "Write the generated code into the current editor",
+          CLICK: "Click a button on the current page",
+          FILL: "Fill an input on the current page",
+          NAVIGATE: "Open another web page",
+        }[type] || "Interact with the current page";
+      const riskText =
+        {
+          low: "low",
+          medium: "medium",
+          high: "high",
+        }[risk] || "medium";
+      return `${action}\n\nReason: ${reason || "This is the next step required to finish the task."}\nImpact: This action only affects the current page. Risk level: ${riskText}.\n\nThe assistant will not act until you allow it.`;
+    },
   },
 } as const;
 
@@ -1528,17 +1823,21 @@ function App() {
     setDropTarget(undefined);
   }
 
-  // 计算插入位置：draggingId 拖到 targetId 处，根据鼠标在上半/下半决定 before/after。
+  // 计算插入位置：横向标签按左右半区判断，纵向列表按上下半区判断。
   function updateDropTarget(
     targetId: string,
     event: React.DragEvent<HTMLElement>,
+    axis: "x" | "y" = "y",
   ) {
     if (!draggingSessionId || draggingSessionId === targetId) {
       setDropTarget(undefined);
       return;
     }
     const rect = event.currentTarget.getBoundingClientRect();
-    const before = event.clientY < rect.top + rect.height / 2;
+    const before =
+      axis === "x"
+        ? event.clientX < rect.left + rect.width / 2
+        : event.clientY < rect.top + rect.height / 2;
     setDropTarget({ id: targetId, before });
   }
 
@@ -2296,7 +2595,8 @@ function App() {
             try {
               const action = JSON.parse(data);
               const approved = await askConfirm({
-                title: t.confirmTitle,
+                title: t.actionConfirmTitle,
+                danger: action.risk === "high",
                 message: t
                   .actionConfirm(
                     action.type,
@@ -2474,6 +2774,16 @@ function App() {
 
   const generalAgents = agents.filter((agent) => agent.role === "GENERAL");
   const domainAgents = agents.filter((agent) => agent.role === "DOMAIN");
+  const activeSessionIndex = sessions.findIndex(
+    (conversation) => conversation.id === session?.id,
+  );
+  const visibleSessions =
+    activeSessionIndex >= MAX_VISIBLE_SESSION_TABS
+      ? [
+          ...sessions.slice(0, MAX_VISIBLE_SESSION_TABS - 1),
+          sessions[activeSessionIndex],
+        ]
+      : sessions.slice(0, MAX_VISIBLE_SESSION_TABS);
 
   return (
     <div className="app">
@@ -2602,8 +2912,11 @@ function App() {
         </div>
       </header>
       <nav className="session-tabs" aria-label={t.chatWindows}>
-        {sessions.map((conversation, index) =>
+        {visibleSessions.map((conversation) =>
           (() => {
+            const index = sessions.findIndex(
+              (item) => item.id === conversation.id,
+            );
             const editing = editingSessionId === conversation.id;
             const isDropBefore =
               dropTarget != null &&
@@ -2637,7 +2950,7 @@ function App() {
                   if (!editing) {
                     event.preventDefault();
                     event.dataTransfer.dropEffect = "move";
-                    updateDropTarget(conversation.id, event);
+                    updateDropTarget(conversation.id, event, "x");
                   }
                 }}
                 onDragLeave={(event) => {
@@ -2766,6 +3079,14 @@ function App() {
                       resultLabel={t.toolResult}
                       okLabel={t.toolOk}
                       failLabel={t.toolFail}
+                      browserActionName={t.browserActionName}
+                      browserActionReason={t.browserActionReason}
+                      browserActionLabels={{
+                        SET_EDITOR: t.browserActionSetEditor,
+                        CLICK: t.browserActionClick,
+                        FILL: t.browserActionFill,
+                        NAVIGATE: t.browserActionNavigate,
+                      }}
                     />
                   ) : null}
                   {assistant &&
