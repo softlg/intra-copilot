@@ -18,6 +18,7 @@ const CHAT_STREAM_TIMEOUT_MS = 610_000;
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
+type ActionPermission = "ask" | "delegate" | "full";
 type Feedback = "up" | "down" | null;
 type FeedbackReasonCode =
   "INACCURATE" | "IRRELEVANT" | "TOO_LONG" | "FORMAT_UI" | "OTHER";
@@ -783,7 +784,14 @@ const translations = {
     imageOnly: "图片",
     pagePermission: "页面权限",
     readPage: "允许读取当前页面上下文",
-    permissionNote: "写入页面的操作仍会逐项请求确认。",
+    actionPermissionTitle: "页面操作授权",
+    actionPermissionAsk: "请求批准",
+    actionPermissionAskHint: "每次操作前都向你确认。",
+    actionPermissionDelegate: "帮我批准",
+    actionPermissionDelegateHint: "自动批准低、中风险操作，高风险仍会询问。",
+    actionPermissionFull: "完全控制",
+    actionPermissionFullHint: "所有页面操作都自动执行，不再询问。",
+    permissionNote: "授权模式会保存在当前浏览器中，可随时修改。",
     actionConfirmTitle: "确认下一步",
     actionConfirm: (type: string, reason: string, risk: string) => {
       const fallback =
@@ -964,8 +972,16 @@ const translations = {
     imageOnly: "Image",
     pagePermission: "Page permissions",
     readPage: "Allow reading the current page context",
+    actionPermissionTitle: "Page action permission",
+    actionPermissionAsk: "Ask every time",
+    actionPermissionAskHint: "Confirm every page action before it runs.",
+    actionPermissionDelegate: "Approve for me",
+    actionPermissionDelegateHint:
+      "Automatically approve low and medium risk actions. High risk still asks.",
+    actionPermissionFull: "Full control",
+    actionPermissionFullHint: "Run every page action automatically.",
     permissionNote:
-      "Write actions on the page will still ask for confirmation one by one.",
+      "The selected mode is stored in this browser and can be changed at any time.",
     actionConfirmTitle: "Confirm next step",
     actionConfirm: (type: string, reason: string, risk: string) => {
       const fallback =
@@ -1210,6 +1226,8 @@ function App() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [readPageEnabled, setReadPageEnabled] = useState(true);
+  const [actionPermission, setActionPermission] =
+    useState<ActionPermission>("ask");
   const [pageInfoSelection, setPageInfoSelection] = useState<
     Record<PageInfoKey, boolean>
   >({
@@ -1379,6 +1397,7 @@ function App() {
         "theme",
         "language",
         "readPageEnabled",
+        "actionPermission",
         "activationMode",
         "sidePanelAllTabs",
         "pageInfoSelection",
@@ -1387,6 +1406,7 @@ function App() {
         theme?: Theme;
         language?: Language;
         readPageEnabled?: boolean;
+        actionPermission?: ActionPermission;
         activationMode?: ActivationMode;
         sidePanelAllTabs?: boolean;
         pageInfoSelection?: Partial<Record<PageInfoKey, boolean>>;
@@ -1399,6 +1419,13 @@ function App() {
         }
         if (typeof value.readPageEnabled === "boolean") {
           setReadPageEnabled(value.readPageEnabled);
+        }
+        if (
+          value.actionPermission === "ask" ||
+          value.actionPermission === "delegate" ||
+          value.actionPermission === "full"
+        ) {
+          setActionPermission(value.actionPermission);
         }
         if (
           value.activationMode === "all_pages" ||
@@ -2518,6 +2545,8 @@ function App() {
           pageContext,
           permissions: {
             readPage: readPageEnabled,
+            autoApprove: actionPermission === "delegate",
+            fullControl: actionPermission === "full",
           },
         }),
       });
@@ -2649,23 +2678,28 @@ function App() {
           if (name === "action_proposed" && data) {
             try {
               const action = JSON.parse(data);
-              const approved = await askConfirm({
-                title: t.actionConfirmTitle,
-                danger: action.risk === "high",
-                message: t
-                  .actionConfirm(
-                    action.type,
-                    action.reason || "",
-                    action.risk || "",
-                  )
-                  .split("\n")
-                  .map((line, index) => (
-                    <React.Fragment key={index}>
-                      {line}
-                      {index > 0 ? <br /> : null}
-                    </React.Fragment>
-                  )),
-              });
+              const autoApproved =
+                actionPermission === "full" ||
+                (actionPermission === "delegate" && action.risk !== "high");
+              const approved =
+                autoApproved ||
+                (await askConfirm({
+                  title: t.actionConfirmTitle,
+                  danger: action.risk === "high",
+                  message: t
+                    .actionConfirm(
+                      action.type,
+                      action.reason || "",
+                      action.risk || "",
+                    )
+                    .split("\n")
+                    .map((line, index) => (
+                      <React.Fragment key={index}>
+                        {line}
+                        {index > 0 ? <br /> : null}
+                      </React.Fragment>
+                    )),
+                }));
               let result = {
                 status: approved ? "EXECUTED" : "REJECTED",
                 result: approved ? "" : t.rejected,
@@ -3841,6 +3875,42 @@ function App() {
                   />
                   {t.readPage}
                 </label>
+                <div className="permission-section-title">
+                  {t.actionPermissionTitle}
+                </div>
+                {(
+                  [
+                    ["ask", t.actionPermissionAsk, t.actionPermissionAskHint],
+                    [
+                      "delegate",
+                      t.actionPermissionDelegate,
+                      t.actionPermissionDelegateHint,
+                    ],
+                    [
+                      "full",
+                      t.actionPermissionFull,
+                      t.actionPermissionFullHint,
+                    ],
+                  ] as const
+                ).map(([value, label, hint]) => (
+                  <label className="permission-choice" key={value}>
+                    <input
+                      type="radio"
+                      name="actionPermission"
+                      checked={actionPermission === value}
+                      onChange={() => {
+                        setActionPermission(value);
+                        chrome.storage.local.set({
+                          actionPermission: value,
+                        });
+                      }}
+                    />
+                    <span>
+                      <strong>{label}</strong>
+                      <small>{hint}</small>
+                    </span>
+                  </label>
+                ))}
                 <span>{t.permissionNote}</span>
               </div>
             )}

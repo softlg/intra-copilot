@@ -1647,13 +1647,49 @@ textarea::-webkit-scrollbar-thumb {
 }
 .permission-popover {
   left: 38px;
+  width: 280px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 7px;
 }
 .permission-popover strong {
   color: var(--text);
   font-size: 13px;
+}
+.permission-section-title {
+  margin-top: 4px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+.permission-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.permission-choice:hover {
+  background: var(--page-bg);
+}
+.permission-choice input {
+  margin-top: 2px;
+}
+.permission-choice > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.permission-choice strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.permission-choice small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 .history-overlay {
   position: fixed;
