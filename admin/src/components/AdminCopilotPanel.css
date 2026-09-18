@@ -666,6 +666,18 @@ body.copilot-panel-resizing * {
   font-weight: 650;
 }
 
+.copilot-message-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--brand-border);
+  border-radius: 7px;
+  background: var(--brand-surface);
+  color: var(--brand-surface-text);
+}
+
 .copilot-message.is-pending {
   opacity: 0.85;
 }

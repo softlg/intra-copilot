@@ -2878,9 +2878,18 @@ export function AdminCopilotPanel({
                     className={`copilot-message is-${item.role}${retryable ? " is-failed" : ""}`}
                     key={item.id}
                   >
-                    <span className="copilot-message-role">
-                      {item.role === "assistant" ? text.title : "Admin"}
-                    </span>
+                    {item.role === "assistant" ? (
+                      <span
+                        className="copilot-message-logo"
+                        role="img"
+                        aria-label={text.title}
+                        title={text.title}
+                      >
+                        <Icon name="sparkle" size={11} />
+                      </span>
+                    ) : (
+                      <span className="copilot-message-role">Admin</span>
+                    )}
                     {item.role === "assistant" ? (
                       <CopilotMarkdown text={text}>
                         {item.content}
@@ -2987,7 +2996,14 @@ export function AdminCopilotPanel({
                     aria-busy="true"
                     className="copilot-message is-assistant is-pending"
                   >
-                    <span className="copilot-message-role">{text.title}</span>
+                    <span
+                      className="copilot-message-logo"
+                      role="img"
+                      aria-label={text.title}
+                      title={text.title}
+                    >
+                      <Icon name="sparkle" size={11} />
+                    </span>
                     <p className="copilot-thinking">
                       <span aria-hidden="true" />
                       <span aria-hidden="true" />
