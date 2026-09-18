@@ -1,9 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Intra Copilot",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "页面助手",
-  "permissions": ["sidePanel", "storage", "activeTab", "scripting", "tabs"],
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs",
+    "webNavigation"
+  ],
   "host_permissions": ["<all_urls>", "http://localhost:8080/*"],
   "background": { "service_worker": "service-worker.js", "type": "module" },
   "side_panel": { "default_path": "sidepanel.html" },
@@ -12,7 +19,10 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
     }
   ],
   "web_accessible_resources": [

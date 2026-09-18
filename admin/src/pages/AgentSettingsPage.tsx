@@ -317,7 +317,11 @@ export function AgentSettingsPage({
               </small>
             )}
           </div>
-          <p>{t.editAgentSubtitle}</p>
+          <p>
+            {configuredAgentIsSystem
+              ? t.systemAgentReadOnlyHint
+              : t.editAgentSubtitle}
+          </p>
         </div>
         <div className="agent-settings-header-actions">
           <button
@@ -340,7 +344,12 @@ export function AgentSettingsPage({
             type="button"
             className="secondary"
             onClick={() => void saveAgentDraft()}
-            disabled={agentSubmitting || !configuredAgent || !agentConfigDirty}
+            disabled={
+              configuredAgentIsSystem ||
+              agentSubmitting ||
+              !configuredAgent ||
+              !agentConfigDirty
+            }
           >
             {agentSubmitting ? t.saving : t.saveDraft}
           </button>
@@ -348,6 +357,7 @@ export function AgentSettingsPage({
             type="button"
             onClick={saveAndPublishAgent}
             disabled={
+              configuredAgentIsSystem ||
               agentSubmitting ||
               !configuredAgent ||
               (!agentConfigDirty && !hasUnpublishedChanges)
@@ -397,6 +407,10 @@ export function AgentSettingsPage({
         className="agent-settings-form"
         onSubmit={saveAgent}
       >
+        <fieldset
+          disabled={configuredAgentIsSystem}
+          className="agent-settings-fieldset"
+        >
         {agentConfigSection === "basic" && (
           <div className="settings-panel">
             <label className="field">
@@ -465,16 +479,6 @@ export function AgentSettingsPage({
                 rows={7}
                 maxLength={8000}
               />
-            </label>
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={agentBrowserActions}
-                onChange={(event) =>
-                  setAgentBrowserActions(event.target.checked)
-                }
-              />
-              <span>{t.browserActions}</span>
             </label>
             <label className="embedding-toggle-row agent-enabled-toggle">
               <div>
@@ -1164,6 +1168,7 @@ export function AgentSettingsPage({
             />
           </div>
         )}
+        </fieldset>
       </form>
     </section>
   );

@@ -53,4 +53,17 @@ class RouterAgentTest {
 
         assertEquals("assistant", router.route("帮我报销这笔费用").id());
     }
+
+    @Test
+    void routesBrowserOperationsToSystemOperatorWhenLlmRoutingIsUnavailable() {
+        when(registry.findPublished("route-copilot")).thenReturn(Optional.empty());
+        AgentDefinition browser = new AgentDefinition();
+        browser.setId("browser-operator");
+        browser.setRole("GENERAL");
+        browser.setSystemPrompt("browser");
+        when(registry.findEnabled("browser-operator"))
+                .thenReturn(Optional.of(new ConfigurableAgent(browser)));
+
+        assertEquals("browser-operator", router.route("帮我在页面上填写并提交").id());
+    }
 }

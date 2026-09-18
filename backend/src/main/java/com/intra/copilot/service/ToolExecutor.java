@@ -93,7 +93,6 @@ public class ToolExecutor {
             return switch (def.getType() == null ? "" : def.getType().toUpperCase(Locale.ROOT)) {
                 case "MCP" -> executeMcp(def, argumentsJson);
                 case "BROWSER_PROPOSAL" -> {
-                    BrowserActionValidator.validateSchema(def.getParameterSchema());
                     BrowserActionValidator.NormalizedAction action =
                             BrowserActionValidator.normalize(argumentsJson);
                     yield success("BROWSER_PROPOSAL:" + action.fullJson());

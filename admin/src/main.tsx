@@ -261,7 +261,7 @@ function AdminApp({
   const [editingResourceId, setEditingResourceId] = useState<string>();
   const [resourceName, setResourceName] = useState("");
   const [resourceDescription, setResourceDescription] = useState("");
-  const [resourceType, setResourceType] = useState("BROWSER_PROPOSAL");
+  const [resourceType, setResourceType] = useState("HTTP");
   const [resourceMethod, setResourceMethod] = useState("POST");
   const [resourceEndpoint, setResourceEndpoint] = useState("");
   const [resourceParameterSchema, setResourceParameterSchema] = useState("{}");
@@ -964,7 +964,7 @@ function AdminApp({
     setResourceError("");
     if (kind === "tool") {
       const tool = resource as ToolDefinition | undefined;
-      setResourceType(tool?.type ?? "BROWSER_PROPOSAL");
+      setResourceType(tool?.type ?? "HTTP");
       setResourceMethod(tool?.method ?? "POST");
       setResourceEndpoint(tool?.endpoint ?? "");
       setResourceParameterSchema(tool?.parameterSchema ?? "{}");
@@ -2300,6 +2300,8 @@ function AdminApp({
 
   const isSystemAgent = (agent: Agent) =>
     agent.systemAgent === true ||
+    agent.ownerType === "SYSTEM" ||
+    agent.managementMode === "SYSTEM_LOCKED" ||
     ["assistant", "route-copilot"].includes(agent.id);
 
   const agentRoleOf = (agent: Agent) =>
@@ -3297,6 +3299,7 @@ function AdminApp({
                         ? agents.find((item) => item.id === agent.parentAgentId)
                         : undefined;
                       const isMainCard = agentListTab.role === "MAIN";
+                      const systemLocked = isSystemAgent(agent);
                       return (
                         <article
                           key={agent.id}
@@ -3329,7 +3332,13 @@ function AdminApp({
                                 <div className="agent-card-controls">
                                   <label
                                     className="switch agent-card-switch"
-                                    title={agent.enabled ? t.stop : t.enable}
+                                    title={
+                                      systemLocked
+                                        ? t.systemAgentReadOnlyHint
+                                        : agent.enabled
+                                          ? t.stop
+                                          : t.enable
+                                    }
                                   >
                                     <input
                                       type="checkbox"
@@ -3338,8 +3347,13 @@ function AdminApp({
                                       aria-label={
                                         agent.enabled ? t.stop : t.enable
                                       }
-                                      disabled={agentActionId === agent.id}
-                                      onChange={() => void toggle(agent)}
+                                      disabled={
+                                        systemLocked ||
+                                        agentActionId === agent.id
+                                      }
+                                      onChange={() => {
+                                        if (!systemLocked) void toggle(agent);
+                                      }}
                                     />
                                     <span
                                       className="switch-track"
@@ -4202,16 +4216,6 @@ function AdminApp({
                   <label className="checkbox-field">
                     <input
                       type="checkbox"
-                      checked={agentBrowserActions}
-                      onChange={(event) =>
-                        setAgentBrowserActions(event.target.checked)
-                      }
-                    />
-                    <span>{t.browserActions}</span>
-                  </label>
-                  <label className="checkbox-field">
-                    <input
-                      type="checkbox"
                       checked={agentEnabled}
                       onChange={(event) =>
                         setAgentEnabled(event.target.checked)
@@ -4807,9 +4811,6 @@ function AdminApp({
                           setResourceType(event.target.value)
                         }
                       >
-                        <option value="BROWSER_PROPOSAL">
-                          {t.browserProposal}
-                        </option>
                         <option value="HTTP">HTTP API</option>
                       </select>
                     </label>

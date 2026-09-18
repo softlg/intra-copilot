@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.web.server.ResponseStatusException;
 
 class AgentConfigurationServiceTest {
 
@@ -254,6 +255,71 @@ class AgentConfigurationServiceTest {
         verify(bindings).insert(bindingCaptor.capture());
         assertEquals("expense-v1", bindingCaptor.getValue().getChildAgentId());
         verify(registry).evict();
+    }
+
+    @Test
+    void rejectsDraftPublishAndRollbackForSystemLockedAgent() {
+        AgentDefinitionRepository definitions = mock(AgentDefinitionRepository.class);
+        AgentConfigVersionRepository versions = mock(AgentConfigVersionRepository.class);
+        AgentChildBindingRepository bindings = mock(AgentChildBindingRepository.class);
+        AgentRegistry registry = mock(AgentRegistry.class);
+        AgentConfigurationService service =
+                new AgentConfigurationService(
+                        definitions,
+                        versions,
+                        bindings,
+                        mock(AgentSkillBindingRepository.class),
+                        registry,
+                        new ObjectMapper(),
+                        new AgentReleaseSnapshotCodec(new ObjectMapper().findAndRegisterModules()));
+        AgentDefinition system = domain("system-agent");
+        system.setSystemAgent(true);
+        system.setOwnerType(SystemAgentGuard.SYSTEM_OWNER);
+        system.setManagementMode(SystemAgentGuard.SYSTEM_LOCKED);
+        when(definitions.findById("system-agent")).thenReturn(Optional.of(system));
+
+        assertThrows(
+                ResponseStatusException.class,
+                () -> service.saveDraft(domain("system-agent")));
+        assertThrows(
+                ResponseStatusException.class,
+                () -> service.publish("system-agent", "change", "admin"));
+        assertThrows(
+                ResponseStatusException.class,
+                () -> service.rollback("system-agent", 1, "admin"));
+    }
+
+    @Test
+    void forcesUserOwnershipForNewAgents() {
+        AgentDefinitionRepository definitions = mock(AgentDefinitionRepository.class);
+        AgentConfigVersionRepository versions = mock(AgentConfigVersionRepository.class);
+        AgentChildBindingRepository bindings = mock(AgentChildBindingRepository.class);
+        AgentRegistry registry = mock(AgentRegistry.class);
+        AgentConfigurationService service =
+                new AgentConfigurationService(
+                        definitions,
+                        versions,
+                        bindings,
+                        mock(AgentSkillBindingRepository.class),
+                        registry,
+                        new ObjectMapper(),
+                        new AgentReleaseSnapshotCodec(new ObjectMapper().findAndRegisterModules()));
+        AgentDefinition definition = domain("new-agent");
+        definition.setSystemAgent(true);
+        definition.setOwnerType(SystemAgentGuard.SYSTEM_OWNER);
+        definition.setManagementMode(SystemAgentGuard.SYSTEM_LOCKED);
+        definition.setSystemRevision(999);
+        definition.setSupportsBrowserActions(true);
+        when(definitions.findById("new-agent")).thenReturn(Optional.empty());
+        when(definitions.save(definition)).thenReturn(definition);
+
+        AgentDefinition saved = service.saveDraft(definition);
+
+        assertEquals(false, saved.isSystemAgent());
+        assertEquals(SystemAgentGuard.USER_OWNER, saved.getOwnerType());
+        assertEquals(SystemAgentGuard.USER_MANAGED, saved.getManagementMode());
+        assertEquals(0, saved.getSystemRevision());
+        assertEquals(false, saved.isSupportsBrowserActions());
     }
 
     private AgentDefinition domain(String id) {

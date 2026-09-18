@@ -62,6 +62,7 @@ public class ToolSkillAdminController {
         return tools.findAll()
                 .stream()
                 .filter(item -> !"MCP".equalsIgnoreCase(item.getType()))
+                .filter(item -> !isSystemBrowserTool(item))
                 .toList();
     }
 
@@ -83,6 +84,10 @@ public class ToolSkillAdminController {
     public ToolDefinition updateTool(@PathVariable String id, @RequestBody ToolDefinition t) {
         ToolDefinition current =
                 tools.findById(id).orElseThrow(() -> new NoSuchElementException("Tool 不存在：" + id));
+        if (isSystemBrowserTool(current)) {
+            throw new IllegalArgumentException(
+                    "浏览器操作能力由系统内置 Browser Operator 提供，不支持后台修改");
+        }
         validateTool(t);
         ensureToolNameAvailable(t.getName(), id);
         applyEditableFields(current, t);
@@ -95,6 +100,10 @@ public class ToolSkillAdminController {
     public ToolDefinition toggleTool(@PathVariable String id, @RequestBody EnabledRequest request) {
         ToolDefinition tool =
                 tools.findById(id).orElseThrow(() -> new IllegalArgumentException("Tool 不存在"));
+        if (isSystemBrowserTool(tool)) {
+            throw new IllegalArgumentException(
+                    "浏览器操作能力由系统内置 Browser Operator 提供，不支持后台启停");
+        }
         tool.setEnabled(request.enabled());
         tool.setUpdatedBy(RequestContext.currentOrAnonymous().actorLabel());
         tool.touch();
@@ -106,6 +115,10 @@ public class ToolSkillAdminController {
             @PathVariable String id, @RequestBody(required = false) ToolTestRequest request) {
         ToolDefinition tool =
                 tools.findById(id).orElseThrow(() -> new NoSuchElementException("Tool 不存在：" + id));
+        if (isSystemBrowserTool(tool)) {
+            throw new IllegalArgumentException(
+                    "浏览器操作能力由系统内置 Browser Operator 提供，不支持后台测试配置");
+        }
         ToolExecutor.ToolExecutionResult result =
                 toolExecutor.executeDetailed(tool, request == null ? "{}" : request.arguments());
         return Map.of("success", result.success(), "output", result.output());
@@ -116,6 +129,12 @@ public class ToolSkillAdminController {
     public void deleteTool(@PathVariable String id) {
         ensureToolNotEnabled(id);
         ensureToolNotReferenced(id);
+        ToolDefinition tool =
+                tools.findById(id).orElseThrow(() -> new IllegalArgumentException("Tool 不存在"));
+        if (isSystemBrowserTool(tool)) {
+            throw new IllegalArgumentException(
+                    "浏览器操作能力由系统内置 Browser Operator 提供，历史记录仅保留用于审计");
+        }
         tools.deleteById(id);
     }
 
@@ -172,6 +191,12 @@ public class ToolSkillAdminController {
         }
     }
 
+    private boolean isSystemBrowserTool(ToolDefinition tool) {
+        return tool != null
+                && ("BROWSER_PROPOSAL".equalsIgnoreCase(tool.getType())
+                        || "BROWSER_ACTION".equalsIgnoreCase(tool.getType()));
+    }
+
     public record EnabledRequest(boolean enabled) {}
 
     public record ToolTestRequest(String arguments) {}
@@ -204,7 +229,8 @@ public class ToolSkillAdminController {
             }
             validateAuth(t);
         } else if ("BROWSER_PROPOSAL".equals(type)) {
-            BrowserActionValidator.validateSchema(t.getParameterSchema());
+            throw new IllegalArgumentException(
+                    "浏览器操作能力由系统内置 Browser Operator 提供，不支持后台配置");
         }
     }
 

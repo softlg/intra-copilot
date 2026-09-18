@@ -160,7 +160,7 @@ class ToolExecutorTest {
                 executor.executeDetailed(
                         tool,
                         """
-                        {"reason":"fill","arguments":{"value":"ok"},"target":"ref_1","risk":"low","type":"fill"}
+                        {"reason":"fill","arguments":{"value":"ok"},"target":"ref_1","risk":"low","type":"fill","postcondition":{"valueEquals":"ok"}}
                         """);
 
         assertTrue(result.success());

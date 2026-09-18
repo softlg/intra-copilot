@@ -19,6 +19,12 @@ export type Agent = {
   publishedVersion?: number;
   systemPrompt: string;
   systemAgent?: boolean;
+  ownerType?: "SYSTEM" | "USER" | string;
+  managementMode?: "SYSTEM_LOCKED" | "USER_MANAGED" | string;
+  systemRevision?: number;
+  editable?: boolean;
+  deletable?: boolean;
+  disableable?: boolean;
   supportsBrowserActions?: boolean;
   priority?: number;
   routingRules?: string;

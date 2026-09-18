@@ -59,7 +59,7 @@ public class ToolManagementService {
         current.setName(trimToNull(value.getName()));
         current.setDescription(trimToNull(value.getDescription()));
         String type =
-                value.getType() == null ? "BROWSER_PROPOSAL" : value.getType().trim().toUpperCase();
+                value.getType() == null ? "HTTP" : value.getType().trim().toUpperCase();
         current.setType(type);
         if ("HTTP".equals(type)) {
             current.setMethod(
@@ -103,7 +103,8 @@ public class ToolManagementService {
             }
             validateAuth(tool);
         } else if ("BROWSER_PROPOSAL".equals(type)) {
-            BrowserActionValidator.validateSchema(tool.getParameterSchema());
+            throw new IllegalArgumentException(
+                    "浏览器操作能力由系统内置 Browser Operator 提供，不支持后台配置");
         }
     }
 

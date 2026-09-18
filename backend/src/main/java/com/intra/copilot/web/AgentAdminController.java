@@ -6,6 +6,7 @@ import com.intra.copilot.agent.ConfigurableAgent;
 import com.intra.copilot.service.AgentRegistry;
 import com.intra.copilot.service.AgentConfigurationService;
 import com.intra.copilot.service.LlmClient;
+import com.intra.copilot.service.SystemAgentGuard;
 import com.intra.copilot.service.auth.RequestContext;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Duration;
@@ -51,6 +52,7 @@ public class AgentAdminController {
                                 .filter(item -> item.getId().equals(id))
                                 .findFirst()
                                 .orElseThrow(() -> new java.util.NoSuchElementException("Agent 不存在"));
+                SystemAgentGuard.requireUserManaged(existing);
                 definition.setSystemAgent(existing.isSystemAgent());
                 validate(definition);
                 return configurations.saveDraft(definition);
@@ -64,6 +66,7 @@ public class AgentAdminController {
                                 .filter(item -> item.getId().equals(id))
                                 .findFirst()
                                 .orElseThrow(() -> new java.util.NoSuchElementException("Agent 不存在"));
+                SystemAgentGuard.requireUserManaged(definition);
                 definition.setEnabled(request.enabled());
                 return registry.save(definition);
         }

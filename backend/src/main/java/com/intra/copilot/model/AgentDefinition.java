@@ -3,6 +3,7 @@ package com.intra.copilot.model;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 
 @TableName("agent_definition")
@@ -22,6 +23,9 @@ public class AgentDefinition {
     private boolean published = true;
     /** True for agents shipped by the application and protected from deletion. */
     private boolean systemAgent;
+    private String ownerType = "USER";
+    private String managementMode = "USER_MANAGED";
+    private long systemRevision;
 
     private boolean supportsBrowserActions;
     private int priority = 100;
@@ -143,6 +147,45 @@ public class AgentDefinition {
 
     public void setSystemAgent(boolean systemAgent) {
         this.systemAgent = systemAgent;
+    }
+
+    public String getOwnerType() {
+        return ownerType;
+    }
+
+    public void setOwnerType(String ownerType) {
+        this.ownerType = ownerType;
+    }
+
+    public String getManagementMode() {
+        return managementMode;
+    }
+
+    public void setManagementMode(String managementMode) {
+        this.managementMode = managementMode;
+    }
+
+    public long getSystemRevision() {
+        return systemRevision;
+    }
+
+    public void setSystemRevision(long systemRevision) {
+        this.systemRevision = systemRevision;
+    }
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public boolean isEditable() {
+        return !"SYSTEM_LOCKED".equals(managementMode);
+    }
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public boolean isDeletable() {
+        return isEditable();
+    }
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public boolean isDisableable() {
+        return isEditable();
     }
 
     public boolean isSupportsBrowserActions() {

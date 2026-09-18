@@ -4,13 +4,22 @@ type Ctx = {
   selection: string;
   visibleText: string;
   domSummary: string;
+  frameId: number;
+  snapshotId: string;
   timestamp: string;
 };
 type ActionElement = {
-  ref: string;
+  elementId: string;
   element: HTMLElement;
   summary: string;
 };
+type ActionTarget =
+  | string
+  | {
+      snapshotId: string;
+      frameId: number;
+      elementId: string;
+    };
 type Language = "zh" | "en";
 const root = document.createElement("div");
 root.id = "intra-copilot-root";
@@ -23,15 +32,21 @@ const mini = shadow.querySelector(".mini") as HTMLButtonElement;
 const dismiss = shadow.querySelector(".dismiss") as HTMLButtonElement;
 let language: Language = "zh";
 let pageEnabled = false;
+let frameId = 0;
+let snapshotSequence = 0;
 const actionElements = new Map<string, HTMLElement>();
+let currentSnapshotId = "";
+let snapshotStale = false;
+let snapshotObserver: MutationObserver | null = null;
 function setPageEnabled(enabled: boolean) {
   pageEnabled = enabled;
-  root.style.display = enabled ? "block" : "none";
+  root.style.display = enabled && frameId === 0 ? "block" : "none";
 }
 
 function refreshPageEnabled() {
   chrome.runtime.sendMessage({ type: "CONTENT_READY" }, (response) => {
     if (chrome.runtime.lastError) return;
+    if (Number.isInteger(response?.frameId)) frameId = response.frameId;
     setPageEnabled(Boolean(response?.enabled));
   });
 }
@@ -185,25 +200,31 @@ export function collectContext(): Ctx {
     url: location.href,
     title: document.title,
     selection: getSelection()?.toString().slice(0, 4000) || "",
-    visibleText: (document.body?.innerText || "").slice(0, 12000),
-    domSummary: elements.map((item) => item.summary).join("\n"),
+    visibleText: deepVisibleText().slice(0, 12000),
+    domSummary: `snapshotId="${currentSnapshotId}" frameId=${frameId}\n${elements
+      .map((item) => item.summary)
+      .join("\n")}`,
+    frameId,
+    snapshotId: currentSnapshotId,
     timestamp: new Date().toISOString(),
   };
 }
 
 function collectActionElements(): ActionElement[] {
+  snapshotObserver?.disconnect();
+  snapshotStale = false;
   actionElements.clear();
-  return Array.from(
-    document.querySelectorAll(
-      "input,button,select,textarea,a,[role='button'],[contenteditable='true'],.monaco-editor,.cm-editor",
-    ),
+  currentSnapshotId = `snap_${Date.now()}_${frameId}_${++snapshotSequence}`;
+  const elements = deepQueryAll(
+    document,
+    "input,button,select,textarea,a,[role='button'],[contenteditable='true'],.monaco-editor,.cm-editor,[role='status'],[aria-live],pre,code,h1,h2,h3,table,[data-testid],[id*='result' i],[class*='result' i]",
   )
     .filter((element): element is HTMLElement => element instanceof HTMLElement)
     .filter(isVisible)
     .slice(0, 120)
     .map((element, index) => {
-      const ref = `ref_${index + 1}`;
-      actionElements.set(ref, element);
+      const elementId = `el_${index + 1}`;
+      actionElements.set(elementId, element);
       const tag = element.tagName.toLowerCase();
       const codeEditor = element.matches(".monaco-editor,.cm-editor");
       const role =
@@ -225,7 +246,7 @@ function collectActionElements(): ActionElement[] {
         Boolean((element as HTMLInputElement).disabled);
       const value = compact((element as HTMLInputElement).value || "");
       const details = [
-        `${ref} <${tag}>`,
+        `${elementId} <${tag}>`,
         `role="${role}"`,
         name ? `name="${escapeAttribute(name)}"` : "",
         type ? `type="${type}"` : "",
@@ -234,8 +255,60 @@ function collectActionElements(): ActionElement[] {
       ]
         .filter(Boolean)
         .join(" ");
-      return { ref, element, summary: details };
+      return { elementId, element, summary: details };
     });
+  snapshotObserver = new MutationObserver((records) => {
+    if (records.some((record) => mutationTouchesRegisteredElement(record))) {
+      snapshotStale = true;
+    }
+  });
+  snapshotObserver.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    characterData: true,
+  });
+  return elements;
+}
+
+function mutationTouchesRegisteredElement(record: MutationRecord) {
+  if (
+    record.type === "attributes" &&
+    record.attributeName === "data-intra-copilot-editor-target"
+  ) {
+    return false;
+  }
+  const candidates =
+    record.type === "childList"
+      ? [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)]
+      : [record.target];
+  for (const candidate of candidates) {
+    if (!(candidate instanceof Node)) continue;
+    for (const element of actionElements.values()) {
+      if (
+        candidate === element ||
+        candidate.contains(element) ||
+        element.contains(candidate)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function deepQueryAll(
+  root: Document | ShadowRoot | HTMLElement,
+  selector: string,
+) {
+  const values: Element[] = Array.from(root.querySelectorAll(selector));
+  const descendants = Array.from(root.querySelectorAll("*"));
+  for (const element of descendants) {
+    if (element.shadowRoot) {
+      values.push(...deepQueryAll(element.shadowRoot, selector));
+    }
+  }
+  return values;
 }
 
 function isVisible(element: HTMLElement) {
@@ -254,12 +327,47 @@ function compact(value: string) {
   return value.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
+function deepVisibleText(
+  root: Document | ShadowRoot | HTMLElement = document,
+): string {
+  const body =
+    root instanceof Document
+      ? root.body
+      : root instanceof ShadowRoot
+        ? root
+        : root;
+  const own =
+    body instanceof HTMLBodyElement || body instanceof HTMLElement
+      ? body.innerText || body.textContent || ""
+      : body.textContent || "";
+  const nested: string = Array.from(root.querySelectorAll("*"))
+    .filter(
+      (element) => element.shadowRoot && element.id !== "intra-copilot-root",
+    )
+    .map((element) => deepVisibleText(element.shadowRoot!))
+    .filter(Boolean)
+    .join("\n");
+  return nested ? `${own}\n${nested}` : own;
+}
+
 function escapeAttribute(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function resolveActionElement(target: string): HTMLElement | null {
-  const registered = actionElements.get(target);
+function resolveActionElement(
+  target?: ActionTarget,
+  allowStale = false,
+): HTMLElement | null {
+  if (!target) return null;
+  if (!allowStale && snapshotStale) return null;
+  if (
+    typeof target === "object" &&
+    (target.snapshotId !== currentSnapshotId || target.frameId !== frameId)
+  ) {
+    return null;
+  }
+  const elementId = typeof target === "string" ? target : target.elementId;
+  const registered = actionElements.get(elementId);
   if (registered && registered.isConnected && isVisible(registered))
     return registered;
   return null;
@@ -308,11 +416,9 @@ function fillElement(element: HTMLElement, value: string) {
 
 function setEditorElement(element: HTMLElement, value: string) {
   const editor = element.closest(".monaco-editor") || element;
-  document
-    .querySelectorAll("[data-intra-copilot-editor-target]")
-    .forEach((item) =>
-      item.removeAttribute("data-intra-copilot-editor-target"),
-    );
+  deepQueryAll(document, "[data-intra-copilot-editor-target]").forEach((item) =>
+    item.removeAttribute("data-intra-copilot-editor-target"),
+  );
   editor.setAttribute("data-intra-copilot-editor-target", "true");
   const input = editor.querySelector(
     "textarea.inputarea, textarea, [contenteditable='true']",
@@ -371,34 +477,403 @@ function setEditorElement(element: HTMLElement, value: string) {
   };
 }
 
+function dispatchMouseSequence(element: HTMLElement) {
+  element.scrollIntoView({ block: "center", inline: "center" });
+  const rect = element.getBoundingClientRect();
+  const options = {
+    bubbles: true,
+    cancelable: true,
+    clientX: rect.left + rect.width / 2,
+    clientY: rect.top + rect.height / 2,
+    button: 0,
+  };
+  element.dispatchEvent(new PointerEvent("pointerdown", options));
+  element.dispatchEvent(new MouseEvent("mousedown", options));
+  element.dispatchEvent(new PointerEvent("pointerup", options));
+  element.dispatchEvent(new MouseEvent("mouseup", options));
+  element.click();
+}
+
+function setNativeValue(
+  element: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+) {
+  const prototype =
+    element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+  if (setter) setter.call(element, value);
+  else element.value = value;
+  element.dispatchEvent(
+    new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertText",
+      data: value,
+    }),
+  );
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function selectOption(element: HTMLElement, argumentsValue: any) {
+  if (!(element instanceof HTMLSelectElement)) {
+    throw Error("SELECT target is not a select element");
+  }
+  const values = Array.isArray(argumentsValue?.values)
+    ? argumentsValue.values.map(String)
+    : [String(argumentsValue?.value ?? "")];
+  for (const option of Array.from(element.options)) {
+    option.selected =
+      values.includes(option.value) || values.includes(option.text);
+  }
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function setChecked(element: HTMLElement, checked: boolean) {
+  if (!(element instanceof HTMLInputElement)) {
+    throw Error("CHECK target is not an input element");
+  }
+  if (element.checked !== checked) element.click();
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function hoverElement(element: HTMLElement) {
+  element.scrollIntoView({ block: "center", inline: "center" });
+  element.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+  element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+  element.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+  element.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+}
+
+function pressKey(element: HTMLElement | null, argumentsValue: any) {
+  const raw = String(argumentsValue?.key || "");
+  if (!raw) throw Error("PRESS_KEY requires key");
+  const parts = raw.split("+").map((part) => part.trim());
+  const key = parts.pop() || raw;
+  const modifiers = {
+    altKey: parts.some((part) => /alt/i.test(part)),
+    ctrlKey: parts.some((part) => /ctrl|control/i.test(part)),
+    metaKey: parts.some((part) => /meta|cmd|command/i.test(part)),
+    shiftKey: parts.some((part) => /shift/i.test(part)),
+  };
+  const target = element || document.activeElement || document.body;
+  target.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+      ...modifiers,
+    }),
+  );
+  target.dispatchEvent(
+    new KeyboardEvent("keyup", {
+      key,
+      bubbles: true,
+      cancelable: true,
+      ...modifiers,
+    }),
+  );
+}
+
+function decodeBase64(value: string) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function uploadFiles(element: HTMLElement, files: any[]) {
+  if (!(element instanceof HTMLInputElement) || element.type !== "file") {
+    throw Error("UPLOAD target is not a file input");
+  }
+  const transfer = new DataTransfer();
+  for (const item of files) {
+    transfer.items.add(
+      new File(
+        [decodeBase64(String(item?.dataBase64 || ""))],
+        String(item?.name || "upload.bin"),
+        {
+          type: String(item?.contentType || "application/octet-stream"),
+        },
+      ),
+    );
+  }
+  element.files = transfer.files;
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function normalizedText(value: unknown) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function evaluateCondition(condition: any, allowStaleTarget = false): boolean {
+  if (!condition || typeof condition !== "object") return true;
+  if (
+    condition.urlContains &&
+    !location.href.includes(String(condition.urlContains))
+  ) {
+    return false;
+  }
+  if (condition.textVisible) {
+    const text = normalizedText(deepVisibleText());
+    if (!text.includes(normalizedText(condition.textVisible))) return false;
+  }
+  if (condition.documentTextContains) {
+    const text = normalizedText(deepVisibleText());
+    if (!text.includes(normalizedText(condition.documentTextContains)))
+      return false;
+  }
+  if (condition.target) {
+    const target = resolveActionElement(condition.target, allowStaleTarget);
+    if (!target) return false;
+    if (
+      condition.valueEquals != null &&
+      normalizedText((target as HTMLInputElement).value) !==
+        normalizedText(condition.valueEquals)
+    ) {
+      return false;
+    }
+    if (
+      condition.checkedEquals != null &&
+      target instanceof HTMLInputElement &&
+      target.checked !== Boolean(condition.checkedEquals)
+    ) {
+      return false;
+    }
+    if (condition.editorContains) {
+      const rendered =
+        Array.from(target.querySelectorAll(".view-line"))
+          .map((line) => line.textContent || "")
+          .join("\n") ||
+        (target as HTMLInputElement).value ||
+        target.textContent ||
+        "";
+      if (
+        !normalizedText(rendered).includes(
+          normalizedText(condition.editorContains).slice(0, 120),
+        )
+      ) {
+        return false;
+      }
+    }
+  }
+  if (condition.elementExists) {
+    if (!resolveActionElement(condition.elementExists, allowStaleTarget))
+      return false;
+  }
+  return true;
+}
+
+async function waitForCondition(
+  condition: any,
+  timeoutMs = 5000,
+  allowStaleTarget = false,
+) {
+  const deadline =
+    Date.now() + Math.max(100, Math.min(30000, Number(timeoutMs) || 5000));
+  while (Date.now() <= deadline) {
+    if (evaluateCondition(condition, allowStaleTarget)) return true;
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+  }
+  return evaluateCondition(condition, allowStaleTarget);
+}
+
+function extractValue(element: HTMLElement | null, format: string) {
+  if (!element) {
+    if (format === "html") return document.documentElement.outerHTML;
+    return document.body?.innerText || "";
+  }
+  if (format === "html") return element.outerHTML;
+  if (format === "value") {
+    return (element as HTMLInputElement).value ?? element.textContent ?? "";
+  }
+  if (format === "code") {
+    return Array.from(element.querySelectorAll(".view-line"))
+      .map((line) => line.textContent || "")
+      .join("\n");
+  }
+  return element.innerText || element.textContent || "";
+}
+
 async function executeBrowserAction(a: any) {
-  if (!["CLICK", "FILL", "NAVIGATE", "SET_EDITOR"].includes(a.type)) {
+  const supported = new Set([
+    "CLICK",
+    "FOCUS",
+    "TYPE",
+    "FILL",
+    "CLEAR",
+    "SELECT",
+    "CHECK",
+    "UNCHECK",
+    "HOVER",
+    "SCROLL",
+    "PRESS_KEY",
+    "UPLOAD",
+    "NAVIGATE",
+    "SET_EDITOR",
+    "WAIT_FOR",
+    "VERIFY",
+    "EXTRACT",
+    "SNAPSHOT",
+  ]);
+  if (!supported.has(a.type)) {
     throw Error(language === "en" ? "Unsupported action" : "不支持的操作");
   }
   if (a.type === "NAVIGATE") {
     location.href = a.arguments?.url;
-    return { ok: true, action: a.type, observation: null };
+    return { ok: true, action: a.type, verified: true, observation: null };
   }
-  const element = resolveActionElement(a.target || "");
-  if (!element) {
+
+  const element =
+    a.type === "SNAPSHOT" || a.type === "SCROLL" || a.type === "PRESS_KEY"
+      ? a.target
+        ? resolveActionElement(a.target)
+        : null
+      : resolveActionElement(a.target);
+
+  if (
+    ![
+      "SNAPSHOT",
+      "WAIT_FOR",
+      "VERIFY",
+      "EXTRACT",
+      "SCROLL",
+      "PRESS_KEY",
+    ].includes(a.type) &&
+    !element
+  ) {
     throw Error(
       language === "en" ? "Target element not found" : "找不到目标元素",
     );
   }
+
   let execution: Record<string, unknown> = { ok: true, action: a.type };
-  if (a.type === "CLICK") {
-    element.scrollIntoView({ block: "center", inline: "center" });
-    element.click();
-  } else if (a.type === "FILL") {
-    fillElement(element, a.arguments?.value || "");
-  } else {
-    execution = setEditorElement(element, a.arguments?.code || "");
+  switch (a.type) {
+    case "CLICK":
+      if (element) dispatchMouseSequence(element);
+      break;
+    case "FOCUS":
+      element?.focus();
+      break;
+    case "TYPE":
+    case "FILL":
+      if (element) fillElement(element, String(a.arguments?.value || ""));
+      break;
+    case "CLEAR":
+      if (element) {
+        if (
+          element instanceof HTMLInputElement ||
+          element instanceof HTMLTextAreaElement
+        ) {
+          setNativeValue(element, "");
+        } else if (element.isContentEditable) {
+          element.textContent = "";
+          element.dispatchEvent(
+            new InputEvent("input", { bubbles: true, data: "" }),
+          );
+        }
+      }
+      break;
+    case "SELECT":
+      if (element) selectOption(element, a.arguments || {});
+      break;
+    case "CHECK":
+      if (element) setChecked(element, true);
+      break;
+    case "UNCHECK":
+      if (element) setChecked(element, false);
+      break;
+    case "HOVER":
+      if (element) hoverElement(element);
+      break;
+    case "SCROLL":
+      if (element)
+        element.scrollIntoView({ block: "center", inline: "center" });
+      else {
+        window.scrollBy({
+          left: Number(a.arguments?.deltaX || 0),
+          top: Number(a.arguments?.deltaY || 0),
+          behavior: "smooth",
+        });
+      }
+      break;
+    case "PRESS_KEY":
+      pressKey(element, a.arguments || {});
+      break;
+    case "UPLOAD":
+      if (element) uploadFiles(element, a.arguments?.files || []);
+      break;
+    case "SET_EDITOR":
+      if (element)
+        execution = setEditorElement(element, String(a.arguments?.code || ""));
+      break;
+    case "WAIT_FOR": {
+      const verified = await waitForCondition(
+        conditionWithTarget(a.arguments?.condition, a.target),
+        a.arguments?.timeoutMs,
+      );
+      execution = { ok: verified, verified, action: a.type };
+      break;
+    }
+    case "VERIFY": {
+      const verified = evaluateCondition(
+        conditionWithTarget(a.arguments?.condition, a.target),
+      );
+      execution = { ok: verified, verified, action: a.type };
+      break;
+    }
+    case "EXTRACT": {
+      const extracted = extractValue(
+        element,
+        String(a.arguments?.format || "text"),
+      );
+      execution = { ok: true, verified: true, action: a.type, extracted };
+      break;
+    }
+    case "SNAPSHOT":
+      execution = { ok: true, verified: true, action: a.type };
+      break;
+    default:
+      break;
   }
-  await new Promise((resolve) => window.setTimeout(resolve, 300));
-  return { ...execution, observation: collectContext() };
+
+  await new Promise((resolve) => window.setTimeout(resolve, 200));
+  const postcondition = a.postcondition || {};
+  const hasPostcondition = Object.keys(postcondition).length > 0;
+  const verified =
+    execution.ok !== false &&
+    (!hasPostcondition ||
+      (await waitForCondition(
+        conditionWithTarget(postcondition, a.target),
+        a.arguments?.timeoutMs || 5000,
+        true,
+      )));
+  return {
+    ...execution,
+    verified,
+    ok: execution.ok !== false && verified,
+    observation: collectContext(),
+  };
 }
 
-chrome.runtime.onMessage.addListener((msg: any, _sender: any, send: any) => {
+function conditionWithTarget(condition: any, target: ActionTarget | undefined) {
+  if (!condition || typeof condition !== "object") return condition;
+  const needsTarget =
+    "valueEquals" in condition ||
+    "checkedEquals" in condition ||
+    "editorContains" in condition;
+  if (!target || condition.target || !needsTarget) return condition;
+  return { ...condition, target };
+}
+
+chrome.runtime.onMessage.addListener((msg: any, sender: any, send: any) => {
+  if (Number.isInteger(sender?.frameId)) frameId = sender.frameId;
   if (msg?.type === "REFRESH_PAGE_ENABLED") {
     refreshPageEnabled();
     send({ ok: true });

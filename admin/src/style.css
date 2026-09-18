@@ -1867,6 +1867,17 @@ article p {
   width: 100%;
 }
 
+.agent-settings-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.agent-settings-fieldset:disabled {
+  opacity: 0.82;
+}
+
 .agent-settings-header {
   align-items: center;
   justify-content: space-between;

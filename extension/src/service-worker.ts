@@ -137,6 +137,7 @@ chrome.runtime.onMessage.addListener(
               value.enabledTabIds,
               session[DISMISSED_BALL_TAB_IDS_KEY],
             ),
+            frameId: sender.frameId ?? 0,
           });
         });
       });

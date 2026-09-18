@@ -50,7 +50,11 @@ public class AgentConfigurationService {
         AgentDefinition existing = definitions.findById(definition.getId()).orElse(null);
         String actor = RequestContext.currentOrAnonymous().actorLabel();
         if (existing != null) {
+            SystemAgentGuard.requireUserManaged(existing);
             definition.setSystemAgent(existing.isSystemAgent());
+            definition.setOwnerType(existing.getOwnerType());
+            definition.setManagementMode(existing.getManagementMode());
+            definition.setSystemRevision(existing.getSystemRevision());
             definition.setCreatedBy(
                     existing.getCreatedBy() == null || existing.getCreatedBy().isBlank()
                             ? actor
@@ -62,10 +66,17 @@ public class AgentConfigurationService {
             definition.setPublishedVersion(existing.getPublishedVersion());
             definition.setVersion(existing.getVersion() + 1);
         } else {
+            definition.setSystemAgent(false);
+            definition.setOwnerType(SystemAgentGuard.USER_OWNER);
+            definition.setManagementMode(SystemAgentGuard.USER_MANAGED);
+            definition.setSystemRevision(0L);
             definition.setCreatedBy(actor);
             definition.setPublished(false);
             definition.setPublishedVersion(0);
             definition.setVersion(1);
+        }
+        if (!SystemAgentGuard.SYSTEM_LOCKED.equalsIgnoreCase(definition.getManagementMode())) {
+            definition.setSupportsBrowserActions(false);
         }
         definition.setUpdatedBy(actor);
         AgentDefinition saved = definitions.save(definition);
@@ -83,6 +94,7 @@ public class AgentConfigurationService {
     @Transactional
     public AgentConfigVersion publish(String id, String releaseNote, String publishedBy) {
         AgentDefinition definition = get(id);
+        SystemAgentGuard.requireUserManaged(definition);
         validate(definition);
         List<AgentChildBinding> releaseBindings = bindings.findByParent(id);
         long next = nextVersion(id);
@@ -110,6 +122,8 @@ public class AgentConfigurationService {
 
     @Transactional
     public AgentDefinition rollback(String id, long version, String publishedBy) {
+        AgentDefinition current = get(id);
+        SystemAgentGuard.requireUserManaged(current);
         AgentConfigVersion target =
                 versions.findByAgentId(id)
                         .stream()
@@ -120,7 +134,6 @@ public class AgentConfigurationService {
         if (decoded.definition() == null) {
             throw new IllegalArgumentException("Agent 版本快照无法恢复");
         }
-        AgentDefinition current = get(id);
         AgentDefinition restored = decoded.definition();
         restored.setId(id);
         // Enable/disable is immediate operational state and survives rollback.
@@ -163,6 +176,7 @@ public class AgentConfigurationService {
     public List<AgentChildBinding> replaceChildren(
             String parentId, List<AgentChildBinding> requested) {
         AgentDefinition parent = get(parentId);
+        SystemAgentGuard.requireUserManaged(parent);
         if (!"DOMAIN".equals(parent.getRole()))
             throw new IllegalArgumentException("只有领域 Agent 可以绑定子 Agent");
         List<AgentChildBinding> values = requested == null ? List.of() : requested;
@@ -173,6 +187,7 @@ public class AgentConfigurationService {
             if (childId == null) throw new IllegalArgumentException("子 Agent 不能为空");
             if (!childIds.add(childId)) throw new IllegalArgumentException("不能重复绑定同一个子 Agent");
             AgentDefinition child = get(childId);
+            SystemAgentGuard.requireUserManaged(child);
             if (!"SUB".equals(child.getRole()))
                 throw new IllegalArgumentException("只能绑定 SUB 类型 Agent");
             if (parentId.equals(child.getId())) throw new IllegalArgumentException("Agent 不能绑定自己");
@@ -260,6 +275,9 @@ public class AgentConfigurationService {
             definition.setPlanningMode(planningMode);
         }
         definition.setMaxPlanSteps(Math.max(1, Math.min(12, definition.getMaxPlanSteps())));
+        if (!SystemAgentGuard.SYSTEM_LOCKED.equalsIgnoreCase(definition.getManagementMode())) {
+            definition.setSupportsBrowserActions(false);
+        }
     }
 
     private void synchronizeChildBinding(AgentDefinition definition) {

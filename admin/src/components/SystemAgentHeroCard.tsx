@@ -28,6 +28,10 @@ export function SystemAgentHeroCard({
   onOpenSettings,
   onNavigate,
 }: SystemAgentHeroCardProps) {
+  const systemLocked =
+    agent.systemAgent === true ||
+    agent.ownerType === "SYSTEM" ||
+    agent.managementMode === "SYSTEM_LOCKED";
   const targets = [
     {
       key: "general",
@@ -111,15 +115,23 @@ export function SystemAgentHeroCard({
           <div className="system-agent-card-actions">
             <label
               className="switch agent-card-switch"
-              title={agent.enabled ? t.stop : t.enable}
+              title={
+                systemLocked
+                  ? t.systemAgentReadOnlyHint
+                  : agent.enabled
+                    ? t.stop
+                    : t.enable
+              }
             >
               <input
                 type="checkbox"
                 role="switch"
                 checked={agent.enabled}
                 aria-label={agent.enabled ? t.stop : t.enable}
-                disabled={busy}
-                onChange={() => onToggle(agent)}
+                disabled={busy || systemLocked}
+                onChange={() => {
+                  if (!systemLocked) onToggle(agent);
+                }}
               />
               <span className="switch-track" aria-hidden="true" />
             </label>

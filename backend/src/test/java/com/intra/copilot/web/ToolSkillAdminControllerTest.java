@@ -212,6 +212,7 @@ class ToolSkillAdminControllerTest {
         ToolDefinition tool = new ToolDefinition();
         tool.setId(id);
         tool.setName(name);
+        tool.setType("HTTP");
         tool.setEnabled(enabled);
         return tool;
     }

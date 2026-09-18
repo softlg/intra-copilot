@@ -39,4 +39,8 @@ public interface SkillToolBindingRepository extends BaseMapper<SkillToolBinding>
     default long countBySkillId(String skillId) {
         return selectCount(Wrappers.<SkillToolBinding>query().eq("skill_id", skillId));
     }
+
+    default void deleteByToolId(String toolId) {
+        delete(Wrappers.<SkillToolBinding>query().eq("tool_id", toolId));
+    }
 }

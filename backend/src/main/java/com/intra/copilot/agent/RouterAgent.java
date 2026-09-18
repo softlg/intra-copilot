@@ -2,6 +2,7 @@ package com.intra.copilot.agent;
 
 import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.service.AgentRegistry;
+import com.intra.copilot.service.SystemAgentCatalog;
 import java.util.Optional;
 import org.springframework.stereotype.Component;
 
@@ -46,7 +47,37 @@ public class RouterAgent {
                 }
             }
         }
+        if (text != null && looksLikeBrowserAction(text)) {
+            Optional<Agent> browserOperator =
+                    registry.findEnabled(SystemAgentCatalog.BROWSER_OPERATOR);
+            if (browserOperator.isPresent()) return browserOperator.get();
+        }
         return general;
+    }
+
+    private static boolean looksLikeBrowserAction(String text) {
+        String value = text.toLowerCase();
+        for (String keyword :
+                java.util.List.of(
+                        "页面",
+                        "浏览器",
+                        "点击",
+                        "填写",
+                        "输入",
+                        "选择",
+                        "提交",
+                        "运行",
+                        "帮我操作",
+                        "直接完成",
+                        "页面上完成",
+                        "读取页面",
+                        "browser",
+                        "click",
+                        "fill",
+                        "submit")) {
+            if (value.contains(keyword)) return true;
+        }
+        return false;
     }
 
     /** 返回分隔符的起始下标；未找到返回 -1。 */

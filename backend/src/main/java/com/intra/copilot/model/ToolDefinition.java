@@ -12,7 +12,7 @@ public class ToolDefinition {
     @TableId private String id = EntityIdGenerator.next("TL");
     private String name;
     private String description;
-    private String type = "BROWSER_PROPOSAL";
+    private String type = "HTTP";
 
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String method;

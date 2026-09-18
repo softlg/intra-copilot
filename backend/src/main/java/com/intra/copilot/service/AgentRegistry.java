@@ -119,11 +119,18 @@ public class AgentRegistry {
     public AgentDefinition save(AgentDefinition definition) {
         AgentDefinition existing = definitions.findById(definition.getId()).orElse(null);
         if (existing != null) {
+            SystemAgentGuard.requireUserManaged(existing);
             // The system/custom classification is immutable after creation.
             definition.setSystemAgent(existing.isSystemAgent());
+            definition.setOwnerType(existing.getOwnerType());
+            definition.setManagementMode(existing.getManagementMode());
+            definition.setSystemRevision(existing.getSystemRevision());
             definition.touch();
         } else {
             definition.setSystemAgent(false);
+            definition.setOwnerType(SystemAgentGuard.USER_OWNER);
+            definition.setManagementMode(SystemAgentGuard.USER_MANAGED);
+            definition.setSystemRevision(0L);
         }
         AgentDefinition saved = definitions.save(definition);
         evict();
@@ -136,6 +143,7 @@ public class AgentRegistry {
                 definitions
                         .findById(id)
                         .orElseThrow(() -> new java.util.NoSuchElementException("Agent 不存在"));
+        SystemAgentGuard.requireUserManaged(definition);
         if (definition.isEnabled()) {
             throw new IllegalArgumentException("只能删除已停用的 Agent");
         }

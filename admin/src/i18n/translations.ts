@@ -165,6 +165,8 @@ export const translations = {
     systemAgent: "系统 Agent",
     customAgent: "自定义 Agent",
     systemAgentHint: "系统 Agent 由页面助手内置提供，不允许删除",
+    systemAgentReadOnlyHint:
+      "系统内置 Agent 随应用版本自动升级，不支持编辑、停用、删除或回滚。",
     customAgentHint: "自定义 Agent 可按需停用后删除",
     systemAgentGlobalEntry: "全局请求入口",
     systemAgentRouteExits: "路由出口",
@@ -1104,6 +1106,8 @@ export const translations = {
     customAgent: "Custom Agent",
     systemAgentHint:
       "System Agents are built into the page assistant and cannot be deleted",
+    systemAgentReadOnlyHint:
+      "Built-in system Agents upgrade with the application and cannot be edited, disabled, deleted, or rolled back.",
     customAgentHint: "Domain agents can be deleted after they are disabled",
     systemAgentGlobalEntry: "Global request entry",
     systemAgentRouteExits: "Routing destinations",

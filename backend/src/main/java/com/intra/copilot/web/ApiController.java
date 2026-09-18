@@ -5,6 +5,7 @@ import com.intra.copilot.model.*;
 import com.intra.copilot.service.AgentRegistry;
 import com.intra.copilot.service.AttachmentService;
 import com.intra.copilot.service.ChatService;
+import com.intra.copilot.service.SystemAgentCatalog;
 import com.intra.copilot.service.auth.RequestContext;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.*;
@@ -25,18 +26,21 @@ public class ApiController {
     private final RouteCopilotAgent routeCopilot;
     private final AgentRegistry registry;
     private final AttachmentService attachmentService;
+    private final SystemAgentCatalog systemAgents;
 
     public ApiController(
             ChatService c,
             GeneralAgent g,
             RouteCopilotAgent routeCopilot,
             AgentRegistry registry,
-            AttachmentService attachmentService) {
+            AttachmentService attachmentService,
+            SystemAgentCatalog systemAgents) {
         chat = c;
         general = g;
         this.routeCopilot = routeCopilot;
         this.registry = registry;
         this.attachmentService = attachmentService;
+        this.systemAgents = systemAgents;
     }
 
     @GetMapping("/agents")
@@ -44,6 +48,7 @@ public class ApiController {
         return registry.enabledDefinitions()
                 .stream()
                 .filter(definition -> List.of("GENERAL", "DOMAIN").contains(definition.getRole()))
+                .filter(definition -> systemAgents.isClientVisible(definition.getId()))
                 .map(
                         definition -> {
                             Map<String, Object> value = new LinkedHashMap<>();
@@ -58,6 +63,34 @@ public class ApiController {
                             return value;
                         })
                 .toList();
+    }
+
+    @GetMapping("/capabilities")
+    public Map<String, Object> capabilities() {
+        return Map.of(
+                "browserProtocolVersion",
+                SystemAgentCatalog.BROWSER_PROTOCOL_VERSION,
+                "browserActions",
+                List.of(
+                        "CLICK",
+                        "FOCUS",
+                        "TYPE",
+                        "CLEAR",
+                        "SELECT",
+                        "CHECK",
+                        "UNCHECK",
+                        "HOVER",
+                        "SCROLL",
+                        "PRESS_KEY",
+                        "UPLOAD",
+                        "NAVIGATE",
+                        "SET_EDITOR",
+                        "WAIT_FOR",
+                        "VERIFY",
+                        "EXTRACT",
+                        "SNAPSHOT"),
+                "browserTools",
+                SystemAgentCatalog.BROWSER_TOOL_IDS);
     }
 
     @PostMapping("/sessions")

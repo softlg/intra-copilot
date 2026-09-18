@@ -15,6 +15,7 @@ const API_BASE = (
 const API = `${API_BASE}/api/v1`;
 // Keep this above the backend agent.sse-timeout-seconds default.
 const CHAT_STREAM_TIMEOUT_MS = 610_000;
+const BROWSER_PROTOCOL_VERSION = 1;
 type Theme = "system" | "light" | "dark";
 type Language = "zh" | "en";
 type ActivationMode = "all_pages" | "manual";
@@ -125,6 +126,37 @@ async function setEditorValueInPage(args: any) {
       return null;
     }
   };
+  const applyCodeMirror = (view: any, method: string) => {
+    try {
+      const doc = view?.state?.doc;
+      if (
+        !doc ||
+        typeof doc.toString !== "function" ||
+        !Number.isInteger(doc.length) ||
+        typeof view.dispatch !== "function"
+      ) {
+        return null;
+      }
+      view.dispatch({
+        changes: {
+          from: 0,
+          to: doc.length,
+          insert: code,
+        },
+      });
+      const current = view.state.doc.toString();
+      return verified(current)
+        ? {
+            ok: true,
+            action: "SET_EDITOR",
+            method,
+            preview: String(current).slice(0, 160),
+          }
+        : null;
+    } catch {
+      return null;
+    }
+  };
   const applyEditor = (editor: any, method: string) => {
     try {
       const byModel = applyModel(editor?.getModel?.(), `${method}-model`);
@@ -148,6 +180,12 @@ async function setEditorValueInPage(args: any) {
   const editorCandidate = (value: any) => {
     if (!value || typeof value !== "object") return null;
     if (
+      typeof value.dispatch === "function" &&
+      typeof value.state?.doc?.toString === "function"
+    ) {
+      return { kind: "codeMirror", value };
+    }
+    if (
       typeof value.getModel === "function" &&
       typeof value.setValue === "function"
     ) {
@@ -164,18 +202,33 @@ async function setEditorValueInPage(args: any) {
   const applyCandidate = (candidate: any, method: string) =>
     candidate?.kind === "model"
       ? applyModel(candidate.value, method)
-      : applyEditor(candidate?.value, method);
+      : candidate?.kind === "codeMirror"
+        ? applyCodeMirror(candidate.value, method)
+        : applyEditor(candidate?.value, method);
 
-  const markedEditor = document.querySelector(
+  const deepQueryAll = (
+    queryRoot: Document | ShadowRoot | HTMLElement,
+    selector: string,
+  ): Element[] => {
+    const values = Array.from(queryRoot.querySelectorAll(selector));
+    for (const element of Array.from(queryRoot.querySelectorAll("*"))) {
+      if (element.shadowRoot) {
+        values.push(...deepQueryAll(element.shadowRoot, selector));
+      }
+    }
+    return values;
+  };
+
+  const markedEditor = deepQueryAll(
+    document,
     "[data-intra-copilot-editor-target='true']",
-  );
+  )[0];
   if (markedEditor instanceof HTMLElement) {
     markedEditor.setAttribute("data-intra-copilot-editor-target", "true");
   }
-  const domEditors = Array.from(
-    document.querySelectorAll(
-      ".monaco-editor, .cm-editor, .cm-content, textarea[class*='inputarea']",
-    ),
+  const domEditors = deepQueryAll(
+    document,
+    ".monaco-editor, .cm-editor, .cm-content, textarea[class*='inputarea']",
   ).filter((element): element is HTMLElement => element instanceof HTMLElement);
   if (
     markedEditor instanceof HTMLElement &&
@@ -204,6 +257,13 @@ async function setEditorValueInPage(args: any) {
   }
 
   for (const domEditor of domEditors) {
+    const directCodeMirror =
+      (domEditor as any).cmView?.view || (domEditor as any).view;
+    const directCodeMirrorResult = applyCodeMirror(
+      directCodeMirror,
+      "codemirror-dom",
+    );
+    if (directCodeMirrorResult) return directCodeMirrorResult;
     const fiberKey = Object.keys(domEditor).find(
       (key) =>
         key.startsWith("__reactFiber$") ||
@@ -355,19 +415,28 @@ async function setEditorValueInPage(args: any) {
 }
 
 async function executeEditorAction(tabId: number, action: any) {
+  const frameId =
+    typeof action.target === "object" &&
+    Number.isInteger(action.target?.frameId)
+      ? action.target.frameId
+      : 0;
   let contentResult: any;
   try {
-    contentResult = await chrome.tabs.sendMessage(tabId, {
-      type: "EXECUTE_ACTION",
-      action,
-    });
+    contentResult = await chrome.tabs.sendMessage(
+      tabId,
+      {
+        type: "EXECUTE_ACTION",
+        action,
+      },
+      { frameId },
+    );
   } catch {
     contentResult = { ok: false, error: "Content script unavailable" };
   }
   let mainResult: unknown;
   try {
     const results = await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, frameIds: [frameId] },
       world: "MAIN",
       func: setEditorValueInPage,
       args: [{ ...action.arguments, target: action.target }],
@@ -375,7 +444,7 @@ async function executeEditorAction(tabId: number, action: any) {
     mainResult = results[0]?.result;
   } finally {
     void chrome.tabs
-      .sendMessage(tabId, { type: "CLEAR_EDITOR_TARGET" })
+      .sendMessage(tabId, { type: "CLEAR_EDITOR_TARGET" }, { frameId })
       .catch(() => {});
   }
   if ((mainResult as { ok?: boolean } | undefined)?.ok) return mainResult;
@@ -403,22 +472,48 @@ async function resolveAttachment(
   return objectUrl;
 }
 
-async function collectContextFromTab(
+async function collectContextsFromTab(
   id: number,
-): Promise<Record<string, string> | null> {
+): Promise<Record<string, any>[]> {
+  let frames: chrome.webNavigation.GetAllFrameResultDetails[] = [];
   try {
-    return await chrome.tabs.sendMessage(id, { type: "COLLECT_CONTEXT" });
+    frames = (await chrome.webNavigation.getAllFrames({ tabId: id })) || [];
   } catch {
-    // Content script may not be injected on this tab yet.
+    frames = [];
   }
+  const frameIds = frames.length ? frames.map((frame) => frame.frameId) : [0];
+  const contexts = await Promise.all(
+    frameIds.map(async (frameId) => {
+      try {
+        const context = await chrome.tabs.sendMessage(
+          id,
+          { type: "COLLECT_CONTEXT" },
+          { frameId },
+        );
+        return context ? { ...context, frameId } : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const available = contexts.filter(
+    (context): context is Record<string, any> => context != null,
+  );
+  if (available.length) return available;
+
   try {
     const results = await chrome.scripting.executeScript({
-      target: { tabId: id },
+      target: { tabId: id, allFrames: true },
       func: collectPageContext,
     });
-    return (results[0]?.result as Record<string, string>) ?? null;
+    return results
+      .filter((result) => result.result)
+      .map((result) => ({
+        ...(result.result as Record<string, any>),
+        frameId: result.frameId,
+      }));
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -757,6 +852,7 @@ const translations = {
     screenshotRateLimited: "截图请求过于频繁，请稍后再试。",
     pageContextReadFailed:
       "未能读取当前页面上下文，可能是浏览器内置页面或标签页尚未完成注入，请刷新后重试。",
+    capabilityMismatch: "插件与后端版本不兼容，请刷新或升级浏览器插件。",
     dismissError: "关闭异常提示",
     imagePreview: "查看图片",
     closeImagePreview: "关闭图片预览",
@@ -801,11 +897,27 @@ const translations = {
           SET_EDITOR: "将代码写入当前页面的编辑器。",
           CLICK: "点击当前页面中完成任务所需的按钮。",
           FILL: "填写当前页面中完成任务所需的输入框。",
+          TYPE: "填写当前页面中完成任务所需的输入框。",
+          CLEAR: "清空当前页面中指定的输入内容。",
+          SELECT: "选择当前页面中指定的选项。",
+          CHECK: "勾选当前页面中指定的选项。",
+          UNCHECK: "取消勾选当前页面中指定的选项。",
+          HOVER: "将鼠标移到当前页面指定位置。",
+          SCROLL: "滚动当前页面。",
+          PRESS_KEY: "向当前页面发送键盘操作。",
+          UPLOAD: "向当前页面上传指定文件。",
+          WAIT_FOR: "等待当前页面处理完成。",
+          VERIFY: "检查当前页面结果。",
+          EXTRACT: "读取当前页面内容。",
+          SNAPSHOT: "读取当前页面最新状态。",
           NAVIGATE: "打开完成任务所需的网页。",
         }[type] || "继续操作当前页面。";
       const dynamicText = (reason || "")
         .replace(/\bref_\d+\b/gi, "当前页面元素")
-        .replace(/\b(?:SET_EDITOR|CLICK|FILL|NAVIGATE|medium|low|high)\b/gi, "")
+        .replace(
+          /\b(?:SET_EDITOR|CLICK|FILL|TYPE|CLEAR|SELECT|CHECK|UNCHECK|HOVER|SCROLL|PRESS_KEY|UPLOAD|NAVIGATE|WAIT_FOR|VERIFY|EXTRACT|SNAPSHOT|medium|low|high)\b/gi,
+          "",
+        )
         .replace(/\s{2,}/g, " ")
         .trim();
       const riskText =
@@ -947,6 +1059,8 @@ const translations = {
       "Screenshot requested too often. Please try again shortly.",
     pageContextReadFailed:
       "Could not read the current page context. The page may be a built-in browser page or the tab may need to be refreshed.",
+    capabilityMismatch:
+      "The extension and backend versions are incompatible. Refresh or update the extension.",
     dismissError: "Dismiss error",
     imagePreview: "View image",
     closeImagePreview: "Close image preview",
@@ -993,11 +1107,27 @@ const translations = {
           SET_EDITOR: "Write the code into the current page editor.",
           CLICK: "Click the button needed to continue the task.",
           FILL: "Fill the input needed to continue the task.",
+          TYPE: "Fill the input needed to continue the task.",
+          CLEAR: "Clear the specified input.",
+          SELECT: "Select the requested option.",
+          CHECK: "Check the requested option.",
+          UNCHECK: "Uncheck the requested option.",
+          HOVER: "Move the pointer to the requested page element.",
+          SCROLL: "Scroll the current page.",
+          PRESS_KEY: "Send a keyboard action to the current page.",
+          UPLOAD: "Upload the specified file to the current page.",
+          WAIT_FOR: "Wait for the page to finish processing.",
+          VERIFY: "Verify the result on the current page.",
+          EXTRACT: "Read content from the current page.",
+          SNAPSHOT: "Read the latest page state.",
           NAVIGATE: "Open the page needed to continue the task.",
         }[type] || "Continue operating on the current page.";
       const dynamicText = (reason || "")
         .replace(/\bref_\d+\b/gi, "the current page element")
-        .replace(/\b(?:SET_EDITOR|CLICK|FILL|NAVIGATE|medium|low|high)\b/gi, "")
+        .replace(
+          /\b(?:SET_EDITOR|CLICK|FILL|TYPE|CLEAR|SELECT|CHECK|UNCHECK|HOVER|SCROLL|PRESS_KEY|UPLOAD|NAVIGATE|WAIT_FOR|VERIFY|EXTRACT|SNAPSHOT|medium|low|high)\b/gi,
+          "",
+        )
         .replace(/\s{2,}/g, " ")
         .trim();
       const riskText =
@@ -1224,6 +1354,7 @@ function App() {
   // 是否贴近消息列表底部：用户向上翻阅历史时暂停自动跟随，仅在其回到底部后才恢复。
   const [atBottom, setAtBottom] = useState(true);
   const [authError, setAuthError] = useState<string>("");
+  const [browserProtocolMismatch, setBrowserProtocolMismatch] = useState(false);
   const [sessions, setSessions] = useState<any[]>([]);
   const [session, setSession] = useState<any>();
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -1250,6 +1381,7 @@ function App() {
   const streamControllersRef = useRef(new Map<string, AbortController>());
   const sessionBusy = Boolean(session?.id && busySessionIds.has(session.id));
   const actionTabIdRef = useRef<number | undefined>(undefined);
+  const actionTargetTabRef = useRef(new Map<string, number>());
   const [error, setError] = useState("");
   const [theme, setTheme] = useState<Theme>("system");
   const [language, setLanguage] = useState<Language>("zh");
@@ -1347,6 +1479,19 @@ function App() {
         if (cancelled) return;
         authedFetchRef.current = authedFetch;
         setAuthedFetch(() => authedFetch);
+        const capabilitiesResponse = await authedFetch("/capabilities");
+        if (capabilitiesResponse.ok) {
+          const capabilities = await capabilitiesResponse.json();
+          const mismatch =
+            Number(capabilities?.browserProtocolVersion) !==
+            BROWSER_PROTOCOL_VERSION;
+          setBrowserProtocolMismatch(mismatch);
+          if (mismatch)
+            setError("插件与后端版本不兼容，请刷新或升级浏览器插件。");
+        } else {
+          setBrowserProtocolMismatch(true);
+          setError("插件与后端版本不兼容，请刷新或升级浏览器插件。");
+        }
         load();
       } catch (error) {
         if (cancelled) return;
@@ -2536,21 +2681,38 @@ function App() {
           : [];
       if (readPageEnabled && ids.length) {
         actionTabIdRef.current = ids[0];
-        const contexts = await Promise.all(
-          ids.map((id) => collectContextFromTab(id)),
-        );
+        const contexts = (
+          await Promise.all(
+            ids.map(async (id) =>
+              (await collectContextsFromTab(id)).map(
+                (context): Record<string, any> => ({
+                  ...context,
+                  tabId: id,
+                }),
+              ),
+            ),
+          )
+        ).flat();
         const meaningful = contexts.filter(
-          (ctx): ctx is Record<string, string> =>
+          (ctx): ctx is Record<string, any> =>
             ctx != null && !!(ctx.url || ctx.title || ctx.visibleText),
         );
-        if (meaningful.length === 0 && contexts.some((ctx) => ctx == null)) {
+        if (meaningful.length === 0) {
           contextError = t.pageContextReadFailed;
         }
+        meaningful.forEach((context) => {
+          if (context.snapshotId && Number.isInteger(context.tabId)) {
+            actionTargetTabRef.current.set(context.snapshotId, context.tabId);
+          }
+        });
         pageContext = JSON.stringify(
           meaningful.map((context) => {
-            const selected: Record<string, string> = {
+            const selected: Record<string, any> = {
               source: "current_page",
               timestamp: context.timestamp,
+              tabId: context.tabId,
+              frameId: context.frameId,
+              snapshotId: context.snapshotId,
             };
             PAGE_INFO_KEYS.forEach((key) => {
               if (pageInfoSelection[key]) selected[key] = context[key];
@@ -2725,7 +2887,22 @@ function App() {
           if (name === "action_proposed" && data) {
             try {
               const action = JSON.parse(data);
+              if (browserProtocolMismatch) {
+                await apiFetch(`/actions/${action.actionId}/result`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    status: "FAILED",
+                    result: JSON.stringify({
+                      ok: false,
+                      error: t.capabilityMismatch,
+                    }),
+                  }),
+                });
+                continue;
+              }
               const autoApproved =
+                action.readOnly === true ||
                 actionPermission === "full" ||
                 (actionPermission === "delegate" && action.risk !== "high");
               const approved =
@@ -2756,7 +2933,13 @@ function App() {
                   active: true,
                   currentWindow: true,
                 });
-                const tabId = actionTabIdRef.current ?? tabs[0]?.id;
+                const tabId =
+                  (typeof action.target === "object" &&
+                  action.target?.snapshotId
+                    ? actionTargetTabRef.current.get(action.target.snapshotId)
+                    : undefined) ??
+                  actionTabIdRef.current ??
+                  tabs[0]?.id;
                 if (tabId == null) {
                   result = {
                     status: "FAILED",
@@ -2770,11 +2953,25 @@ function App() {
                     const execution =
                       action.type === "SET_EDITOR"
                         ? await executeEditorAction(tabId, action)
-                        : await chrome.tabs.sendMessage(tabId, {
-                            type: "EXECUTE_ACTION",
-                            action,
-                          });
-                    const observation = await collectContextFromTab(tabId);
+                        : await chrome.tabs.sendMessage(
+                            tabId,
+                            {
+                              type: "EXECUTE_ACTION",
+                              action,
+                            },
+                            {
+                              frameId:
+                                typeof action.target === "object" &&
+                                Number.isInteger(action.target?.frameId)
+                                  ? action.target.frameId
+                                  : 0,
+                            },
+                          );
+                    const observations = await collectContextsFromTab(tabId);
+                    const observation =
+                      observations.length === 1
+                        ? observations[0]
+                        : observations;
                     result = {
                       status:
                         (execution as { ok?: boolean } | undefined)?.ok ===

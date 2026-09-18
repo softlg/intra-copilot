@@ -16,6 +16,8 @@ public class ActionProposal {
     private String type;
     private String target;
     private String arguments;
+    private String postcondition;
+    private boolean readOnly;
     private String reason;
     private String risk;
     private Instant expiresAt;
@@ -72,6 +74,22 @@ public class ActionProposal {
 
     public void setArguments(String v) {
         arguments = v;
+    }
+
+    public String getPostcondition() {
+        return postcondition;
+    }
+
+    public void setPostcondition(String value) {
+        postcondition = value;
+    }
+
+    public boolean isReadOnly() {
+        return readOnly;
+    }
+
+    public void setReadOnly(boolean value) {
+        readOnly = value;
     }
 
     public String getReason() {
