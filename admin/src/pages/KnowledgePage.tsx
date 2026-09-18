@@ -3,7 +3,7 @@ import { Skeleton } from "../components/Skeleton";
 import { EmptyState } from "../components/EmptyState";
 import { InlineEditable } from "../components/InlineEditable";
 import { ResourceCardControls } from "../components/ResourceCardControls";
-import { TruncatedId } from "../components/TruncatedId";
+import { formatDateTime } from "../lib/format";
 import { documentStatus } from "../lib/knowledge";
 import { useEffect, useState } from "react";
 import type { FormEventHandler } from "react";
@@ -75,6 +75,19 @@ export interface KnowledgePageProps {
   runKnowledgeDiagnostics: () => void;
 }
 
+function formatFileSize(sizeBytes?: number) {
+  if (!sizeBytes || sizeBytes <= 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = sizeBytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = unitIndex === 0 || value >= 10 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
 /** Knowledge base registry with per-base detail, maintenance, QA and retrieval panels. */
 export function KnowledgePage({
   t,
@@ -123,6 +136,8 @@ export function KnowledgePage({
   status,
   onStatusChange,
 }: KnowledgePageProps) {
+  const [baseQuery, setBaseQuery] = useState("");
+  const [documentQuery, setDocumentQuery] = useState("");
   const [useSystemModel, setUseSystemModel] = useState<boolean>(
     activeBase?.useSystemEmbedding ?? true,
   );
@@ -144,6 +159,7 @@ export function KnowledgePage({
 
   // Reset the embedding config draft whenever a different knowledge base is opened.
   useEffect(() => {
+    setDocumentQuery("");
     if (!activeBase) return;
     setUseSystemModel(activeBase.useSystemEmbedding ?? true);
     setCustomProvider(activeBase.embeddingProvider ?? "");
@@ -181,6 +197,26 @@ export function KnowledgePage({
     });
   };
 
+  const normalizedBaseQuery = baseQuery.trim().toLowerCase();
+  const visibleBases = filteredBases.filter(
+    (base) =>
+      !normalizedBaseQuery ||
+      base.name.toLowerCase().includes(normalizedBaseQuery) ||
+      (base.description ?? "").toLowerCase().includes(normalizedBaseQuery),
+  );
+  const normalizedDocumentQuery = documentQuery.trim().toLowerCase();
+  const visibleDocuments = filteredDocuments.filter(
+    (document) =>
+      !normalizedDocumentQuery ||
+      document.filename.toLowerCase().includes(normalizedDocumentQuery) ||
+      (document.error ?? "").toLowerCase().includes(normalizedDocumentQuery),
+  );
+  const enabledBaseCount = bases.filter((base) => base.enabled).length;
+  const totalDocumentCount = bases.reduce(
+    (total, base) => total + (documents[base.id] ?? []).length,
+    0,
+  );
+
   return (
     <section>
       {!activeBase ? (
@@ -190,6 +226,16 @@ export function KnowledgePage({
               <p className="muted">{t.knowledgeSubtitle}</p>
             </div>
             <div className="resource-toolbar-actions">
+              <label className="resource-search knowledge-base-search">
+                <Icon name="search" size={15} />
+                <span className="sr-only">{t.search}</span>
+                <input
+                  value={baseQuery}
+                  onChange={(event) => setBaseQuery(event.target.value)}
+                  placeholder={t.knowledgeSearchPlaceholder}
+                  type="search"
+                />
+              </label>
               <select
                 className="resource-filter"
                 value={status}
@@ -205,26 +251,43 @@ export function KnowledgePage({
               <button onClick={addBase}>{t.newBase}</button>
             </div>
           </div>
+          <div
+            className="knowledge-summary"
+            aria-label={t.knowledgeBaseHeading}
+          >
+            <div>
+              <span>{t.knowledgeBaseHeading}</span>
+              <strong>{bases.length}</strong>
+            </div>
+            <div>
+              <span>{t.enabled}</span>
+              <strong>{enabledBaseCount}</strong>
+            </div>
+            <div>
+              <span>{t.knowledgeDocumentsTotal}</span>
+              <strong>{totalDocumentCount}</strong>
+            </div>
+          </div>
           <div className="resource-section">
-            <h3>{t.knowledgeBaseHeading}</h3>
+            <div className="resource-section-heading">
+              <h3>{t.knowledgeBaseHeading}</h3>
+              <span className="section-count">{visibleBases.length}</span>
+            </div>
             {basesLoading && bases.length === 0 ? (
               <Skeleton.CardList count={3} />
             ) : (
               <div className="grid">
-                {filteredBases.map((base) => (
+                {visibleBases.map((base) => (
                   <article
-                    className="knowledge-card knowledge-card-clickable"
+                    className="knowledge-card resource-card-clickable"
                     key={base.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openKnowledgeBase(base)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        openKnowledgeBase(base);
-                      }
-                    }}
                   >
+                    <button
+                      type="button"
+                      className="resource-card-hit-area"
+                      aria-label={`${t.enter}: ${base.name}`}
+                      onClick={() => openKnowledgeBase(base)}
+                    />
                     <div className="agent-card-header">
                       <div className="agent-card-title">
                         <strong>{base.name}</strong>
@@ -243,22 +306,21 @@ export function KnowledgePage({
                         onDelete={() => deleteBase(base)}
                       />
                     </div>
-                    <TruncatedId value={base.id} label="Knowledge base ID" />
                     <p>{base.description || t.supportedDocs}</p>
-                    <div className="resource-meta">
+                    <div className="knowledge-card-meta">
                       <span>
+                        <Icon name="knowledge" size={13} />
                         {t.documentCount((documents[base.id] ?? []).length)}
                       </span>
                     </div>
-                    <div
-                      className="agent-actions"
-                      onClick={(event) => event.stopPropagation()}
-                    >
+                    <div className="agent-actions">
                       <button
                         className="secondary"
+                        type="button"
                         onClick={() => openKnowledgeBase(base)}
                       >
                         {t.enter}
+                        <Icon name="chevron-right" size={14} />
                       </button>
                     </div>
                   </article>
@@ -272,7 +334,7 @@ export function KnowledgePage({
                 hint={t.noKnowledgeBasesHint}
                 action={<button onClick={addBase}>{t.newBase}</button>}
               />
-            ) : filteredBases.length === 0 ? (
+            ) : visibleBases.length === 0 ? (
               <EmptyState
                 compact
                 icon={<Icon name="search" size={22} />}
@@ -320,6 +382,15 @@ export function KnowledgePage({
                 editHint={t.baseEditDescriptionHint}
                 wrap
               />
+              <div className="knowledge-detail-meta">
+                <span className={activeBase.enabled ? "ok" : "off"}>
+                  {activeBase.enabled ? t.enabled : t.disabled}
+                </span>
+                <span>
+                  <Icon name="knowledge" size={13} />
+                  {t.documentCount(activeDocuments.length)}
+                </span>
+              </div>
             </div>
             <button
               type="button"
@@ -773,21 +844,79 @@ export function KnowledgePage({
                       />
                     </label>
                   </div>
+                  {activeDocuments.length > 0 && (
+                    <div className="knowledge-document-toolbar">
+                      <div>
+                        <strong>{t.documents}</strong>
+                        <span>{t.documentCount(visibleDocuments.length)}</span>
+                      </div>
+                      <label className="resource-search knowledge-document-search">
+                        <Icon name="search" size={15} />
+                        <span className="sr-only">{t.search}</span>
+                        <input
+                          value={documentQuery}
+                          onChange={(event) =>
+                            setDocumentQuery(event.target.value)
+                          }
+                          placeholder={t.documentSearchPlaceholder}
+                          type="search"
+                        />
+                      </label>
+                    </div>
+                  )}
                   {activeDocuments.length === 0 ? (
-                    <p className="empty-documents">{t.noDocuments}</p>
-                  ) : filteredDocuments.length === 0 ? (
-                    <p className="empty-documents">{t.noSearchResults}</p>
+                    <EmptyState
+                      compact
+                      icon={<Icon name="knowledge" size={22} />}
+                      title={t.noDocuments}
+                      hint={t.supportedDocs}
+                    />
+                  ) : visibleDocuments.length === 0 ? (
+                    <EmptyState
+                      compact
+                      icon={<Icon name="search" size={22} />}
+                      title={t.noSearchResults}
+                      hint={t.noSearchResultsHint}
+                    />
                   ) : (
                     <div className="document-list detail-document-list">
-                      {filteredDocuments.map((document) => (
+                      {visibleDocuments.map((document) => (
                         <div className="document-item" key={document.id}>
                           <div className="document-main">
-                            <span
-                              className="document-name"
-                              title={document.filename}
-                            >
-                              {document.filename}
-                            </span>
+                            <div className="document-copy">
+                              <span
+                                className="document-name"
+                                title={document.filename}
+                              >
+                                {document.filename}
+                              </span>
+                              <div className="document-meta">
+                                {document.pageCount ? (
+                                  <span>
+                                    {t.documentPageCount(document.pageCount)}
+                                  </span>
+                                ) : null}
+                                {document.blockCount ? (
+                                  <span>
+                                    {t.documentBlockCount(document.blockCount)}
+                                  </span>
+                                ) : null}
+                                {formatFileSize(document.sizeBytes) ? (
+                                  <span>
+                                    {formatFileSize(document.sizeBytes)}
+                                  </span>
+                                ) : null}
+                                {document.updatedAt &&
+                                  formatDateTime(document.updatedAt) !==
+                                    "-" && (
+                                    <span>
+                                      {t.documentUpdatedAt(
+                                        formatDateTime(document.updatedAt),
+                                      )}
+                                    </span>
+                                  )}
+                              </div>
+                            </div>
                             <span
                               className={`document-status ${document.status.toLowerCase()}`}
                             >
@@ -802,22 +931,28 @@ export function KnowledgePage({
                           <div className="document-actions">
                             <button
                               className="document-action"
+                              type="button"
                               onClick={() => openDocumentDetails(document)}
                             >
+                              <Icon name="info" size={13} />
                               {t.viewDocument}
                             </button>
                             <button
                               className="document-action"
+                              type="button"
                               disabled={documentActionId === document.id}
                               onClick={() => reindexDocument(document)}
                             >
+                              <Icon name="refresh" size={13} />
                               {t.reindex}
                             </button>
                             <button
                               className="document-action danger"
+                              type="button"
                               disabled={documentActionId === document.id}
                               onClick={() => deleteDocument(document)}
                             >
+                              <Icon name="trash" size={13} />
                               {t.delete}
                             </button>
                           </div>
@@ -903,18 +1038,33 @@ export function KnowledgePage({
                       key={`${result.documentId}-${index}`}
                     >
                       <div className="retrieval-result-meta">
-                        <strong>{result.filename}</strong>
-                        <span>
-                          {result.pageNumber
-                            ? `第 ${result.pageNumber} 页 · `
-                            : ""}
-                          {result.sectionPath ? `${result.sectionPath} · ` : ""}
-                          {t.retrievalScore} {result.score.toFixed(3)} ·{" "}
-                          {t.retrievalVectorScore}{" "}
-                          {result.similarity.toFixed(3)} ·{" "}
-                          {t.retrievalKeywordScore}{" "}
-                          {result.lexicalScore.toFixed(3)}
-                        </span>
+                        <div className="retrieval-result-title">
+                          <strong>{result.filename}</strong>
+                          {(result.pageNumber || result.sectionPath) && (
+                            <span>
+                              {result.pageNumber
+                                ? t.documentPageNumber(result.pageNumber)
+                                : ""}
+                              {result.pageNumber && result.sectionPath
+                                ? " · "
+                                : ""}
+                              {result.sectionPath}
+                            </span>
+                          )}
+                        </div>
+                        <div className="retrieval-result-scores">
+                          <span>
+                            {t.retrievalScore} {result.score.toFixed(3)}
+                          </span>
+                          <span>
+                            {t.retrievalVectorScore}{" "}
+                            {result.similarity.toFixed(3)}
+                          </span>
+                          <span>
+                            {t.retrievalKeywordScore}{" "}
+                            {result.lexicalScore.toFixed(3)}
+                          </span>
+                        </div>
                       </div>
                       <div className="retrieval-result-tags">
                         <span>{result.retrievalMode}</span>

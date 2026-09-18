@@ -965,18 +965,67 @@ article p {
 }
 
 .knowledge-card > p {
+  display: -webkit-box;
   min-height: 42px;
   margin: 14px 0 0;
+  overflow: hidden;
   line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
-.knowledge-card-clickable {
-  cursor: pointer;
+.knowledge-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
 }
 
-/* Shared card hover/focus highlight: knowledge cards and all grid cards. */
-.knowledge-card-clickable:hover,
-.knowledge-card-clickable:focus-visible,
+.knowledge-summary > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-right: 1px solid var(--border-faint);
+}
+
+.knowledge-summary > div:last-child {
+  border-right: 0;
+}
+
+.knowledge-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.knowledge-summary strong {
+  color: var(--text-strong);
+  font-size: 18px;
+}
+
+.knowledge-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.knowledge-card-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .grid > article:hover,
 .grid > article:focus-visible {
   border-color: var(--accent);
@@ -985,8 +1034,15 @@ article p {
 }
 
 .knowledge-card .agent-actions {
+  justify-content: flex-end;
   margin-top: auto;
   padding-top: 16px;
+}
+
+.knowledge-card .agent-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .knowledge-detail {
@@ -1019,6 +1075,22 @@ article p {
   color: var(--text-muted);
   font-size: 0.9rem;
   line-height: 1.4;
+}
+
+.knowledge-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.knowledge-detail-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .knowledge-detail-title:not(:has(.inline-editable-editing)) {
@@ -1058,12 +1130,19 @@ article p {
   gap: 4px;
   margin-bottom: 18px;
   padding: 4px;
+  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: color-mix(in srgb, var(--surface-muted) 76%, transparent);
+  scrollbar-width: none;
+}
+
+.detail-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .detail-tab {
+  flex: 0 0 auto;
   padding: 9px 13px;
   border: 0;
   border-radius: 9px;
@@ -1078,6 +1157,10 @@ article p {
   background: var(--surface-raised);
   color: var(--text);
   box-shadow: var(--shadow-card);
+}
+
+.knowledge-base-search {
+  min-width: 240px;
 }
 
 .upload-panel {
@@ -1116,6 +1199,44 @@ article p {
 
 .detail-document-list {
   margin-top: 18px;
+}
+
+.knowledge-document-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.knowledge-document-toolbar > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.knowledge-document-toolbar strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.knowledge-document-toolbar > div > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.knowledge-document-search {
+  min-width: 280px;
+}
+
+.knowledge-document-toolbar + .detail-document-list {
+  margin-top: 10px;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .qa-panel {
@@ -1339,18 +1460,45 @@ article p {
 }
 
 .retrieval-result-meta {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
   gap: 8px;
-  color: var(--muted);
-  font-size: 11px;
 }
 
-.retrieval-result-meta strong {
+.retrieval-result-title {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.retrieval-result-title strong {
   overflow: hidden;
   color: var(--text);
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.retrieval-result-title span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.retrieval-result-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.retrieval-result-scores span {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .retrieval-result-tags {
@@ -1365,7 +1513,7 @@ article p {
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .retrieval-result-tags .warning {
@@ -1374,12 +1522,16 @@ article p {
 }
 
 .retrieval-result p {
+  display: -webkit-box;
   margin: 8px 0 0;
   min-height: 0;
+  overflow: hidden;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
 }
 
 .document-details-modal {
@@ -1485,26 +1637,59 @@ article p {
 }
 
 .document-item {
-  padding: 10px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-sunken);
+  border-radius: 10px;
+  background: var(--surface);
+  transition: border-color 0.18s ease;
+}
+
+.document-item:hover {
+  border-color: var(--border-strong);
 }
 
 .document-main {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+}
+
+.document-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 5px;
 }
 
 .document-name {
   min-width: 0;
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.document-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--muted-subtle);
+  font-size: 12px;
+}
+
+.document-meta > span {
+  position: relative;
+}
+
+.document-meta > span + span::before {
+  position: absolute;
+  left: -6px;
+  color: var(--border-strong);
+  content: "·";
 }
 
 .document-status {
@@ -1513,7 +1698,7 @@ article p {
   border-radius: 999px;
   background: var(--chip-bg);
   color: var(--nav-idle);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .document-status.ready {
@@ -1522,7 +1707,11 @@ article p {
 }
 
 .document-status.indexing,
-.document-status.pending {
+.document-status.pending,
+.document-status.queued,
+.document-status.parsing,
+.document-status.chunking,
+.document-status.embedding {
   background: var(--warning-surface);
   color: var(--warning);
 }
@@ -1536,24 +1725,31 @@ article p {
   display: block;
   margin-top: 6px;
   color: var(--danger-soft);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
 .document-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-faint);
 }
 
 .document-action {
-  padding: 5px 8px;
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
   border: 1px solid var(--input-border);
-  border-radius: 5px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .document-action:hover:not(:disabled) {
@@ -2625,6 +2821,10 @@ article p {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.resource-section-heading h3 {
+  margin: 0;
 }
 
 .section-count {
@@ -5813,6 +6013,30 @@ pre {
 }
 
 @media (max-width: 767px) {
+  .knowledge-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-summary > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-faint);
+  }
+
+  .knowledge-summary > div:last-child {
+    border-bottom: 0;
+  }
+
+  .knowledge-document-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .knowledge-base-search,
+  .knowledge-document-search {
+    width: 100%;
+    min-width: 0;
+  }
+
   .shell {
     display: block;
     height: auto;
@@ -6078,6 +6302,19 @@ pre {
 /* Narrow phones: single column everywhere, tighter gutters, and every
    fixed-width panel clamped so 320px never scrolls sideways. */
 @media (max-width: 479px) {
+  .document-main {
+    flex-direction: column;
+  }
+
+  .document-status {
+    align-self: flex-start;
+  }
+
+  .document-actions > button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
   main {
     padding: 16px 12px;
   }

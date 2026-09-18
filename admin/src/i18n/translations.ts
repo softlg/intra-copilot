@@ -469,6 +469,12 @@ export const translations = {
     modelSwitchRisk4:
       "向量维度必须与所选模型实际输出维度一致，否则会报维度不匹配错误。",
     documentCount: (count: number) => `${count} 个文档`,
+    documents: "文档列表",
+    documentSearchPlaceholder: "搜索文档名称或错误信息",
+    documentPageCount: (count: number) => `${count} 页`,
+    documentBlockCount: (count: number) => `${count} 个片段`,
+    documentUpdatedAt: (value: string) => `更新于 ${value}`,
+    documentPageNumber: (page: number) => `第 ${page} 页`,
     noDocuments: "暂无文档，请上传资料开始维护。",
     chooseDocuments: "选择文档",
     viewDocument: "查看详情",
@@ -600,6 +606,8 @@ export const translations = {
       "知识库用于存放产品文档、FAQ 等资料，Agent 在回答前会先检索这里。点上方按钮创建第一个。",
     knowledgeSubtitle: "维护供 Agent 检索的产品文档、FAQ 等资料。",
     knowledgeBaseHeading: "知识库",
+    knowledgeSearchPlaceholder: "搜索知识库名称或描述",
+    knowledgeDocumentsTotal: "文档总数",
     noMcpServerHint:
       "MCP 服务提供 Agent 可以调用的外部能力（搜索、数据库、自定义 API 等）。新建后记得运行健康检查。",
     noSystemAgentHint:
@@ -1441,6 +1449,14 @@ export const translations = {
       "The vector dimension must match the model's actual output dimension, otherwise a dimension-mismatch error is raised.",
     documentCount: (count: number) =>
       `${count} document${count === 1 ? "" : "s"}`,
+    documents: "Documents",
+    documentSearchPlaceholder: "Search by filename or error",
+    documentPageCount: (count: number) =>
+      `${count} page${count === 1 ? "" : "s"}`,
+    documentBlockCount: (count: number) =>
+      `${count} chunk${count === 1 ? "" : "s"}`,
+    documentUpdatedAt: (value: string) => `Updated ${value}`,
+    documentPageNumber: (page: number) => `Page ${page}`,
     noDocuments:
       "No documents yet. Upload files to start maintaining this base.",
     chooseDocuments: "Choose documents",
@@ -1589,6 +1605,8 @@ export const translations = {
     knowledgeSubtitle:
       "Maintain product docs, FAQs and other material the agent can retrieve.",
     knowledgeBaseHeading: "Knowledge bases",
+    knowledgeSearchPlaceholder: "Search knowledge bases",
+    knowledgeDocumentsTotal: "Total documents",
     noMcpServerHint:
       "MCP servers expose capabilities (search, databases, custom APIs) the agent can call. Run a health check after adding one.",
     noSystemAgentHint:
