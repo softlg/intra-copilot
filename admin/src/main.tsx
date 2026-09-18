@@ -4742,22 +4742,35 @@ function AdminApp({
           }}
         >
           <div
-            className="modal"
+            className={`modal resource-editor-modal${
+              resourceDialog === "tool" ? " tool-editor-modal" : ""
+            }`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="resource-dialog-title"
           >
-            <div className="modal-header">
-              <div>
-                <h3 id="resource-dialog-title">
-                  {editingResourceId ? t.edit : t.createResource} ·{" "}
-                  {resourceDialog === "tool" ? t.tool : t.skill}
-                </h3>
-                <p className="modal-subtitle">
-                  {resourceDialog === "tool"
-                    ? t.toolsSubtitle
-                    : t.skillsSubtitle}
-                </p>
+            <div className="modal-header resource-editor-header">
+              <div className="resource-editor-heading">
+                <span
+                  className="resource-editor-heading-icon"
+                  aria-hidden="true"
+                >
+                  <Icon
+                    name={resourceDialog === "tool" ? "tool" : "sparkle"}
+                    size={18}
+                  />
+                </span>
+                <div>
+                  <h3 id="resource-dialog-title">
+                    {editingResourceId ? t.edit : t.createResource} ·{" "}
+                    {resourceDialog === "tool" ? t.tool : t.skill}
+                  </h3>
+                  <p className="modal-subtitle">
+                    {resourceDialog === "tool"
+                      ? t.toolsSubtitle
+                      : t.skillsSubtitle}
+                  </p>
+                </div>
               </div>
               <button
                 className="icon-button"
@@ -4768,160 +4781,224 @@ function AdminApp({
                 ×
               </button>
             </div>
-            <form onSubmit={saveResource}>
-              <label className="field">
-                <span>{t.toolName}</span>
-                <input
-                  autoFocus
-                  value={resourceName}
-                  onChange={(event) => setResourceName(event.target.value)}
-                  maxLength={resourceDialog === "tool" ? 64 : 100}
-                  required
-                />
-                {resourceDialog === "tool" && (
-                  <small className="field-hint">{t.toolNameHint}</small>
-                )}
-              </label>
-              <label className="field">
-                <span>
-                  {t.descriptionLabel}
-                  <span className="required-mark" aria-hidden="true">
-                    *
-                  </span>
-                </span>
-                <textarea
-                  value={resourceDescription}
-                  onChange={(event) =>
-                    setResourceDescription(event.target.value)
-                  }
-                  placeholder={
-                    resourceDialog === "tool"
-                      ? t.toolDescriptionPlaceholder
-                      : t.noDescription
-                  }
-                  rows={2}
-                  maxLength={500}
-                />
-              </label>
+            <form className="resource-editor-form" onSubmit={saveResource}>
               {resourceDialog === "tool" ? (
                 <>
-                  <div className="field-grid">
-                    <label className="field">
-                      <span>{t.toolTypeLabel}</span>
-                      <select
-                        value={resourceType}
-                        onChange={(event) =>
-                          setResourceType(event.target.value)
-                        }
-                      >
-                        <option value="HTTP">HTTP API</option>
-                      </select>
-                    </label>
-                    {resourceType === "HTTP" && (
+                  <section className="resource-form-section">
+                    <div className="resource-form-section-heading">
+                      <h4>{t.toolBasicSection}</h4>
+                      <p>{t.toolBasicHint}</p>
+                    </div>
+                    <div className="field-grid resource-form-grid">
                       <label className="field">
-                        <span>{t.method}</span>
-                        <select
-                          value={resourceMethod}
+                        <span>
+                          {t.toolName}
+                          <span className="required-mark" aria-hidden="true">
+                            *
+                          </span>
+                        </span>
+                        <input
+                          autoFocus
+                          value={resourceName}
                           onChange={(event) =>
-                            setResourceMethod(event.target.value)
+                            setResourceName(event.target.value)
+                          }
+                          maxLength={64}
+                          required
+                        />
+                        <small className="field-hint">{t.toolNameHint}</small>
+                      </label>
+                      <label className="field">
+                        <span>{t.toolTypeLabel}</span>
+                        <select
+                          value={resourceType}
+                          onChange={(event) =>
+                            setResourceType(event.target.value)
                           }
                         >
-                          {["GET", "POST", "PUT", "PATCH", "DELETE"].map(
-                            (method) => (
-                              <option key={method} value={method}>
-                                {method}
-                              </option>
-                            ),
-                          )}
+                          <option value="HTTP">HTTP API</option>
                         </select>
                       </label>
-                    )}
-                  </div>
-                  {resourceType === "HTTP" && (
-                    <>
+                    </div>
+                    <div className="field-grid resource-form-grid">
+                      {resourceType === "HTTP" && (
+                        <label className="field">
+                          <span>{t.method}</span>
+                          <select
+                            value={resourceMethod}
+                            onChange={(event) =>
+                              setResourceMethod(event.target.value)
+                            }
+                          >
+                            {["GET", "POST", "PUT", "PATCH", "DELETE"].map(
+                              (method) => (
+                                <option key={method} value={method}>
+                                  {method}
+                                </option>
+                              ),
+                            )}
+                          </select>
+                        </label>
+                      )}
                       <label className="field">
-                        <span>{t.endpoint}</span>
-                        <input
-                          value={resourceEndpoint}
+                        <span>
+                          {t.descriptionLabel}
+                          <span className="required-mark" aria-hidden="true">
+                            *
+                          </span>
+                        </span>
+                        <textarea
+                          value={resourceDescription}
                           onChange={(event) =>
-                            setResourceEndpoint(event.target.value)
+                            setResourceDescription(event.target.value)
                           }
-                          placeholder={t.endpointPlaceholder}
+                          placeholder={t.toolDescriptionPlaceholder}
+                          rows={3}
+                          maxLength={500}
                         />
-                        <small className="field-hint">{t.endpointHint}</small>
                       </label>
-                      <div className="field-grid">
-                        <label className="field">
-                          <span>{t.timeoutMs}</span>
-                          <input
-                            min={500}
-                            max={60000}
-                            step={100}
-                            type="number"
-                            value={resourceTimeoutMs}
-                            onChange={(event) =>
-                              setResourceTimeoutMs(Number(event.target.value))
-                            }
-                          />
-                          <small className="field-hint">{t.timeoutHint}</small>
-                        </label>
-                        <label className="field">
-                          <span>{t.authHeaderName}</span>
-                          <input
-                            maxLength={160}
-                            value={resourceAuthHeaderName}
-                            onChange={(event) =>
-                              setResourceAuthHeaderName(event.target.value)
-                            }
-                            placeholder="Authorization"
-                          />
-                        </label>
-                      </div>
-                      <div className="field-grid">
-                        <label className="field">
-                          <span>{t.authEnv}</span>
-                          <input
-                            maxLength={160}
-                            value={resourceAuthEnv}
-                            onChange={(event) =>
-                              setResourceAuthEnv(event.target.value)
-                            }
-                            placeholder="API_TOKEN"
-                          />
-                        </label>
-                        <label className="field">
-                          <span>{t.authScheme}</span>
-                          <input
-                            maxLength={64}
-                            value={resourceAuthScheme}
-                            onChange={(event) =>
-                              setResourceAuthScheme(event.target.value)
-                            }
-                            placeholder={t.authSchemePlaceholder}
-                          />
-                        </label>
-                      </div>
-                      <p className="field-hint">{t.authHint}</p>
-                    </>
-                  )}
-                  <label className="field">
-                    <span>{t.parameterSchema}</span>
-                    <textarea
-                      value={resourceParameterSchema}
-                      onChange={(event) =>
-                        setResourceParameterSchema(event.target.value)
-                      }
-                      placeholder={t.parameterSchemaPlaceholder}
-                      rows={6}
-                      spellCheck={false}
-                    />
-                    <small className="field-hint">
-                      {t.parameterSchemaHint}
-                    </small>
-                  </label>
+                    </div>
+                  </section>
+
+                  <section className="resource-form-section">
+                    <div className="resource-form-section-heading">
+                      <h4>{t.toolRequestSection}</h4>
+                      <p>{t.toolRequestHint}</p>
+                    </div>
+                    <label className="field">
+                      <span>
+                        {t.endpoint}
+                        <span className="required-mark" aria-hidden="true">
+                          *
+                        </span>
+                      </span>
+                      <input
+                        value={resourceEndpoint}
+                        onChange={(event) =>
+                          setResourceEndpoint(event.target.value)
+                        }
+                        placeholder={t.endpointPlaceholder}
+                      />
+                      <small className="field-hint">{t.endpointHint}</small>
+                    </label>
+                    <div className="field-grid resource-form-grid">
+                      <label className="field">
+                        <span>{t.timeoutMs}</span>
+                        <input
+                          min={500}
+                          max={60000}
+                          step={100}
+                          type="number"
+                          value={resourceTimeoutMs}
+                          onChange={(event) =>
+                            setResourceTimeoutMs(Number(event.target.value))
+                          }
+                        />
+                        <small className="field-hint">{t.timeoutHint}</small>
+                      </label>
+                      <label className="field">
+                        <span>{t.authHeaderName}</span>
+                        <input
+                          maxLength={160}
+                          value={resourceAuthHeaderName}
+                          onChange={(event) =>
+                            setResourceAuthHeaderName(event.target.value)
+                          }
+                          placeholder="Authorization"
+                        />
+                      </label>
+                    </div>
+                    <div className="field-grid resource-form-grid">
+                      <label className="field">
+                        <span>{t.authEnv}</span>
+                        <input
+                          maxLength={160}
+                          value={resourceAuthEnv}
+                          onChange={(event) =>
+                            setResourceAuthEnv(event.target.value)
+                          }
+                          placeholder="API_TOKEN"
+                        />
+                      </label>
+                      <label className="field">
+                        <span>{t.authScheme}</span>
+                        <input
+                          maxLength={64}
+                          value={resourceAuthScheme}
+                          onChange={(event) =>
+                            setResourceAuthScheme(event.target.value)
+                          }
+                          placeholder={t.authSchemePlaceholder}
+                        />
+                      </label>
+                    </div>
+                    <p className="resource-form-note">
+                      <Icon name="info" size={15} />
+                      <span>{t.authHint}</span>
+                    </p>
+                  </section>
+
+                  <section className="resource-form-section">
+                    <div className="resource-form-section-heading">
+                      <h4>{t.toolSchemaSection}</h4>
+                      <p>{t.toolSchemaSectionHint}</p>
+                    </div>
+                    <label className="field">
+                      <span>{t.parameterSchema}</span>
+                      <textarea
+                        className="resource-schema-editor"
+                        value={resourceParameterSchema}
+                        onChange={(event) =>
+                          setResourceParameterSchema(event.target.value)
+                        }
+                        placeholder={t.parameterSchemaPlaceholder}
+                        rows={8}
+                        spellCheck={false}
+                      />
+                      <small className="field-hint">
+                        {t.parameterSchemaHint}
+                      </small>
+                    </label>
+                  </section>
                 </>
               ) : (
-                <>
+                <section className="resource-form-section">
+                  <div className="resource-form-section-heading">
+                    <h4>{t.skillBasicSection}</h4>
+                    <p>{t.skillEditorHint}</p>
+                  </div>
+                  <label className="field">
+                    <span>
+                      {t.toolName}
+                      <span className="required-mark" aria-hidden="true">
+                        *
+                      </span>
+                    </span>
+                    <input
+                      autoFocus
+                      value={resourceName}
+                      onChange={(event) => setResourceName(event.target.value)}
+                      maxLength={100}
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span>
+                      {t.descriptionLabel}
+                      <span className="required-mark" aria-hidden="true">
+                        *
+                      </span>
+                    </span>
+                    <textarea
+                      value={resourceDescription}
+                      onChange={(event) =>
+                        setResourceDescription(event.target.value)
+                      }
+                      placeholder={t.noDescription}
+                      rows={3}
+                      maxLength={500}
+                    />
+                  </label>
                   <label className="field">
                     <span>{t.skillPrompt}</span>
                     <textarea
@@ -4944,17 +5021,47 @@ function AdminApp({
                       placeholder="1.0.0"
                     />
                   </label>
-                </>
+                </section>
               )}
-              <label className="checkbox-field">
-                <input
-                  type="checkbox"
-                  checked={resourceEnabled}
-                  onChange={(event) => setResourceEnabled(event.target.checked)}
-                />
-                <span>{t.enabled}</span>
-              </label>
-              {resourceError && <p className="error">{resourceError}</p>}
+              {resourceDialog === "tool" ? (
+                <div className="resource-enable-card">
+                  <div className="resource-enable-copy">
+                    <strong>{t.enabled}</strong>
+                    <span>{t.toolEnabledHint}</span>
+                  </div>
+                  <label
+                    className="switch resource-enable-switch"
+                    title={t.enabled}
+                  >
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={resourceEnabled}
+                      aria-label={t.enabled}
+                      onChange={(event) =>
+                        setResourceEnabled(event.target.checked)
+                      }
+                    />
+                    <span className="switch-track" aria-hidden="true" />
+                  </label>
+                </div>
+              ) : (
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={resourceEnabled}
+                    onChange={(event) =>
+                      setResourceEnabled(event.target.checked)
+                    }
+                  />
+                  <span>{t.enabled}</span>
+                </label>
+              )}
+              {resourceError && (
+                <p className="error" role="alert">
+                  {resourceError}
+                </p>
+              )}
               <div className="modal-actions">
                 <button
                   type="button"

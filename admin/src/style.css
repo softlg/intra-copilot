@@ -5078,6 +5078,143 @@ pre {
   line-height: 1.5;
 }
 
+.resource-editor-modal {
+  width: min(100%, 760px);
+}
+
+.resource-editor-header {
+  align-items: center;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.resource-editor-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.resource-editor-heading > div {
+  min-width: 0;
+}
+
+.resource-editor-heading-icon {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--brand-border);
+  border-radius: 10px;
+  background: var(--brand-surface);
+  color: var(--brand-surface-text);
+}
+
+.resource-editor-form {
+  display: grid;
+}
+
+.resource-form-section {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.resource-form-section:last-of-type {
+  margin-bottom: 18px;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.resource-form-section-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.resource-form-section-heading h4 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 14px;
+}
+
+.resource-form-section-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.resource-form-section .field {
+  margin-bottom: 0;
+}
+
+.resource-form-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.resource-form-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--accent-text);
+}
+
+.resource-schema-editor {
+  min-height: 180px !important;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  line-height: 1.55;
+}
+
+.resource-enable-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-muted);
+}
+
+.resource-enable-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.resource-enable-copy strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.resource-enable-copy span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.resource-enable-switch {
+  margin-left: auto;
+}
+
+.resource-editor-modal .modal-actions {
+  border-top: 1px solid var(--border-faint);
+  background: var(--surface-raised);
+}
+
 .icon-button {
   width: 32px;
   height: 32px;
