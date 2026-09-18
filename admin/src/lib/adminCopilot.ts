@@ -1,7 +1,7 @@
 import { apiFetch, request } from "./api";
 import { buildApiError } from "./apiError";
 
-export type CopilotMode = "ASSIST" | "BUILD";
+export type CopilotMode = "ASSIST" | "BUILD" | "VALIDATE";
 
 export type CopilotSessionSummary = {
   id: string;
@@ -11,6 +11,11 @@ export type CopilotSessionSummary = {
   pinned: boolean;
   currentAgentId?: string;
   stateJson?: string;
+  stateSummary?: {
+    caseCount?: number;
+    testsRun?: number;
+    testsPassed?: number;
+  };
   lastMessagePreview?: string;
   createdAt: string;
   updatedAt: string;
@@ -39,6 +44,7 @@ export type CopilotProposal = {
 };
 
 export type CopilotSession = CopilotSessionSummary & {
+  state?: Record<string, unknown>;
   messages: CopilotMessage[];
   proposals: CopilotProposal[];
 };
@@ -155,7 +161,12 @@ export function createCopilotSession(
     method: "POST",
     body: JSON.stringify({
       mode,
-      title: mode === "BUILD" ? "新建 Agent" : "配置助手",
+      title:
+        mode === "BUILD"
+          ? "新建 Agent"
+          : mode === "VALIDATE"
+            ? "验证会话"
+            : "配置助手",
       currentAgentId: currentAgentId || null,
     }),
   });
@@ -176,6 +187,16 @@ export function updateCopilotSession(
   return request<CopilotSession>(`/admin/copilot/sessions/${id}`, {
     method: "PATCH",
     body: JSON.stringify(changes),
+  });
+}
+
+export function saveCopilotSessionState(
+  id: string,
+  state: Record<string, unknown>,
+) {
+  return request<CopilotSession>(`/admin/copilot/sessions/${id}/state`, {
+    method: "PATCH",
+    body: JSON.stringify({ state }),
   });
 }
 

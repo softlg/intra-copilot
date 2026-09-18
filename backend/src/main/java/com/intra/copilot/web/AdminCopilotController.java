@@ -68,6 +68,12 @@ public class AdminCopilotController {
                 request == null ? null : request.pinned());
     }
 
+    @PatchMapping("/sessions/{id}/state")
+    public Map<String, Object> updateState(
+            @PathVariable String id, @RequestBody UpdateSessionStateRequest request) {
+        return copilot.updateSessionState(id, request == null ? null : request.state());
+    }
+
     @PostMapping("/sessions/delete")
     public Map<String, Object> delete(@RequestBody DeleteSessionsRequest request) {
         return copilot.deleteSessions(request == null ? List.of() : request.ids());
@@ -87,4 +93,6 @@ public class AdminCopilotController {
     }
 
     public record DeleteSessionsRequest(List<String> ids) {}
+
+    public record UpdateSessionStateRequest(Map<String, Object> state) {}
 }

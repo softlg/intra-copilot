@@ -199,7 +199,7 @@ body.copilot-panel-resizing * {
 .copilot-session-bar {
   position: relative;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   padding: 12px 14px 8px;
 }
@@ -258,6 +258,41 @@ body.copilot-panel-resizing * {
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+
+.copilot-session-rename {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+
+.copilot-session-name-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.copilot-session-name-form input {
+  min-width: 0;
+  height: 40px;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+.copilot-session-name-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 40px;
   height: 40px;
   padding: 0;
@@ -787,6 +822,13 @@ body.copilot-panel-resizing * {
   padding-bottom: 20px;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.copilot-validation-shell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .copilot-validation-agent {
@@ -2328,6 +2370,9 @@ body.copilot-panel-resizing * {
 @media (max-width: 767px) {
   .copilot-modes button,
   .copilot-history-trigger,
+  .copilot-session-name-form input,
+  .copilot-session-name-form button,
+  .copilot-session-rename,
   .copilot-new-session,
   .copilot-validation-tabs button,
   .copilot-validation-actions button,

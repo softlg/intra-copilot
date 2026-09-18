@@ -24,6 +24,7 @@ import {
   getCopilotSession,
   listAgentValidationHistory,
   listCopilotSessions,
+  saveCopilotSessionState,
   streamCopilotResponse,
   streamValidateAgentBehavior,
   updateCopilotSession,
@@ -70,6 +71,15 @@ type ValidationRunTracker = {
   startedAt: number;
   elapsedMs: number;
   items: ValidationRunItem[];
+};
+
+type ValidationSessionState = {
+  agentId?: string;
+  section?: ValidationSection;
+  report?: AgentValidationReport;
+  cases?: AgentValidationCase[];
+  selectedCaseIds?: string[];
+  remediation?: AgentValidationRemediation;
 };
 
 type AppliedPatchRecord = {
@@ -119,8 +129,50 @@ function sessionSortValue(session: CopilotSessionSummary) {
   return (session.pinned ? 1 : 0) * 10 ** 15 + Date.parse(session.updatedAt);
 }
 
+function validationSessionPreview(
+  session: CopilotSessionSummary,
+  text: (typeof copy)[Language],
+) {
+  const summary = session.stateSummary;
+  if (summary?.testsRun) {
+    return text.validationSummary
+      .replace("{run}", String(summary.testsRun))
+      .replace("{passed}", String(summary.testsPassed ?? 0));
+  }
+  if (summary?.caseCount) {
+    return text.validationCasesReady.replace(
+      "{count}",
+      String(summary.caseCount),
+    );
+  }
+  return text.noValidationActivity;
+}
+
+function validationSummaryFromState(
+  state?: Record<string, unknown>,
+): CopilotSessionSummary["stateSummary"] {
+  const validation = state as ValidationSessionState | undefined;
+  const cases = Array.isArray(validation?.cases) ? validation.cases : [];
+  const summary = validation?.report?.summary;
+  return {
+    caseCount: cases.length,
+    testsRun: summary?.testsRun ?? 0,
+    testsPassed: summary?.testsPassed ?? 0,
+  };
+}
+
 function isPanelView(value: string | null): value is PanelView {
   return value === "assist" || value === "build" || value === "validate";
+}
+
+function panelMode(view: PanelView): CopilotMode {
+  if (view === "build") return "BUILD";
+  if (view === "validate") return "VALIDATE";
+  return "ASSIST";
+}
+
+function sameAgentId(left?: string | null, right?: string | null): boolean {
+  return (left ?? "") === (right ?? "");
 }
 
 function panelWidthLimit(workspaceWidth?: number) {
@@ -166,7 +218,12 @@ const copy = {
     history: "会话历史",
     newSession: "新会话",
     noSessions: "暂无会话，发送消息时会自动创建。",
+    noValidationActivity: "尚未执行验证",
+    noValidationSessions: "暂无验证会话，执行验证时会自动创建。",
+    validationSummary: "已验证 {run} 个场景，通过 {passed} 个",
+    validationCasesReady: "已生成 {count} 个场景，待执行",
     renameSession: "重命名",
+    renameCurrentSession: "重命名当前会话",
     renameSave: "保存名称",
     renameCancel: "取消重命名",
     deleteSession: "删除会话",
@@ -337,7 +394,13 @@ const copy = {
     history: "Session history",
     newSession: "New session",
     noSessions: "No session yet. One is created when you send a message.",
+    noValidationActivity: "No validation activity yet",
+    noValidationSessions:
+      "No validation sessions yet. One is created when validation starts.",
+    validationSummary: "{passed} of {run} scenarios passed",
+    validationCasesReady: "{count} scenarios ready to run",
     renameSession: "Rename",
+    renameCurrentSession: "Rename current session",
     renameSave: "Save name",
     renameCancel: "Cancel rename",
     deleteSession: "Delete session",
@@ -1290,6 +1353,8 @@ export function AdminCopilotPanel({
   const [validationHistory, setValidationHistory] = useState<
     AgentValidationHistoryItem[]
   >([]);
+  const [validationSection, setValidationSection] =
+    useState<ValidationSection>("issues");
   const [remediation, setRemediation] = useState<AgentValidationRemediation>();
   const [remediationBusy, setRemediationBusy] = useState(false);
   const [appliedPatchSummary, setAppliedPatchSummary] = useState<{
@@ -1314,20 +1379,28 @@ export function AdminCopilotPanel({
   const panelRef = useRef<HTMLElement>(null);
   const appliedPatchAgentRef = useRef<string | undefined>(undefined);
   const patchHydratingRef = useRef(false);
+  const validationStateHydratingRef = useRef(false);
   const resizeStateRef = useRef({ active: false, pointerId: -1 });
   const [isModal, setIsModal] = useState(
     () => typeof window !== "undefined" && window.innerWidth < 1200,
   );
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
-  const mode: CopilotMode = view === "build" ? "BUILD" : "ASSIST";
+  const mode = panelMode(view);
   const appliedPatchKeys = useMemo(
     () => new Set(Object.keys(appliedPatchRecords)),
     [appliedPatchRecords],
   );
   const visibleSessions = useMemo(
-    () => sessions.filter((session) => session.mode === mode),
-    [mode, sessions],
+    () =>
+      sessions.filter(
+        (session) =>
+          session.mode === mode &&
+          (mode !== "VALIDATE" ||
+            !currentAgentId ||
+            session.currentAgentId === currentAgentId),
+      ),
+    [currentAgentId, mode, sessions],
   );
   const latestAssistantPayload = useMemo(() => {
     const item = [...(activeSession?.messages ?? [])]
@@ -1342,16 +1415,35 @@ export function AdminCopilotPanel({
       ),
     [activeSession],
   );
+  const validationSessionState = useMemo<ValidationSessionState>(
+    () => ({
+      agentId: currentAgentId,
+      section: validationSection,
+      report: validationReport,
+      cases: validationCases,
+      selectedCaseIds: [...selectedCases],
+      remediation,
+    }),
+    [
+      currentAgentId,
+      remediation,
+      selectedCases,
+      validationCases,
+      validationReport,
+      validationSection,
+    ],
+  );
 
   useEffect(() => {
     void (async () => {
       const values = await loadSessions();
-      if (view === "validate") return;
-      const nextMode: CopilotMode = view === "build" ? "BUILD" : "ASSIST";
+      const nextMode = panelMode(view);
+      if (nextMode === "VALIDATE") return;
       const storedId = localStorage.getItem(activeSessionStorageKey(nextMode));
       const candidate =
-        values.find((session) => session.id === storedId) ??
-        values.find((session) => session.mode === nextMode);
+        values.find(
+          (session) => session.id === storedId && session.mode === nextMode,
+        ) ?? values.find((session) => session.mode === nextMode);
       if (candidate) await loadSession(candidate.id);
       else {
         setMessage(
@@ -1360,6 +1452,49 @@ export function AdminCopilotPanel({
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (
+      view !== "validate" ||
+      activeSession?.mode !== "VALIDATE" ||
+      !activeSession.currentAgentId ||
+      !sameAgentId(activeSession.currentAgentId, currentAgentId) ||
+      validationStateHydratingRef.current
+    ) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      void saveCopilotSessionState(
+        activeSession.id,
+        validationSessionState as Record<string, unknown>,
+      )
+        .then((saved) => {
+          setSessions((current) =>
+            current.map((session) =>
+              session.id === saved.id
+                ? {
+                    ...session,
+                    stateSummary: validationSummaryFromState(saved.state),
+                    updatedAt: saved.updatedAt,
+                  }
+                : session,
+            ),
+          );
+        })
+        .catch((error) => {
+          setPanelError(errorMessage(error, text.error));
+        });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [
+    activeSession?.currentAgentId,
+    activeSession?.id,
+    activeSession?.mode,
+    currentAgentId,
+    text.error,
+    validationSessionState,
+    view,
+  ]);
 
   useEffect(() => {
     localStorage.setItem(PANEL_VIEW_STORAGE_KEY, view);
@@ -1475,6 +1610,31 @@ export function AdminCopilotPanel({
     }
   }, [appliedPatchRecords, currentAgentId]);
 
+  useEffect(() => {
+    if (view !== "validate") return;
+    if (
+      activeSession?.mode === "VALIDATE" &&
+      sameAgentId(activeSession.currentAgentId, currentAgentId)
+    ) {
+      return;
+    }
+    const candidate = sessions
+      .filter(
+        (session) =>
+          session.mode === "VALIDATE" &&
+          sameAgentId(session.currentAgentId, currentAgentId),
+      )
+      .sort(
+        (left, right) => sessionSortValue(right) - sessionSortValue(left),
+      )[0];
+    if (candidate) {
+      void loadSession(candidate.id);
+    } else if (activeSession?.mode === "VALIDATE") {
+      setActiveSession(undefined);
+      resetValidationWorkspace();
+    }
+  }, [activeSession?.id, activeSession?.mode, currentAgentId, sessions, view]);
+
   useEffect(
     () => () => {
       chatAbortRef.current?.abort();
@@ -1505,6 +1665,15 @@ export function AdminCopilotPanel({
     }
   };
 
+  const resetValidationWorkspace = () => {
+    setValidationReport(undefined);
+    setValidationCases([]);
+    setSelectedCases(new Set());
+    setValidationSection("issues");
+    setRemediation(undefined);
+    setValidationRunTracker(undefined);
+  };
+
   const loadSession = async (id: string) => {
     try {
       const session = await getCopilotSession(id);
@@ -1519,6 +1688,28 @@ export function AdminCopilotPanel({
       setChatRun(undefined);
       setHasNewMessages(false);
       setPanelError("");
+      if (session.mode === "VALIDATE") {
+        const state = session.state as ValidationSessionState | undefined;
+        validationStateHydratingRef.current = true;
+        setValidationSection(
+          state?.section === "cases" ||
+            state?.section === "remediation" ||
+            state?.section === "history"
+            ? state.section
+            : "issues",
+        );
+        setValidationReport(state?.report);
+        setValidationCases(Array.isArray(state?.cases) ? state.cases : []);
+        setSelectedCases(new Set(state?.selectedCaseIds ?? []));
+        setRemediation(state?.remediation);
+        setValidationRunTracker(undefined);
+        if (session.currentAgentId) {
+          void loadValidationHistory(session.currentAgentId);
+        }
+        window.setTimeout(() => {
+          validationStateHydratingRef.current = false;
+        }, 0);
+      }
       return session;
     } catch (error) {
       setPanelError(errorMessage(error, text.sessionFailed));
@@ -1529,6 +1720,7 @@ export function AdminCopilotPanel({
   const startSession = async () => {
     try {
       const session = await createCopilotSession(mode, currentAgentId);
+      if (session.mode === "VALIDATE") resetValidationWorkspace();
       setActiveSession(session);
       localStorage.setItem(activeSessionStorageKey(mode), session.id);
       setMessage("");
@@ -1615,7 +1807,11 @@ export function AdminCopilotPanel({
       if (activeSession && uniqueIds.includes(activeSession.id)) {
         localStorage.removeItem(activeSessionStorageKey(activeSession.mode));
         const replacement = remaining.find(
-          (session) => session.mode === activeSession.mode,
+          (session) =>
+            session.mode === activeSession.mode &&
+            (activeSession.mode !== "VALIDATE" ||
+              !currentAgentId ||
+              sameAgentId(session.currentAgentId, currentAgentId)),
         );
         if (replacement) await loadSession(replacement.id);
         else setActiveSession(undefined);
@@ -1635,19 +1831,33 @@ export function AdminCopilotPanel({
   const switchView = (next: PanelView) => {
     setView(next);
     localStorage.setItem(PANEL_VIEW_STORAGE_KEY, next);
-    if (next === "validate") {
-      setActiveSession(undefined);
-      return;
-    }
-    const nextMode: CopilotMode = next === "build" ? "BUILD" : "ASSIST";
+    const nextMode = panelMode(next);
     const storedId = localStorage.getItem(activeSessionStorageKey(nextMode));
     const candidate =
-      sessions.find((session) => session.id === storedId) ??
-      sessions.find((session) => session.mode === nextMode);
+      sessions.find(
+        (session) =>
+          session.id === storedId &&
+          session.mode === nextMode &&
+          (nextMode !== "VALIDATE" ||
+            !currentAgentId ||
+            sameAgentId(session.currentAgentId, currentAgentId)),
+      ) ??
+      sessions.find(
+        (session) =>
+          session.mode === nextMode &&
+          (nextMode !== "VALIDATE" ||
+            !currentAgentId ||
+            sameAgentId(session.currentAgentId, currentAgentId)),
+      );
     if (candidate) void loadSession(candidate.id);
     else {
       setActiveSession(undefined);
-      setMessage(localStorage.getItem(composerDraftStorageKey(nextMode)) ?? "");
+      if (nextMode === "VALIDATE") resetValidationWorkspace();
+      else {
+        setMessage(
+          localStorage.getItem(composerDraftStorageKey(nextMode)) ?? "",
+        );
+      }
     }
   };
 
@@ -1833,11 +2043,23 @@ export function AdminCopilotPanel({
     }
   };
 
+  const ensureValidationSession = async () => {
+    if (!currentAgentId) return undefined;
+    if (
+      activeSession?.mode === "VALIDATE" &&
+      sameAgentId(activeSession.currentAgentId, currentAgentId)
+    ) {
+      return activeSession;
+    }
+    return startSession();
+  };
+
   const runStaticValidation = async () => {
     if (!currentAgentId || validationBusy) return;
     setValidationBusy("static");
     setPanelError("");
     try {
+      if (!(await ensureValidationSession())) return;
       setValidationReport(await validateAgentStatic(currentAgentId));
       setValidationCases([]);
       setSelectedCases(new Set());
@@ -1855,6 +2077,7 @@ export function AdminCopilotPanel({
     setValidationBusy("cases");
     setPanelError("");
     try {
+      if (!(await ensureValidationSession())) return;
       const result = await generateAgentValidationCases(currentAgentId);
       setValidationCases(result.cases);
       setSelectedCases(
@@ -1905,6 +2128,10 @@ export function AdminCopilotPanel({
     setValidationBusy("behavior");
     setRemediation(undefined);
     setPanelError("");
+    if (!(await ensureValidationSession())) {
+      setValidationBusy(undefined);
+      return;
+    }
     setValidationRunTracker({
       active: true,
       stopping: false,
@@ -2148,6 +2375,7 @@ export function AdminCopilotPanel({
     setRemediationBusy(true);
     setPanelError("");
     try {
+      if (!(await ensureValidationSession())) return;
       setRemediation(
         await generateAgentValidationRemediation(
           currentAgentId,
@@ -2341,48 +2569,69 @@ export function AdminCopilotPanel({
         )}
 
         {view === "validate" ? (
-          <ValidationView
-            text={text}
-            language={language}
-            agentId={currentAgentId}
-            agentName={currentAgentName}
-            agentVersion={currentAgentVersion}
-            dirty={agentConfigDirty}
-            report={validationReport}
-            cases={validationCases}
-            selectedCases={selectedCases}
-            busy={validationBusy}
-            history={validationHistory}
-            runTracker={validationRunTracker}
-            onStatic={() => void runStaticValidation()}
-            onGenerate={() => void generateCases()}
-            onRun={() => void runBehaviorValidation()}
-            onCancelRun={() => void cancelBehaviorRun()}
-            onDismissRun={dismissRunTracker}
-            onToggleCase={toggleCase}
-            onUpdateCase={updateValidationCase}
-            onSelectAll={selectAllCases}
-            onClearSelection={clearSelectedCases}
-            onRerunFailed={rerunFailedCases}
-            onApplyPatch={applySuggestedPatch}
-            onUndoPatch={undoSuggestedPatch}
-            appliedPatchSummary={appliedPatchSummary}
-            appliedPatchKeys={appliedPatchKeys}
-            appliedPatchRecords={appliedPatchRecords}
-            currentAgentSnapshot={currentAgentSnapshot}
-            remediation={remediation}
-            remediationBusy={remediationBusy}
-            onGenerateRemediation={() => void generateRemediation()}
-            resourceLabels={resourceLabels}
-            onDismissAppliedPatch={dismissAppliedPatch}
-            onSaveDraft={onSaveDraft}
-            onSaveAndValidate={(step) => void runValidationStep(step)}
-            onValidateSaved={(step) => {
-              if (step === "static") void runStaticValidation();
-              else if (step === "cases") void generateCases();
-              else void runBehaviorValidation();
-            }}
-          />
+          <div className="copilot-validation-shell">
+            <SessionHistoryPicker
+              text={text}
+              sessions={visibleSessions}
+              activeSessionId={activeSession?.id}
+              busy={sessionActionBusy || Boolean(validationBusy)}
+              modeLabel={text.validate}
+              emptyPreview={text.noValidationActivity}
+              emptyMessage={text.noValidationSessions}
+              sessionPreview={(session) =>
+                validationSessionPreview(session, text)
+              }
+              onSelect={(id) => void loadSession(id)}
+              onNew={() => void startSession()}
+              onRename={renameSession}
+              onPin={(session) => void toggleSessionPinned(session)}
+              onDelete={deleteSessions}
+            />
+            <ValidationView
+              text={text}
+              language={language}
+              agentId={currentAgentId}
+              agentName={currentAgentName}
+              agentVersion={currentAgentVersion}
+              dirty={agentConfigDirty}
+              report={validationReport}
+              cases={validationCases}
+              selectedCases={selectedCases}
+              busy={validationBusy}
+              history={validationHistory}
+              section={validationSection}
+              runTracker={validationRunTracker}
+              onStatic={() => void runStaticValidation()}
+              onGenerate={() => void generateCases()}
+              onRun={() => void runBehaviorValidation()}
+              onCancelRun={() => void cancelBehaviorRun()}
+              onDismissRun={dismissRunTracker}
+              onSectionChange={setValidationSection}
+              onToggleCase={toggleCase}
+              onUpdateCase={updateValidationCase}
+              onSelectAll={selectAllCases}
+              onClearSelection={clearSelectedCases}
+              onRerunFailed={rerunFailedCases}
+              onApplyPatch={applySuggestedPatch}
+              onUndoPatch={undoSuggestedPatch}
+              appliedPatchSummary={appliedPatchSummary}
+              appliedPatchKeys={appliedPatchKeys}
+              appliedPatchRecords={appliedPatchRecords}
+              currentAgentSnapshot={currentAgentSnapshot}
+              remediation={remediation}
+              remediationBusy={remediationBusy}
+              onGenerateRemediation={() => void generateRemediation()}
+              resourceLabels={resourceLabels}
+              onDismissAppliedPatch={dismissAppliedPatch}
+              onSaveDraft={onSaveDraft}
+              onSaveAndValidate={(step) => void runValidationStep(step)}
+              onValidateSaved={(step) => {
+                if (step === "static") void runStaticValidation();
+                else if (step === "cases") void generateCases();
+                else void runBehaviorValidation();
+              }}
+            />
+          </div>
         ) : (
           <div className="copilot-chat">
             <div
@@ -2724,6 +2973,9 @@ function SessionHistoryPicker({
   activeSessionId,
   busy,
   modeLabel,
+  emptyPreview,
+  emptyMessage,
+  sessionPreview,
   onSelect,
   onNew,
   onRename,
@@ -2735,6 +2987,9 @@ function SessionHistoryPicker({
   activeSessionId?: string;
   busy: boolean;
   modeLabel: string;
+  emptyPreview?: string;
+  emptyMessage?: string;
+  sessionPreview?: (session: CopilotSessionSummary) => string;
   onSelect: (id: string) => void;
   onNew: () => void;
   onRename: (id: string, title: string) => Promise<boolean>;
@@ -2748,6 +3003,7 @@ function SessionHistoryPicker({
   const [renameValue, setRenameValue] = useState("");
   const [query, setQuery] = useState("");
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
+  const [namingActive, setNamingActive] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   const orderedSessions = useMemo(
@@ -2813,6 +3069,10 @@ function SessionHistoryPicker({
     }
   }, [renamingId, sessions]);
 
+  useEffect(() => {
+    setNamingActive(false);
+  }, [activeSessionId]);
+
   const toggleSelected = (id: string) => {
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -2846,6 +3106,23 @@ function SessionHistoryPicker({
     }
   };
 
+  const beginActiveRename = () => {
+    if (!activeSession || busy) return;
+    setNamingActive(true);
+    setRenameValue(activeSession.title);
+    setOpen(false);
+  };
+
+  const submitActiveRename = async () => {
+    const title = renameValue.trim();
+    if (!activeSession || !title || busy) return;
+    const saved = await onRename(activeSession.id, title);
+    if (saved) {
+      setNamingActive(false);
+      setRenameValue("");
+    }
+  };
+
   const confirmDelete = async () => {
     if (pendingDeleteIds.length === 0 || busy) return;
     const deleted = await onDelete(pendingDeleteIds);
@@ -2861,260 +3138,328 @@ function SessionHistoryPicker({
 
   return (
     <div className="copilot-session-bar">
-      <div className="copilot-history-picker" ref={pickerRef}>
-        <button
-          type="button"
-          className="copilot-history-trigger"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          onClick={() => setOpen((current) => !current)}
+      {namingActive && activeSession ? (
+        <form
+          className="copilot-session-name-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitActiveRename();
+          }}
         >
-          <span className="copilot-history-trigger-label">
-            <Icon name="clock" size={15} />
-            <span>{activeSession?.title || text.history}</span>
-            <em className="copilot-history-mode">{modeLabel}</em>
-          </span>
-          <Icon
-            name="chevron-down"
-            size={15}
-            className={open ? "is-open" : undefined}
+          <input
+            autoFocus
+            value={renameValue}
+            maxLength={200}
+            aria-label={text.renameCurrentSession}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setNamingActive(false);
+                setRenameValue("");
+              }
+            }}
           />
-        </button>
-
-        {open && (
-          <div
-            className="copilot-history-popover"
-            role="dialog"
-            aria-label={text.history}
+          <button
+            type="submit"
+            aria-label={text.renameSave}
+            title={text.renameSave}
+            disabled={busy || !renameValue.trim()}
           >
-            {pendingDeleteIds.length > 0 ? (
-              <div className="copilot-history-confirm">
-                <p>
-                  {pendingDeleteIds.length === 1
-                    ? text.confirmDeleteOne
-                    : text.confirmDeleteMany.replace(
-                        "{count}",
-                        String(pendingDeleteIds.length),
-                      )}
-                </p>
-                <div>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => setPendingDeleteIds([])}
-                    disabled={busy}
-                  >
-                    {text.cancel}
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => void confirmDelete()}
-                    disabled={busy}
-                  >
-                    <Icon name="trash" size={14} />
-                    {text.delete}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="copilot-history-toolbar">
-                  <strong>
-                    {text.history}
-                    <em className="copilot-history-mode">{modeLabel}</em>
-                  </strong>
-                  <div className="copilot-history-toolbar-actions">
+            <Icon name="check" size={15} />
+          </button>
+          <button
+            type="button"
+            aria-label={text.renameCancel}
+            title={text.renameCancel}
+            onClick={() => {
+              setNamingActive(false);
+              setRenameValue("");
+            }}
+            disabled={busy}
+          >
+            <Icon name="close" size={15} />
+          </button>
+        </form>
+      ) : (
+        <div className="copilot-history-picker" ref={pickerRef}>
+          <button
+            type="button"
+            className="copilot-history-trigger"
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            onClick={() => setOpen((current) => !current)}
+          >
+            <span className="copilot-history-trigger-label">
+              <Icon name="clock" size={15} />
+              <span>{activeSession?.title || text.history}</span>
+              <em className="copilot-history-mode">{modeLabel}</em>
+            </span>
+            <Icon
+              name="chevron-down"
+              size={15}
+              className={open ? "is-open" : undefined}
+            />
+          </button>
+
+          {open && (
+            <div
+              className="copilot-history-popover"
+              role="dialog"
+              aria-label={text.history}
+            >
+              {pendingDeleteIds.length > 0 ? (
+                <div className="copilot-history-confirm">
+                  <p>
+                    {pendingDeleteIds.length === 1
+                      ? text.confirmDeleteOne
+                      : text.confirmDeleteMany.replace(
+                          "{count}",
+                          String(pendingDeleteIds.length),
+                        )}
+                  </p>
+                  <div>
                     <button
                       type="button"
-                      className="copilot-history-select-all secondary"
-                      onClick={toggleAllSessions}
-                      aria-pressed={allSessionsSelected}
-                      disabled={busy || orderedSessions.length === 0}
+                      className="secondary"
+                      onClick={() => setPendingDeleteIds([])}
+                      disabled={busy}
                     >
-                      {allSessionsSelected
-                        ? text.clearSelection
-                        : text.selectAll}
+                      {text.cancel}
                     </button>
                     <button
                       type="button"
-                      className="copilot-history-delete-selected danger"
-                      onClick={() => setPendingDeleteIds([...selectedIds])}
-                      disabled={busy || selectedIds.size === 0}
+                      className="danger"
+                      onClick={() => void confirmDelete()}
+                      disabled={busy}
                     >
-                      <Icon name="trash" size={13} />
-                      {text.deleteSelected.replace(
-                        "{count}",
-                        String(selectedIds.size),
-                      )}
+                      <Icon name="trash" size={14} />
+                      {text.delete}
                     </button>
                   </div>
                 </div>
-
-                <label className="copilot-history-search">
-                  <Icon name="search" size={14} />
-                  <input
-                    type="search"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder={text.searchSessions}
-                    aria-label={text.searchSessions}
-                  />
-                </label>
-
-                {visibleSessions.length === 0 ? (
-                  <p className="copilot-history-empty">
-                    {query.trim() ? text.noMatchingSessions : text.noSessions}
-                  </p>
-                ) : (
-                  <div className="copilot-history-list">
-                    {visibleSessions.map((session) => (
-                      <div
-                        className={
-                          session.id === activeSessionId
-                            ? "copilot-history-item is-active"
-                            : "copilot-history-item"
-                        }
-                        key={session.id}
+              ) : (
+                <>
+                  <div className="copilot-history-toolbar">
+                    <strong>
+                      {text.history}
+                      <em className="copilot-history-mode">{modeLabel}</em>
+                    </strong>
+                    <div className="copilot-history-toolbar-actions">
+                      <button
+                        type="button"
+                        className="copilot-history-select-all secondary"
+                        onClick={toggleAllSessions}
+                        aria-pressed={allSessionsSelected}
+                        disabled={busy || orderedSessions.length === 0}
                       >
-                        {renamingId === session.id ? (
-                          <form
-                            className="copilot-history-rename"
-                            onSubmit={(event) => {
-                              event.preventDefault();
-                              void submitRename();
-                            }}
-                          >
-                            <input
-                              autoFocus
-                              value={renameValue}
-                              maxLength={200}
-                              aria-label={text.renameSession}
-                              onChange={(event) =>
-                                setRenameValue(event.target.value)
-                              }
-                              onKeyDown={(event) => {
-                                if (event.key === "Escape") {
+                        {allSessionsSelected
+                          ? text.clearSelection
+                          : text.selectAll}
+                      </button>
+                      <button
+                        type="button"
+                        className="copilot-history-delete-selected danger"
+                        onClick={() => setPendingDeleteIds([...selectedIds])}
+                        disabled={busy || selectedIds.size === 0}
+                      >
+                        <Icon name="trash" size={13} />
+                        {text.deleteSelected.replace(
+                          "{count}",
+                          String(selectedIds.size),
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <label className="copilot-history-search">
+                    <Icon name="search" size={14} />
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder={text.searchSessions}
+                      aria-label={text.searchSessions}
+                    />
+                  </label>
+
+                  {visibleSessions.length === 0 ? (
+                    <p className="copilot-history-empty">
+                      {query.trim()
+                        ? text.noMatchingSessions
+                        : emptyMessage || text.noSessions}
+                    </p>
+                  ) : (
+                    <div className="copilot-history-list">
+                      {visibleSessions.map((session) => (
+                        <div
+                          className={
+                            session.id === activeSessionId
+                              ? "copilot-history-item is-active"
+                              : "copilot-history-item"
+                          }
+                          key={session.id}
+                        >
+                          {renamingId === session.id ? (
+                            <form
+                              className="copilot-history-rename"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void submitRename();
+                              }}
+                            >
+                              <input
+                                autoFocus
+                                value={renameValue}
+                                maxLength={200}
+                                aria-label={text.renameSession}
+                                onChange={(event) =>
+                                  setRenameValue(event.target.value)
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === "Escape") {
+                                    setRenamingId(undefined);
+                                    setRenameValue("");
+                                  }
+                                }}
+                              />
+                              <button
+                                type="submit"
+                                aria-label={text.renameSave}
+                                title={text.renameSave}
+                                disabled={busy || !renameValue.trim()}
+                              >
+                                <Icon name="check" size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={text.renameCancel}
+                                title={text.renameCancel}
+                                onClick={() => {
                                   setRenamingId(undefined);
                                   setRenameValue("");
+                                }}
+                                disabled={busy}
+                              >
+                                <Icon name="close" size={14} />
+                              </button>
+                            </form>
+                          ) : (
+                            <>
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(session.id)}
+                                aria-label={`${text.deleteSession}: ${session.title}`}
+                                onChange={() => toggleSelected(session.id)}
+                                disabled={busy}
+                              />
+                              <button
+                                type="button"
+                                className="copilot-history-open"
+                                onClick={() => {
+                                  onSelect(session.id);
+                                  setOpen(false);
+                                }}
+                                disabled={busy}
+                              >
+                                <span title={session.title}>
+                                  {session.title}
+                                </span>
+                                <small>
+                                  {sessionPreview
+                                    ? sessionPreview(session)
+                                    : `${text.lastMessage}: ${
+                                        session.lastMessagePreview ||
+                                        emptyPreview ||
+                                        text.noSessions
+                                      }`}
+                                </small>
+                                <time>{formatDateTime(session.updatedAt)}</time>
+                              </button>
+                              <button
+                                type="button"
+                                className={
+                                  session.pinned
+                                    ? "copilot-history-icon is-pinned"
+                                    : "copilot-history-icon"
                                 }
-                              }}
-                            />
-                            <button
-                              type="submit"
-                              aria-label={text.renameSave}
-                              title={text.renameSave}
-                              disabled={busy || !renameValue.trim()}
-                            >
-                              <Icon name="check" size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={text.renameCancel}
-                              title={text.renameCancel}
-                              onClick={() => {
-                                setRenamingId(undefined);
-                                setRenameValue("");
-                              }}
-                              disabled={busy}
-                            >
-                              <Icon name="close" size={14} />
-                            </button>
-                          </form>
-                        ) : (
-                          <>
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.has(session.id)}
-                              aria-label={`${text.deleteSession}: ${session.title}`}
-                              onChange={() => toggleSelected(session.id)}
-                              disabled={busy}
-                            />
-                            <button
-                              type="button"
-                              className="copilot-history-open"
-                              onClick={() => {
-                                onSelect(session.id);
-                                setOpen(false);
-                              }}
-                              disabled={busy}
-                            >
-                              <span title={session.title}>{session.title}</span>
-                              <small>
-                                {text.lastMessage}:{" "}
-                                {session.lastMessagePreview || text.noSessions}
-                              </small>
-                              <time>{formatDateTime(session.updatedAt)}</time>
-                            </button>
-                            <button
-                              type="button"
-                              className={
-                                session.pinned
-                                  ? "copilot-history-icon is-pinned"
-                                  : "copilot-history-icon"
-                              }
-                              onClick={() => onPin(session)}
-                              aria-label={
-                                session.pinned
-                                  ? text.unpinSession
-                                  : text.pinSession
-                              }
-                              title={
-                                session.pinned
-                                  ? text.unpinSession
-                                  : text.pinSession
-                              }
-                              aria-pressed={Boolean(session.pinned)}
-                              disabled={busy}
-                            >
-                              <Icon name="star" size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className="copilot-history-icon"
-                              onClick={() => beginRename(session)}
-                              aria-label={text.renameSession}
-                              title={text.renameSession}
-                              disabled={busy}
-                            >
-                              <Icon name="edit" size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className="copilot-history-icon danger"
-                              onClick={() => setPendingDeleteIds([session.id])}
-                              aria-label={text.deleteSession}
-                              title={text.deleteSession}
-                              disabled={busy}
-                            >
-                              <Icon name="trash" size={14} />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                                onClick={() => onPin(session)}
+                                aria-label={
+                                  session.pinned
+                                    ? text.unpinSession
+                                    : text.pinSession
+                                }
+                                title={
+                                  session.pinned
+                                    ? text.unpinSession
+                                    : text.pinSession
+                                }
+                                aria-pressed={Boolean(session.pinned)}
+                                disabled={busy}
+                              >
+                                <Icon name="star" size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="copilot-history-icon"
+                                onClick={() => beginRename(session)}
+                                aria-label={text.renameSession}
+                                title={text.renameSession}
+                                disabled={busy}
+                              >
+                                <Icon name="edit" size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="copilot-history-icon danger"
+                                onClick={() =>
+                                  setPendingDeleteIds([session.id])
+                                }
+                                aria-label={text.deleteSession}
+                                title={text.deleteSession}
+                                disabled={busy}
+                              >
+                                <Icon name="trash" size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-                {hiddenSessionCount > 0 && (
-                  <button
-                    type="button"
-                    className="copilot-history-expand"
-                    onClick={() => setExpanded((current) => !current)}
-                  >
-                    {expanded
-                      ? text.collapseSessions
-                      : text.expandSessions.replace(
-                          "{count}",
-                          String(hiddenSessionCount),
-                        )}
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </div>
+                  {hiddenSessionCount > 0 && (
+                    <button
+                      type="button"
+                      className="copilot-history-expand"
+                      onClick={() => setExpanded((current) => !current)}
+                    >
+                      {expanded
+                        ? text.collapseSessions
+                        : text.expandSessions.replace(
+                            "{count}",
+                            String(hiddenSessionCount),
+                          )}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!namingActive && (
+        <button
+          type="button"
+          className="secondary copilot-session-rename"
+          onClick={beginActiveRename}
+          aria-label={text.renameCurrentSession}
+          title={text.renameCurrentSession}
+          disabled={!activeSession || busy}
+        >
+          <Icon name="edit" size={15} />
+        </button>
+      )}
 
       <button
         type="button"
@@ -3377,12 +3722,14 @@ function ValidationView({
   selectedCases,
   busy,
   history,
+  section,
   runTracker,
   onStatic,
   onGenerate,
   onRun,
   onCancelRun,
   onDismissRun,
+  onSectionChange,
   onToggleCase,
   onUpdateCase,
   onSelectAll,
@@ -3414,12 +3761,14 @@ function ValidationView({
   selectedCases: Set<string>;
   busy?: "static" | "cases" | "behavior";
   history: AgentValidationHistoryItem[];
+  section: ValidationSection;
   runTracker?: ValidationRunTracker;
   onStatic: () => void;
   onGenerate: () => void;
   onRun: () => void;
   onCancelRun: () => void;
   onDismissRun: () => void;
+  onSectionChange: (section: ValidationSection) => void;
   onToggleCase: (caseId: string) => void;
   onUpdateCase: (
     caseId: string,
@@ -3447,7 +3796,6 @@ function ValidationView({
   onSaveAndValidate: (step: ValidationStep) => void;
   onValidateSaved: (step: ValidationStep) => void;
 }) {
-  const [section, setSection] = useState<ValidationSection>("issues");
   const [caseFilter, setCaseFilter] = useState<ValidationCaseFilter>("all");
   const [expandedCaseIds, setExpandedCaseIds] = useState<Set<string>>(
     new Set(),
@@ -3542,7 +3890,7 @@ function ValidationView({
             type="button"
             className={section === key ? "active" : undefined}
             aria-current={section === key ? "step" : undefined}
-            onClick={() => setSection(key)}
+            onClick={() => onSectionChange(key)}
             key={key}
           >
             {label}

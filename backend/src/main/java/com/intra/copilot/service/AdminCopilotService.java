@@ -57,7 +57,9 @@ public class AdminCopilotService {
     private static final Duration MODEL_TIMEOUT = Duration.ofSeconds(45);
     private static final long STREAM_TIMEOUT_MS = Duration.ofMinutes(20).toMillis();
     private static final int DEFAULT_TITLE_LIMIT = 60;
-    private static final Set<String> DEFAULT_SESSION_TITLES = Set.of("配置助手", "新建 Agent");
+    private static final int MAX_SESSION_STATE_CHARS = 2_000_000;
+    private static final Set<String> DEFAULT_SESSION_TITLES =
+            Set.of("配置助手", "新建 Agent", "验证会话");
     private static final Pattern EMBEDDED_SECRET =
             Pattern.compile(
                     "(?i)(sk-[a-z0-9_-]{12,}|bearer\\s+[a-z0-9._~+/-]{12,}|-----begin [^-]*private key-----)");
@@ -208,7 +210,7 @@ public class AdminCopilotService {
         session.setMode(normalizeMode(mode));
         session.setTitle(
                 title == null || title.isBlank()
-                        ? ("BUILD".equals(session.getMode()) ? "新建 Agent" : "配置助手")
+                        ? defaultSessionTitle(session.getMode())
                         : title.trim());
         session.setCurrentAgentId(trimToNull(currentAgentId));
         sessions.save(session);
@@ -316,6 +318,9 @@ public class AdminCopilotService {
             String runId,
             BiConsumer<String, Map<String, Object>> progress) {
         AdminCopilotSession session = requireSession(sessionId);
+        if ("VALIDATE".equals(session.getMode())) {
+            throw new IllegalArgumentException("验证会话不支持对话");
+        }
         String userText =
                 redactEmbeddedSecrets(
                         request == null || request.message() == null
@@ -403,6 +408,20 @@ public class AdminCopilotService {
         session.touch();
         sessions.save(session);
         return sessionSummaryView(session);
+    }
+
+    @Transactional
+    public Map<String, Object> updateSessionState(
+            String sessionId, Map<String, Object> state) {
+        AdminCopilotSession session = requireSession(sessionId);
+        String encoded = writeJson(state == null ? Map.of() : state);
+        if (encoded.length() > MAX_SESSION_STATE_CHARS) {
+            throw new IllegalArgumentException("会话状态过大，请清理后重试");
+        }
+        session.setStateJson(encoded);
+        session.touch();
+        sessions.save(session);
+        return sessionView(session);
     }
 
     @Transactional
@@ -862,7 +881,20 @@ public class AdminCopilotService {
         view.put("updatedAt", session.getUpdatedAt());
         Optional<AdminCopilotMessage> last = messages.findLastBySession(session.getId());
         view.put("lastMessagePreview", last.map(AdminCopilotMessage::getContent).orElse(""));
+        if ("VALIDATE".equals(session.getMode())) {
+            view.put("stateSummary", validationStateSummary(session));
+        }
         return view;
+    }
+
+    private Map<String, Object> validationStateSummary(AdminCopilotSession session) {
+        Map<String, Object> state = readMap(session.getStateJson());
+        List<?> cases = state.get("cases") instanceof List<?> values ? values : List.of();
+        Map<String, Object> summary = asMap(asMap(state.get("report")).get("summary"));
+        return Map.of(
+                "caseCount", cases.size(),
+                "testsRun", number(summary.get("testsRun"), 0),
+                "testsPassed", number(summary.get("testsPassed"), 0));
     }
 
     private List<Map<String, String>> history(String sessionId) {
@@ -1018,10 +1050,16 @@ public class AdminCopilotService {
 
     private static String normalizeMode(String mode) {
         String value = mode == null ? "ASSIST" : mode.trim().toUpperCase(Locale.ROOT);
-        if (!Set.of("ASSIST", "BUILD").contains(value)) {
+        if (!Set.of("ASSIST", "BUILD", "VALIDATE").contains(value)) {
             throw new IllegalArgumentException("Copilot 模式无效");
         }
         return value;
+    }
+
+    private static String defaultSessionTitle(String mode) {
+        if ("BUILD".equals(mode)) return "新建 Agent";
+        if ("VALIDATE".equals(mode)) return "验证会话";
+        return "配置助手";
     }
 
     private static boolean isBlankRequirement(Object value) {
@@ -1214,6 +1252,10 @@ public class AdminCopilotService {
         if (value == null) return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static int number(Object value, int fallback) {
+        return value instanceof Number number ? number.intValue() : fallback;
     }
 
     public record RespondRequest(

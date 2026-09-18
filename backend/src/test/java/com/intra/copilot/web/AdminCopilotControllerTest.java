@@ -51,6 +51,24 @@ class AdminCopilotControllerTest {
     }
 
     @Test
+    void updateStateDelegatesValidationWorkspace() {
+        AdminCopilotService service = mock(AdminCopilotService.class);
+        Map<String, Object> state = Map.of("section", "cases");
+        Map<String, Object> expected =
+                Map.of("id", "session-1", "state", state);
+        when(service.updateSessionState("session-1", state)).thenReturn(expected);
+        AdminCopilotController controller = new AdminCopilotController(service);
+
+        Map<String, Object> result =
+                controller.updateState(
+                        "session-1",
+                        new AdminCopilotController.UpdateSessionStateRequest(state));
+
+        assertEquals(expected, result);
+        verify(service).updateSessionState("session-1", state);
+    }
+
+    @Test
     void deleteEndpointAcceptsPostRequest() throws Exception {
         AdminCopilotService service = mock(AdminCopilotService.class);
         when(service.deleteSessions(List.of("session-1", "session-2")))
