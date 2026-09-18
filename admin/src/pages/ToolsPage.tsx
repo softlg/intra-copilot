@@ -118,7 +118,16 @@ export function ToolsPage({
         ) : (
           <div className="grid">
             {filteredTools.map((tool) => (
-              <article key={tool.id} className="tool-card">
+              <article
+                key={tool.id}
+                className="tool-card resource-card-clickable"
+              >
+                <button
+                  type="button"
+                  className="resource-card-hit-area"
+                  aria-label={`${t.viewDetails}: ${tool.name}`}
+                  onClick={() => onShowDetails(tool)}
+                />
                 <div className="agent-card-header">
                   <div className="agent-card-title tool-card-title">
                     <Icon name="tool" size={18} />
@@ -151,12 +160,6 @@ export function ToolsPage({
                   <button
                     className="secondary"
                     type="button"
-                    onClick={() => onShowDetails(tool)}
-                  >
-                    {t.viewDetails}
-                  </button>
-                  <button
-                    className="secondary"
                     onClick={() => onEdit(tool)}
                     disabled={actionId === tool.id}
                   >

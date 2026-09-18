@@ -50,6 +50,7 @@ export interface SkillsPageProps {
   tools: ToolDefinition[];
   loading: boolean;
   onReload: () => void;
+  onShowDetails: (skill: SkillDefinition) => void;
 }
 
 function emptyDraft(): SkillDraft {
@@ -108,6 +109,7 @@ export function SkillsPage({
   tools,
   loading,
   onReload,
+  onShowDetails,
 }: SkillsPageProps) {
   const [query, setQuery] = useState("");
   const [lifecycle, setLifecycle] = useState<SkillLifecycleFilter>("all");
@@ -552,10 +554,18 @@ export function SkillsPage({
             {visibleSkills.map((skill) => {
               return (
                 <article
-                  className={`skill-card ${skill.enabled ? "is-live" : "is-disabled"}`}
+                  className={`skill-card resource-card-clickable ${
+                    skill.enabled ? "is-live" : "is-disabled"
+                  }`}
                   key={skill.id}
                   aria-busy={actionId === skill.id}
                 >
+                  <button
+                    type="button"
+                    className="resource-card-hit-area"
+                    aria-label={`${t.viewDetails}: ${skill.name}`}
+                    onClick={() => onShowDetails(skill)}
+                  />
                   <div className="skill-card-header">
                     <div className="skill-card-title">
                       <strong>{skill.name}</strong>

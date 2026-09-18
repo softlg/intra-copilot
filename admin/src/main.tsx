@@ -3564,6 +3564,9 @@ function AdminApp({
               tools={tools}
               loading={skillsLoading}
               onReload={loadSkills}
+              onShowDetails={(item) =>
+                setResourceDetails({ kind: "skill", resource: item })
+              }
             />
           )}
 
