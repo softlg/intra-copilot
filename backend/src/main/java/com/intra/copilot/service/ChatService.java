@@ -57,6 +57,7 @@ public class ChatService {
         private final TraceRecorder trace;
         private final ToolExecutor toolExecutor;
         private final BrowserCapabilityTools browserCapabilityTools;
+        private final SystemAgentBroker systemAgentBroker;
         private final SkillPromptAssembler skillAssembler;
         private final PlanningService planningService;
         private final AgentPlanRepository agentPlans;
@@ -85,6 +86,7 @@ public class ChatService {
                         TraceRecorder trace,
                         ToolExecutor toolExecutor,
                         BrowserCapabilityTools browserCapabilityTools,
+                        SystemAgentBroker systemAgentBroker,
                         SkillPromptAssembler skillAssembler,
                         PlanningService planningService,
                         AgentPlanRepository agentPlans,
@@ -108,6 +110,7 @@ public class ChatService {
                 this.trace = trace;
                 this.toolExecutor = toolExecutor;
                 this.browserCapabilityTools = browserCapabilityTools;
+                this.systemAgentBroker = systemAgentBroker;
                 this.skillAssembler = skillAssembler;
                 this.planningService = planningService;
                 this.agentPlans = agentPlans;
@@ -206,11 +209,13 @@ public class ChatService {
                 String model) {}
 
         record ReActResult(
-                String content,
-                String lastReply,
-                boolean streamed,
-                Integer inputTokens,
-                Integer outputTokens) {}
+                        String content,
+                        String lastReply,
+                        boolean streamed,
+                        Integer inputTokens,
+                        Integer outputTokens) {}
+
+        record SystemAgentTaskOutcome(String content, boolean handoff, boolean success) {}
 
         record ActionResolution(String status, String result) {}
 
@@ -1401,8 +1406,11 @@ public class ChatService {
                 }
         }
 
-        private ToolCallback toolCallback(String id) {
+        private ToolCallback toolCallback(String id, AgentDefinition caller) {
                 if (id == null || id.isBlank()) return null;
+                if (systemAgentBroker.isDelegationTool(id)) {
+                        return systemAgentBroker.callbackFor(caller);
+                }
                 ToolDefinition definition = toolExecutor.resolveById(id);
                 if (definition != null) {
                         return new ToolDefinitionToolCallback(definition, toolExecutor);
@@ -1440,8 +1448,14 @@ public class ChatService {
                                 agent.systemPrompt() == null ? "" : agent.systemPrompt();
                         StringBuilder systemBuilder = new StringBuilder(baseSystemPrompt);
                         List<String> agentToolIds = new ArrayList<>();
+                        AgentDefinition callerDefinition =
+                                agent instanceof ConfigurableAgent caller
+                                        ? caller.definition()
+                                        : systemAgentBroker
+                                                .publishedDefinition(agent.id())
+                                                .orElse(null);
                         if (agent instanceof ConfigurableAgent configurable) {
-                                AgentDefinition def = configurable.definition();
+                                AgentDefinition def = callerDefinition;
                                 SkillPromptAssembler.Assembly skillAssembly =
                                         skillAssembler.assembleForAgent(
                                                 agent.id(),
@@ -1503,6 +1517,11 @@ public class ChatService {
                                 ToolCallback builtIn = browserCapabilityTools.callback(tid);
                                 if (builtIn != null) toolCallbacks.add(builtIn);
                         }
+                        ToolCallback delegationTool =
+                                systemAgentBroker.callbackFor(callerDefinition);
+                        if (delegationTool != null) {
+                                toolCallbacks.add(delegationTool);
+                        }
                         boolean hasTools = !toolCallbacks.isEmpty();
                         if (hasTools) {
                                 // Tool 的名称 / 描述 / 入参 Schema 已通过 ToolCallback 下发，模型用 function calling 发起调用；
@@ -1532,6 +1551,9 @@ public class ChatService {
                                 browserCapabilityTools.syntheticDefinitions().stream()
                                         .filter(tool -> agentToolIds.contains(tool.getId()))
                                         .toList());
+                        systemAgentBroker
+                                .syntheticDefinition(callerDefinition)
+                                .ifPresent(availableTools::add);
                         PlanningService.PlanOutcome planOutcome =
                                         planningService.createPlanOutcome(
                                                 planningDefinition,
@@ -1602,6 +1624,7 @@ public class ChatService {
                                                         images,
                                                         agentToolIds,
                                                         availableTools,
+                                                        callerDefinition,
                                                         targetInvocationId,
                                                         correlationId,
                                                         planExecution);
@@ -1622,7 +1645,14 @@ public class ChatService {
                                                         correlationId,
                                                         null,
                                                         null,
-                                                        !delegatedSummary);
+                                                        !delegatedSummary,
+                                                        callerDefinition,
+                                                        0,
+                                                        callerDefinition == null
+                                                                ? List.of()
+                                                                : List.of(callerDefinition.getId()),
+                                                        maxToolIterations,
+                                                        null);
                                 planRun =
                                                 new PlanRunResult(
                                                                 direct.content(),
@@ -1897,7 +1927,12 @@ public class ChatService {
                         String correlationId,
                         String planId,
                         String planStepId,
-                        boolean streamToUser) {
+                        boolean streamToUser,
+                        AgentDefinition callerDefinition,
+                        int delegationDepth,
+                        List<String> delegationPath,
+                        int iterationLimit,
+                        SystemAgentBroker.ResolvedTask activeSystemTask) {
                 boolean hasTools = callbacks != null && !callbacks.isEmpty();
                 String currentAnswer = null;
                 String lastReply = null;
@@ -1905,7 +1940,7 @@ public class ChatService {
                 Integer inputTokens = null;
                 Integer outputTokens = null;
                 iteration:
-                for (int iter = 0; iter < maxToolIterations; iter++) {
+                for (int iter = 0; iter < Math.max(1, iterationLimit); iter++) {
                         if (finished.get()) {
                                 return new ReActResult(
                                                 currentAnswer == null ? "" : currentAnswer,
@@ -2009,6 +2044,37 @@ public class ChatService {
                                 break;
                         }
                         for (AssistantMessage.ToolCall call : calls) {
+                                if (systemAgentBroker.isDelegationTool(call.name())) {
+                                        SystemAgentTaskOutcome delegated =
+                                                executeSystemAgentTask(
+                                                        out,
+                                                        finished,
+                                                        conversation,
+                                                        callerDefinition,
+                                                        call,
+                                                        targetInvocationId,
+                                                        correlationId,
+                                                        delegationDepth,
+                                                        delegationPath,
+                                                        planId,
+                                                        planStepId);
+                                        if (delegated.handoff() && delegated.success()) {
+                                                currentAnswer = delegated.content();
+                                                lastReply = delegated.content();
+                                                answerStreamed = false;
+                                                break iteration;
+                                        }
+                                        turns.add(
+                                                Map.of(
+                                                        "role",
+                                                        "user",
+                                                        "content",
+                                                        "系统 Agent 子任务结果：\n"
+                                                                + traceText(
+                                                                        delegated.content(),
+                                                                        24000)));
+                                        continue;
+                                }
                                 ToolDefinition toolDef =
                                                 toolExecutor.resolveWithin(agentToolIds, call.name());
                                 ToolCallback builtInTool =
@@ -2136,6 +2202,42 @@ public class ChatService {
                                                                 targetInvocationId,
                                                                 TraceContext.traceId());
                                         if (proposal != null) {
+                                                if (activeSystemTask != null
+                                                        && !activeSystemTask.allowsAction(
+                                                                proposal.getType(),
+                                                                proposal.getRisk())) {
+                                                        String blocked =
+                                                                "系统 Agent 子任务策略拒绝了动作："
+                                                                        + proposal.getType()
+                                                                        + "，risk="
+                                                                        + proposal.getRisk();
+                                                        trace.event(
+                                                                        targetInvocationId,
+                                                                        correlationId,
+                                                                        TraceRecorder.Type.TOOL_RESULT)
+                                                                .name("系统 Agent 动作策略拦截")
+                                                                .status("BLOCKED")
+                                                                .causedBy(toolCallEvent.getId())
+                                                                .plan(planId, planStepId)
+                                                                .put("actionType", proposal.getType())
+                                                                .put("risk", proposal.getRisk())
+                                                                .put("message", blocked)
+                                                                .save();
+                                                        emitToolResult(
+                                                                        out,
+                                                                        finished,
+                                                                        toolName,
+                                                                        blocked,
+                                                                        false);
+                                                        turns.add(
+                                                                Map.of(
+                                                                        "role",
+                                                                        "user",
+                                                                        "content",
+                                                                        blocked
+                                                                                + "\n请调整动作参数或结束子任务，不得绕过限制。"));
+                                                        continue iteration;
+                                                }
                                                 trace.event(
                                                                                 targetInvocationId,
                                                                                 correlationId,
@@ -2204,6 +2306,279 @@ public class ChatService {
                                 outputTokens);
         }
 
+        private SystemAgentTaskOutcome executeSystemAgentTask(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        Conversation conversation,
+                        AgentDefinition callerDefinition,
+                        AssistantMessage.ToolCall call,
+                        String parentInvocationId,
+                        String correlationId,
+                        int delegationDepth,
+                        List<String> delegationPath,
+                        String planId,
+                        String planStepId) {
+                String toolName = SystemAgentCatalog.DELEGATION_TOOL_NAME;
+                String redactedArguments = systemAgentBroker.redactArguments(call.arguments());
+                emitToolInvoked(out, finished, toolName, redactedArguments);
+                long started = System.nanoTime();
+                AgentInvocationEvent toolCallEvent =
+                                trace.event(
+                                                parentInvocationId,
+                                                correlationId,
+                                                TraceRecorder.Type.TOOL_CALL)
+                                        .name("Tool 调用：" + toolName)
+                                        .status("RUNNING")
+                                        .span(EntityIdGenerator.next("SP"))
+                                        .plan(planId, planStepId)
+                                        .put("toolName", toolName)
+                                        .put("arguments", redactedArguments)
+                                        .put("delegationDepth", delegationDepth)
+                                        .save();
+                AgentInvocation childInvocation = null;
+                try {
+                        if (callerDefinition == null) {
+                                throw new IllegalArgumentException("当前 Agent 没有系统 Agent 委派权限");
+                        }
+                        SystemAgentBroker.ResolvedTask task =
+                                systemAgentBroker.resolve(callerDefinition, call.arguments());
+                        int nextDepth = delegationDepth + 1;
+                        int allowedDepth =
+                                Math.min(
+                                        SystemAgentCatalog.MAX_DELEGATION_DEPTH,
+                                        task.spec().maxDelegationDepth());
+                        if (nextDepth > allowedDepth) {
+                                throw new IllegalArgumentException(
+                                        "系统 Agent 委派深度超过限制：" + allowedDepth);
+                        }
+                        List<String> path =
+                                delegationPath == null
+                                        ? new ArrayList<>()
+                                        : new ArrayList<>(delegationPath);
+                        if (path.contains(task.target().getId())) {
+                                throw new IllegalArgumentException(
+                                        "检测到系统 Agent 循环委派："
+                                                + String.join(" -> ", path)
+                                                + " -> "
+                                                + task.target().getId());
+                        }
+                        path.add(task.target().getId());
+                        childInvocation = new AgentInvocation();
+                        childInvocation.setConversationId(conversation.getId());
+                        childInvocation.setCorrelationId(correlationId);
+                        childInvocation.setTraceId(TraceContext.traceId());
+                        childInvocation.setTurnId(TraceContext.turnId());
+                        childInvocation.setAttemptNo(TraceContext.attemptNo());
+                        childInvocation.setRequestId(
+                                TraceContext.current() == null
+                                        ? null
+                                        : TraceContext.current().requestId());
+                        childInvocation.setParentInvocationId(parentInvocationId);
+                        childInvocation.setParentSpanId(parentInvocationId);
+                        childInvocation.setSpanType("SYSTEM_AGENT");
+                        childInvocation.setSequence(nextDepth + 1);
+                        childInvocation.setDepth(nextDepth);
+                        childInvocation.setAgentRole(task.target().getRole());
+                        childInvocation.setDecisionMode(task.request().mode());
+                        childInvocation.setRequestedAgentId(callerDefinition.getId());
+                        childInvocation.setSelectedAgentId(task.target().getId());
+                        childInvocation.setRouteReason(
+                                "系统 Agent 能力委派：" + task.request().capability());
+                        childInvocation.setRouteSource("system-agent-broker");
+                        childInvocation.setConfidence(1.0);
+                        childInvocation.setContextSent(task.canonicalJson());
+                        childInvocation.setUserMessage(task.request().goal());
+                        childInvocation.setStatus("RUNNING");
+                        applyResourceSnapshot(childInvocation, task.target());
+                        invocations.save(childInvocation);
+
+                        trace.event(
+                                        parentInvocationId,
+                                        correlationId,
+                                        TraceRecorder.Type.DELEGATION_DECIDED)
+                                .name("委派系统 Agent：" + task.target().getDisplayName())
+                                .status("RUNNING")
+                                .causedBy(toolCallEvent.getId())
+                                .plan(planId, planStepId)
+                                .put("capability", task.request().capability())
+                                .put("mode", task.request().mode())
+                                .put("targetAgentId", task.target().getId())
+                                .put("delegationDepth", nextDepth)
+                                .put("request", task.canonicalJson())
+                                .save();
+                        trace.event(
+                                        childInvocation.getId(),
+                                        correlationId,
+                                        TraceRecorder.Type.AGENT_START)
+                                .name("系统 Agent 开始执行")
+                                .status("RUNNING")
+                                .put("agentId", task.target().getId())
+                                .put("agentRole", task.target().getRole())
+                                .put("parentInvocationId", parentInvocationId)
+                                .put("capability", task.request().capability())
+                                .save();
+                        emitSystemAgentDelegation(
+                                out,
+                                finished,
+                                "system_agent_delegation_started",
+                                task,
+                                childInvocation.getId(),
+                                null);
+                        emitStage(
+                                out,
+                                finished,
+                                "system_agent",
+                                "正在调用 " + task.target().getDisplayName() + "…");
+
+                        List<String> targetToolIds =
+                                parseIdList(task.target().getToolIds());
+                        List<ToolCallback> targetCallbacks = new ArrayList<>();
+                        for (String toolId : targetToolIds) {
+                                ToolCallback callback = toolCallback(toolId, task.target());
+                                if (callback != null) targetCallbacks.add(callback);
+                        }
+                        ToolCallback nestedDelegation =
+                                systemAgentBroker.callbackFor(task.target());
+                        if (nestedDelegation != null) targetCallbacks.add(nestedDelegation);
+
+                        String targetSystem =
+                                (task.target().getSystemPrompt() == null
+                                                ? ""
+                                                : task.target().getSystemPrompt())
+                                        + "\n\n[系统 Agent 子任务]\n"
+                                        + "你正在响应另一个 Agent 的能力委派。只完成任务 JSON 中定义的目标，"
+                                        + "严格遵守约束和成功标准，完成后返回简洁、可验证的结果。\n"
+                                        + task.canonicalJson()
+                                        + "\n\n[Tool] 在需要观察或操作页面时必须通过 function calling 调用已提供的系统 Tool，"
+                                        + "不要输出 Tool JSON 文本。"
+                                        + OUTPUT_FORMAT_GUIDANCE;
+                        ReActResult childResult =
+                                executeReAct(
+                                        out,
+                                        finished,
+                                        conversation,
+                                        targetSystem,
+                                        new ArrayList<>(),
+                                        "请执行以下系统 Agent 子任务：\n"
+                                                + task.canonicalJson(),
+                                        List.of(),
+                                        targetToolIds,
+                                        targetCallbacks,
+                                        childInvocation.getId(),
+                                        correlationId,
+                                        null,
+                                        null,
+                                        false,
+                                        task.target(),
+                                        nextDepth,
+                                        path,
+                                        task.request().constraints().maxSteps(),
+                                        task);
+                        long duration = (System.nanoTime() - started) / 1_000_000L;
+                        String content =
+                                childResult.content() == null
+                                        ? ""
+                                        : childResult.content().trim();
+                        boolean success = !content.isBlank();
+                        childInvocation.setResponseContent(content);
+                        childInvocation.setStatus(success ? "COMPLETED" : "FAILED");
+                        childInvocation.setError(success ? null : "系统 Agent 未返回有效结果");
+                        childInvocation.setInputTokens(childResult.inputTokens());
+                        childInvocation.setOutputTokens(childResult.outputTokens());
+                        childInvocation.setDurationMs(duration);
+                        childInvocation.setCompletedAt(Instant.now());
+                        invocations.save(childInvocation);
+                        trace.event(
+                                        childInvocation.getId(),
+                                        correlationId,
+                                        TraceRecorder.Type.AGENT_END)
+                                .name("系统 Agent 执行完成")
+                                .status(success ? "COMPLETED" : "FAILED")
+                                .duration(duration)
+                                .put("agentId", task.target().getId())
+                                .put("capability", task.request().capability())
+                                .put("response", traceText(content, 16000))
+                                .put("success", success)
+                                .save();
+                        trace.event(
+                                        parentInvocationId,
+                                        correlationId,
+                                        TraceRecorder.Type.TOOL_RESULT)
+                                .name("Tool 返回：" + toolName)
+                                .status(success ? "OK" : "FAILED")
+                                .duration(duration)
+                                .causedBy(toolCallEvent.getId())
+                                .plan(planId, planStepId)
+                                .put("toolName", toolName)
+                                .put("success", success)
+                                .put("targetAgentId", task.target().getId())
+                                .put("result", traceText(content, 16000))
+                                .save();
+                        emitToolResult(out, finished, toolName, content, success);
+                        emitSystemAgentDelegation(
+                                out,
+                                finished,
+                                "system_agent_delegation_completed",
+                                task,
+                                childInvocation.getId(),
+                                success ? "COMPLETED" : "FAILED");
+                        return new SystemAgentTaskOutcome(
+                                content.isBlank() ? "系统 Agent 未返回有效结果" : content,
+                                task.isHandoff(),
+                                success);
+                } catch (Exception error) {
+                        long duration = (System.nanoTime() - started) / 1_000_000L;
+                        String message = safeErrorMessage(error);
+                        if (childInvocation != null) {
+                                childInvocation.setStatus("FAILED");
+                                childInvocation.setError(message);
+                                childInvocation.setDurationMs(duration);
+                                childInvocation.setCompletedAt(Instant.now());
+                                invocations.save(childInvocation);
+                        }
+                        trace.event(
+                                        parentInvocationId,
+                                        correlationId,
+                                        TraceRecorder.Type.TOOL_RESULT)
+                                .name("Tool 返回：" + toolName)
+                                .status("FAILED")
+                                .duration(duration)
+                                .causedBy(toolCallEvent.getId())
+                                .plan(planId, planStepId)
+                                .put("toolName", toolName)
+                                .put("success", false)
+                                .put("message", message)
+                                .save();
+                        String output = SystemAgentBroker.TASK_ERROR_PREFIX + message;
+                        emitToolResult(out, finished, toolName, output, false);
+                        return new SystemAgentTaskOutcome(output, false, false);
+                }
+        }
+
+        private void emitSystemAgentDelegation(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        String eventName,
+                        SystemAgentBroker.ResolvedTask task,
+                        String invocationId,
+                        String status) {
+                if (finished.get()) return;
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("capability", task.request().capability());
+                payload.put("mode", task.request().mode());
+                payload.put("targetAgentId", task.target().getId());
+                payload.put("targetDisplayName", task.target().getDisplayName());
+                payload.put("invocationId", invocationId);
+                if (status != null) payload.put("status", status);
+                try {
+                        out.send(
+                                SseEmitter.event()
+                                        .name(eventName)
+                                        .data(TraceContext.eventData(payload)));
+                } catch (IOException ignored) {
+                }
+        }
+
         /** Runs a persisted plan, updating every step and recording the complete execution trail. */
         private PlanRunResult executePlan(
                         SseEmitter out,
@@ -2217,6 +2592,7 @@ public class ChatService {
                         List<String> images,
                         List<String> agentToolIds,
                         List<ToolDefinition> availableTools,
+                        AgentDefinition callerDefinition,
                         String targetInvocationId,
                         String correlationId,
                         PlanningService.PlanExecution initialExecution) {
@@ -2296,7 +2672,11 @@ public class ChatService {
                                                 planStepTools(step, availableTools);
                                         List<ToolCallback> callbacks =
                                                 stepTools.stream()
-                                                        .map(tool -> toolCallback(tool.getId()))
+                                                        .map(
+                                                                tool ->
+                                                                        toolCallback(
+                                                                                tool.getId(),
+                                                                                callerDefinition))
                                                         .filter(Objects::nonNull)
                                                         .toList();
                                         List<String> stepToolIds =
@@ -2318,7 +2698,14 @@ public class ChatService {
                                                         correlationId,
                                                         plan.getId(),
                                                         step.getId(),
-                                                        false);
+                                                        false,
+                                                        callerDefinition,
+                                                        0,
+                                                        callerDefinition == null
+                                                                ? List.of()
+                                                                : List.of(callerDefinition.getId()),
+                                                        maxToolIterations,
+                                                        null);
                                         if (finished.get()) {
                                                 cancelPlan(plan, targetInvocationId, correlationId);
                                                 return new PlanRunResult(

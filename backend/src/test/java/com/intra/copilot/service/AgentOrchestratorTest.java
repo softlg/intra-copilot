@@ -53,7 +53,7 @@ class AgentOrchestratorTest {
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace, new SystemAgentCatalog());
         List<Map<String, String>> history =
                 List.of(
                         Map.of("role", "user", "content", "我要报销"),
@@ -105,7 +105,7 @@ class AgentOrchestratorTest {
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace, new SystemAgentCatalog());
         List<Map<String, String>> history =
                 List.of(
                         Map.of("role", "user", "content", "我要报销"),
@@ -139,7 +139,7 @@ class AgentOrchestratorTest {
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace, new SystemAgentCatalog());
         List<Map<String, String>> history =
                 List.of(
                         Map.of(
@@ -189,7 +189,7 @@ class AgentOrchestratorTest {
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace, new SystemAgentCatalog());
 
         orchestrator.route("我要报销", "/orders", List.of());
 
@@ -238,7 +238,7 @@ class AgentOrchestratorTest {
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace, new SystemAgentCatalog());
 
         AgentOrchestrator.RoutingResult result = orchestrator.route("请看图片", "", List.of(), images);
 
@@ -281,7 +281,7 @@ class AgentOrchestratorTest {
 
         AgentOrchestrator orchestrator =
                 new AgentOrchestrator(
-                        registry, rules, general, new RouteCopilotAgent(), llm, trace);
+                        registry, rules, general, new RouteCopilotAgent(), llm, trace, new SystemAgentCatalog());
 
         orchestrator.decideDomain(domain, "提交报销单", "/expense", List.of());
 

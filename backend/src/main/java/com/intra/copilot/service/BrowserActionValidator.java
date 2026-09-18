@@ -58,6 +58,10 @@ public final class BrowserActionValidator {
 
     private BrowserActionValidator() {}
 
+    public static boolean isReadOnly(String type) {
+        return type != null && READ_ONLY.contains(type.toUpperCase(Locale.ROOT));
+    }
+
     public record NormalizedAction(
             String type,
             String target,

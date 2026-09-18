@@ -11,6 +11,7 @@ import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.service.AgentConfigurationService;
 import com.intra.copilot.service.AgentRegistry;
 import com.intra.copilot.service.LlmClient;
+import com.intra.copilot.service.SystemAgentBroker;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
@@ -32,7 +33,9 @@ class AgentAdminControllerTest {
         when(configurations.get("draft-agent")).thenReturn(draft);
         when(llm.complete(anyString(), anyList(), anyString())).thenReturn(Mono.just("ok"));
 
-        AgentAdminController controller = new AgentAdminController(registry, llm, configurations);
+        AgentAdminController controller =
+                new AgentAdminController(
+                        registry, llm, configurations, mock(SystemAgentBroker.class));
 
         Map<String, Object> result =
                 controller.test(

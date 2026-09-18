@@ -35,6 +35,7 @@ class ChatServiceConversationActivityTest {
                         mock(TraceRecorder.class),
                         mock(ToolExecutor.class),
                         mock(BrowserCapabilityTools.class),
+                        mock(SystemAgentBroker.class),
                         mock(SkillPromptAssembler.class),
                         mock(PlanningService.class),
                         mock(AgentPlanRepository.class),

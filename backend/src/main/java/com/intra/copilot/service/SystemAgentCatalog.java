@@ -1,7 +1,10 @@
 package com.intra.copilot.service;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /** Code-owned definitions for application-managed Agents. */
@@ -10,8 +13,13 @@ public class SystemAgentCatalog {
     public static final String ROUTE_COPILOT = "route-copilot";
     public static final String ASSISTANT = "assistant";
     public static final String BROWSER_OPERATOR = "browser-operator";
-    public static final long REVISION = 2026091801L;
+    public static final long REVISION = 2026091802L;
     public static final int BROWSER_PROTOCOL_VERSION = 1;
+    public static final int SYSTEM_AGENT_PROTOCOL_VERSION = 1;
+    public static final String DELEGATION_TOOL_NAME = "system_agent_task";
+    public static final String BROWSER_OPERATE = "browser.operate";
+    public static final String BROWSER_EXTRACT = "browser.extract";
+    public static final int MAX_DELEGATION_DEPTH = 2;
 
     public static final List<String> BROWSER_TOOL_IDS =
             List.of(
@@ -20,6 +28,32 @@ public class SystemAgentCatalog {
                     "browser_wait",
                     "browser_verify",
                     "browser_extract");
+    public static final List<String> BROWSER_ACTIONS =
+            List.of(
+                    "CLICK",
+                    "FOCUS",
+                    "TYPE",
+                    "CLEAR",
+                    "SELECT",
+                    "CHECK",
+                    "UNCHECK",
+                    "HOVER",
+                    "SCROLL",
+                    "PRESS_KEY",
+                    "UPLOAD",
+                    "NAVIGATE",
+                    "SET_EDITOR",
+                    "WAIT_FOR",
+                    "VERIFY",
+                    "EXTRACT",
+                    "SNAPSHOT");
+
+    public record Capability(String name, String description) {
+        public Capability {
+            name = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
+            description = description == null ? "" : description.trim();
+        }
+    }
 
     public record Spec(
             String id,
@@ -33,10 +67,25 @@ public class SystemAgentCatalog {
             int maxPlanSteps,
             List<String> builtInToolIds,
             boolean clientVisible,
+            boolean routable,
+            boolean delegatable,
+            List<Capability> capabilities,
+            Set<String> allowedCallerRoles,
+            int maxDelegationDepth,
             long revision) {}
 
-    private final List<Spec> specs =
-            List.of(
+    private final List<Spec> specs;
+
+    public SystemAgentCatalog() {
+        this(defaultSpecs());
+    }
+
+    SystemAgentCatalog(List<Spec> specs) {
+        this.specs = List.copyOf(specs == null ? List.of() : specs);
+    }
+
+    private static List<Spec> defaultSpecs() {
+        return List.of(
                     new Spec(
                             ROUTE_COPILOT,
                             "Intra route Copilot",
@@ -59,6 +108,11 @@ public class SystemAgentCatalog {
                             3,
                             List.of(),
                             false,
+                            false,
+                            false,
+                            List.of(),
+                            Set.of(),
+                            0,
                             REVISION),
                     new Spec(
                             BROWSER_OPERATOR,
@@ -84,6 +138,17 @@ public class SystemAgentCatalog {
                             10,
                             BROWSER_TOOL_IDS,
                             false,
+                            true,
+                            true,
+                            List.of(
+                                    new Capability(
+                                            BROWSER_OPERATE,
+                                            "在用户授权的浏览器页面中完成观察、点击、填写、提交和结果验证。"),
+                                    new Capability(
+                                            BROWSER_EXTRACT,
+                                            "读取用户授权页面中的文本、表格、代码和结果区域。")),
+                            Set.of("GENERAL", "DOMAIN"),
+                            MAX_DELEGATION_DEPTH,
                             REVISION),
                     new Spec(
                             ASSISTANT,
@@ -101,7 +166,13 @@ public class SystemAgentCatalog {
                             6,
                             List.of(),
                             true,
+                            true,
+                            false,
+                            List.of(),
+                            Set.of(),
+                            0,
                             REVISION));
+    }
 
     public List<Spec> all() {
         return specs;
@@ -113,5 +184,35 @@ public class SystemAgentCatalog {
 
     public boolean isClientVisible(String id) {
         return find(id).map(Spec::clientVisible).orElse(true);
+    }
+
+    public boolean isRoutable(String id) {
+        return find(id).map(Spec::routable).orElse(false);
+    }
+
+    public Optional<Capability> findCapability(String name) {
+        if (name == null || name.isBlank()) return Optional.empty();
+        String normalized = name.trim().toLowerCase(Locale.ROOT);
+        return specs.stream()
+                .flatMap(spec -> spec.capabilities().stream())
+                .filter(capability -> capability.name().equals(normalized))
+                .findFirst();
+    }
+
+    public Optional<Spec> findProvider(String capability) {
+        return providers(capability).stream().findFirst();
+    }
+
+    public List<Spec> providers(String capability) {
+        if (capability == null || capability.isBlank()) return List.of();
+        String normalized = capability.trim().toLowerCase(Locale.ROOT);
+        return specs.stream()
+                .filter(Spec::delegatable)
+                .filter(
+                        spec ->
+                                spec.capabilities().stream()
+                                        .anyMatch(item -> item.name().equals(normalized)))
+                .sorted(Comparator.comparingInt(Spec::priority).thenComparing(Spec::id))
+                .toList();
     }
 }

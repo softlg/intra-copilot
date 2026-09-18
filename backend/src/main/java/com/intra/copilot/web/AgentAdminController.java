@@ -7,6 +7,7 @@ import com.intra.copilot.service.AgentRegistry;
 import com.intra.copilot.service.AgentConfigurationService;
 import com.intra.copilot.service.LlmClient;
 import com.intra.copilot.service.SystemAgentGuard;
+import com.intra.copilot.service.SystemAgentBroker;
 import com.intra.copilot.service.auth.RequestContext;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Duration;
@@ -21,17 +22,28 @@ public class AgentAdminController {
         private final AgentRegistry registry;
         private final LlmClient llm;
         private final AgentConfigurationService configurations;
+        private final SystemAgentBroker systemAgentBroker;
 
-        public AgentAdminController(AgentRegistry registry, LlmClient llm, AgentConfigurationService configurations) {
+        public AgentAdminController(
+                AgentRegistry registry,
+                LlmClient llm,
+                AgentConfigurationService configurations,
+                SystemAgentBroker systemAgentBroker) {
                 this.registry = registry;
                 this.llm = llm;
                 this.configurations = configurations;
+                this.systemAgentBroker = systemAgentBroker;
         }
 
 
         @GetMapping
         public List<AgentDefinition> list() {
                 return registry.allDefinitions();
+        }
+
+        @GetMapping("/system-capabilities")
+        public List<SystemAgentBroker.Descriptor> systemCapabilities() {
+                return systemAgentBroker.descriptors();
         }
 
         @PostMapping

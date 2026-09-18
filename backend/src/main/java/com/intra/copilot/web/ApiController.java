@@ -6,6 +6,7 @@ import com.intra.copilot.service.AgentRegistry;
 import com.intra.copilot.service.AttachmentService;
 import com.intra.copilot.service.ChatService;
 import com.intra.copilot.service.SystemAgentCatalog;
+import com.intra.copilot.service.SystemAgentBroker;
 import com.intra.copilot.service.auth.RequestContext;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.*;
@@ -27,6 +28,7 @@ public class ApiController {
     private final AgentRegistry registry;
     private final AttachmentService attachmentService;
     private final SystemAgentCatalog systemAgents;
+    private final SystemAgentBroker systemAgentBroker;
 
     public ApiController(
             ChatService c,
@@ -34,13 +36,15 @@ public class ApiController {
             RouteCopilotAgent routeCopilot,
             AgentRegistry registry,
             AttachmentService attachmentService,
-            SystemAgentCatalog systemAgents) {
+            SystemAgentCatalog systemAgents,
+            SystemAgentBroker systemAgentBroker) {
         chat = c;
         general = g;
         this.routeCopilot = routeCopilot;
         this.registry = registry;
         this.attachmentService = attachmentService;
         this.systemAgents = systemAgents;
+        this.systemAgentBroker = systemAgentBroker;
     }
 
     @GetMapping("/agents")
@@ -71,26 +75,15 @@ public class ApiController {
                 "browserProtocolVersion",
                 SystemAgentCatalog.BROWSER_PROTOCOL_VERSION,
                 "browserActions",
-                List.of(
-                        "CLICK",
-                        "FOCUS",
-                        "TYPE",
-                        "CLEAR",
-                        "SELECT",
-                        "CHECK",
-                        "UNCHECK",
-                        "HOVER",
-                        "SCROLL",
-                        "PRESS_KEY",
-                        "UPLOAD",
-                        "NAVIGATE",
-                        "SET_EDITOR",
-                        "WAIT_FOR",
-                        "VERIFY",
-                        "EXTRACT",
-                        "SNAPSHOT"),
+                SystemAgentCatalog.BROWSER_ACTIONS,
                 "browserTools",
-                SystemAgentCatalog.BROWSER_TOOL_IDS);
+                SystemAgentCatalog.BROWSER_TOOL_IDS,
+                "systemAgentProtocolVersion",
+                SystemAgentCatalog.SYSTEM_AGENT_PROTOCOL_VERSION,
+                "systemAgentDelegationTool",
+                SystemAgentCatalog.DELEGATION_TOOL_NAME,
+                "systemAgentCapabilities",
+                systemAgentBroker.descriptors());
     }
 
     @PostMapping("/sessions")

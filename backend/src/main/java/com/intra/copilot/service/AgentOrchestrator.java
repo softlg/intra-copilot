@@ -30,6 +30,7 @@ public class AgentOrchestrator {
     private final RouteCopilotAgent routeCopilot;
     private final LlmClient llm;
     private final TraceRecorder trace;
+    private final SystemAgentCatalog systemAgents;
     private final ObjectMapper json = new ObjectMapper();
 
     public AgentOrchestrator(
@@ -38,13 +39,15 @@ public class AgentOrchestrator {
             GeneralAgent general,
             RouteCopilotAgent routeCopilot,
             LlmClient llm,
-            TraceRecorder trace) {
+            TraceRecorder trace,
+            SystemAgentCatalog systemAgents) {
         this.registry = registry;
         this.rules = rules;
         this.general = general;
         this.routeCopilot = routeCopilot;
         this.llm = llm;
         this.trace = trace;
+        this.systemAgents = systemAgents;
     }
 
     public RoutingResult route(String text, String pageContext, List<Map<String, String>> history) {
@@ -503,6 +506,10 @@ public class AgentOrchestrator {
         String available =
                 registry.enabledDefinitions().stream()
                         .filter(definition -> List.of("GENERAL", "DOMAIN").contains(definition.getRole()))
+                        .filter(
+                                definition ->
+                                        !definition.isSystemAgent()
+                                                || systemAgents.isRoutable(definition.getId()))
                         .map(this::formatAgentOption)
                         .collect(Collectors.joining("\n"));
         List<String> sections = new ArrayList<>();

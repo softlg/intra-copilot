@@ -599,6 +599,8 @@ function ToolTraceView({
   browserActionName,
   browserActionReason,
   browserActionLabels,
+  systemAgentTaskName,
+  systemAgentGoalLabel,
 }: {
   trace: ToolTraceStep[];
   title: string;
@@ -609,6 +611,8 @@ function ToolTraceView({
   browserActionName: string;
   browserActionReason: string;
   browserActionLabels: Record<string, string>;
+  systemAgentTaskName: string;
+  systemAgentGoalLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   if (!trace.length) return null;
@@ -633,8 +637,13 @@ function ToolTraceView({
         <ol className="tool-trace-list">
           {trace.map((step, index) => {
             const displayName =
-              step.tool === "browser_action" ? browserActionName : step.tool;
+              step.tool === "browser_action"
+                ? browserActionName
+                : step.tool === "system_agent_task"
+                  ? systemAgentTaskName
+                  : step.tool;
             let displayArguments = step.arguments;
+            let displayResult = step.result;
             if (step.tool === "browser_action" && step.arguments) {
               try {
                 const parsed = JSON.parse(step.arguments);
@@ -644,6 +653,27 @@ function ToolTraceView({
               } catch {
                 /* Keep the original value when the trace is not valid JSON. */
               }
+            }
+            if (step.tool === "system_agent_task" && step.arguments) {
+              try {
+                const parsed = JSON.parse(step.arguments);
+                displayArguments = [
+                  parsed.capability,
+                  parsed.goal ? `${systemAgentGoalLabel}：${parsed.goal}` : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n");
+              } catch {
+                /* Keep the original value when the trace is not valid JSON. */
+              }
+            }
+            if (
+              step.tool === "system_agent_task" &&
+              displayResult?.startsWith("SYSTEM_AGENT_TASK_ERROR:")
+            ) {
+              displayResult = displayResult.slice(
+                "SYSTEM_AGENT_TASK_ERROR:".length,
+              );
             }
             return (
               <li key={index} className="tool-trace-step">
@@ -669,7 +699,7 @@ function ToolTraceView({
                 {step.result != null ? (
                   <pre className="tool-trace-result">
                     {resultLabel}
-                    {step.result}
+                    {displayResult}
                   </pre>
                 ) : (
                   <div className="tool-trace-pending">{resultLabel}…</div>
@@ -814,6 +844,8 @@ const translations = {
     toolTrace: "执行过程",
     browserActionName: "页面操作",
     browserActionReason: "原因",
+    systemAgentTaskName: "调用系统 Agent",
+    systemAgentGoalLabel: "目标",
     browserActionSetEditor: "写入代码编辑器",
     browserActionClick: "点击页面按钮",
     browserActionFill: "填写输入框",
@@ -1017,6 +1049,8 @@ const translations = {
     toolTrace: "Tool calls",
     browserActionName: "Page action",
     browserActionReason: "Reason",
+    systemAgentTaskName: "Call system Agent",
+    systemAgentGoalLabel: "Goal",
     browserActionSetEditor: "Write to code editor",
     browserActionClick: "Click page button",
     browserActionFill: "Fill input",
@@ -3483,6 +3517,8 @@ function App() {
                         FILL: t.browserActionFill,
                         NAVIGATE: t.browserActionNavigate,
                       }}
+                      systemAgentTaskName={t.systemAgentTaskName}
+                      systemAgentGoalLabel={t.systemAgentGoalLabel}
                     />
                   ) : null}
                   {assistant &&
