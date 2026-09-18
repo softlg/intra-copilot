@@ -4,6 +4,7 @@ import { Dropdown } from "../components/Dropdown";
 import { EmptyState } from "../components/EmptyState";
 import { FieldHint } from "../components/FieldHint";
 import { Icon } from "../components/Icon";
+import { ResourceCardControls } from "../components/ResourceCardControls";
 import { Skeleton } from "../components/Skeleton";
 import { StatusBadge, type StatusKind } from "../components/StatusBadge";
 import { toast } from "../components/Toast";
@@ -549,7 +550,6 @@ export function SkillsPage({
         ) : (
           <div className="grid">
             {visibleSkills.map((skill) => {
-              const badge = lifecycleBadge(t, skill);
               return (
                 <article
                   className={`skill-card ${skill.enabled ? "is-live" : "is-disabled"}`}
@@ -559,18 +559,46 @@ export function SkillsPage({
                   <div className="skill-card-header">
                     <div className="skill-card-title">
                       <strong>{skill.name}</strong>
-                      <div className="skill-card-badges">
-                        <StatusBadge kind={badge.kind}>
-                          {badge.label}
-                        </StatusBadge>
-                        {skill.status === "DRAFT" &&
-                          skill.publishedVersion > 0 && (
-                            <StatusBadge kind="warn">
-                              {t.skillHasDraft}
+                      {(skill.publishedVersion <= 0 ||
+                        skill.status === "DRAFT") && (
+                        <div className="skill-card-badges">
+                          {skill.publishedVersion <= 0 && (
+                            <StatusBadge kind="neutral">
+                              {t.skillUnpublished}
                             </StatusBadge>
                           )}
-                      </div>
+                          {skill.status === "DRAFT" &&
+                            skill.publishedVersion > 0 && (
+                              <StatusBadge kind="warn">
+                                {t.skillHasDraft}
+                              </StatusBadge>
+                            )}
+                        </div>
+                      )}
                     </div>
+                    <ResourceCardControls
+                      enabled={skill.enabled}
+                      busy={actionId === skill.id}
+                      enableLabel={
+                        skill.publishedVersion > 0
+                          ? t.enable
+                          : t.skillPublishBeforeEnable
+                      }
+                      disableLabel={t.stop}
+                      deleteLabel={t.deleteResource}
+                      deleteDisabledHint={
+                        skill.agentCount > 0
+                          ? t.skillDeleteReferenced
+                          : t.deleteDisabledEnabled
+                      }
+                      toggleDisabled={
+                        !skill.enabled && skill.publishedVersion <= 0
+                      }
+                      toggleDisabledHint={t.skillPublishBeforeEnable}
+                      deleteDisabled={skill.agentCount > 0}
+                      onToggle={() => void toggleSkill(skill)}
+                      onDelete={() => deleteSkill(skill)}
+                    />
                   </div>
                   <p className="skill-card-description">
                     {skill.description || t.noDescription}
@@ -640,24 +668,6 @@ export function SkillsPage({
                           label: t.history,
                           onSelect: () => openEditor(skill),
                           disabled: actionId === skill.id,
-                        },
-                        {
-                          key: "toggle",
-                          label: skill.enabled ? t.stop : t.enable,
-                          onSelect: () => void toggleSkill(skill),
-                          disabled:
-                            actionId === skill.id ||
-                            (!skill.enabled && skill.publishedVersion <= 0),
-                        },
-                        {
-                          key: "delete",
-                          label: t.deleteResource,
-                          onSelect: () => deleteSkill(skill),
-                          disabled:
-                            actionId === skill.id ||
-                            skill.enabled ||
-                            skill.agentCount > 0,
-                          tone: "danger" as const,
                         },
                       ]}
                     />
