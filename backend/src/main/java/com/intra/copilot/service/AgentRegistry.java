@@ -41,7 +41,8 @@ public class AgentRegistry {
     }
 
     public List<AgentDefinition> enabledDefinitions() {
-        return publishedDefinitions().stream()
+        return publishedDefinitions()
+                .stream()
                 .sorted(
                         java.util.Comparator.comparingInt(AgentDefinition::getPriority)
                                 .thenComparing(AgentDefinition::getDisplayName))
@@ -52,7 +53,7 @@ public class AgentRegistry {
         long now = System.currentTimeMillis();
         Cache entry = allCache.get();
         if (entry.value != null && now - entry.at < TTL_MS) {
-            return entry.value;
+            return entry.value.stream().map(AgentDefinition::copy).toList();
         }
         List<AgentDefinition> value = definitions.findAll();
         Map<String, String> parentByChild =
@@ -70,8 +71,9 @@ public class AgentRegistry {
                                 "SUB".equals(definition.getRole())
                                         ? parentByChild.get(definition.getId())
                                         : null));
-        allCache.set(new Cache(value, now));
-        return value;
+        List<AgentDefinition> cached = value.stream().map(AgentDefinition::copy).toList();
+        allCache.set(new Cache(cached, now));
+        return cached.stream().map(AgentDefinition::copy).toList();
     }
 
     public Optional<Agent> findEnabled(String id) {
@@ -86,16 +88,18 @@ public class AgentRegistry {
         long now = System.currentTimeMillis();
         Cache entry = publishedCache.get();
         if (entry.value != null && now - entry.at < TTL_MS) {
-            return entry.value;
+            return entry.value.stream().map(AgentDefinition::copy).toList();
         }
         List<AgentDefinition> values =
-                allDefinitions().stream()
+                allDefinitions()
+                        .stream()
                         .filter(AgentDefinition::isEnabled)
                         .map(this::publishedDefinition)
                         .flatMap(Optional::stream)
                         .toList();
-        publishedCache.set(new Cache(values, now));
-        return values;
+        List<AgentDefinition> cached = values.stream().map(AgentDefinition::copy).toList();
+        publishedCache.set(new Cache(cached, now));
+        return cached.stream().map(AgentDefinition::copy).toList();
     }
 
     /**

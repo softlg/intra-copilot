@@ -19,6 +19,14 @@ export interface AuthBootstrap {
   deviceId: string;
 }
 
+export function apiOriginPattern(apiBase: string): string {
+  return `${new URL(apiBase).origin}/*`;
+}
+
+export async function hasApiHostPermission(apiBase: string): Promise<boolean> {
+  return chrome.permissions.contains({ origins: [apiOriginPattern(apiBase)] });
+}
+
 // 导出供调试使用
 export const SOURCE_NAME = SOURCE;
 
@@ -178,6 +186,9 @@ async function registerDevice(
  * 返回 authedFetch 用于后续所有受保护请求。
  */
 export async function bootstrapAuth(apiBase: string): Promise<AuthBootstrap> {
+  if (!(await hasApiHostPermission(apiBase))) {
+    throw new Error(`缺少后端访问权限：${new URL(apiBase).origin}`);
+  }
   const storedDeviceId = await chrome.storage.local.get(DEVICE_ID_KEY);
   const requestedDeviceId =
     typeof storedDeviceId[DEVICE_ID_KEY] === "string" &&

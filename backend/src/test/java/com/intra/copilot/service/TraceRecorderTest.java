@@ -20,7 +20,11 @@ class TraceRecorderTest {
         when(events.save(org.mockito.ArgumentMatchers.any(AgentInvocationEvent.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         TraceRecorder recorder =
-                new TraceRecorder(events, new ObjectMapper(), new SimpleMeterRegistry());
+                new TraceRecorder(
+                        events,
+                        mock(TraceEventWriter.class),
+                        new ObjectMapper(),
+                        new SimpleMeterRegistry());
 
         TraceContext.open("trace-1", "turn-1", 1, "request-1", "invocation-1");
         AgentInvocationEvent first;

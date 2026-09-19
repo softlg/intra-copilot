@@ -16,8 +16,11 @@ import com.intra.copilot.service.parser.DocumentParserRegistry;
 import com.intra.copilot.storage.DocumentStorage;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.security.MessageDigest;
+import java.security.DigestInputStream;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -67,6 +70,8 @@ public class KnowledgeService implements KnowledgeRetriever {
     private final DocumentParserRegistry parsers;
     private final IndexingJobService jobService;
     private final KnowledgeAuditService audit;
+    private final StorageDeletionService storageDeletion;
+    private final KnowledgeSearchExecutor searchExecutor;
     private final long maxDocumentBytes;
     private final double defaultSimilarityThreshold;
     private final int defaultTopK;
@@ -80,6 +85,8 @@ public class KnowledgeService implements KnowledgeRetriever {
             KnowledgeDocumentAssetRepository assetRecords, DocumentStorage storage, JdbcTemplate jdbc, EmbeddingClient embeddings,
             EmbeddingProfileService embeddingProfiles, EmbeddingSchema schema, DocumentParserRegistry parsers,
             IndexingJobService jobService, KnowledgeAuditService audit,
+            StorageDeletionService storageDeletion,
+            KnowledgeSearchExecutor searchExecutor,
             PlatformTransactionManager transactionManager,
             @Value("${rag.max-document-bytes:104857600}") long maxDocumentBytes,
             @Value("${rag.similarity-threshold:0.50}") double similarityThreshold,
@@ -100,6 +107,8 @@ public class KnowledgeService implements KnowledgeRetriever {
         this.parsers = parsers;
         this.jobService = jobService;
         this.audit = audit;
+        this.storageDeletion = storageDeletion;
+        this.searchExecutor = searchExecutor;
         this.maxDocumentBytes = Math.max(1, maxDocumentBytes);
         this.defaultSimilarityThreshold = clamp(similarityThreshold, 0, 1);
         this.defaultTopK = clamp(topK, 1, 20);
@@ -374,12 +383,10 @@ public class KnowledgeService implements KnowledgeRetriever {
     /**
      * Stores the upload and queues indexing instead of running it inline.
      */
-    @Transactional
     public KnowledgeDocument upload(String baseId, MultipartFile file) throws IOException {
         KnowledgeBase base = bases.findById(baseId).orElseThrow(() -> new IllegalArgumentException("知识库不存在"));
         if (file == null || file.isEmpty()) throw new IllegalArgumentException("上传文件不能为空");
         if (file.getSize() > maxDocumentBytes) throw new IllegalArgumentException("文件大小超过限制（最大 " + maxDocumentBytes + " 字节）");
-        byte[] bytes = file.getBytes();
         String name = originalName(file);
         DocumentParser parser;
         try {
@@ -391,8 +398,10 @@ public class KnowledgeService implements KnowledgeRetriever {
             throw error;
         }
         validateMediaType(name, file.getContentType());
-        validateContentSignature(parser.id(), name, bytes);
-        String hash = sha256(bytes);
+        StagedUpload staged = stageUpload(file);
+        try {
+            validateContentSignature(parser.id(), name, staged.header());
+            String hash = staged.sha256();
         if (documents.findByKnowledgeBaseIdAndFileHash(base.getId(), hash).isPresent()) {
             throw new IllegalArgumentException("文件已存在：" + name);
         }
@@ -402,36 +411,50 @@ public class KnowledgeService implements KnowledgeRetriever {
         doc.setFilename(name);
         doc.setMediaType(file.getContentType());
         doc.setFileHash(hash);
-        doc.setSizeBytes(file.getSize());
+        doc.setSizeBytes(staged.byteSize());
         doc.setParser(parser.id());
         doc.setChunkStrategy(base.getChunkStrategy());
         doc.setStatus(STATUS_PENDING);
-        doc = documents.save(doc);
-
-        DocumentStorage.StoredObject stored = storage.store(base.getId(), doc.getId(), name, bytes);
+            DocumentStorage.StoredObject stored;
+            try (InputStream input = java.nio.file.Files.newInputStream(staged.path())) {
+                stored =
+                        storage.store(
+                                base.getId(), doc.getId(), name, input, staged.byteSize());
+            }
         KnowledgeDocumentStorage record = new KnowledgeDocumentStorage();
         record.setDocumentId(doc.getId());
         record.setStorageBackend(storage.backend());
         record.setStorageKey(stored.key());
         record.setSha256(stored.sha256());
         record.setByteSize(stored.byteSize());
-        try {
-            storageRecords.save(record);
-        } catch (RuntimeException error) {
             try {
-                storage.delete(stored.key());
-            } catch (IOException ignored) {
+                KnowledgeDocument pending = doc;
+                return transaction.execute(
+                        status -> {
+                            KnowledgeDocument saved = documents.save(pending);
+                            storageRecords.save(record);
+                            jobService.enqueueParse(base.getId(), saved.getId());
+                            saved.setStatus(STATUS_QUEUED);
+                            saved.touch();
+                            saved = documents.save(saved);
+                            audit.record(
+                                    baseId,
+                                    saved.getId(),
+                                    com.intra.copilot.model.KnowledgeAuditLog.ACTION_UPLOAD,
+                                    name + " (" + staged.byteSize() + " bytes)");
+                            return saved;
+                        });
+            } catch (RuntimeException error) {
+                try {
+                    storageDeletion.enqueue(storage.backend(), stored.key());
+                } catch (RuntimeException cleanupError) {
+                    error.addSuppressed(cleanupError);
+                }
+                throw error;
             }
-            throw error;
+        } finally {
+            java.nio.file.Files.deleteIfExists(staged.path());
         }
-
-        jobService.enqueueParse(base.getId(), doc.getId());
-        doc.setStatus(STATUS_QUEUED);
-        doc.touch();
-        doc = documents.save(doc);
-        audit.record(baseId, doc.getId(), com.intra.copilot.model.KnowledgeAuditLog.ACTION_UPLOAD,
-                name + " (" + file.getSize() + " bytes)");
-        return doc;
     }
 
     /** Batch upload that reports per-file failures instead of aborting the whole batch. */
@@ -441,15 +464,7 @@ public class KnowledgeService implements KnowledgeRetriever {
         List<UploadFailure> failures = new ArrayList<>();
         for (MultipartFile file : files) {
             try {
-                KnowledgeDocument saved =
-                        transaction.execute(
-                                status -> {
-                                    try {
-                                        return upload(baseId, file);
-                                    } catch (IOException error) {
-                                        throw new UncheckedIOException(error);
-                                    }
-                                });
+                KnowledgeDocument saved = upload(baseId, file);
                 uploaded.add(saved);
             } catch (Exception error) {
                 Throwable cause =
@@ -503,19 +518,68 @@ public class KnowledgeService implements KnowledgeRetriever {
             String query, List<String> ids, Integer requestedTopK, RetrievalOverrides overrides) {
         if (query == null || query.isBlank() || ids == null || ids.isEmpty()) return List.of();
         int requestedLimit = clamp(requestedTopK == null ? defaultTopK : requestedTopK, 1, 20);
-        List<ScoredList> scoredLists = new ArrayList<>();
-        Map<String, List<Double>> queryVectors = new HashMap<>();
-        for (String id : ids) {
+        Map<String, String> queryVectors = new java.util.concurrent.ConcurrentHashMap<>();
+        List<ScoredList> scoredLists =
+                searchExecutor
+                        .mapOrdered(ids, id -> scoreBase(id, query, overrides, queryVectors))
+                        .stream()
+                        .filter(java.util.Objects::nonNull)
+                        .toList();
+        if (scoredLists.isEmpty()) return List.of();
+        if (scoredLists.size() == 1) {
+            ScoredList only = scoredLists.get(0);
+            List<Result> out = new ArrayList<>();
+            int limit = requestedTopK == null ? only.config().topK() : requestedLimit;
+            for (int i = 0; i < only.candidates().size() && i < limit; i++) {
+                out.add(only.candidates().get(i).toResult(only.config(), i + 1));
+            }
+            return out;
+        }
+
+        List<FusedCandidate> fused = new ArrayList<>();
+        for (ScoredList list : scoredLists) {
+            double min = list.candidates().stream().mapToDouble(Candidate::score).min().orElse(0);
+            double max = list.candidates().stream().mapToDouble(Candidate::score).max().orElse(0);
+            for (int index = 0; index < list.candidates().size(); index++) {
+                Candidate candidate = list.candidates().get(index);
+                double normalized = max > min ? (candidate.score() - min) / (max - min) : 1;
+                double rankScore = 1.0 / (index + 1);
+                fused.add(new FusedCandidate(candidate, list.config(), 0.8 * normalized + 0.2 * rankScore));
+            }
+        }
+        fused.sort(Comparator.comparingDouble(FusedCandidate::fusionScore).reversed());
+        List<Result> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (FusedCandidate item : fused) {
+            String key = item.candidate().chunkId() == null
+                    ? item.candidate().documentId() + "|" + item.candidate().pageNumber() + "|" + item.candidate().content()
+                    : item.candidate().chunkId();
+            if (!seen.add(key)) continue;
+            out.add(item.candidate().toResult(item.config(), out.size() + 1));
+            if (out.size() >= requestedLimit) break;
+        }
+        return out;
+    }
+
+
+    private ScoredList scoreBase(
+            String id,
+            String query,
+            RetrievalOverrides overrides,
+            Map<String, String> queryVectors) {
+
             KnowledgeBase base = bases.findById(id).orElse(null);
-            if (base == null || !base.isEnabled()) continue;
+            if (base == null || !base.isEnabled()) return null;
             RetrievalConfig config = resolveRetrievalConfig(base, overrides);
             EmbeddingProfile profile = embeddingProfiles.resolve(base);
-            if (!schema.supports(profile.getDimension())) continue;
+            if (!schema.supports(profile.getDimension())) return null;
             String table = schema.tableFor(profile.getDimension());
             String cast = schema.castFor(profile.getDimension());
             String vectorKey = profile.getId() + "|" + profile.getModel() + "|" + profile.getDimension();
-            String vector = EmbeddingClient.literal(queryVectors.computeIfAbsent(
-                    vectorKey, key -> embeddings.embed(query, profile)));
+            String vector =
+                    queryVectors.computeIfAbsent(
+                            vectorKey,
+                            ignored -> EmbeddingClient.literal(embeddings.embed(query, profile)));
             int candidateLimit = Math.min(200, Math.max(30, config.topK() * 6));
             String sql = "SELECT c.id AS chunk_id,c.document_id,d.filename,c.page_number,c.chunk_index,"
                     + "c.section_path,c.block_type,c.token_count,c.content,"
@@ -583,62 +647,17 @@ public class KnowledgeService implements KnowledgeRetriever {
                             .toList();
             List<Candidate> selected = selectCandidates(ranked, config);
             selected = expandCandidates(id, table, profile, selected);
-            scoredLists.add(new ScoredList(config, selected));
-        }
-        if (scoredLists.isEmpty()) return List.of();
-        if (scoredLists.size() == 1) {
-            ScoredList only = scoredLists.get(0);
-            List<Result> out = new ArrayList<>();
-            int limit = requestedTopK == null ? only.config().topK() : requestedLimit;
-            for (int i = 0; i < only.candidates().size() && i < limit; i++) {
-                out.add(only.candidates().get(i).toResult(only.config(), i + 1));
-            }
-            return out;
-        }
-
-        List<FusedCandidate> fused = new ArrayList<>();
-        for (ScoredList list : scoredLists) {
-            double min = list.candidates().stream().mapToDouble(Candidate::score).min().orElse(0);
-            double max = list.candidates().stream().mapToDouble(Candidate::score).max().orElse(0);
-            for (int index = 0; index < list.candidates().size(); index++) {
-                Candidate candidate = list.candidates().get(index);
-                double normalized = max > min ? (candidate.score() - min) / (max - min) : 1;
-                double rankScore = 1.0 / (index + 1);
-                fused.add(new FusedCandidate(candidate, list.config(), 0.8 * normalized + 0.2 * rankScore));
-            }
-        }
-        fused.sort(Comparator.comparingDouble(FusedCandidate::fusionScore).reversed());
-        List<Result> out = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (FusedCandidate item : fused) {
-            String key = item.candidate().chunkId() == null
-                    ? item.candidate().documentId() + "|" + item.candidate().pageNumber() + "|" + item.candidate().content()
-                    : item.candidate().chunkId();
-            if (!seen.add(key)) continue;
-            out.add(item.candidate().toResult(item.config(), out.size() + 1));
-            if (out.size() >= requestedLimit) break;
-        }
-        return out;
+            return new ScoredList(config, selected);
     }
 
     private void deleteStoredBytes(String documentId) {
         for (com.intra.copilot.model.KnowledgeDocumentAsset asset :
                 assetRecords.findAllByDocumentId(documentId)) {
-            if (asset.getStorageKey() == null || asset.getStorageKey().isBlank()) continue;
-            try {
-                storage.delete(asset.getStorageKey());
-            } catch (IOException ignored) {
-                // A missing derived asset must not block deletion of the source document.
-            }
+            storageDeletion.enqueue(asset.getStorageBackend(), asset.getStorageKey());
         }
-        storageRecords.findByDocumentId(documentId).ifPresent(record -> {
-            try {
-                storage.delete(record.getStorageKey());
-            } catch (IOException e) {
-                // A missing file must not block the delete; the row goes away with the document.
-            }
-            storageRecords.deleteById(documentId);
-        });
+        storageRecords
+                .findByDocumentId(documentId)
+                .ifPresent(record -> storageDeletion.enqueue(record.getStorageBackend(), record.getStorageKey()));
     }
 
     private long missingStorageCount(String baseId, List<KnowledgeDocument> docs) {
@@ -647,7 +666,7 @@ public class KnowledgeService implements KnowledgeRetriever {
             Optional<KnowledgeDocumentStorage> record = storageRecords.findByDocumentId(doc.getId());
             if (record.isEmpty()) continue;
             try {
-                storage.load(record.get().getStorageKey());
+                if (!storage.exists(record.get().getStorageKey())) missing++;
             } catch (Exception e) {
                 missing++;
             }
@@ -743,6 +762,47 @@ public class KnowledgeService implements KnowledgeRetriever {
             throw new IllegalStateException("无法计算文件指纹", e);
         }
     }
+
+    private StagedUpload stageUpload(MultipartFile file) throws IOException {
+        java.nio.file.Path temp = java.nio.file.Files.createTempFile("intra-copilot-kb-", ".upload");
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (Exception error) {
+            throw new IllegalStateException("无法计算文件指纹", error);
+        }
+        byte[] header = new byte[16];
+        int headerLength = 0;
+        long total = 0;
+        try (InputStream source = file.getInputStream();
+                DigestInputStream input = new DigestInputStream(source, digest);
+                OutputStream output = java.nio.file.Files.newOutputStream(temp)) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                if (read == 0) continue;
+                if (headerLength < header.length) {
+                    int copy = Math.min(read, header.length - headerLength);
+                    System.arraycopy(buffer, 0, header, headerLength, copy);
+                    headerLength += copy;
+                }
+                output.write(buffer, 0, read);
+                total += read;
+            }
+        } catch (IOException error) {
+            java.nio.file.Files.deleteIfExists(temp);
+            throw error;
+        }
+        byte[] actualHeader = java.util.Arrays.copyOf(header, headerLength);
+        return new StagedUpload(
+                temp,
+                actualHeader,
+                java.util.HexFormat.of().formatHex(digest.digest()),
+                total);
+    }
+
+    private record StagedUpload(
+            java.nio.file.Path path, byte[] header, String sha256, long byteSize) {}
 
     private void validateContentSignature(String parserId, String filename, byte[] bytes) {
         if ("pdf".equals(parserId)) {

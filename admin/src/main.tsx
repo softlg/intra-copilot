@@ -86,8 +86,12 @@ import {
   parseRuleConfig,
   type HookRuleType,
 } from "./lib/hooks";
+import { AdminSidebar } from "./components/AdminSidebar";
 import { SystemAgentHeroCard } from "./components/SystemAgentHeroCard";
 import { SystemAgentDashboard } from "./components/SystemAgentDashboard";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "./app/queryClient";
+import { useAdminPreferences } from "./app/useAdminPreferences";
 
 const RatingsPage = lazy(() =>
   import("./pages/RatingsPage").then((module) => ({
@@ -250,19 +254,6 @@ function tabFromLocation(): string {
   return ADMIN_TABS.has(value) ? value : "agents";
 }
 
-const MIN_PAGE_ZOOM = 75;
-const MAX_PAGE_ZOOM = 150;
-const PAGE_ZOOM_STEP = 10;
-const PAGE_ZOOM_STORAGE_KEY = "admin-page-zoom";
-
-function clampPageZoom(value: number) {
-  if (!Number.isFinite(value)) return 100;
-  return Math.min(
-    MAX_PAGE_ZOOM,
-    Math.max(MIN_PAGE_ZOOM, Math.round(value / 5) * 5),
-  );
-}
-
 function AdminApp({
   username,
   role,
@@ -272,19 +263,20 @@ function AdminApp({
   role?: string;
   onLogout: () => void;
 }) {
-  const [language, setLanguage] = useState<Language>(() => {
-    return localStorage.getItem("admin-language") === "en" ? "en" : "zh";
-  });
-  const [theme, setTheme] = useState<Theme>(() => {
-    return localStorage.getItem("admin-theme") === "light" ? "light" : "dark";
-  });
-  const [pageZoom, setPageZoom] = useState(() => {
-    const stored = localStorage.getItem(PAGE_ZOOM_STORAGE_KEY);
-    return stored === null ? 100 : clampPageZoom(Number(stored));
-  });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    () => localStorage.getItem("admin-sidebar-collapsed") === "true",
-  );
+  const {
+    language,
+    setLanguage,
+    theme,
+    setTheme,
+    pageZoom,
+    setPageZoom,
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    clampPageZoom,
+    pageZoomMin,
+    pageZoomMax,
+    pageZoomStep,
+  } = useAdminPreferences();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
@@ -565,62 +557,6 @@ function AdminApp({
   const canManageAdmins = role === "OWNER" || role === "ADMIN";
 
   const normalizedName = (value: string) => value.trim().toLocaleLowerCase();
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem("admin-theme", theme);
-  }, [theme]);
-
-  useEffect(() => {
-    localStorage.setItem("admin-language", language);
-  }, [language]);
-
-  useEffect(() => {
-    document.documentElement.style.setProperty(
-      "--admin-page-zoom",
-      String(pageZoom / 100),
-    );
-    const frame = window.requestAnimationFrame(() => {
-      window.dispatchEvent(new Event("admin:page-zoom-change"));
-    });
-    localStorage.setItem(PAGE_ZOOM_STORAGE_KEY, String(pageZoom));
-    return () => window.cancelAnimationFrame(frame);
-  }, [pageZoom]);
-
-  useEffect(() => {
-    return () => {
-      document.documentElement.style.removeProperty("--admin-page-zoom");
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleZoomShortcut = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-      const increase =
-        event.key === "+" || event.key === "=" || event.code === "NumpadAdd";
-      const decrease =
-        event.key === "-" ||
-        event.key === "_" ||
-        event.code === "NumpadSubtract";
-      const reset = event.key === "0" || event.code === "Numpad0";
-      if (!increase && !decrease && !reset) return;
-
-      event.preventDefault();
-      if (reset) {
-        setPageZoom(100);
-        return;
-      }
-      setPageZoom((current) =>
-        clampPageZoom(current + (increase ? PAGE_ZOOM_STEP : -PAGE_ZOOM_STEP)),
-      );
-    };
-    window.addEventListener("keydown", handleZoomShortcut);
-    return () => window.removeEventListener("keydown", handleZoomShortcut);
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("admin-sidebar-collapsed", String(sidebarCollapsed));
-  }, [sidebarCollapsed]);
 
   useKeyboardShortcuts({
     bindings: [
@@ -3045,121 +2981,17 @@ function AdminApp({
   return (
     <div className="shell">
       <ToastContainer />
-      <aside className={sidebarCollapsed ? "sidebar-collapsed" : undefined}>
-        <div className="sidebar-header">
-          <div className="sidebar-brand">
-            <h1>{t.title}</h1>
-            {!sidebarCollapsed && <p className="muted">{t.subtitle}</p>}
-          </div>
-          <button
-            className="sidebar-toggle"
-            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-            aria-label={sidebarCollapsed ? t.expandSidebar : t.collapseSidebar}
-            title={sidebarCollapsed ? t.expandSidebar : t.collapseSidebar}
-          >
-            <Icon
-              name={sidebarCollapsed ? "chevron-right" : "chevron-left"}
-              size={16}
-            />
-          </button>
-        </div>
-        <div className="nav-group">
-          <div className="nav-row">
-            <button
-              className={tab === "agents" ? "nav active" : "nav"}
-              onClick={() => {
-                if (tab === "agents") {
-                  setAgentMenuOpen((open) => !open);
-                } else {
-                  setTab("agents");
-                  setAgentMenuOpen(true);
-                }
-              }}
-              title={sidebarCollapsed ? t.agents : undefined}
-              aria-label={t.agents}
-            >
-              <span className="nav-icon" aria-hidden="true">
-                <Icon name="agents" size={16} />
-              </span>
-              {!sidebarCollapsed && <span>{t.agents}</span>}
-            </button>
-            {!sidebarCollapsed && (
-              <button
-                className="nav-caret"
-                onClick={() => setAgentMenuOpen((open) => !open)}
-                aria-expanded={agentMenuOpen}
-                aria-label={t.agentRole}
-                title={t.agentRole}
-              >
-                <Icon
-                  name={agentMenuOpen ? "chevron-down" : "chevron-right"}
-                  size={12}
-                />
-              </button>
-            )}
-          </div>
-          {!sidebarCollapsed && agentMenuOpen && (
-            <div className="nav-sub">
-              {(
-                [
-                  ["agents-general", t.generalAgentPage],
-                  ["agents-domain", t.domainAgentPage],
-                  ["agents-sub", t.subAgentPage],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  className={
-                    tab === key ? "nav nav-sub-item active" : "nav nav-sub-item"
-                  }
-                  onClick={() => setTab(key)}
-                  aria-label={label}
-                  key={key}
-                >
-                  <span>{label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        {[
-          ["knowledge", "knowledge"],
-          ["skills", "sparkle"],
-          ["mcp-servers", "mcp"],
-          ["tools", "tool"],
-          ["hooks", "flag"],
-          ["ratings", "star"],
-          ["conversation-logs", "chat"],
-          ["router", "router"],
-          ["admin-users", "settings"],
-        ].map(([key, icon]) => {
-          if (key === "admin-users" && !canManageAdmins) return null;
-          const labels: Record<string, string> = {
-            knowledge: t.knowledge,
-            "mcp-servers": t.mcpServers,
-            tools: t.toolsMenu,
-            skills: t.skillsMenu,
-            hooks: t.hooksMenu,
-            ratings: t.agentRatings,
-            "conversation-logs": t.conversationLogs,
-            router: t.router,
-            "admin-users": language === "zh" ? "管理员" : "Administrators",
-          };
-          return (
-            <button
-              className={tab === key ? "nav active" : "nav"}
-              onClick={() => setTab(key)}
-              title={sidebarCollapsed ? labels[key] : undefined}
-              aria-label={labels[key]}
-              key={key}
-            >
-              <span className="nav-icon" aria-hidden="true">
-                <Icon name={icon as IconName} size={16} />
-              </span>
-              {!sidebarCollapsed && <span>{labels[key]}</span>}
-            </button>
-          );
-        })}
-      </aside>
+      <AdminSidebar
+        tab={tab}
+        collapsed={sidebarCollapsed}
+        agentMenuOpen={agentMenuOpen}
+        language={language}
+        t={t}
+        canManageAdmins={canManageAdmins}
+        onSelect={setTab}
+        onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+        onToggleAgentMenu={() => setAgentMenuOpen((value) => !value)}
+      />
 
       <div className="workspace">
         <main ref={mainContentRef}>
@@ -3287,10 +3119,10 @@ function AdminApp({
                         className="settings-zoom-button"
                         onClick={() =>
                           setPageZoom((current) =>
-                            clampPageZoom(current - PAGE_ZOOM_STEP),
+                            clampPageZoom(current - pageZoomStep),
                           )
                         }
-                        disabled={pageZoom <= MIN_PAGE_ZOOM}
+                        disabled={pageZoom <= pageZoomMin}
                         aria-label={language === "zh" ? "缩小页面" : "Zoom out"}
                         title={language === "zh" ? "缩小页面" : "Zoom out"}
                       >
@@ -3316,10 +3148,10 @@ function AdminApp({
                         className="settings-zoom-button"
                         onClick={() =>
                           setPageZoom((current) =>
-                            clampPageZoom(current + PAGE_ZOOM_STEP),
+                            clampPageZoom(current + pageZoomStep),
                           )
                         }
-                        disabled={pageZoom >= MAX_PAGE_ZOOM}
+                        disabled={pageZoom >= pageZoomMax}
                         aria-label={language === "zh" ? "放大页面" : "Zoom in"}
                         title={language === "zh" ? "放大页面" : "Zoom in"}
                       >
@@ -5678,6 +5510,8 @@ function App() {
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
   </React.StrictMode>,
 );

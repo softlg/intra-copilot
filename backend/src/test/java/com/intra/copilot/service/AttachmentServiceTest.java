@@ -36,8 +36,7 @@ class AttachmentServiceTest {
         pending.setOwnerSource("extension");
         pending.setOwnerUserId("user-a");
         pending.setStatus("PENDING");
-        when(attachments.findOwned("AT-1", "extension", "user-a"))
-                .thenReturn(Optional.of(pending));
+        when(attachments.findOwned("AT-1", "extension", "user-a")).thenReturn(Optional.of(pending));
         when(attachments.attachOwnedPending("AT-1", "MS-1", "extension", "user-a"))
                 .thenReturn(true);
         AttachmentService service =

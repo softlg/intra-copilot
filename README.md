@@ -59,6 +59,12 @@ $env:ADMIN_SESSION_SECRET="long-random-value"
 
 插件设备注册使用一次性 challenge 和 RSA 私钥签名。首次注册由服务端生成 `deviceId`；后续公钥轮换必须提供旧私钥签名，不能仅凭已知的 `deviceId` 覆盖公钥。
 
+管理员登录、设备 challenge 和设备注册使用数据库级固定窗口限流，多实例共享同一额度。知识库和聊天附件使用临时文件与流式对象存储，不把大文件整体读入 JVM 堆。
+
+对象存储删除通过 outbox 重试；Trace 事件使用有界队列批量写入；聊天会话使用数据库运行租约，避免同一会话在多实例中并发生成。
+
+STDIO MCP 使用数据库会话租约，只在持有租约的后端实例启动子进程；多实例环境需要为同一 MCP 会话保持粘性路由。
+
 OpenAPI 与 Swagger UI 默认关闭。需要生成客户端或本地调试时设置 `OPENAPI_ENABLED=true`，接口位于 `/api-docs` 和 `/swagger-ui.html`。
 
 ### 管理 API
@@ -69,6 +75,7 @@ OpenAPI 与 Swagger UI 默认关闭。需要生成客户端或本地调试时设
 - `/api/v1/admin/knowledge-bases`：知识库、文档上传、重建索引和删除。支持 Markdown、TXT、PDF、DOCX、XLS/XLSX、PPTX、CSV/TSV、HTML；图片和扫描 PDF 需要 OCR。
 - `/api/v1/admin/tools`、`/api/v1/admin/skills`：注册 HTTP 工具和 Skill。HTTP 工具默认仅允许 HTTPS 公网地址；`TOOLS_ALLOW_HTTP=true` 可放行 HTTP，`TOOLS_ALLOW_PRIVATE_NETWORK=true` 可显式放行内网或本机地址。DNS 解析在连接阶段再次校验，并拒绝云元数据地址和重定向。
 - `/api/v1/admin/mcp-servers`：MCP 服务注册、编辑、启停、删除和健康检查；`POST /{id}/health` 会执行 MCP `initialize` 与 `tools/list`，缓存接口数量、能力和接口详情。
+- MCP 写操作至少需要 `ADMIN`。启用 STDIO 时还必须通过 `MCP_STDIO_ALLOWED_COMMANDS` 配置命令白名单，并可设置 `MCP_STDIO_WORKING_DIRECTORY` 限制工作目录。
 - `POST /api/v1/admin/router/test`：按插件请求协议测试系统 Agent 路由，支持页面权限、图片附件和领域/子 Agent 委派链路。
 - `POST /api/v1/admin/router/attachments`：上传路由测试图片并返回管理端预览地址。
 

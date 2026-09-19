@@ -11,6 +11,7 @@ import com.intra.copilot.service.auth.RequestContext;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.*;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -185,10 +186,17 @@ public class ApiController {
         ByteArrayResource resource = new ByteArrayResource(bytes);
         String contentType =
                 stored.contentType() == null ? "application/octet-stream" : stored.contentType();
-        String disposition = "inline; filename=\"" + stored.filename().replace("\"", "") + "\"";
+        String disposition =
+                (stored.safeInline()
+                                ? ContentDisposition.inline()
+                                : ContentDisposition.attachment())
+                        .filename(stored.filename(), java.nio.charset.StandardCharsets.UTF_8)
+                        .build()
+                        .toString();
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, contentType)
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
+                .header("X-Content-Type-Options", "nosniff")
                 .contentLength(bytes.length)
                 .body(resource);
     }

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { bootstrapAuth, type AuthedFetch } from "./auth";
+import { apiOriginPattern, bootstrapAuth, type AuthedFetch } from "./auth";
 import {
   AssistantMarkdown,
   isDefaultSessionTitle,
@@ -13,6 +13,12 @@ import {
   executeEditorAction,
   resolveAttachment,
 } from "./lib/browser";
+import {
+  actionProposalSchema,
+  capabilitiesSchema,
+  pageContextSchema,
+  tokenPayloadSchema,
+} from "./lib/schemas";
 import "./style.css";
 
 const API_BASE = (
@@ -291,6 +297,7 @@ function App() {
   // 是否贴近消息列表底部：用户向上翻阅历史时暂停自动跟随，仅在其回到底部后才恢复。
   const [atBottom, setAtBottom] = useState(true);
   const [authError, setAuthError] = useState<string>("");
+  const [needsApiPermission, setNeedsApiPermission] = useState(false);
   const [browserProtocolMismatch, setBrowserProtocolMismatch] = useState(false);
   const [sessions, setSessions] = useState<any[]>([]);
   const [session, setSession] = useState<any>();
@@ -428,7 +435,13 @@ function App() {
         setAuthedFetch(() => authedFetch);
         const capabilitiesResponse = await authedFetch("/capabilities");
         if (capabilitiesResponse.ok) {
-          const capabilities = await capabilitiesResponse.json();
+          const parsedCapabilities = capabilitiesSchema.safeParse(
+            await capabilitiesResponse.json(),
+          );
+          if (!parsedCapabilities.success) {
+            throw new Error("Backend capabilities response is invalid");
+          }
+          const capabilities = parsedCapabilities.data;
           const streamTimeoutMs = Number(capabilities?.streamTimeoutMs);
           if (Number.isFinite(streamTimeoutMs) && streamTimeoutMs > 0) {
             streamTimeoutMsRef.current = streamTimeoutMs;
@@ -449,6 +462,7 @@ function App() {
         const message =
           (error as Error).message || "Failed to register device with backend";
         setAuthError(message);
+        setNeedsApiPermission(message.includes("缺少后端访问权限"));
         setError(`Device registration failed: ${message}`);
       }
     })();
@@ -1808,9 +1822,8 @@ function App() {
             // 解析失败则按裸文本处理（兼容未升级的旧后端）。
             let tokenText = data;
             try {
-              const parsed = JSON.parse(data);
-              if (parsed && typeof parsed.text === "string")
-                tokenText = parsed.text;
+              const parsed = tokenPayloadSchema.safeParse(JSON.parse(data));
+              if (parsed.success) tokenText = parsed.data.text;
             } catch {
               /* 保持原始 data（旧后端裸文本格式） */
             }
@@ -1864,7 +1877,13 @@ function App() {
           }
           if (name === "action_proposed" && data) {
             try {
-              const action = JSON.parse(data);
+              const parsedAction = actionProposalSchema.safeParse(
+                JSON.parse(data),
+              );
+              if (!parsedAction.success) {
+                throw new Error(t.invalidAction);
+              }
+              const action = parsedAction.data;
               if (browserProtocolMismatch) {
                 await apiFetch(`/actions/${action.actionId}/result`, {
                   method: "POST",
@@ -1961,6 +1980,7 @@ function App() {
                             },
                             {
                               frameId:
+                                action.target &&
                                 typeof action.target === "object" &&
                                 Number.isInteger(action.target?.frameId)
                                   ? action.target.frameId
@@ -2118,6 +2138,17 @@ function App() {
     const sessionId = sessionRef.current?.id;
     if (!sessionId) return;
     streamControllersRef.current.get(sessionId)?.abort();
+  }
+
+  async function grantApiPermission() {
+    try {
+      const granted = await chrome.permissions.request({
+        origins: [apiOriginPattern(API_BASE)],
+      });
+      if (granted) window.location.reload();
+    } catch {
+      setError(t.backendError);
+    }
   }
 
   const generalAgents = agents.filter((agent) => agent.role === "GENERAL");
@@ -2677,6 +2708,11 @@ function App() {
         {error && (
           <div className="error" role="alert">
             <span className="error-message">{error}</span>
+            {needsApiPermission && (
+              <button type="button" onClick={() => void grantApiPermission()}>
+                授权后端访问
+              </button>
+            )}
             <button
               type="button"
               className="error-dismiss"

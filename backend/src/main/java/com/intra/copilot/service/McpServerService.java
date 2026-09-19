@@ -4,33 +4,29 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.model.McpServer;
-import com.intra.copilot.model.SkillToolBinding;
 import com.intra.copilot.model.ToolDefinition;
 import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.repo.McpServerRepository;
-import com.intra.copilot.repo.SkillToolBindingRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
+import com.intra.copilot.service.mcp.McpToolSynchronizer;
+import com.intra.copilot.service.mcp.McpSessionLeaseService;
 import com.intra.copilot.service.network.NetworkAddressPolicy;
 import com.intra.copilot.service.network.SafeDnsResolver;
-import com.intra.copilot.util.EntityIdGenerator;
 import jakarta.annotation.PreDestroy;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,12 +42,19 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
+import org.apache.hc.core5.http.ClassicHttpResponse;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.http.io.entity.StringEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -92,12 +95,16 @@ public class McpServerService {
     private final McpServerRepository repository;
     private final ToolDefinitionRepository toolRepository;
     private final AgentDefinitionRepository agents;
-    private final SkillToolBindingRepository skillToolBindings;
+    private final McpToolSynchronizer toolSynchronizer;
+    private final McpSessionLeaseService sessionLeases;
+    private final String instanceId = UUID.randomUUID().toString();
     private final ObjectMapper mapper;
     private final RestClient.Builder restClientBuilder;
     private final int timeoutMs;
     private final boolean allowPrivateNetwork;
     private final boolean allowStdio;
+    private final Set<String> allowedStdioCommands;
+    private final Path stdioWorkingDirectory;
     private final long sessionIdleMs;
     private final NetworkAddressPolicy networkPolicy;
     private final CloseableHttpClient outboundHttpClient;
@@ -110,22 +117,36 @@ public class McpServerService {
             McpServerRepository repository,
             ToolDefinitionRepository toolRepository,
             AgentDefinitionRepository agents,
-            SkillToolBindingRepository skillToolBindings,
+            McpToolSynchronizer toolSynchronizer,
+            McpSessionLeaseService sessionLeases,
             ObjectMapper mapper,
             RestClient.Builder restClientBuilder,
             @Value("${mcp.timeout-ms:8000}") int timeoutMs,
             @Value("${mcp.allow-private-network:true}") boolean allowPrivateNetwork,
             @Value("${mcp.allow-stdio:false}") boolean allowStdio,
+            @Value("${mcp.stdio-allowed-commands:}") String allowedStdioCommands,
+            @Value("${mcp.stdio-working-directory:}") String stdioWorkingDirectory,
             @Value("${mcp.session-idle-ms:300000}") long sessionIdleMs) {
         this.repository = repository;
         this.toolRepository = toolRepository;
         this.agents = agents;
-        this.skillToolBindings = skillToolBindings;
+        this.toolSynchronizer = toolSynchronizer;
+        this.sessionLeases = sessionLeases;
         this.mapper = mapper;
         this.restClientBuilder = restClientBuilder;
         this.timeoutMs = Math.max(1000, Math.min(30000, timeoutMs));
         this.allowPrivateNetwork = allowPrivateNetwork;
         this.allowStdio = allowStdio;
+        this.allowedStdioCommands =
+                java.util.Arrays.stream(allowedStdioCommands.split(","))
+                        .map(String::trim)
+                        .filter(value -> !value.isBlank())
+                        .map(value -> value.toLowerCase(java.util.Locale.ROOT))
+                        .collect(Collectors.toUnmodifiableSet());
+        this.stdioWorkingDirectory =
+                stdioWorkingDirectory == null || stdioWorkingDirectory.isBlank()
+                        ? null
+                        : Path.of(stdioWorkingDirectory).toAbsolutePath().normalize();
         this.sessionIdleMs = Math.max(5000, sessionIdleMs);
         this.networkPolicy = new NetworkAddressPolicy(allowPrivateNetwork);
         this.outboundHttpClient =
@@ -196,7 +217,7 @@ public class McpServerService {
                         || !Objects.equals(oldServerUrl, current.getServerUrl());
         current.touch();
         McpServer saved = repository.save(current);
-        syncToolEnabledState(saved);
+        toolSynchronizer.syncEnabledState(saved);
         if (configChanged) {
             // 传输方式或地址变了，缓存的连接/进程已失效，立即逐出。
             evictSession(current.getId());
@@ -221,7 +242,7 @@ public class McpServerService {
         // 一次性加载引用关系，避免在循环内反复查询全表。
         List<AgentDefinition> allAgents = agents.findAll();
         for (ToolDefinition tool : mirroredTools) {
-            ensureToolNotReferenced(tool.getId(), allAgents);
+            toolSynchronizer.ensureNotReferenced(tool.getId(), allAgents);
         }
         evictSession(id);
         mirroredTools.forEach(t -> toolRepository.deleteById(t.getId()));
@@ -235,13 +256,17 @@ public class McpServerService {
         }
         try {
             McpServer server = get(id);
+            String previousStatus = server.getStatus();
+            server.setStatus("CHECKING");
+            server.setLastCheckedAt(Instant.now());
+            server.touch();
+            server = repository.save(server);
             // Re-validate the resolved address at request time to mitigate DNS rebinding.
             // STDIO 传输以命令启动本地进程，不涉及网络地址，跳过校验。
             if (!"STDIO".equals(server.getTransport())) {
                 enforceSsrf(server.getServerUrl());
             }
-            Instant started = Instant.now();
-            server.setLastCheckedAt(started);
+            Instant started = server.getLastCheckedAt();
             List<Map<String, Object>> discoveredInterfaces = List.of();
             boolean discovered = false;
             try {
@@ -253,6 +278,10 @@ public class McpServerService {
                 server.setCapabilitiesJson(discovery.capabilitiesJson());
                 server.setLastError(discoveredInterfaces.isEmpty() ? "服务已连接，但未返回可用接口" : null);
                 discovered = true;
+            } catch (McpSessionBusyException busy) {
+                server.setStatus(previousStatus);
+                server.touch();
+                return repository.save(server);
             } catch (Exception error) {
                 server.setStatus("UNHEALTHY");
                 server.setInterfaceCount(0);
@@ -270,7 +299,7 @@ public class McpServerService {
             McpServer saved = repository.save(server);
             // 仅当发现成功时才同步镜像 Tool：发现失败若仍执行同步，会把"远端无接口"误判为"应删除全部 Tool"。
             if (discovered) {
-                syncTools(saved, discoveredInterfaces);
+                toolSynchronizer.sync(saved, discoveredInterfaces);
             }
             return saved;
         } finally {
@@ -329,209 +358,20 @@ public class McpServerService {
         return discoverStreamableHttp(server);
     }
 
-    /**
-     * Mirrors the discovered MCP tools into {@link ToolDefinition} rows (type = MCP) so the agent
-     * loop can resolve and invoke them. Existing rows bound to this server are upserted; tools that
-     * disappeared from the server are removed; stale rows from other servers are left untouched.
-     */
-    private void syncTools(McpServer server, List<Map<String, Object>> interfaces) {
-        // 一次性加载，避免在循环内反复查询全表（O(n²) 的 findAll）。
-        List<ToolDefinition> allTools = toolRepository.findAll();
-        List<AgentDefinition> allAgents = agents.findAll();
-        List<ToolDefinition> existing =
-                allTools.stream()
-                        .filter(
-                                t ->
-                                        "MCP".equalsIgnoreCase(t.getType())
-                                                && server.getId().equals(t.getMcpServerId()))
-                        .collect(Collectors.toList());
-        Map<String, ToolDefinition> byRemoteName =
-                existing.stream()
-                        .filter(t -> t.getRemoteName() != null && !t.getRemoteName().isBlank())
-                        .collect(
-                                Collectors.toMap(
-                                        ToolDefinition::getRemoteName,
-                                        t -> t,
-                                        (left, right) -> left));
-        Set<String> incomingNames =
-                interfaces
-                        .stream()
-                        .map(t -> String.valueOf(t.get("name")))
-                        .collect(Collectors.toCollection(HashSet::new));
-
-        for (ToolDefinition t : existing) {
-            String remoteName =
-                    t.getRemoteName() == null || t.getRemoteName().isBlank()
-                            ? t.getName()
-                            : t.getRemoteName();
-            if (!incomingNames.contains(remoteName)) {
-                if (isToolReferenced(t.getId(), allAgents)) {
-                    t.setEnabled(false);
-                    t.touch();
-                    toolRepository.save(t);
-                } else {
-                    toolRepository.deleteById(t.getId());
-                }
-            }
-        }
-
-        Set<String> claimedRemoteNames = new HashSet<>();
-        for (Map<String, Object> tool : interfaces) {
-            String remoteName = String.valueOf(tool.get("name"));
-            if (remoteName.isBlank() || !claimedRemoteNames.add(remoteName)) continue;
-            String description =
-                    tool.get("description") == null ? "" : String.valueOf(tool.get("description"));
-            Object schema = tool.get("inputSchema");
-            String schemaJson;
-            try {
-                schemaJson = schema == null ? "{}" : mapper.writeValueAsString(schema);
-            } catch (Exception ignored) {
-                schemaJson = "{}";
-            }
-            ToolDefinition def = byRemoteName.get(remoteName);
-            if (def == null) {
-                def = new ToolDefinition();
-                def.setId(EntityIdGenerator.next("TL"));
-            }
-            String functionName = uniqueFunctionName(remoteName, def.getId(), allTools);
-            def.setName(functionName);
-            def.setRemoteName(remoteName);
-            def.setType("MCP");
-            def.setDescription(
-                    remoteName.equals(functionName)
-                            ? description
-                            : "MCP 原名："
-                                    + remoteName
-                                    + (description.isBlank() ? "" : "\n" + description));
-            def.setMcpServerId(server.getId());
-            def.setParameterSchema(schemaJson);
-            def.setTimeoutMs(def.getTimeoutMs() == null ? 10000 : def.getTimeoutMs());
-            def.setEnabled(server.isEnabled());
-            def.touch();
-            toolRepository.save(def);
-        }
-        syncToolEnabledState(server, allTools);
-    }
-
-    private void syncToolEnabledState(McpServer server) {
-        syncToolEnabledState(server, toolRepository.findAll());
-    }
-
-    private void syncToolEnabledState(McpServer server, List<ToolDefinition> allTools) {
-        for (ToolDefinition tool : allTools) {
-            if ("MCP".equalsIgnoreCase(tool.getType())
-                    && server.getId().equals(tool.getMcpServerId())
-                    && tool.isEnabled() != server.isEnabled()) {
-                tool.setEnabled(server.isEnabled());
-                tool.touch();
-                toolRepository.save(tool);
-            }
-        }
-    }
-
-    private String uniqueFunctionName(String remoteName, String toolId) {
-        return uniqueFunctionName(remoteName, toolId, toolRepository.findAll());
-    }
-
-    private String uniqueFunctionName(
-            String remoteName, String toolId, List<ToolDefinition> allTools) {
-        String base = sanitizeFunctionName(remoteName);
-        boolean conflict =
-                allTools.stream()
-                        .anyMatch(
-                                tool ->
-                                        !tool.getId().equals(toolId)
-                                                && tool.getName() != null
-                                                && tool.getName().equalsIgnoreCase(base));
-        if (!conflict) return base;
-        String suffix = "_" + shortHash(remoteName);
-        int allowed = Math.max(1, 64 - suffix.length());
-        return (base.length() <= allowed ? base : base.substring(0, allowed)) + suffix;
-    }
-
-    private String sanitizeFunctionName(String value) {
-        String sanitized = value == null ? "" : value.replaceAll("[^A-Za-z0-9_-]", "_");
-        sanitized = sanitized.replaceAll("_+", "_").replaceAll("^-+|-+$", "");
-        if (sanitized.isBlank()) sanitized = "mcp_tool";
-        if (sanitized.length() <= 64) return sanitized;
-        String suffix = "_" + shortHash(value);
-        return sanitized.substring(0, Math.max(1, 64 - suffix.length())) + suffix;
-    }
-
-    private String shortHash(String value) {
-        try {
-            byte[] digest =
-                    MessageDigest.getInstance("SHA-256")
-                            .digest((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
-            StringBuilder text = new StringBuilder();
-            for (int index = 0; index < 5; index++) {
-                text.append(String.format("%02x", digest[index]));
-            }
-            return text.toString();
-        } catch (Exception ignored) {
-            return Integer.toHexString(String.valueOf(value).hashCode());
-        }
-    }
-
-    private boolean isToolReferenced(String toolId, List<AgentDefinition> allAgents) {
-        return allAgents.stream().anyMatch(agent -> containsToolId(agent.getToolIds(), toolId))
-                || !skillToolBindings.findByToolId(toolId).isEmpty();
-    }
-
-    private boolean isToolReferenced(String toolId) {
-        return isToolReferenced(toolId, agents.findAll());
-    }
-
-    private void ensureToolNotReferenced(String toolId, List<AgentDefinition> allAgents) {
-        List<String> agentNames =
-                allAgents
-                        .stream()
-                        .filter(agent -> containsToolId(agent.getToolIds(), toolId))
-                        .map(
-                                agent ->
-                                        agent.getDisplayName() == null
-                                                ? agent.getId()
-                                                : agent.getDisplayName())
-                        .toList();
-        List<String> skillIds =
-                skillToolBindings
-                        .findByToolId(toolId)
-                        .stream()
-                        .map(SkillToolBinding::getSkillId)
-                        .distinct()
-                        .toList();
-        if (agentNames.isEmpty() && skillIds.isEmpty()) return;
-        StringBuilder message = new StringBuilder("MCP Tool 仍被引用，无法删除（请先解除绑定）：");
-        if (!agentNames.isEmpty())
-            message.append(" Agent[").append(String.join("、", agentNames)).append("]");
-        if (!skillIds.isEmpty())
-            message.append(" Skill[").append(String.join("、", skillIds)).append("]");
-        throw new IllegalArgumentException(message.toString());
-    }
-
-    private void ensureToolNotReferenced(String toolId) {
-        ensureToolNotReferenced(toolId, agents.findAll());
-    }
-
-    private boolean containsToolId(String toolIdsJson, String toolId) {
-        if (toolIdsJson == null || toolIdsJson.isBlank()) return false;
-        try {
-            JsonNode root = mapper.readTree(toolIdsJson);
-            if (!root.isArray()) return false;
-            for (JsonNode value : root) {
-                if (toolId.equals(value.asText())) return true;
-            }
-        } catch (Exception ignored) {
-            return false;
-        }
-        return false;
-    }
-
     // ---- Session cache (connection / process reuse) ----------------------
 
     private McpSession sessionFor(McpServer server) {
-        return sessions.computeIfAbsent(
-                server.getId(), id -> new McpSession(server.getTransport()));
+        McpSession session =
+                sessions.computeIfAbsent(
+                        server.getId(), id -> new McpSession(server.getTransport()));
+        if ("STDIO".equals(session.transport)
+                && !sessionLeases.tryAcquire(
+                        server.getId(),
+                        instanceId,
+                        Duration.ofMillis(Math.max(60_000L, sessionIdleMs * 2)))) {
+            throw new McpSessionBusyException("MCP STDIO 会话由其它后端实例持有，请保持会话粘性路由");
+        }
+        return session;
     }
 
     /** Drop a cached session, but only if it is not currently in use (a later sweep retries). */
@@ -542,6 +382,9 @@ public class McpServerService {
         try {
             sessions.remove(serverId);
             session.close();
+            if ("STDIO".equals(session.transport)) {
+                sessionLeases.release(serverId, instanceId);
+            }
         } finally {
             session.lock.unlock();
         }
@@ -571,6 +414,9 @@ public class McpServerService {
             try {
                 sessions.remove(entry.getKey());
                 session.close();
+                if ("STDIO".equals(session.transport)) {
+                    sessionLeases.release(entry.getKey(), instanceId);
+                }
             } finally {
                 session.lock.unlock();
             }
@@ -629,7 +475,7 @@ public class McpServerService {
 
     private Discovery discoverStreamableHttp(McpServer server) throws Exception {
         McpSession session = sessionFor(server);
-        session.lock.lock();
+        acquireSessionLock(session);
         try {
             // Discovery re-initializes every run (infrequent: health check / create / update) so it
             // always captures current capabilities, and refreshes the cached session id for calls.
@@ -657,7 +503,7 @@ public class McpServerService {
     private String callToolStreamableHttp(McpServer server, String toolName, String argumentsJson)
             throws Exception {
         McpSession session = sessionFor(server);
-        session.lock.lock();
+        acquireSessionLock(session);
         try {
             // Reuse the cached session id to skip the initialize round-trip on every tool call.
             RestClient client = buildClient();
@@ -688,6 +534,14 @@ public class McpServerService {
 
     @PreDestroy
     public void closeOutboundHttpClient() {
+        sessions.forEach(
+                (serverId, session) -> {
+                    session.close();
+                    if ("STDIO".equals(session.transport)) {
+                        sessionLeases.release(serverId, instanceId);
+                    }
+                });
+        sessions.clear();
         try {
             outboundHttpClient.close();
         } catch (IOException ignored) {
@@ -755,7 +609,7 @@ public class McpServerService {
 
     private Discovery discoverStdio(McpServer server) throws Exception {
         McpSession session = sessionFor(server);
-        session.lock.lock();
+        acquireSessionLock(session);
         try {
             // Reuses the cached live subprocess; re-initializes only when the channel is cold.
             StdioChannel ch = acquireStdio(server, session);
@@ -776,7 +630,7 @@ public class McpServerService {
     private String callToolStdio(McpServer server, String toolName, String argumentsJson)
             throws Exception {
         McpSession session = sessionFor(server);
-        session.lock.lock();
+        acquireSessionLock(session);
         try {
             // Reuses the cached live subprocess across calls; never re-spawns per invocation.
             StdioChannel ch = acquireStdio(server, session);
@@ -843,6 +697,12 @@ public class McpServerService {
             throw new McpProtocolException("STDIO 启动命令为空");
         }
         ProcessBuilder pb = new ProcessBuilder(args);
+        if (stdioWorkingDirectory != null) {
+            if (!java.nio.file.Files.isDirectory(stdioWorkingDirectory)) {
+                throw new McpProtocolException("MCP STDIO 工作目录不存在");
+            }
+            pb.directory(stdioWorkingDirectory.toFile());
+        }
         pb.redirectErrorStream(false);
         Map<String, String> env = pb.environment();
         String token = authToken(server.getAuthEnv());
@@ -921,7 +781,10 @@ public class McpServerService {
         String token = authToken(server.getAuthEnv());
         try (SseChannel ch = openSse(server, token)) {
             String initBody = sseRequest(ch.postUrl, token, null, 1, initParams(), "initialize");
-            String sessionId = ch.connection.getHeaderField("Mcp-Session-Id");
+            String sessionId =
+                    ch.response.getFirstHeader("Mcp-Session-Id") == null
+                            ? null
+                            : ch.response.getFirstHeader("Mcp-Session-Id").getValue();
             sseRequest(ch.postUrl, token, sessionId, null, Map.of(), "notifications/initialized");
             sseRequest(ch.postUrl, token, sessionId, 2, Map.of(), "tools/list");
 
@@ -950,7 +813,10 @@ public class McpServerService {
         String token = authToken(server.getAuthEnv());
         try (SseChannel ch = openSse(server, token)) {
             sseRequest(ch.postUrl, token, null, 1, initParams(), "initialize");
-            String sessionId = ch.connection.getHeaderField("Mcp-Session-Id");
+            String sessionId =
+                    ch.response.getFirstHeader("Mcp-Session-Id") == null
+                            ? null
+                            : ch.response.getFirstHeader("Mcp-Session-Id").getValue();
             sseRequest(ch.postUrl, token, sessionId, null, Map.of(), "notifications/initialized");
 
             Map<String, Object> params = new LinkedHashMap<>();
@@ -983,16 +849,13 @@ public class McpServerService {
 
     private SseChannel openSse(McpServer server, String token) throws Exception {
         URI base = URI.create(server.getServerUrl());
-        HttpURLConnection conn = (HttpURLConnection) base.toURL().openConnection();
-        conn.setInstanceFollowRedirects(false);
-        conn.setRequestMethod("GET");
-        conn.setConnectTimeout(timeoutMs);
-        conn.setReadTimeout(timeoutMs);
-        conn.setRequestProperty("Accept", "text/event-stream");
+        enforceSsrf(base.toString());
+        HttpGet request = new HttpGet(base);
+        request.addHeader(HttpHeaders.ACCEPT, MediaType.TEXT_EVENT_STREAM_VALUE);
         if (token != null) {
-            conn.setRequestProperty("Authorization", "Bearer " + token);
+            request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token);
         }
-        conn.connect();
+        ClassicHttpResponse response = outboundHttpClient.executeOpen(null, request, null);
 
         BlockingQueue<String> events = new LinkedBlockingQueue<>();
         Deque<String> buffer = new ArrayDeque<>();
@@ -1003,7 +866,8 @@ public class McpServerService {
                     try (BufferedReader br =
                             new BufferedReader(
                                     new InputStreamReader(
-                                            conn.getInputStream(), StandardCharsets.UTF_8))) {
+                                            response.getEntity().getContent(),
+                                            StandardCharsets.UTF_8))) {
                         StringBuilder block = new StringBuilder();
                         String line;
                         while (!closed.get() && (line = br.readLine()) != null) {
@@ -1033,11 +897,18 @@ public class McpServerService {
         if (endpointPath.isBlank()) {
             closed.set(true);
             reader.shutdownNow();
-            conn.disconnect();
+            response.close();
             throw new McpProtocolException("SSE 流未返回 endpoint 事件");
         }
-        String postUrl = base.resolve(endpointPath).toString();
-        return new SseChannel(conn, events, buffer, closed, reader, postUrl);
+        URI endpoint = base.resolve(endpointPath);
+        if (!sameOrigin(base, endpoint)) {
+            closed.set(true);
+            reader.shutdownNow();
+            response.close();
+            throw new McpProtocolException("MCP SSE endpoint 必须与主服务保持同源");
+        }
+        enforceSsrf(endpoint.toString());
+        return new SseChannel(response, events, buffer, closed, reader, endpoint.toString());
     }
 
     private String sseRequest(
@@ -1048,20 +919,17 @@ public class McpServerService {
             Map<String, Object> params,
             String method)
             throws Exception {
-        HttpURLConnection c = (HttpURLConnection) URI.create(url).toURL().openConnection();
-        c.setInstanceFollowRedirects(false);
-        c.setRequestMethod("POST");
-        c.setConnectTimeout(timeoutMs);
-        c.setReadTimeout(timeoutMs);
-        c.setDoOutput(true);
-        c.setRequestProperty("Content-Type", "application/json");
-        c.setRequestProperty("Accept", "application/json, text/event-stream");
-        c.setRequestProperty("MCP-Protocol-Version", PROTOCOL_VERSION);
+        URI requestUri = URI.create(url);
+        enforceSsrf(requestUri.toString());
+        HttpPost request = new HttpPost(requestUri);
+        request.addHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.toString());
+        request.addHeader(HttpHeaders.ACCEPT, "application/json, text/event-stream");
+        request.addHeader("MCP-Protocol-Version", PROTOCOL_VERSION);
         if (sessionId != null && !sessionId.isBlank()) {
-            c.setRequestProperty("Mcp-Session-Id", sessionId);
+            request.addHeader("Mcp-Session-Id", sessionId);
         }
         if (token != null) {
-            c.setRequestProperty("Authorization", "Bearer " + token);
+            request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token);
         }
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("jsonrpc", "2.0");
@@ -1070,22 +938,21 @@ public class McpServerService {
         }
         payload.put("method", method);
         payload.put("params", params);
-        byte[] bytes = mapper.writeValueAsBytes(payload);
-        try (OutputStream os = c.getOutputStream()) {
-            os.write(bytes);
-        }
-        int code = c.getResponseCode();
-        try (BufferedReader r =
-                new BufferedReader(
-                        new InputStreamReader(
-                                code < 400 ? c.getInputStream() : c.getErrorStream(),
-                                StandardCharsets.UTF_8))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = r.readLine()) != null) {
-                sb.append(line).append("\n");
+        request.setEntity(
+                new StringEntity(mapper.writeValueAsString(payload), ContentType.APPLICATION_JSON));
+        try (ClassicHttpResponse response = outboundHttpClient.executeOpen(null, request, null)) {
+            String body =
+                    response.getEntity() == null
+                            ? ""
+                            : EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+            if (response.getCode() >= 400) {
+                throw new McpProtocolException(
+                        "MCP HTTP "
+                                + response.getCode()
+                                + ": "
+                                + (body.length() <= 1000 ? body : body.substring(0, 1000)));
             }
-            return sb.toString();
+            return body;
         }
     }
 
@@ -1248,7 +1115,19 @@ public class McpServerService {
             if (!allowStdio) {
                 throw new IllegalArgumentException("当前配置禁止 STDIO 传输（需开启 mcp.allow-stdio）");
             }
-            // serverUrl 作为本地启动命令，不校验 URL / SSRF；命令经 ProcessBuilder 以参数数组执行，无 shell 注入风险。
+            List<String> command = parseCommandLine(server.getServerUrl());
+            if (command.isEmpty()) {
+                throw new IllegalArgumentException("MCP STDIO 启动命令不能为空");
+            }
+            String executable =
+                    Path.of(command.get(0))
+                            .getFileName()
+                            .toString()
+                            .toLowerCase(java.util.Locale.ROOT);
+            if (allowedStdioCommands.isEmpty() || !allowedStdioCommands.contains(executable)) {
+                throw new IllegalArgumentException(
+                        "MCP STDIO 命令不在 mcp.stdio-allowed-commands 白名单中：" + executable);
+            }
             return;
         }
         URI uri;
@@ -1333,9 +1212,41 @@ public class McpServerService {
         return false;
     }
 
+    private static boolean sameOrigin(URI left, URI right) {
+        return left != null
+                && right != null
+                && Objects.equals(
+                        left.getScheme() == null ? null : left.getScheme().toLowerCase(),
+                        right.getScheme() == null ? null : right.getScheme().toLowerCase())
+                && Objects.equals(left.getHost(), right.getHost())
+                && effectivePort(left) == effectivePort(right);
+    }
+
+    private void acquireSessionLock(McpSession session) throws McpProtocolException {
+        try {
+            if (!session.lock.tryLock(timeoutMs, TimeUnit.MILLISECONDS)) {
+                throw new McpProtocolException("MCP 会话繁忙，请稍后重试");
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new McpProtocolException("等待 MCP 会话锁被中断");
+        }
+    }
+
+    private static int effectivePort(URI uri) {
+        if (uri.getPort() >= 0) return uri.getPort();
+        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+    }
+
     /** Thrown when the MCP handshake or a JSON-RPC error prevents discovery. */
-    private static final class McpProtocolException extends RuntimeException {
+    private static class McpProtocolException extends RuntimeException {
         McpProtocolException(String message) {
+            super(message);
+        }
+    }
+
+    private static final class McpSessionBusyException extends McpProtocolException {
+        McpSessionBusyException(String message) {
             super(message);
         }
     }
@@ -1415,7 +1326,7 @@ public class McpServerService {
     }
 
     private static final class SseChannel implements AutoCloseable {
-        final HttpURLConnection connection;
+        final ClassicHttpResponse response;
         final BlockingQueue<String> events;
         final Deque<String> buffer;
         final AtomicBoolean closed;
@@ -1423,13 +1334,13 @@ public class McpServerService {
         final String postUrl;
 
         SseChannel(
-                HttpURLConnection connection,
+                ClassicHttpResponse response,
                 BlockingQueue<String> events,
                 Deque<String> buffer,
                 AtomicBoolean closed,
                 ExecutorService reader,
                 String postUrl) {
-            this.connection = connection;
+            this.response = response;
             this.events = events;
             this.buffer = buffer;
             this.closed = closed;
@@ -1441,7 +1352,10 @@ public class McpServerService {
         public void close() {
             closed.set(true);
             reader.shutdownNow();
-            connection.disconnect();
+            try {
+                response.close();
+            } catch (IOException ignored) {
+            }
         }
     }
 }

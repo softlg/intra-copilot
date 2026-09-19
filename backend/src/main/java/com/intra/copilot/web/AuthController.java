@@ -2,9 +2,16 @@ package com.intra.copilot.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.intra.copilot.service.auth.AdminAuthService;
+import com.intra.copilot.service.auth.AuthRateLimitService;
 import com.intra.copilot.service.auth.DeviceRegistrationService;
 import com.intra.copilot.service.auth.RequestContext;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
@@ -33,39 +40,53 @@ public class AuthController {
 
     private final DeviceRegistrationService deviceRegistration;
     private final AdminAuthService adminAuth;
+    private final AuthRateLimitService rateLimits;
 
     public AuthController(
-            DeviceRegistrationService deviceRegistration, AdminAuthService adminAuth) {
+            DeviceRegistrationService deviceRegistration,
+            AdminAuthService adminAuth,
+            AuthRateLimitService rateLimits) {
         this.deviceRegistration = deviceRegistration;
         this.adminAuth = adminAuth;
+        this.rateLimits = rateLimits;
     }
 
-    public record DeviceChallengeRequest(String deviceId, JsonNode publicKeyJwk, String source) {}
+    public record DeviceChallengeRequest(
+            String deviceId,
+            @NotNull JsonNode publicKeyJwk,
+            @NotBlank String source) {}
 
     public record DeviceRegisterRequest(
             String deviceId,
-            JsonNode publicKeyJwk,
-            String source,
-            String challengeId,
-            String signature,
+            @NotNull JsonNode publicKeyJwk,
+            @NotBlank String source,
+            @NotBlank String challengeId,
+            @NotBlank String signature,
             String previousKeySignature) {}
 
-    public record AdminLoginRequest(String username, String password) {}
+    public record AdminLoginRequest(
+            @NotBlank String username, @NotBlank String password) {}
 
     public record AdminLoginResponse(String token, Instant expiresAt, Map<String, String> user) {}
 
     @PostMapping("/devices/challenge")
     public DeviceRegistrationService.Challenge challenge(
-            @RequestBody DeviceChallengeRequest request) {
+            @Valid @RequestBody DeviceChallengeRequest request,
+            HttpServletRequest servletRequest) {
         if (request == null) throw new IllegalArgumentException("设备注册请求不能为空");
+        requireRateLimit(
+                "device-challenge-ip", clientIp(servletRequest), 60, Duration.ofMinutes(10));
         return deviceRegistration.challenge(
                 request.deviceId(), request.source(), request.publicKeyJwk());
     }
 
     @PostMapping("/devices/register")
     public DeviceRegistrationService.RegisteredDevice register(
-            @RequestBody DeviceRegisterRequest request) {
+            @Valid @RequestBody DeviceRegisterRequest request,
+            HttpServletRequest servletRequest) {
         if (request == null) throw new IllegalArgumentException("设备注册请求不能为空");
+        requireRateLimit(
+                "device-register-ip", clientIp(servletRequest), 60, Duration.ofMinutes(10));
         return deviceRegistration.register(
                 new DeviceRegistrationService.RegisterRequest(
                         request.deviceId(),
@@ -77,13 +98,26 @@ public class AuthController {
     }
 
     @PostMapping("/admin/login")
-    public ResponseEntity<?> adminLogin(@RequestBody AdminLoginRequest req) {
+    public ResponseEntity<?> adminLogin(
+            @Valid @RequestBody AdminLoginRequest req, HttpServletRequest servletRequest) {
         if (!adminAuth.isConfigured()) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(Map.of("error", "管理员登录未配置，请设置 ADMIN_PASSWORD"));
         }
         if (req == null || req.username() == null || req.password() == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "请输入用户名和密码"));
+        }
+        String username = req.username().trim().toLowerCase(Locale.ROOT);
+        String ip = clientIp(servletRequest);
+        AuthRateLimitService.Decision ipLimit =
+                rateLimits.consume("admin-login-ip", ip, 30, Duration.ofMinutes(5));
+        AuthRateLimitService.Decision userLimit =
+                rateLimits.consume("admin-login-user", username, 10, Duration.ofMinutes(5));
+        if (!ipLimit.allowed() || !userLimit.allowed()) {
+            long retryAfter = Math.max(ipLimit.retryAfterSeconds(), userLimit.retryAfterSeconds());
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .header("Retry-After", String.valueOf(retryAfter))
+                    .body(Map.of("error", "登录尝试过于频繁，请稍后重试"));
         }
 
         Optional<AdminAuthService.Session> session =
@@ -113,5 +147,20 @@ public class AuthController {
             throw new IllegalStateException("Not an admin session");
         }
         return Map.of("username", identity.actorLabel(), "role", identity.adminRole().name());
+    }
+
+    private void requireRateLimit(String scope, String identity, int limit, Duration window) {
+        AuthRateLimitService.Decision decision = rateLimits.consume(scope, identity, limit, window);
+        if (!decision.allowed()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.TOO_MANY_REQUESTS,
+                    "请求过于频繁，请 " + decision.retryAfterSeconds() + " 秒后重试");
+        }
+    }
+
+    private static String clientIp(HttpServletRequest request) {
+        if (request == null) return "unknown";
+        String remote = request.getRemoteAddr();
+        return remote == null || remote.isBlank() ? "unknown" : remote;
     }
 }

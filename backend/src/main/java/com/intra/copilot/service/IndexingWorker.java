@@ -4,12 +4,10 @@ import com.intra.copilot.model.IndexingJob;
 import com.intra.copilot.model.KnowledgeBase;
 import com.intra.copilot.repo.IndexingJobRepository;
 import com.intra.copilot.repo.KnowledgeBaseRepository;
-import com.intra.copilot.util.EntityIdGenerator;
 import jakarta.annotation.PreDestroy;
 import java.lang.management.ManagementFactory;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -82,13 +80,13 @@ public class IndexingWorker {
         reapWaitingParents();
         int slots = concurrency - running.get();
         for (int i = 0; i < slots; i++) {
-            String jobId = claim();
-            if (jobId == null) break;
+            Claim claim = claim();
+            if (claim == null) break;
             running.incrementAndGet();
             executor.submit(
                     () -> {
                         try {
-                            run(jobId);
+                            run(claim);
                         } finally {
                             running.decrementAndGet();
                         }
@@ -97,7 +95,7 @@ public class IndexingWorker {
     }
 
     /** Atomically moves one queued job to RUNNING and returns its id, if any. */
-    private String claim() {
+    private Claim claim() {
         return transaction.execute(
                 status -> {
                     List<String> candidates =
@@ -108,12 +106,15 @@ public class IndexingWorker {
                                     String.class);
                     if (candidates.isEmpty()) return null;
                     String id = candidates.get(0);
+                    String leaseToken = workerId + ":" + UUID.randomUUID();
                     jdbc.update(
                             "UPDATE indexing_job SET status = 'RUNNING', attempt = attempt + 1, worker_id = ?,"
-                                    + " started_at = NOW(), heartbeat_at = NOW(), next_attempt_at = NULL WHERE id = ?",
+                                    + " lease_token = ?, started_at = NOW(), heartbeat_at = NOW(),"
+                                    + " next_attempt_at = NULL WHERE id = ?",
                             workerId,
+                            leaseToken,
                             id);
-                    return id;
+                    return new Claim(id, leaseToken);
                 });
     }
 
@@ -122,81 +123,57 @@ public class IndexingWorker {
      * healthy long-running document is not reclaimed.
      */
     private void recoverExpiredJobs() {
-        List<String> expired =
-                jdbc.queryForList(
-                        "SELECT id FROM indexing_job WHERE status = 'RUNNING'"
+        List<ExpiredLease> expired =
+                jdbc.query(
+                        "SELECT id, lease_token FROM indexing_job WHERE status = 'RUNNING'"
                                 + " AND COALESCE(heartbeat_at, started_at, created_at)"
                                 + " < NOW() - (? * INTERVAL '1 second')"
                                 + " ORDER BY created_at LIMIT ?",
-                        String.class,
+                        (rs, row) ->
+                                new ExpiredLease(rs.getString("id"), rs.getString("lease_token")),
                         leaseTimeoutSeconds,
                         Math.max(1, concurrency * 2));
-        for (String jobId : expired) {
-            jobs.findById(jobId)
-                    .ifPresent(
-                            job ->
-                                    handleFailure(
-                                            job,
-                                            new IllegalStateException("索引任务租约超时，已由其它工作节点重新接管")));
+        for (ExpiredLease lease : expired) {
+            String message = "索引任务租约超时，已重新排队";
+            IndexingJobService.RequeueOutcome outcome =
+                    jobService.reclaimExpired(lease.jobId(), lease.leaseToken(), message);
+            if (outcome.updated() && "DEAD".equals(outcome.status())) {
+                indexing.discardPartial(outcome.jobId());
+                indexing.markFailed(outcome.documentId(), message);
+            }
         }
     }
 
-    private void run(String jobId) {
-        IndexingJob job = jobs.findById(jobId).orElse(null);
+    private void run(Claim claim) {
+        IndexingJob job = jobs.findById(claim.jobId()).orElse(null);
         if (job == null) return;
         try {
             if (IndexingJob.TYPE_REBUILD_BASE.equals(job.getJobType())) {
                 // The expansion into per-document jobs already happened at enqueue time.
-                jobService.markWaiting(jobId);
+                jobService.markWaiting(claim.jobId());
                 return;
             }
             indexing.index(
                     job.getDocumentId(),
-                    jobId,
-                    progress -> jobService.markProgress(jobId, progress));
-            jobService.markSucceeded(jobId);
+                    claim.jobId(),
+                    progress ->
+                            jobService.markProgress(claim.jobId(), claim.leaseToken(), progress));
+            jobService.markSucceeded(claim.jobId(), claim.leaseToken());
         } catch (Exception error) {
-            handleFailure(job, error);
+            handleFailure(job, claim.leaseToken(), error);
         }
     }
 
-    private void handleFailure(IndexingJob job, Exception error) {
+    private void handleFailure(IndexingJob job, String leaseToken, Exception error) {
         String message =
                 error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+        IndexingJobService.RequeueOutcome outcome =
+                jobService.requeueOrFail(job, leaseToken, message);
+        if (!outcome.updated()) return;
         indexing.discardPartial(job.getId());
-        int attempt = Math.max(1, job.getAttempt());
-        if (attempt >= job.getMaxAttempts()) {
+        if ("DEAD".equals(outcome.status())) {
             indexing.markFailed(job.getDocumentId(), message);
-            jobs.findById(job.getId())
-                    .ifPresent(
-                            current -> {
-                                current.setStatus(IndexingJob.STATUS_DEAD);
-                                current.setError(message);
-                                current.setFinishedAt(Instant.now());
-                                jobs.save(current);
-                            });
-            jdbc.update(
-                    "INSERT INTO indexing_dead_letter (id, job_id, document_id, knowledge_base_id, job_type, payload, error)"
-                            + " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    EntityIdGenerator.next("DL"),
-                    job.getId(),
-                    job.getDocumentId(),
-                    job.getKnowledgeBaseId(),
-                    job.getJobType(),
-                    job.getPayload(),
-                    message);
-            return;
         }
-        long delaySeconds = Math.min(60L, 5L * attempt);
-        jobs.findById(job.getId())
-                .ifPresent(
-                        current -> {
-                            current.setStatus(IndexingJob.STATUS_QUEUED);
-                            current.setError(message);
-                            current.setNextAttemptAt(
-                                    Instant.now().plus(delaySeconds, ChronoUnit.SECONDS));
-                            jobs.save(current);
-                        });
     }
 
     /** Closes out REBUILD_BASE parents once every child job has settled. */
@@ -255,4 +232,8 @@ public class IndexingWorker {
     public void shutdown() {
         executor.shutdownNow();
     }
+
+    private record Claim(String jobId, String leaseToken) {}
+
+    private record ExpiredLease(String jobId, String leaseToken) {}
 }

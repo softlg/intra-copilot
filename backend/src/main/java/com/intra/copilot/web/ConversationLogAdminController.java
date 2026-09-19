@@ -28,6 +28,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -128,10 +129,19 @@ public class ConversationLogAdminController {
                 String contentType = stored.contentType() == null
                                 ? "application/octet-stream"
                                 : stored.contentType();
-                String filename = stored.filename().replace("\"", "");
+                String disposition =
+                                (stored.safeInline()
+                                                ? ContentDisposition.inline()
+                                                : ContentDisposition.attachment())
+                                        .filename(
+                                                stored.filename(),
+                                                java.nio.charset.StandardCharsets.UTF_8)
+                                        .build()
+                                        .toString();
                 return ResponseEntity.ok()
                                 .header(HttpHeaders.CONTENT_TYPE, contentType)
-                                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
+                                .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
+                                .header("X-Content-Type-Options", "nosniff")
                                 .contentLength(bytes.length)
                                 .body(new ByteArrayResource(bytes));
         }

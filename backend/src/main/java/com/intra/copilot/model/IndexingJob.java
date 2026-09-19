@@ -38,6 +38,7 @@ public class IndexingJob {
     private String error;
     private String payload;
     private String workerId;
+    private String leaseToken;
     private Instant nextAttemptAt;
     private Instant heartbeatAt;
     private Instant createdAt = Instant.now();
@@ -138,6 +139,14 @@ public class IndexingJob {
 
     public void setWorkerId(String value) {
         workerId = value;
+    }
+
+    public String getLeaseToken() {
+        return leaseToken;
+    }
+
+    public void setLeaseToken(String value) {
+        leaseToken = value;
     }
 
     public Instant getNextAttemptAt() {

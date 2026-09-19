@@ -1,3 +1,5 @@
+import { pageContextSchema, type PageContextPayload } from "./schemas";
+
 export const attachmentObjectUrlCache = new Map<string, string>();
 const ATTACHMENT_OBJECT_URL_LIMIT = 100;
 
@@ -445,7 +447,7 @@ export async function resolveAttachment(
 
 export async function collectContextsFromTab(
   id: number,
-): Promise<Record<string, any>[]> {
+): Promise<PageContextPayload[]> {
   let frames: chrome.webNavigation.GetAllFrameResultDetails[] = [];
   try {
     frames = (await chrome.webNavigation.getAllFrames({ tabId: id })) || [];
@@ -461,14 +463,15 @@ export async function collectContextsFromTab(
           { type: "COLLECT_CONTEXT" },
           { frameId },
         );
-        return context ? { ...context, frameId } : null;
+        const parsed = pageContextSchema.safeParse(context);
+        return parsed.success ? { ...parsed.data, frameId } : null;
       } catch {
         return null;
       }
     }),
   );
   const available = contexts.filter(
-    (context): context is Record<string, any> => context != null,
+    (context): context is PageContextPayload => context != null,
   );
   if (available.length) return available;
 
@@ -477,12 +480,12 @@ export async function collectContextsFromTab(
       target: { tabId: id, allFrames: true },
       func: collectPageContext,
     });
-    return results
-      .filter((result) => result.result)
-      .map((result) => ({
-        ...(result.result as Record<string, any>),
-        frameId: result.frameId,
-      }));
+    return results.flatMap((result) => {
+      const parsed = pageContextSchema.safeParse(result.result);
+      return parsed.success
+        ? [{ ...parsed.data, frameId: result.frameId }]
+        : [];
+    });
   } catch {
     return [];
   }

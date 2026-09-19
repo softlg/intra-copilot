@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { EmptyState } from "../components/EmptyState";
 import { Icon } from "../components/Icon";
 import { Skeleton } from "../components/Skeleton";
@@ -98,8 +99,7 @@ function messageOf(error: unknown, fallback: string) {
 
 export function AdminUsersPage({ language }: { language: Language }) {
   const text = copy[language];
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [username, setUsername] = useState("");
@@ -107,37 +107,23 @@ export function AdminUsersPage({ language }: { language: Language }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [createRole, setCreateRole] = useState("EDITOR");
-  const [saving, setSaving] = useState(false);
   const [passwordTarget, setPasswordTarget] = useState<AdminUser>();
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
 
-  const load = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      setUsers(await request<AdminUser[]>("/admin/users"));
-    } catch (loadError) {
-      setError(messageOf(loadError, text.loadFailed));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const usersQuery = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: () => request<AdminUser[]>("/admin/users"),
+  });
+  const users = usersQuery.data ?? [];
+  const loading = usersQuery.isPending;
+  const queryError = usersQuery.error
+    ? messageOf(usersQuery.error, text.loadFailed)
+    : "";
 
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const createUser = async () => {
-    if (!username.trim() || password.length < 8) return;
-    if (password !== confirmPassword) {
-      setError(text.passwordMismatch);
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      await request<AdminUser>("/admin/users", {
+  const createMutation = useMutation({
+    mutationFn: () =>
+      request<AdminUser>("/admin/users", {
         method: "POST",
         body: JSON.stringify({
           username: username.trim(),
@@ -146,7 +132,8 @@ export function AdminUsersPage({ language }: { language: Language }) {
           enabled: true,
           role: createRole,
         }),
-      });
+      }),
+    onSuccess: async () => {
       setCreateOpen(false);
       setUsername("");
       setDisplayName("");
@@ -154,22 +141,21 @@ export function AdminUsersPage({ language }: { language: Language }) {
       setConfirmPassword("");
       setCreateRole("EDITOR");
       toast.success(text.created);
-      await load();
-    } catch (createError) {
-      setError(messageOf(createError, text.operationFailed));
-    } finally {
-      setSaving(false);
-    }
-  };
+      await queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    },
+    onError: (createError) =>
+      setError(messageOf(createError, text.operationFailed)),
+  });
 
-  const updateUser = async (
-    user: AdminUser,
-    changes: Partial<Pick<AdminUser, "displayName" | "enabled" | "role">>,
-  ) => {
-    setSaving(true);
-    setError("");
-    try {
-      await request<AdminUser>(`/admin/users/${user.id}`, {
+  const updateMutation = useMutation({
+    mutationFn: ({
+      user,
+      changes,
+    }: {
+      user: AdminUser;
+      changes: Partial<Pick<AdminUser, "displayName" | "enabled" | "role">>;
+    }) =>
+      request<AdminUser>(`/admin/users/${user.id}`, {
         method: "PUT",
         body: JSON.stringify({
           displayName:
@@ -180,14 +166,47 @@ export function AdminUsersPage({ language }: { language: Language }) {
             changes.enabled === undefined ? user.enabled : changes.enabled,
           role: changes.role === undefined ? user.role : changes.role,
         }),
-      });
+      }),
+    onSuccess: async () => {
       toast.success(text.updated);
-      await load();
-    } catch (updateError) {
-      setError(messageOf(updateError, text.operationFailed));
-    } finally {
-      setSaving(false);
+      await queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    },
+    onError: (updateError) =>
+      setError(messageOf(updateError, text.operationFailed)),
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: () =>
+      request(`/admin/users/${passwordTarget?.id}/password`, {
+        method: "POST",
+        body: JSON.stringify({ password: newPassword }),
+      }),
+    onSuccess: () => {
+      setPasswordTarget(undefined);
+      setNewPassword("");
+      setConfirmNewPassword("");
+      toast.success(text.passwordReset);
+    },
+    onError: (resetError) =>
+      setError(messageOf(resetError, text.operationFailed)),
+  });
+
+  const createUser = async () => {
+    if (!username.trim() || password.length < 8) return;
+    if (password !== confirmPassword) {
+      setError(text.passwordMismatch);
+      return;
     }
+    setError("");
+    await createMutation.mutateAsync();
+  };
+
+  const updateUser = async (
+    user: AdminUser,
+    changes: Partial<Pick<AdminUser, "displayName" | "enabled" | "role">>,
+  ) => {
+    setError("");
+    await updateMutation.mutateAsync({ user, changes });
   };
 
   const resetPassword = async () => {
@@ -196,23 +215,14 @@ export function AdminUsersPage({ language }: { language: Language }) {
       setError(text.passwordMismatch);
       return;
     }
-    setSaving(true);
     setError("");
-    try {
-      await request(`/admin/users/${passwordTarget.id}/password`, {
-        method: "POST",
-        body: JSON.stringify({ password: newPassword }),
-      });
-      setPasswordTarget(undefined);
-      setNewPassword("");
-      setConfirmNewPassword("");
-      toast.success(text.passwordReset);
-    } catch (resetError) {
-      setError(messageOf(resetError, text.operationFailed));
-    } finally {
-      setSaving(false);
-    }
+    await resetPasswordMutation.mutateAsync();
   };
+
+  const saving =
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    resetPasswordMutation.isPending;
 
   return (
     <section className="admin-users-page">
@@ -230,9 +240,9 @@ export function AdminUsersPage({ language }: { language: Language }) {
         <Icon name="info" size={14} />
         {text.activeHint}
       </p>
-      {error && (
+      {(error || queryError) && (
         <p className="error" role="alert">
-          {error}
+          {error || queryError}
         </p>
       )}
       {loading ? (

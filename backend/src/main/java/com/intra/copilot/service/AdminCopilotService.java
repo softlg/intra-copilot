@@ -1928,7 +1928,7 @@ public class AdminCopilotService {
         try {
             return json.writeValueAsString(value);
         } catch (Exception error) {
-            return "{}";
+            throw new IllegalStateException("JSON 序列化失败", error);
         }
     }
 

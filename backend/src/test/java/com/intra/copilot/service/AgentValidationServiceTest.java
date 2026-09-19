@@ -20,6 +20,7 @@ import com.intra.copilot.repo.KnowledgeBaseRepository;
 import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
 import com.intra.copilot.service.stream.SseExecutionService;
+import com.intra.copilot.service.stream.DistributedCancellationService;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -193,7 +194,8 @@ class AgentValidationServiceTest {
                         new ObjectMapper().findAndRegisterModules(),
                         users,
                         mock(AdminAuditService.class),
-                        mock(SseExecutionService.class));
+                        mock(SseExecutionService.class),
+                        mock(DistributedCancellationService.class));
 
         Map<String, Object> report =
                 service.validateBehavior(
@@ -245,7 +247,8 @@ class AgentValidationServiceTest {
                         new ObjectMapper().findAndRegisterModules(),
                         users,
                         audits,
-                        mock(SseExecutionService.class));
+                        mock(SseExecutionService.class),
+                        mock(DistributedCancellationService.class));
 
         Map<String, Object> report = service.validateStatic("agent-1");
 
@@ -278,7 +281,8 @@ class AgentValidationServiceTest {
                 new ObjectMapper().findAndRegisterModules(),
                 mock(AdminUserService.class),
                 mock(AdminAuditService.class),
-                mock(SseExecutionService.class));
+                mock(SseExecutionService.class),
+                mock(DistributedCancellationService.class));
     }
 
     private static AgentDefinition agent() {

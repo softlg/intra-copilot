@@ -6,6 +6,8 @@ import com.intra.copilot.model.ActionProposal;
 import java.util.List;
 import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface ActionProposalRepository extends BaseMapper<ActionProposal> {
@@ -29,4 +31,17 @@ public interface ActionProposalRepository extends BaseMapper<ActionProposal> {
                         .eq("conversation_id", id)
                         .orderByAsc("expires_at"));
     }
+
+    @Update(
+            """
+            UPDATE action_proposal
+            SET status = #{status},
+                result = #{result}
+            WHERE action_id = #{actionId}
+              AND status = 'PENDING'
+            """)
+    int resolvePending(
+            @Param("actionId") String actionId,
+            @Param("status") String status,
+            @Param("result") String result);
 }

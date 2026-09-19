@@ -8,13 +8,14 @@ import com.intra.copilot.model.KnowledgeDocument;
 import com.intra.copilot.repo.IndexingJobRepository;
 import com.intra.copilot.repo.KnowledgeBaseRepository;
 import com.intra.copilot.repo.KnowledgeDocumentRepository;
+import com.intra.copilot.util.EntityIdGenerator;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.core.env.Environment;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Enqueues and reports on indexing work.
@@ -74,21 +75,37 @@ public class IndexingJobService {
         job.setPayload(payload);
         job.setMaxAttempts(
                 Math.max(1, environment.getProperty("kb.indexing.max-attempts", Integer.class, 3)));
-        try {
-            jobs.save(job);
+        int inserted =
+                jdbc.update(
+                        """
+                        INSERT INTO indexing_job(
+                          id, parent_id, document_id, knowledge_base_id, job_type,
+                          status, progress, attempt, max_attempts, payload, created_at)
+                        VALUES (?, ?, ?, ?, ?, 'QUEUED', 0, 0, ?, ?, NOW())
+                        ON CONFLICT (
+                          COALESCE(document_id, knowledge_base_id), job_type)
+                          WHERE status IN ('QUEUED', 'RUNNING', 'WAITING')
+                        DO NOTHING
+                        """,
+                        job.getId(),
+                        job.getParentId(),
+                        job.getDocumentId(),
+                        job.getKnowledgeBaseId(),
+                        job.getJobType(),
+                        job.getMaxAttempts(),
+                        job.getPayload());
+        if (inserted == 1) {
             return job.getId();
-        } catch (DataIntegrityViolationException e) {
-            // Lost a race with another request; the existing job already covers this work.
-            List<IndexingJob> active =
-                    documentId != null
-                            ? jobs.findActiveByDocumentId(documentId)
-                            : jobs.findActiveByKnowledgeBaseId(baseId);
-            return active.stream()
-                    .filter(item -> type.equals(item.getJobType()))
-                    .map(IndexingJob::getId)
-                    .findFirst()
-                    .orElseThrow(() -> e);
         }
+        List<IndexingJob> active =
+                documentId != null
+                        ? jobs.findActiveByDocumentId(documentId)
+                        : jobs.findActiveByKnowledgeBaseId(baseId);
+        return active.stream()
+                .filter(item -> type.equals(item.getJobType()))
+                .map(IndexingJob::getId)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("索引任务冲突但未找到活动任务"));
     }
 
     public IndexingJob status(String jobId) {
@@ -113,6 +130,7 @@ public class IndexingJobService {
      * <p>A dimension change invalidates every stored vector, so {@code dryRun} is the only way to
      * see the cost before committing to it.
      */
+    @Transactional
     public RebuildResult rebuild(String baseId, String profileId, boolean dryRun) {
         KnowledgeBase base =
                 bases.findById(baseId).orElseThrow(() -> new IllegalArgumentException("知识库不存在"));
@@ -266,6 +284,25 @@ public class IndexingJobService {
                         });
     }
 
+    public boolean markSucceeded(String jobId, String leaseToken) {
+        return jdbc.update(
+                        """
+                        UPDATE indexing_job
+                        SET status = 'SUCCEEDED',
+                            progress = 100,
+                            heartbeat_at = NOW(),
+                            finished_at = NOW(),
+                            error = NULL,
+                            lease_token = NULL
+                        WHERE id = ?
+                          AND status = 'RUNNING'
+                          AND lease_token = ?
+                        """,
+                        jobId,
+                        leaseToken)
+                == 1;
+    }
+
     public void markFailed(String jobId, String message) {
         jobs.findById(jobId)
                 .ifPresent(
@@ -288,6 +325,126 @@ public class IndexingJobService {
                         });
     }
 
+    public boolean markProgress(String jobId, String leaseToken, int progress) {
+        return jdbc.update(
+                        """
+                        UPDATE indexing_job
+                        SET progress = ?,
+                            heartbeat_at = NOW()
+                        WHERE id = ?
+                          AND status = 'RUNNING'
+                          AND lease_token = ?
+                        """,
+                        Math.max(0, Math.min(100, progress)),
+                        jobId,
+                        leaseToken)
+                == 1;
+    }
+
+    public RequeueOutcome requeueOrFail(
+            IndexingJob job, String leaseToken, String message) {
+        int attempt = Math.max(1, job.getAttempt());
+        boolean dead = attempt >= Math.max(1, job.getMaxAttempts());
+        long delaySeconds = Math.min(60L, 5L * attempt);
+        List<RequeueOutcome> outcomes =
+                jdbc.query(
+                        """
+                        UPDATE indexing_job
+                        SET status = CASE WHEN ? THEN 'DEAD' ELSE 'QUEUED' END,
+                            error = ?,
+                            next_attempt_at = CASE
+                              WHEN ? THEN NULL
+                              ELSE NOW() + (? * INTERVAL '1 second')
+                            END,
+                            finished_at = CASE WHEN ? THEN NOW() ELSE NULL END,
+                            heartbeat_at = NOW(),
+                            lease_token = NULL
+                        WHERE id = ?
+                          AND status = 'RUNNING'
+                          AND lease_token = ?
+                        RETURNING id, status, document_id, knowledge_base_id, job_type, payload
+                        """,
+                        (rs, row) ->
+                                new RequeueOutcome(
+                                        true,
+                                        rs.getString("id"),
+                                        rs.getString("status"),
+                                        rs.getString("document_id"),
+                                        rs.getString("knowledge_base_id"),
+                                        rs.getString("job_type"),
+                                        rs.getString("payload"),
+                                        message),
+                        dead,
+                        message,
+                        dead,
+                        delaySeconds,
+                        dead,
+                        job.getId(),
+                        leaseToken);
+        if (outcomes.isEmpty()) return RequeueOutcome.notUpdated();
+        RequeueOutcome outcome = outcomes.get(0);
+        if ("DEAD".equals(outcome.status())) recordDeadLetter(outcome);
+        return outcome;
+    }
+
+    public RequeueOutcome reclaimExpired(
+            String jobId, String leaseToken, String message) {
+        List<RequeueOutcome> outcomes =
+                jdbc.query(
+                        """
+                        UPDATE indexing_job
+                        SET status = CASE WHEN attempt >= max_attempts THEN 'DEAD' ELSE 'QUEUED' END,
+                            error = ?,
+                            next_attempt_at = CASE
+                              WHEN attempt >= max_attempts THEN NULL
+                              ELSE NOW() + (5 * attempt * INTERVAL '1 second')
+                            END,
+                            finished_at = CASE
+                              WHEN attempt >= max_attempts THEN NOW()
+                              ELSE NULL
+                            END,
+                            heartbeat_at = NOW(),
+                            lease_token = NULL
+                        WHERE id = ?
+                          AND status = 'RUNNING'
+                          AND lease_token = ?
+                        RETURNING id, status, document_id, knowledge_base_id, job_type, payload
+                        """,
+                        (rs, row) ->
+                                new RequeueOutcome(
+                                        true,
+                                        rs.getString("id"),
+                                        rs.getString("status"),
+                                        rs.getString("document_id"),
+                                        rs.getString("knowledge_base_id"),
+                                        rs.getString("job_type"),
+                                        rs.getString("payload"),
+                                        message),
+                        message,
+                        jobId,
+                        leaseToken);
+        if (outcomes.isEmpty()) return RequeueOutcome.notUpdated();
+        RequeueOutcome outcome = outcomes.get(0);
+        if ("DEAD".equals(outcome.status())) recordDeadLetter(outcome);
+        return outcome;
+    }
+
+    private void recordDeadLetter(RequeueOutcome outcome) {
+        jdbc.update(
+                """
+                INSERT INTO indexing_dead_letter(
+                  id, job_id, document_id, knowledge_base_id, job_type, payload, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                EntityIdGenerator.next("DL"),
+                outcome.jobId(),
+                outcome.documentId(),
+                outcome.knowledgeBaseId(),
+                outcome.jobType(),
+                outcome.payload(),
+                outcome.message());
+    }
+
     public record RebuildResult(
             String jobId,
             long documentCount,
@@ -300,4 +457,18 @@ public class IndexingJobService {
             boolean dimensionChanged,
             List<String> warnings,
             boolean dryRun) {}
+
+    public record RequeueOutcome(
+            boolean updated,
+            String jobId,
+            String status,
+            String documentId,
+            String knowledgeBaseId,
+            String jobType,
+            String payload,
+            String message) {
+        public static RequeueOutcome notUpdated() {
+            return new RequeueOutcome(false, null, null, null, null, null, null, null);
+        }
+    }
 }

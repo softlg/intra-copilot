@@ -6,6 +6,7 @@ import com.intra.copilot.repo.MessageAttachmentRepository;
 import com.intra.copilot.storage.DocumentStorage;
 import com.intra.copilot.util.EntityIdGenerator;
 import java.io.IOException;
+import java.io.BufferedInputStream;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -54,38 +55,54 @@ public class AttachmentService {
             if (file.getSize() > maxBytes) {
                 throw new IllegalArgumentException("文件 " + originalName(file) + " 超过单条附件大小限制");
             }
-            byte[] bytes = file.getBytes();
             String name = originalName(file);
-            String contentType = file.getContentType();
             MessageAttachment attachment = new MessageAttachment();
             attachment.setId(EntityIdGenerator.next("AT"));
             attachment.setFilename(name);
-            attachment.setContentType(contentType);
-            attachment.setByteSize(bytes.length);
-            attachment.setIsImage(isImage(contentType, name));
             attachment.setSortOrder(order++);
             attachment.setOwnerSource(ownerSource);
             attachment.setOwnerUserId(ownerUserId);
-            attachment.setStatus("PENDING");
-            attachment.setExpiresAt(Instant.now().plus(Duration.ofHours(24)));
-            attachment.setCreatedAt(Instant.now());
-            DocumentStorage.StoredObject stored =
-                    storage.store("chat", attachment.getId(), name, bytes);
-            attachment.setStorageBackend(storage.backend());
-            attachment.setStorageKey(stored.key());
-            try {
-                attachments.save(attachment);
-            } catch (RuntimeException error) {
-                try {
-                    storage.delete(stored.key());
-                } catch (IOException ignored) {
-                }
-                throw error;
+            try (BufferedInputStream input = new BufferedInputStream(file.getInputStream())) {
+                input.mark(64);
+                byte[] header = input.readNBytes(64);
+                input.reset();
+                String contentType = safeContentType(name, file.getContentType(), header);
+                DocumentStorage.StoredObject stored =
+                        storage.store(
+                                "chat", attachment.getId(), name, input, file.getSize());
+                attachment.setStorageBackend(storage.backend());
+                attachment.setStorageKey(stored.key());
+                finishUpload(attachment, contentType, stored);
             }
+            /*
+             * The stream must remain open while storage.store consumes it. The block above is
+             * intentionally structured so no byte array is materialized for large uploads.
+             */
             views.add(AttachmentView.of(attachment, baseUrl));
         }
         if (views.isEmpty()) throw new IllegalArgumentException("上传文件不能为空");
         return views;
+    }
+
+    private void finishUpload(
+            MessageAttachment attachment,
+            String contentType,
+            DocumentStorage.StoredObject stored) {
+        attachment.setContentType(contentType);
+        attachment.setByteSize(stored.byteSize());
+        attachment.setIsImage(contentType.startsWith("image/"));
+        attachment.setStatus("PENDING");
+        attachment.setExpiresAt(Instant.now().plus(Duration.ofHours(24)));
+        attachment.setCreatedAt(Instant.now());
+        try {
+            attachments.save(attachment);
+        } catch (RuntimeException error) {
+            try {
+                storage.delete(stored.key());
+            } catch (IOException ignored) {
+            }
+            throw error;
+        }
     }
 
     /** 把暂存附件绑定到某条用户消息，使其随该消息一起出现在历史里。 */
@@ -121,7 +138,11 @@ public class AttachmentService {
                         .findOwned(id, ownerSource, ownerUserId)
                         .orElseThrow(() -> new IllegalArgumentException("附件不存在"));
         byte[] bytes = storage.load(attachment.getStorageKey());
-        return new StoredBytes(bytes, attachment.getContentType(), attachment.getFilename());
+        return new StoredBytes(
+                bytes,
+                attachment.getContentType(),
+                attachment.getFilename(),
+                isSafeInline(attachment.getContentType()));
     }
 
     /** Administrative read path. The caller must already be authorized for conversation logs. */
@@ -129,7 +150,11 @@ public class AttachmentService {
         MessageAttachment attachment =
                 attachments.findById(id).orElseThrow(() -> new IllegalArgumentException("附件不存在"));
         byte[] bytes = storage.load(attachment.getStorageKey());
-        return new StoredBytes(bytes, attachment.getContentType(), attachment.getFilename());
+        return new StoredBytes(
+                bytes,
+                attachment.getContentType(),
+                attachment.getFilename(),
+                isSafeInline(attachment.getContentType()));
     }
 
     /** 列出某条消息的全部附件（按排序顺序），用于历史接口组装视图。 */
@@ -198,19 +223,87 @@ public class AttachmentService {
         }
     }
 
-    public record StoredBytes(byte[] bytes, String contentType, String filename) {}
-
-    private static boolean isImage(String contentType, String filename) {
-        if (contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
-            return true;
+    public record StoredBytes(
+            byte[] bytes, String contentType, String filename, boolean safeInline) {
+        public StoredBytes(byte[] bytes, String contentType, String filename) {
+            this(bytes, contentType, filename, isSafeInline(contentType));
         }
+    }
+
+    private static String safeContentType(String filename, String declared, byte[] bytes) {
+        String detected = detectImageType(bytes);
+        if (detected != null) return detected;
+        if (startsWith(bytes, "%PDF-")) return "application/pdf";
         String lower = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
-        return lower.endsWith(".png")
-                || lower.endsWith(".jpg")
-                || lower.endsWith(".jpeg")
-                || lower.endsWith(".gif")
-                || lower.endsWith(".webp")
-                || lower.endsWith(".bmp");
+        if (lower.endsWith(".txt")
+                && declared != null
+                && declared.toLowerCase(Locale.ROOT).startsWith("text/plain")
+                && !containsNull(bytes)) {
+            return "text/plain";
+        }
+        return "application/octet-stream";
+    }
+
+    private static String detectImageType(byte[] bytes) {
+        if (bytes.length >= 8
+                && (bytes[0] & 0xff) == 0x89
+                && bytes[1] == 'P'
+                && bytes[2] == 'N'
+                && bytes[3] == 'G') return "image/png";
+        if (bytes.length >= 3
+                && (bytes[0] & 0xff) == 0xff
+                && (bytes[1] & 0xff) == 0xd8
+                && (bytes[2] & 0xff) == 0xff) return "image/jpeg";
+        if (startsWith(bytes, "GIF87a") || startsWith(bytes, "GIF89a")) {
+            return "image/gif";
+        }
+        if (bytes.length >= 12
+                && startsWith(bytes, "RIFF")
+                && bytes[8] == 'W'
+                && bytes[9] == 'E'
+                && bytes[10] == 'B'
+                && bytes[11] == 'P') return "image/webp";
+        if (startsWith(bytes, "BM")) return "image/bmp";
+        if ((bytes.length >= 4
+                        && bytes[0] == 'I'
+                        && bytes[1] == 'I'
+                        && bytes[2] == 42
+                        && bytes[3] == 0)
+                || (bytes.length >= 4
+                        && bytes[0] == 'M'
+                        && bytes[1] == 'M'
+                        && bytes[2] == 0
+                        && bytes[3] == 42)) return "image/tiff";
+        return null;
+    }
+
+    private static boolean isSafeInline(String contentType) {
+        return contentType != null
+                && List.of(
+                                "image/png",
+                                "image/jpeg",
+                                "image/gif",
+                                "image/webp",
+                                "image/bmp",
+                                "image/tiff",
+                                "text/plain")
+                        .contains(contentType.toLowerCase(Locale.ROOT));
+    }
+
+    private static boolean startsWith(byte[] bytes, String value) {
+        byte[] prefix = value.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        if (bytes.length < prefix.length) return false;
+        for (int index = 0; index < prefix.length; index++) {
+            if (bytes[index] != prefix[index]) return false;
+        }
+        return true;
+    }
+
+    private static boolean containsNull(byte[] bytes) {
+        for (byte value : bytes) {
+            if (value == 0) return true;
+        }
+        return false;
     }
 
     private static String originalName(MultipartFile file) {

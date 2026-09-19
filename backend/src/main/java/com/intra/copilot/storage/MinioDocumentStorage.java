@@ -6,8 +6,11 @@ import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.StatObjectArgs;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
@@ -60,20 +63,30 @@ public class MinioDocumentStorage implements DocumentStorage {
     @Override
     public StoredObject store(String baseId, String documentId, String filename, byte[] bytes)
             throws IOException {
+        return store(baseId, documentId, filename, new ByteArrayInputStream(bytes), bytes.length);
+    }
+
+    @Override
+    public StoredObject store(
+            String baseId, String documentId, String filename, InputStream input, long byteSize)
+            throws IOException {
         ensureBucket();
         String key = keyOf(baseId, documentId, filename);
+        MessageDigest digest = sha256Digest();
         try {
-            client.putObject(
-                    PutObjectArgs.builder()
-                            .bucket(bucket)
-                            .object(key)
-                            .contentType(guessContentType(filename))
-                            .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
-                            .build());
+            try (DigestInputStream stream = new DigestInputStream(input, digest)) {
+                client.putObject(
+                        PutObjectArgs.builder()
+                                .bucket(bucket)
+                                .object(key)
+                                .contentType(guessContentType(filename))
+                                .stream(stream, byteSize, -1)
+                                .build());
+            }
         } catch (Exception e) {
             throw new IOException("写入 MinIO 对象失败：" + key, e);
         }
-        return new StoredObject(key, sha256(bytes), bytes.length);
+        return new StoredObject(key, java.util.HexFormat.of().formatHex(digest.digest()), byteSize);
     }
 
     @Override
@@ -84,6 +97,20 @@ public class MinioDocumentStorage implements DocumentStorage {
                     .readAllBytes();
         } catch (Exception e) {
             throw new IOException("读取 MinIO 对象失败：" + storageKey, e);
+        }
+    }
+
+    @Override
+    public boolean exists(String storageKey) throws IOException {
+        try {
+            client.statObject(StatObjectArgs.builder().bucket(bucket).object(storageKey).build());
+            return true;
+        } catch (io.minio.errors.ErrorResponseException error) {
+            String code = error.errorResponse() == null ? "" : error.errorResponse().code();
+            if ("NoSuchKey".equals(code) || "NoSuchObject".equals(code)) return false;
+            throw new IOException("检查 MinIO 对象失败：" + storageKey, error);
+        } catch (Exception error) {
+            throw new IOException("检查 MinIO 对象失败：" + storageKey, error);
         }
     }
 
@@ -159,6 +186,14 @@ public class MinioDocumentStorage implements DocumentStorage {
             StringBuilder out = new StringBuilder();
             for (byte value : digest) out.append(String.format("%02x", value));
             return out.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("无法计算文件指纹", e);
+        }
+    }
+
+    private MessageDigest sha256Digest() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("无法计算文件指纹", e);
         }

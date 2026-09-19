@@ -23,6 +23,7 @@ public class AgentDefinition {
     private boolean published = true;
     /** True for agents shipped by the application and protected from deletion. */
     private boolean systemAgent;
+
     private String ownerType = "USER";
     private String managementMode = "USER_MANAGED";
     private long systemRevision;
@@ -59,6 +60,40 @@ public class AgentDefinition {
         this.systemPrompt = systemPrompt;
         this.supportsBrowserActions = supportsBrowserActions;
         this.priority = priority;
+    }
+
+    public AgentDefinition copy() {
+        AgentDefinition value = new AgentDefinition();
+        value.id = id;
+        value.displayName = displayName;
+        value.description = description;
+        value.systemPrompt = systemPrompt;
+        value.parentAgentId = parentAgentId;
+        value.handlingMode = handlingMode;
+        value.returnMode = returnMode;
+        value.enabled = enabled;
+        value.published = published;
+        value.systemAgent = systemAgent;
+        value.ownerType = ownerType;
+        value.managementMode = managementMode;
+        value.systemRevision = systemRevision;
+        value.supportsBrowserActions = supportsBrowserActions;
+        value.priority = priority;
+        value.routingRules = routingRules;
+        value.model = model;
+        value.temperature = temperature;
+        value.knowledgeBaseIds = knowledgeBaseIds;
+        value.toolIds = toolIds;
+        value.skillIds = skillIds;
+        value.planningMode = planningMode;
+        value.maxPlanSteps = maxPlanSteps;
+        value.version = version;
+        value.publishedVersion = publishedVersion;
+        value.createdBy = createdBy;
+        value.updatedBy = updatedBy;
+        value.createdAt = createdAt;
+        value.updatedAt = updatedAt;
+        return value;
     }
 
     public String getId() {

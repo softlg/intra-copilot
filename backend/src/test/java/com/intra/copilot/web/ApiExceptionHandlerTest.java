@@ -13,14 +13,11 @@ class ApiExceptionHandlerTest {
     void exposesConflictReasonForLockedSystemResources() {
         ApiExceptionHandler handler = new ApiExceptionHandler();
 
-        ResponseEntity<java.util.Map<String, String>> response =
+        ResponseEntity<java.util.Map<String, Object>> response =
                 handler.status(
-                        new ResponseStatusException(
-                                HttpStatus.CONFLICT, "系统内置 Agent 随应用版本升级"));
+                        new ResponseStatusException(HttpStatus.CONFLICT, "系统内置 Agent 随应用版本升级"));
 
         assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
-        assertEquals(
-                "系统内置 Agent 随应用版本升级",
-                response.getBody().get("error"));
+        assertEquals("系统内置 Agent 随应用版本升级", response.getBody().get("error"));
     }
 }

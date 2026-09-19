@@ -16,6 +16,8 @@ import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.repo.McpServerRepository;
 import com.intra.copilot.repo.SkillToolBindingRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
+import com.intra.copilot.service.mcp.McpToolSynchronizer;
+import com.intra.copilot.service.mcp.McpSessionLeaseService;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -34,12 +36,15 @@ class McpServerServiceTest {
                 repository,
                 toolRepository,
                 agents,
-                skillToolBindings,
+                mock(McpToolSynchronizer.class),
+                mock(McpSessionLeaseService.class),
                 new ObjectMapper(),
                 RestClient.builder(),
                 2000,
                 true,
                 false,
+                "",
+                "",
                 60000);
     }
 

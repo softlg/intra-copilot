@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@tanstack/react-query": "5.103.1",
     "@vitejs/plugin-react": "6.1.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",

@@ -15,6 +15,7 @@ import com.intra.copilot.repo.SkillDefinitionRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
 import com.intra.copilot.service.auth.RequestContext;
 import com.intra.copilot.service.stream.SseExecutionService;
+import com.intra.copilot.service.stream.DistributedCancellationService;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -56,6 +57,7 @@ public class AgentValidationService {
     private final AdminUserService users;
     private final AdminAuditService audits;
     private final SseExecutionService streams;
+    private final DistributedCancellationService cancellations;
     private final Map<String, AtomicBoolean> streamCancellations = new ConcurrentHashMap<>();
 
     public AgentValidationService(
@@ -69,7 +71,8 @@ public class AgentValidationService {
             ObjectMapper json,
             AdminUserService users,
             AdminAuditService audits,
-            SseExecutionService streams) {
+            SseExecutionService streams,
+            DistributedCancellationService cancellations) {
         this.agentConfigurations = agentConfigurations;
         this.runs = runs;
         this.cases = cases;
@@ -81,6 +84,7 @@ public class AgentValidationService {
         this.users = users;
         this.audits = audits;
         this.streams = streams;
+        this.cancellations = cancellations;
     }
 
     @Transactional
@@ -164,6 +168,7 @@ public class AgentValidationService {
         Runnable cleanup = () -> {
             finished.set(true);
             streamCancellations.remove(streamId);
+            cancellations.clear(streamId);
         };
         out.onCompletion(cleanup);
         out.onTimeout(cleanup);
@@ -189,7 +194,12 @@ public class AgentValidationService {
                                                                 selected,
                                                                 (name, payload) ->
                                                                         emitStream(out, finished, name, payload),
-                                                                () -> finished.get() || canceled.get());
+                                                                        () ->
+                                                                                finished.get()
+                                                                                        || canceled.get()
+                                                                                        || cancellations
+                                                                                                .isCancelled(
+                                                                                                        streamId));
                                                 emitStream(out, finished, "done", report);
                                             } catch (RuntimeException error) {
                                                 emitStream(
@@ -210,7 +220,12 @@ public class AgentValidationService {
     public Map<String, Object> cancelStreamValidation(String streamId) {
         AtomicBoolean flag = streamId == null ? null : streamCancellations.get(streamId);
         if (flag != null) flag.set(true);
-        return Map.of("runId", streamId == null ? "" : streamId, "canceled", flag != null);
+        cancellations.request(streamId);
+        return Map.of(
+                "runId",
+                streamId == null ? "" : streamId,
+                "canceled",
+                flag != null || streamId != null);
     }
 
     private List<ValidationCaseRequest> requireCases(BehaviorRequest request) {

@@ -112,6 +112,12 @@ public class JwtAuthFilter implements HandlerInterceptor {
         if (path.startsWith("/api/v1/admin/users")) {
             return role.atLeast(AdminRole.ADMIN);
         }
+        if (path.startsWith("/api/v1/admin/mcp-servers")
+                || path.startsWith("/api/v1/admin/tools")) {
+            return HttpMethod.GET.matches(request.getMethod())
+                    ? role.atLeast(AdminRole.VIEWER)
+                    : role.atLeast(AdminRole.ADMIN);
+        }
         if (HttpMethod.GET.matches(request.getMethod())) {
             return role.atLeast(AdminRole.VIEWER);
         }

@@ -25,11 +25,16 @@ public class TraceRecorder {
     private final AgentInvocationEventRepository events;
     private final ObjectMapper json;
     private final MeterRegistry meterRegistry;
+    private final TraceEventWriter writer;
     private final Map<String, SequenceState> sequences = new ConcurrentHashMap<>();
 
     public TraceRecorder(
-            AgentInvocationEventRepository events, ObjectMapper json, MeterRegistry meterRegistry) {
+            AgentInvocationEventRepository events,
+            TraceEventWriter writer,
+            ObjectMapper json,
+            MeterRegistry meterRegistry) {
         this.events = events;
+        this.writer = writer;
         this.json = json;
         this.meterRegistry = meterRegistry;
     }
@@ -90,7 +95,7 @@ public class TraceRecorder {
             event.setPayload(SensitiveDataRedactor.redact(event.getPayload()));
         }
         try {
-            events.save(event);
+            writer.append(event);
             recordMetrics(event);
         } catch (RuntimeException error) {
             // Tracing is observability infrastructure and must not become a chat failure mode.

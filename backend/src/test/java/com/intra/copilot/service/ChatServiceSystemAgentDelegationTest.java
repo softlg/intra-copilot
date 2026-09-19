@@ -19,6 +19,7 @@ import com.intra.copilot.repo.AgentPlanStepRepository;
 import com.intra.copilot.repo.ConversationRepository;
 import com.intra.copilot.repo.MessageRepository;
 import com.intra.copilot.service.stream.SseExecutionService;
+import com.intra.copilot.service.stream.RuntimeLockService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +65,9 @@ class ChatServiceSystemAgentDelegationTest {
                         mock(SkillPromptAssembler.class),
                         mock(PlanningService.class),
                         mock(SseExecutionService.class),
+                        mock(RuntimeLockService.class),
+                        mock(ChatPersistenceService.class),
+                        mock(BrowserActionCoordinator.class),
                         mock(AgentPlanRepository.class),
                         mock(AgentPlanStepRepository.class),
                         5,

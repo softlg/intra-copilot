@@ -6,8 +6,6 @@ import com.intra.copilot.model.AgentDefinition;
 import com.intra.copilot.model.AgentPlan;
 import com.intra.copilot.model.AgentPlanStep;
 import com.intra.copilot.model.ToolDefinition;
-import com.intra.copilot.repo.AgentPlanRepository;
-import com.intra.copilot.repo.AgentPlanStepRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -18,7 +16,6 @@ import java.util.Optional;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Generates a bounded, validated execution plan before the agent starts acting.
@@ -29,20 +26,17 @@ import org.springframework.transaction.annotation.Transactional;
 public class PlanningService {
     private final LlmClient llm;
     private final ObjectMapper json;
-    private final AgentPlanRepository plans;
-    private final AgentPlanStepRepository steps;
+    private final PlanningPersistenceService persistence;
     private final Duration timeout;
 
     public PlanningService(
             LlmClient llm,
             ObjectMapper json,
-            AgentPlanRepository plans,
-            AgentPlanStepRepository steps,
+            PlanningPersistenceService persistence,
             @Value("${agent.planning-timeout-seconds:15}") long timeoutSeconds) {
         this.llm = llm;
         this.json = json;
-        this.plans = plans;
-        this.steps = steps;
+        this.persistence = persistence;
         this.timeout = Duration.ofSeconds(Math.max(5L, Math.min(60L, timeoutSeconds)));
     }
 
@@ -85,7 +79,6 @@ public class PlanningService {
         return new PlanningDecision(taskLike, mode, reason);
     }
 
-    @Transactional
     public Optional<PlanExecution> createPlan(
             AgentDefinition definition,
             String conversationId,
@@ -109,7 +102,6 @@ public class PlanningService {
                 .execution();
     }
 
-    @Transactional
     public PlanOutcome createPlanOutcome(
             AgentDefinition definition,
             String conversationId,
@@ -206,13 +198,10 @@ public class PlanningService {
         plan.setStatus("PENDING");
         plan.setCreatedAt(Instant.now());
         plan.setUpdatedAt(Instant.now());
-        AgentPlan savedPlan = plans.save(plan);
-
-        List<AgentPlanStep> savedSteps = new ArrayList<>();
+        List<AgentPlanStep> stepValues = new ArrayList<>();
         for (int index = 0; index < draft.steps().size(); index++) {
             StepDraft item = draft.steps().get(index);
             AgentPlanStep step = new AgentPlanStep();
-            step.setPlanId(savedPlan.getId());
             step.setStepIndex(index + 1);
             step.setTitle(item.title());
             step.setDescription(item.description());
@@ -221,12 +210,13 @@ public class PlanningService {
             step.setDependsOn(writeJson(item.dependsOn()));
             step.setSuccessCriteria(item.successCriteria());
             step.setStatus("PENDING");
-            savedSteps.add(steps.save(step));
+            stepValues.add(step);
         }
+        PlanningPersistenceService.SavedPlan saved = persistence.save(plan, stepValues);
         PlanExecution execution =
                 new PlanExecution(
-                        savedPlan,
-                        List.copyOf(savedSteps),
+                        saved.plan(),
+                        saved.steps(),
                         plannerRequest,
                         limit(repaired ? repairedRaw : raw, 16000),
                         planningDurationMs,
@@ -317,7 +307,6 @@ public class PlanningService {
                         outputTokens));
     }
 
-    @Transactional
     public Optional<PlanExecution> revisePlan(
             AgentPlan previous,
             List<AgentPlanStep> previousSteps,
@@ -396,13 +385,10 @@ public class PlanningService {
         plan.setSummary(draft.summary());
         plan.setPlanningMode(previous.getPlanningMode());
         plan.setStatus("PENDING");
-        AgentPlan savedPlan = plans.save(plan);
-
-        List<AgentPlanStep> savedSteps = new ArrayList<>();
+        List<AgentPlanStep> stepValues = new ArrayList<>();
         for (int index = 0; index < draft.steps().size(); index++) {
             StepDraft item = draft.steps().get(index);
             AgentPlanStep step = new AgentPlanStep();
-            step.setPlanId(savedPlan.getId());
             step.setStepIndex(index + 1);
             step.setTitle(item.title());
             step.setDescription(item.description());
@@ -411,16 +397,14 @@ public class PlanningService {
             step.setDependsOn(writeJson(item.dependsOn()));
             step.setSuccessCriteria(item.successCriteria());
             step.setStatus("PENDING");
-            savedSteps.add(steps.save(step));
+            stepValues.add(step);
         }
-        previous.setStatus("SUPERSEDED");
-        previous.setCompletedAt(Instant.now());
-        previous.touch();
-        plans.save(previous);
+        PlanningPersistenceService.SavedPlan saved =
+                persistence.saveRevision(plan, stepValues, previous);
         return Optional.of(
                 new PlanExecution(
-                        savedPlan,
-                        List.copyOf(savedSteps),
+                        saved.plan(),
+                        saved.steps(),
                         limit(system + "\n\n" + input, 16000),
                         limit(raw, 16000),
                         planningDurationMs,

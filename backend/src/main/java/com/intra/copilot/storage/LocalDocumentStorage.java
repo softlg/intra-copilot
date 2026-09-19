@@ -1,9 +1,10 @@
 package com.intra.copilot.storage;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
@@ -31,21 +32,38 @@ public class LocalDocumentStorage implements DocumentStorage {
     @Override
     public StoredObject store(String baseId, String documentId, String filename, byte[] bytes)
             throws IOException {
+        return store(
+                baseId,
+                documentId,
+                filename,
+                new java.io.ByteArrayInputStream(bytes),
+                bytes.length);
+    }
+
+    @Override
+    public StoredObject store(
+            String baseId, String documentId, String filename, InputStream input, long byteSize)
+            throws IOException {
         String extension = extensionOf(filename);
         Path target = resolve(baseId, documentId + extension);
         Files.createDirectories(target.getParent());
-        Files.write(
-                target,
-                bytes,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.WRITE);
-        return new StoredObject(relative(target), sha256(bytes), bytes.length);
+        MessageDigest digest = sha256Digest();
+        long written;
+        try (DigestInputStream stream = new DigestInputStream(input, digest)) {
+            written = Files.copy(stream, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+        return new StoredObject(
+                relative(target), java.util.HexFormat.of().formatHex(digest.digest()), written);
     }
 
     @Override
     public byte[] load(String storageKey) throws IOException {
         return Files.readAllBytes(resolve(storageKey));
+    }
+
+    @Override
+    public boolean exists(String storageKey) throws IOException {
+        return Files.isRegularFile(resolve(storageKey));
     }
 
     @Override
@@ -90,6 +108,14 @@ public class LocalDocumentStorage implements DocumentStorage {
             StringBuilder out = new StringBuilder();
             for (byte value : digest) out.append(String.format("%02x", value));
             return out.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("无法计算文件指纹", e);
+        }
+    }
+
+    private MessageDigest sha256Digest() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("无法计算文件指纹", e);
         }

@@ -14,6 +14,7 @@ import com.intra.copilot.repo.AgentPlanRepository;
 import com.intra.copilot.repo.AgentPlanStepRepository;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Transactional;
 
 class PlanningServiceTest {
 
@@ -80,8 +81,7 @@ class PlanningServiceTest {
                 new PlanningService(
                         mock(LlmClient.class),
                         new ObjectMapper(),
-                        mock(AgentPlanRepository.class),
-                        mock(AgentPlanStepRepository.class),
+                        mock(PlanningPersistenceService.class),
                         15);
         AgentDefinition definition = new AgentDefinition();
         definition.setId("agent-1");
@@ -95,5 +95,17 @@ class PlanningServiceTest {
 
         definition.setPlanningMode("ALWAYS");
         assertTrue(service.shouldPlan(definition, "你好", List.of()));
+    }
+
+    @Test
+    void modelPlanningMethodsDoNotOwnDatabaseTransactions() {
+        assertTrue(
+                java.util.Arrays.stream(PlanningService.class.getDeclaredMethods())
+                        .filter(
+                                method ->
+                                        method.getName().equals("createPlan")
+                                                || method.getName().equals("createPlanOutcome")
+                                                || method.getName().equals("revisePlan"))
+                        .noneMatch(method -> method.isAnnotationPresent(Transactional.class)));
     }
 }
