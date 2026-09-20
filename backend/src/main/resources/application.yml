@@ -51,6 +51,9 @@ springdoc:
 logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [trace=%X{traceId:-} turn=%X{turnId:-} span=%X{spanId:-} request=%X{requestId:-}] %logger{36} - %msg%n"
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.intra.copilot: ${LOG_LEVEL_COM_INTRA_COPILOT:INFO}
 trace:
   # Invocation summaries are retained with the conversation; high-volume child events expire first.
   retention-days: ${TRACE_RETENTION_DAYS:30}
