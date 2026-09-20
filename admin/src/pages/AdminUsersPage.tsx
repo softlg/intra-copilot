@@ -55,6 +55,13 @@ const copy = {
     passwordReset: "密码已重置。",
     operationFailed: "操作失败，请稍后重试。",
     activeHint: "至少保留一个启用的管理员账号。",
+    total: "账号总数",
+    ownerCount: "OWNER",
+    searchPlaceholder: "搜索用户名或显示名称",
+    allStatuses: "全部状态",
+    noResults: "没有匹配的管理员账号。",
+    noResultsHint: "调整搜索关键词或状态筛选后重试。",
+    lastOwnerHint: "系统至少需要保留一个启用的 OWNER 账号。",
   },
   en: {
     title: "Administrators",
@@ -90,6 +97,13 @@ const copy = {
     passwordReset: "Password reset.",
     operationFailed: "Operation failed. Try again.",
     activeHint: "At least one administrator must remain enabled.",
+    total: "Total accounts",
+    ownerCount: "OWNER",
+    searchPlaceholder: "Search username or display name",
+    allStatuses: "All statuses",
+    noResults: "No matching administrators.",
+    noResultsHint: "Adjust the search or status filter and try again.",
+    lastOwnerHint: "At least one enabled OWNER account is required.",
   },
 } as const;
 
@@ -110,6 +124,10 @@ export function AdminUsersPage({ language }: { language: Language }) {
   const [passwordTarget, setPasswordTarget] = useState<AdminUser>();
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "enabled" | "disabled"
+  >("all");
 
   const usersQuery = useQuery({
     queryKey: ["admin-users"],
@@ -120,6 +138,23 @@ export function AdminUsersPage({ language }: { language: Language }) {
   const queryError = usersQuery.error
     ? messageOf(usersQuery.error, text.loadFailed)
     : "";
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleUsers = users.filter((user) => {
+    const matchesQuery =
+      !normalizedQuery ||
+      user.username.toLowerCase().includes(normalizedQuery) ||
+      (user.displayName ?? "").toLowerCase().includes(normalizedQuery) ||
+      (user.role ?? "").toLowerCase().includes(normalizedQuery);
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "enabled" ? user.enabled : !user.enabled);
+    return matchesQuery && matchesStatus;
+  });
+  const enabledOwnerCount = users.filter(
+    (user) => user.enabled && user.role === "OWNER",
+  ).length;
+  const enabledCount = users.filter((user) => user.enabled).length;
+  const ownerCount = users.filter((user) => user.role === "OWNER").length;
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -226,17 +261,56 @@ export function AdminUsersPage({ language }: { language: Language }) {
 
   return (
     <section className="admin-users-page">
-      <div className="admin-users-heading">
-        <div>
-          <h3>{text.title}</h3>
+      <div className="admin-users-toolbar">
+        <div className="admin-users-intro">
           <p>{text.subtitle}</p>
+          <div className="admin-users-stats">
+            <span>
+              {text.total}
+              <strong>{users.length}</strong>
+            </span>
+            <span>
+              {text.enabled}
+              <strong>{enabledCount}</strong>
+            </span>
+            <span>
+              {text.ownerCount}
+              <strong>{ownerCount}</strong>
+            </span>
+          </div>
         </div>
-        <button type="button" onClick={() => setCreateOpen(true)}>
-          <Icon name="plus" size={15} />
-          {text.newUser}
-        </button>
+        <div className="resource-toolbar-actions">
+          <label className="resource-search admin-users-search">
+            <Icon name="search" size={15} />
+            <span className="sr-only">{text.searchPlaceholder}</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={text.searchPlaceholder}
+              type="search"
+            />
+          </label>
+          <select
+            className="resource-filter"
+            value={statusFilter}
+            onChange={(event) =>
+              setStatusFilter(
+                event.target.value as "all" | "enabled" | "disabled",
+              )
+            }
+            aria-label={text.status}
+          >
+            <option value="all">{text.allStatuses}</option>
+            <option value="enabled">{text.enabled}</option>
+            <option value="disabled">{text.disabled}</option>
+          </select>
+          <button type="button" onClick={() => setCreateOpen(true)}>
+            <Icon name="plus" size={15} />
+            {text.newUser}
+          </button>
+        </div>
       </div>
-      <p className="admin-users-hint">
+      <p className="admin-users-policy">
         <Icon name="info" size={14} />
         {text.activeHint}
       </p>
@@ -257,74 +331,102 @@ export function AdminUsersPage({ language }: { language: Language }) {
             </button>
           }
         />
+      ) : visibleUsers.length === 0 ? (
+        <EmptyState
+          compact
+          icon={<Icon name="search" size={22} />}
+          title={text.noResults}
+          hint={text.noResultsHint}
+        />
       ) : (
         <div className="admin-users-list">
-          {users.map((user) => (
-            <article className="admin-user-row" key={user.id}>
-              <div className="admin-user-identity">
-                <span className="admin-user-avatar" aria-hidden="true">
-                  {(user.displayName || user.username)
-                    .slice(0, 1)
-                    .toUpperCase()}
-                </span>
-                <div>
-                  <strong>{user.displayName || user.username}</strong>
-                  <code>{user.username}</code>
+          {visibleUsers.map((user) => {
+            const isLastEnabledOwner =
+              user.enabled && user.role === "OWNER" && enabledOwnerCount <= 1;
+            return (
+              <article className="admin-user-row" key={user.id}>
+                <div className="admin-user-identity">
+                  <span className="admin-user-avatar" aria-hidden="true">
+                    {(user.displayName || user.username)
+                      .slice(0, 1)
+                      .toUpperCase()}
+                  </span>
+                  <div className="admin-user-copy">
+                    <strong>{user.displayName || user.username}</strong>
+                    <div className="admin-user-identity-meta">
+                      <code>{user.username}</code>
+                      <span
+                        className={
+                          user.enabled
+                            ? "admin-user-status is-enabled"
+                            : "admin-user-status is-disabled"
+                        }
+                      >
+                        <Icon
+                          name={user.enabled ? "check" : "close"}
+                          size={12}
+                        />
+                        {user.enabled ? text.enabled : text.disabled}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="admin-user-field">
-                <span>{text.status}</span>
-                <strong className={user.enabled ? "is-enabled" : "is-disabled"}>
-                  <Icon name={user.enabled ? "check" : "close"} size={13} />
-                  {user.enabled ? text.enabled : text.disabled}
-                </strong>
-              </div>
-              <label className="admin-user-field">
-                <span>{text.role}</span>
-                <select
-                  value={user.role || "EDITOR"}
-                  disabled={saving}
-                  onChange={(event) =>
-                    void updateUser(user, { role: event.target.value })
-                  }
-                >
-                  <option value="VIEWER">VIEWER</option>
-                  <option value="EDITOR">EDITOR</option>
-                  <option value="ADMIN">ADMIN</option>
-                  <option value="OWNER">OWNER</option>
-                </select>
-              </label>
-              <div className="admin-user-field">
-                <span>{text.lastLogin}</span>
-                <strong>
-                  {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : "-"}
-                </strong>
-              </div>
-              <div className="admin-user-field">
-                <span>{text.updatedAt}</span>
-                <strong>{formatDateTime(user.updatedAt)}</strong>
-              </div>
-              <div className="admin-user-actions">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setPasswordTarget(user)}
-                >
-                  {text.resetPassword}
-                </button>
-                <button
-                  type="button"
-                  className={user.enabled ? "secondary danger" : "secondary"}
-                  disabled={saving}
-                  onClick={() =>
-                    void updateUser(user, { enabled: !user.enabled })
-                  }
-                >
-                  {user.enabled ? text.disable : text.enable}
-                </button>
-              </div>
-            </article>
-          ))}
+                <div className="admin-user-details">
+                  <label className="admin-user-detail">
+                    <span>{text.role}</span>
+                    <select
+                      value={user.role || "EDITOR"}
+                      disabled={saving || isLastEnabledOwner}
+                      title={
+                        isLastEnabledOwner ? text.lastOwnerHint : undefined
+                      }
+                      onChange={(event) =>
+                        void updateUser(user, { role: event.target.value })
+                      }
+                    >
+                      <option value="VIEWER">VIEWER</option>
+                      <option value="EDITOR">EDITOR</option>
+                      <option value="ADMIN">ADMIN</option>
+                      <option value="OWNER">OWNER</option>
+                    </select>
+                  </label>
+                  <div className="admin-user-detail">
+                    <span>{text.lastLogin}</span>
+                    <strong>
+                      {user.lastLoginAt
+                        ? formatDateTime(user.lastLoginAt)
+                        : "-"}
+                    </strong>
+                  </div>
+                  <div className="admin-user-detail">
+                    <span>{text.updatedAt}</span>
+                    <strong>{formatDateTime(user.updatedAt)}</strong>
+                  </div>
+                </div>
+                <div className="admin-user-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setPasswordTarget(user)}
+                  >
+                    <Icon name="edit" size={14} />
+                    {text.resetPassword}
+                  </button>
+                  <button
+                    type="button"
+                    className={user.enabled ? "secondary danger" : "secondary"}
+                    disabled={saving || isLastEnabledOwner}
+                    title={isLastEnabledOwner ? text.lastOwnerHint : undefined}
+                    onClick={() =>
+                      void updateUser(user, { enabled: !user.enabled })
+                    }
+                  >
+                    {user.enabled ? text.disable : text.enable}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
 
