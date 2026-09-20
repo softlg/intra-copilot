@@ -41,6 +41,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -54,6 +56,7 @@ import reactor.core.publisher.Sinks;
 /** Stateful management-console assistant with explicit proposal generation and application. */
 @Service
 public class AdminCopilotService {
+    private static final Logger log = LoggerFactory.getLogger(AdminCopilotService.class);
     private static final int MAX_HISTORY_MESSAGES = 16;
     private static final int MAX_MESSAGE_CHARS = 16_000;
     private static final Duration MODEL_TIMEOUT = Duration.ofSeconds(45);
@@ -232,6 +235,11 @@ public class AdminCopilotService {
                         : title.trim());
         session.setCurrentAgentId(trimToNull(currentAgentId));
         sessions.save(session);
+        log.info(
+                "Admin copilot session created sessionId={} mode={} actor={}",
+                session.getId(),
+                session.getMode(),
+                user.getUsername());
         return sessionView(session);
     }
 
@@ -299,6 +307,11 @@ public class AdminCopilotService {
                                                         "cancelled",
                                                         Map.of("runId", runId));
                                             } catch (RuntimeException error) {
+                                                log.error(
+                                                        "Admin copilot stream failed runId={} sessionId={}",
+                                                        runId,
+                                                        sessionId,
+                                                        error);
                                                 emitStream(
                                                         out,
                                                         finished,
@@ -328,6 +341,11 @@ public class AdminCopilotService {
                             session.touch();
                             sessions.save(session);
                         });
+        log.info(
+                "Admin copilot cancellation requested sessionId={} runId={} activeRun={}",
+                sessionId,
+                runId,
+                cancellation != null);
         return Map.of(
                 "runId", runId == null ? "" : runId, "canceled", cancellation != null);
     }
@@ -352,6 +370,13 @@ public class AdminCopilotService {
         }
 
         AdminUser actor = users.requireCurrent();
+        log.info(
+                "Admin copilot request started sessionId={} runId={} mode={} actor={} messageChars={}",
+                sessionId,
+                runId,
+                session.getMode(),
+                actor.getUsername(),
+                userText.length());
         if (request != null && request.currentAgentId() != null) {
             session.setCurrentAgentId(trimToNull(request.currentAgentId()));
         }
@@ -379,7 +404,8 @@ public class AdminCopilotService {
         if (reply.isBlank()) reply = "我没有得到可用回复，请补充信息后重试。";
         String finalReply = reply;
         Map<String, Object> finalResult = result;
-        return inTransaction(
+        Map<String, Object> savedResult =
+                inTransaction(
                 () -> {
                     AdminCopilotMessage userMessage = new AdminCopilotMessage();
                     userMessage.setSessionId(sessionId);
@@ -402,6 +428,13 @@ public class AdminCopilotService {
                     sessions.save(session);
                     return finalResult;
                 });
+        log.info(
+                "Admin copilot request completed sessionId={} runId={} mode={} replyChars={}",
+                sessionId,
+                runId,
+                session.getMode(),
+                finalReply.length());
+        return savedResult;
     }
 
     @Transactional
@@ -509,6 +542,12 @@ public class AdminCopilotService {
                 "COPILOT",
                 proposal.getSessionId(),
                 payload);
+        log.info(
+                "Admin copilot proposal applied proposalId={} targetType={} targetId={} actor={}",
+                proposalId,
+                applied.type(),
+                applied.id(),
+                actor.getUsername());
         return Map.of(
                 "proposalId", proposal.getId(),
                 "status", proposal.getStatus(),

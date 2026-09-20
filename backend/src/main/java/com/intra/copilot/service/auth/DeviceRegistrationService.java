@@ -16,6 +16,8 @@ import java.util.Base64;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 /** Challenge-response device registration and key rotation. */
 @Service
 public class DeviceRegistrationService {
+    private static final Logger log = LoggerFactory.getLogger(DeviceRegistrationService.class);
     private static final Duration CHALLENGE_TTL = Duration.ofMinutes(5);
     private static final Pattern SOURCE_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,64}");
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -56,6 +59,11 @@ public class DeviceRegistrationService {
         challenge.setPurpose(existing == null ? "REGISTER" : "ROTATE");
         challenge.setExpiresAt(Instant.now().plus(CHALLENGE_TTL));
         challenges.insert(challenge);
+        log.info(
+                "Device registration challenge issued deviceId={} source={} purpose={}",
+                deviceId,
+                normalizedSource,
+                challenge.getPurpose());
         return new Challenge(
                 challenge.getDeviceId(),
                 challenge.getChallengeId(),
@@ -114,6 +122,11 @@ public class DeviceRegistrationService {
             }
             existing.setLastSeenAt(now);
             deviceKeys.updateById(existing);
+            log.info(
+                    "Device registration completed deviceId={} source={} userId={} status=updated",
+                    existing.getDeviceId(),
+                    existing.getSource(),
+                    existing.getUserId());
             return new RegisteredDevice(
                     existing.getDeviceId(), existing.getSource(), existing.getUserId(), "updated");
         }
@@ -127,6 +140,11 @@ public class DeviceRegistrationService {
         device.setCreatedAt(now);
         device.setLastSeenAt(now);
         deviceKeys.insert(device);
+        log.info(
+                "Device registration completed deviceId={} source={} userId={} status=registered",
+                device.getDeviceId(),
+                device.getSource(),
+                device.getUserId());
         return new RegisteredDevice(deviceId, source, device.getUserId(), "registered");
     }
 

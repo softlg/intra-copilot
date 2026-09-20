@@ -12,6 +12,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -28,6 +30,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Component
 public class IndexingWorker {
+    private static final Logger log = LoggerFactory.getLogger(IndexingWorker.class);
 
     private final IndexingJobRepository jobs;
     private final IndexingJobService jobService;
@@ -137,6 +140,13 @@ public class IndexingWorker {
             String message = "索引任务租约超时，已重新排队";
             IndexingJobService.RequeueOutcome outcome =
                     jobService.reclaimExpired(lease.jobId(), lease.leaseToken(), message);
+            if (outcome.updated()) {
+                log.warn(
+                        "Indexing job lease expired jobId={} documentId={} status={}",
+                        outcome.jobId(),
+                        outcome.documentId(),
+                        outcome.status());
+            }
             if (outcome.updated() && "DEAD".equals(outcome.status())) {
                 indexing.discardPartial(outcome.jobId());
                 indexing.markFailed(outcome.documentId(), message);
@@ -146,11 +156,27 @@ public class IndexingWorker {
 
     private void run(Claim claim) {
         IndexingJob job = jobs.findById(claim.jobId()).orElse(null);
-        if (job == null) return;
+        if (job == null) {
+            log.warn("Indexing job disappeared after claim jobId={}", claim.jobId());
+            return;
+        }
+        long started = System.nanoTime();
+        log.info(
+                "Indexing job started jobId={} documentId={} baseId={} type={} attempt={}",
+                job.getId(),
+                job.getDocumentId(),
+                job.getKnowledgeBaseId(),
+                job.getJobType(),
+                job.getAttempt());
         try {
             if (IndexingJob.TYPE_REBUILD_BASE.equals(job.getJobType())) {
                 // The expansion into per-document jobs already happened at enqueue time.
                 jobService.markWaiting(claim.jobId());
+                log.info(
+                        "Indexing parent job waiting for children jobId={} baseId={} durationMs={}",
+                        job.getId(),
+                        job.getKnowledgeBaseId(),
+                        elapsedMs(started));
                 return;
             }
             indexing.index(
@@ -159,6 +185,12 @@ public class IndexingWorker {
                     progress ->
                             jobService.markProgress(claim.jobId(), claim.leaseToken(), progress));
             jobService.markSucceeded(claim.jobId(), claim.leaseToken());
+            log.info(
+                    "Indexing job completed jobId={} documentId={} baseId={} durationMs={}",
+                    job.getId(),
+                    job.getDocumentId(),
+                    job.getKnowledgeBaseId(),
+                    elapsedMs(started));
         } catch (Exception error) {
             handleFailure(job, claim.leaseToken(), error);
         }
@@ -172,7 +204,28 @@ public class IndexingWorker {
         if (!outcome.updated()) return;
         indexing.discardPartial(job.getId());
         if ("DEAD".equals(outcome.status())) {
+            log.error(
+                    "Indexing job exhausted retries jobId={} documentId={} baseId={}"
+                            + " attempt={} maxAttempts={} message={}",
+                    job.getId(),
+                    job.getDocumentId(),
+                    job.getKnowledgeBaseId(),
+                    job.getAttempt(),
+                    job.getMaxAttempts(),
+                    message,
+                    error);
             indexing.markFailed(job.getDocumentId(), message);
+        } else {
+            log.warn(
+                    "Indexing job will retry jobId={} documentId={} baseId={}"
+                            + " attempt={} maxAttempts={} message={}",
+                    job.getId(),
+                    job.getDocumentId(),
+                    job.getKnowledgeBaseId(),
+                    job.getAttempt(),
+                    job.getMaxAttempts(),
+                    message,
+                    error);
         }
     }
 
@@ -211,8 +264,20 @@ public class IndexingWorker {
         if (failed > 0) {
             jobService.markFailed(
                     parent.getId(), failed + "/" + children.size() + " 个文档重建失败；失败文档继续使用上一代索引");
+            log.warn(
+                    "Indexing parent job completed with failures jobId={} baseId={}"
+                            + " failedChildren={} totalChildren={}",
+                    parent.getId(),
+                    parent.getKnowledgeBaseId(),
+                    failed,
+                    children.size());
         } else {
             jobService.markSucceeded(parent.getId());
+            log.info(
+                    "Indexing parent job completed jobId={} baseId={} children={}",
+                    parent.getId(),
+                    parent.getKnowledgeBaseId(),
+                    children.size());
         }
         bases.findById(parent.getKnowledgeBaseId())
                 .ifPresent(
@@ -230,7 +295,12 @@ public class IndexingWorker {
 
     @PreDestroy
     public void shutdown() {
+        log.info("Indexing worker shutting down workerId={}", workerId);
         executor.shutdownNow();
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 
     private record Claim(String jobId, String leaseToken) {}

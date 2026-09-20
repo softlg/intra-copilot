@@ -463,6 +463,16 @@ public class ChatService {
                                 requestId == null || requestId.isBlank()
                                                 ? EntityIdGenerator.next("RQ")
                                                 : requestId.strip();
+                log.info(
+                                "Chat request accepted requestId={} source={} sessionId={} requestedAgent={}"
+                                                + " messageChars={} attachments={} retry={}",
+                                effectiveRequestId,
+                                callerSource,
+                                sessionId,
+                                requestedAgent,
+                                text == null ? 0 : text.length(),
+                                attachmentIds == null ? 0 : attachmentIds.size(),
+                                retry);
 
                 ScheduledFuture<?> heartbeatTask = streams.startHeartbeat(out, finished);
 
@@ -683,6 +693,16 @@ public class ChatService {
                                                                 null);
                 long routeDuration = (System.nanoTime() - routeStarted) / 1_000_000L;
                 Agent routeAgent = routing.agent();
+                log.info(
+                                "Chat routing resolved traceId={} routeAgent={} selectedAgent={}"
+                                                + " routeSource={} confidence={} durationMs={} autoRoute={}",
+                                traceAttempt.traceId(),
+                                routeAgent.id(),
+                                routing.selectedAgentId(),
+                                routing.routeSource(),
+                                routing.confidence(),
+                                routeDuration,
+                                autoRoute);
                 DelegationTrace delegationTrace = new DelegationTrace();
                 AgentOrchestrator.DelegationTraceListener delegationListener =
                                 new AgentOrchestrator.DelegationTraceListener() {
@@ -733,6 +753,15 @@ public class ChatService {
                                                 ? orchestrator.decideDomain(configurable.definition(), text, pageContext, h, delegationListener)
                                                 : new AgentOrchestrator.DelegationResult(false, routeAgent, "DIRECT", "系统 Agent 直接处理", 1.0, List.of(), null);
                 Agent agent = delegation.agent();
+                log.info(
+                                "Chat delegation resolved traceId={} parentAgent={} executionAgent={}"
+                                                + " mode={} delegated={} candidates={}",
+                                traceAttempt.traceId(),
+                                routeAgent.id(),
+                                agent.id(),
+                                delegation.mode(),
+                                delegation.delegated(),
+                                delegation.candidates().size());
                 // 记录运行时资源快照：该 Agent 绑定的知识库 / Tool / Skill 与模型参数。
                 // management 后台借此回答"这次用了哪些知识库、Tool、Skill"，无需 JOIN 历史配置。
                 AgentDefinition routeDefinition =
@@ -914,6 +943,12 @@ public class ChatService {
                         hookResult = toHookResult(agentHookChecks);
                 }
                 if (!hookResult.allowed()) {
+                        log.warn(
+                                        "Chat rejected by hook invocationId={} hookId={} hookName={} message={}",
+                                        invocationId,
+                                        hookResult.hookId(),
+                                        hookResult.hookName(),
+                                        hookResult.message());
                         invocation.setError(hookResult.message());
                         invocation.setStatus("REJECTED");
                         invocation.setErrorCode("HOOK_REJECTED");
@@ -990,6 +1025,14 @@ public class ChatService {
                                 long ragStarted = System.nanoTime();
                                 var sources = knowledge.search(text, kbIds, ragTopK);
                                 long ragDuration = (System.nanoTime() - ragStarted) / 1_000_000L;
+                                log.debug(
+                                                "RAG retrieval completed invocationId={} baseCount={} hits={}"
+                                                                + " topK={} durationMs={}",
+                                                targetInvocationId,
+                                                kbIds == null ? 0 : kbIds.size(),
+                                                sources.size(),
+                                                ragTopK,
+                                                ragDuration);
                                 if (kbIds != null && !kbIds.isEmpty()) {
                                         trace.event(targetInvocationId, correlationId, TraceRecorder.Type.RAG_RETRIEVE)
                                                         .name("知识库检索")
@@ -1034,6 +1077,12 @@ public class ChatService {
                                         }
                                 }
                         } catch (Exception e) {
+                                log.warn(
+                                                "RAG retrieval failed invocationId={} errorType={} message={}",
+                                                targetInvocationId,
+                                                e.getClass().getSimpleName(),
+                                                safeErrorMessage(e),
+                                                e);
                                 trace.event(targetInvocationId, correlationId, TraceRecorder.Type.ERROR)
                                                 .name("知识库检索失败")
                                                 .status("ERROR")
@@ -1595,6 +1644,15 @@ public class ChatService {
                         // 统一的输出格式规范（见 OUTPUT_FORMAT_GUIDANCE），覆盖用户助手与领域 Agent。
                         systemBuilder.append(OUTPUT_FORMAT_GUIDANCE);
                         final String systemEffective = systemBuilder.toString();
+                        log.info(
+                                        "Agent execution started invocationId={} agentId={} tools={}"
+                                                        + " historyMessages={} images={} userInputChars={}",
+                                        targetInvocationId,
+                                        agent.id(),
+                                        toolCallbacks.size(),
+                                        baseHistory.size(),
+                                        images.size(),
+                                        userInput.length());
 
                         boolean delegatedSummary = delegation.delegated()
                                         && routeAgent instanceof ConfigurableAgent parent
@@ -1637,6 +1695,14 @@ public class ChatService {
                                                                         && planOutcome.plannerDurationMs() > 0
                                                                                 ? "FAILED"
                                                                                 : "SKIPPED";
+                        log.info(
+                                        "Planning decision completed invocationId={} status={} mode={}"
+                                                        + " repaired={} durationMs={}",
+                                        targetInvocationId,
+                                        planDecisionStatus,
+                                        planOutcome.mode(),
+                                        planOutcome.repaired(),
+                                        planOutcome.plannerDurationMs());
                         var planDecisionEvent =
                                         trace.event(
                                                                         targetInvocationId,
@@ -1884,6 +1950,19 @@ public class ChatService {
                         // 5) 先落库主 invocation + 消息，避免客户端中途断开导致回复丢失。
                         long completedMs = (System.nanoTime() - turnStarted) / 1_000_000L;
                         String finalAgentId = delegatedSummary && routeAgent != null ? routeAgent.id() : agent.id();
+                        log.info(
+                                        "Chat completed invocationId={} traceId={} finalAgent={} delegated={}"
+                                                        + " durationMs={} inputTokens={} outputTokens={}"
+                                                        + " answerChars={} streamed={}",
+                                        invocationId,
+                                        TraceContext.traceId(),
+                                        finalAgentId,
+                                        delegation.delegated(),
+                                        completedMs,
+                                        planRun.inputTokens(),
+                                        planRun.outputTokens(),
+                                        currentAnswer.length(),
+                                        answerStreamed);
                         invocation.setResponseContent(currentAnswer);
                         persistMessage(
                                         conversation,
@@ -2036,6 +2115,13 @@ public class ChatService {
                                                                 .put("toolEnabled", hasTools)
                                                                 .save();
                         long llmStarted = System.nanoTime();
+                        log.debug(
+                                        "ReAct iteration started invocationId={} iteration={}"
+                                                        + " historyMessages={} toolsEnabled={}",
+                                        targetInvocationId,
+                                        iter + 1,
+                                        turns.size(),
+                                        hasTools);
                         ToolAwareReply modelReply;
                         if (hasTools) {
                                 modelReply =
@@ -2070,6 +2156,17 @@ public class ChatService {
                         long llmDuration = (System.nanoTime() - llmStarted) / 1_000_000L;
                         inputTokens = sumTokens(inputTokens, modelReply.inputTokens());
                         outputTokens = sumTokens(outputTokens, modelReply.outputTokens());
+                        log.debug(
+                                        "ReAct iteration completed invocationId={} iteration={}"
+                                                        + " durationMs={} toolCalls={} inputTokens={}"
+                                                        + " outputTokens={} model={}",
+                                        targetInvocationId,
+                                        iter + 1,
+                                        llmDuration,
+                                        modelReply.toolCalls().size(),
+                                        modelReply.inputTokens(),
+                                        modelReply.outputTokens(),
+                                        modelReply.model());
                         trace.event(
                                                                         targetInvocationId,
                                                                         correlationId,
@@ -2146,6 +2243,12 @@ public class ChatService {
                                                                                 agentToolIds, call.name())
                                                                 : null;
                                 if (toolDef == null && builtInTool == null) {
+                                        log.warn(
+                                                        "Tool call rejected invocationId={} iteration={}"
+                                                                        + " tool={} reason=notAllowed",
+                                                        targetInvocationId,
+                                                        iter + 1,
+                                                        call.name());
                                         long missingStarted = System.nanoTime();
                                         AgentInvocationEvent missingCall =
                                                         trace.event(
@@ -2228,6 +2331,15 @@ public class ChatService {
                                 }
                                 String result = execution.output();
                                 long toolDuration = (System.nanoTime() - toolStarted) / 1_000_000L;
+                                log.info(
+                                                "Tool call completed invocationId={} iteration={} tool={}"
+                                                                + " success={} durationMs={} resultChars={}",
+                                                targetInvocationId,
+                                                iter + 1,
+                                                toolName,
+                                                execution.success(),
+                                                toolDuration,
+                                                result == null ? 0 : result.length());
                                 trace.event(
                                                 targetInvocationId,
                                                 correlationId,

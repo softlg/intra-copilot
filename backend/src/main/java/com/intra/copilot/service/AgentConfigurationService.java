@@ -14,11 +14,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AgentConfigurationService {
+    private static final Logger log = LoggerFactory.getLogger(AgentConfigurationService.class);
     private final AgentDefinitionRepository definitions;
     private final AgentConfigVersionRepository versions;
     private final AgentChildBindingRepository bindings;
@@ -83,6 +86,14 @@ public class AgentConfigurationService {
         synchronizeChildBinding(saved);
         attachParent(saved);
         registry.evict();
+        log.info(
+                "Agent draft saved agentId={} version={} role={} enabled={} published={} actor={}",
+                saved.getId(),
+                saved.getVersion(),
+                saved.getRole(),
+                saved.isEnabled(),
+                saved.isPublished(),
+                actor);
         return saved;
     }
 
@@ -112,6 +123,12 @@ public class AgentConfigurationService {
         version.setSnapshot(snapshotCodec.encode(definition, releaseBindings));
         AgentConfigVersion saved = versions.save(version);
         registry.evict();
+        log.info(
+                "Agent published agentId={} publishedVersion={} actor={} releaseNoteChars={}",
+                id,
+                next,
+                publishedBy,
+                releaseNote == null ? 0 : releaseNote.length());
         return saved;
     }
 
@@ -164,6 +181,12 @@ public class AgentConfigurationService {
         versions.save(release);
         attachParent(restored);
         registry.evict();
+        log.info(
+                "Agent rolled back agentId={} targetVersion={} newPublishedVersion={} actor={}",
+                id,
+                version,
+                restored.getPublishedVersion(),
+                publishedBy);
         return restored;
     }
 
@@ -204,7 +227,12 @@ public class AgentConfigurationService {
         bindings.deleteByParent(parentId);
         values.forEach(bindings::insert);
         registry.evict();
-        return bindings.findByParent(parentId);
+        List<AgentChildBinding> saved = bindings.findByParent(parentId);
+        log.info(
+                "Agent child bindings replaced parentAgent={} bindingCount={}",
+                parentId,
+                saved.size());
+        return saved;
     }
 
     public List<AgentChildBinding> children(String parentId) {

@@ -6,6 +6,8 @@ import com.intra.copilot.service.auth.JwtVerifier;
 import com.intra.copilot.service.auth.RequestContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -16,6 +18,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
  */
 @Component
 public class JwtAuthFilter implements HandlerInterceptor {
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthFilter.class);
 
     private final JwtVerifier verifier;
     private final AdminAuthService adminAuth;
@@ -41,6 +44,10 @@ public class JwtAuthFilter implements HandlerInterceptor {
 
         String header = request.getHeader("Authorization");
         if (header == null || !header.startsWith("Bearer ")) {
+            log.warn(
+                    "Authentication rejected method={} path={} reason=missingBearerToken",
+                    request.getMethod(),
+                    request.getRequestURI());
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
             response.getWriter().write("{\"error\":\"MISSING_TOKEN\"}");
@@ -53,18 +60,42 @@ public class JwtAuthFilter implements HandlerInterceptor {
                 AdminAuthService.Verified verified = adminAuth.verify(token);
                 AdminRole role = AdminRole.parse(verified.role());
                 if (!allowsAdminRequest(request, role)) {
+                    log.warn(
+                            "Authorization rejected userId={} username={} role={} method={} path={}",
+                            verified.userId(),
+                            verified.username(),
+                            role,
+                            request.getMethod(),
+                            request.getRequestURI());
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     response.setContentType("application/json");
                     response.getWriter().write("{\"error\":\"FORBIDDEN\",\"message\":\"权限不足\"}");
                     return false;
                 }
                 RequestContext.set("admin", verified.userId(), verified.username(), role);
+                log.debug(
+                        "Admin request authenticated userId={} role={} method={} path={}",
+                        verified.userId(),
+                        role,
+                        request.getMethod(),
+                        request.getRequestURI());
             } else {
                 JwtVerifier.Verified v = verifier.verify(token);
                 RequestContext.set(v.source(), v.userId());
+                log.debug(
+                        "Device request authenticated source={} userId={} method={} path={}",
+                        v.source(),
+                        v.userId(),
+                        request.getMethod(),
+                        request.getRequestURI());
             }
             return true;
         } catch (IllegalArgumentException e) {
+            log.warn(
+                    "Authentication rejected method={} path={} reason={}",
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    e.getMessage());
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
             response.getWriter()

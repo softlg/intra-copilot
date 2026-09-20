@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intra.copilot.model.EmbeddingProfile;
 import java.util.ArrayList;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -12,6 +14,7 @@ import org.springframework.web.client.RestClient;
 /** OpenAI-compatible embedding gateway with per-profile model selection. */
 @Service
 public class EmbeddingClient {
+    private static final Logger log = LoggerFactory.getLogger(EmbeddingClient.class);
     private final ObjectMapper json;
     private final Environment environment;
     private final EmbeddingProfileService profiles;
@@ -42,9 +45,24 @@ public class EmbeddingClient {
                         environment.getProperty("embedding.retry-backoff-ms", Long.class, 1000L));
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                return call(text, profile);
+                long started = System.nanoTime();
+                List<Double> vector = call(text, profile);
+                log.debug(
+                        "Embedding request completed provider={} model={} dimension={} durationMs={}",
+                        profile.getProvider(),
+                        profile.getModel(),
+                        vector.size(),
+                        elapsedMs(started));
+                return vector;
             } catch (RetryableEmbeddingException retryable) {
                 if (attempt == maxAttempts) {
+                    log.error(
+                            "Embedding request exhausted retries provider={} model={}"
+                                    + " attempts={} message={}",
+                            profile.getProvider(),
+                            profile.getModel(),
+                            maxAttempts,
+                            retryable.getMessage());
                     throw new IllegalStateException(
                             "Embedding 配置「"
                                     + profile.getName()
@@ -54,7 +72,17 @@ public class EmbeddingClient {
                                     + retryable.getMessage(),
                             retryable);
                 }
-                sleep(Math.min(30_000L, backoffMs));
+                long delayMs = Math.min(30_000L, backoffMs);
+                log.warn(
+                        "Embedding request failed; retrying provider={} model={} attempt={}"
+                                + " maxAttempts={} retryInMs={} message={}",
+                        profile.getProvider(),
+                        profile.getModel(),
+                        attempt,
+                        maxAttempts,
+                        delayMs,
+                        retryable.getMessage());
+                sleep(delayMs);
                 backoffMs = Math.min(30_000L, backoffMs * 2);
             }
         }
@@ -156,5 +184,9 @@ public class EmbeddingClient {
 
     public static String literal(List<Double> vector) {
         return vector.toString();
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 }

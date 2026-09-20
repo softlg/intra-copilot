@@ -144,6 +144,7 @@ public class ApiController {
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestBody ChatRequest req, HttpServletRequest request) {
         var identity = RequestContext.current();
+        Object requestId = request.getAttribute("requestId");
         return chat.chat(
                 identity.source(),
                 identity.userId(),
@@ -154,7 +155,8 @@ public class ApiController {
                 req.permissions(),
                 req.attachmentIds(),
                 req.retry(),
-                request.getRemoteAddr());
+                request.getRemoteAddr(),
+                requestId == null ? null : String.valueOf(requestId));
     }
 
     public record ActionResult(String status, String result) {}

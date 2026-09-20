@@ -22,6 +22,8 @@ import java.util.Date;
 import java.util.Optional;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -35,6 +37,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class AdminAuthService {
+    private static final Logger log = LoggerFactory.getLogger(AdminAuthService.class);
 
     private static final String ISSUER = "intra-copilot-admin";
     private static final String SCOPE = "admin";
@@ -111,6 +114,7 @@ public class AdminAuthService {
         user.setEnabled(true);
         user.setRole(AdminRole.OWNER.name());
         users.save(user);
+        log.info("Admin bootstrap owner created username={}", bootstrapUsername);
     }
 
     public boolean isConfigured() {
@@ -133,6 +137,7 @@ public class AdminAuthService {
             user = users.findByUsername(normalizedUsername).orElse(null);
         }
         if (user == null || !user.isEnabled() || !verifyPassword(user, normalizedPassword)) {
+            log.warn("Admin authentication failed username={}", normalizedUsername);
             return Optional.empty();
         }
 
@@ -142,6 +147,12 @@ public class AdminAuthService {
         user.setSessionVersion(Math.max(0L, user.getSessionVersion()));
         user.touch();
         users.save(user);
+        log.info(
+                "Admin authentication succeeded userId={} username={} role={} expiresAt={}",
+                user.getId(),
+                user.getUsername(),
+                user.getRole(),
+                expiresAt);
         return Optional.of(
                 issueSession(
                         user.getId(),
@@ -193,6 +204,11 @@ public class AdminAuthService {
                 if (current.getSessionVersion() != sessionVersion) {
                     throw new IllegalArgumentException("Admin session revoked");
                 }
+                log.debug(
+                        "Admin token verified userId={} username={} role={}",
+                        userId,
+                        username,
+                        current.getRole());
                 return new Verified(userId, username, current.getRole());
             }
             return new Verified(userId, username, AdminRole.OWNER.name());

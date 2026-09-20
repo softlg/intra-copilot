@@ -34,6 +34,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -52,6 +54,7 @@ import org.springframework.web.multipart.MultipartFile;
  */
 @Service
 public class KnowledgeService implements KnowledgeRetriever {
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeService.class);
 
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_QUEUED = "QUEUED";
@@ -134,6 +137,7 @@ public class KnowledgeService implements KnowledgeRetriever {
         if (base.getChunkStrategy() == null || base.getChunkStrategy().isBlank()) base.setChunkStrategy("structured");
         KnowledgeBase saved = bases.save(base);
         audit.record(saved.getId(), null, com.intra.copilot.model.KnowledgeAuditLog.ACTION_CREATE_BASE, name);
+        log.info("Knowledge base created baseId={} name={}", saved.getId(), saved.getName());
         return saved;
     }
 
@@ -151,6 +155,11 @@ public class KnowledgeService implements KnowledgeRetriever {
         base.touch();
         KnowledgeBase saved = bases.save(base);
         audit.record(id, null, com.intra.copilot.model.KnowledgeAuditLog.ACTION_UPDATE_BASE, name);
+        log.info(
+                "Knowledge base updated baseId={} name={} enabled={}",
+                saved.getId(),
+                saved.getName(),
+                saved.isEnabled());
         return saved;
     }
 
@@ -164,6 +173,7 @@ public class KnowledgeService implements KnowledgeRetriever {
         }
         bases.deleteById(id);
         audit.record(null, null, com.intra.copilot.model.KnowledgeAuditLog.ACTION_DELETE_BASE, base.getName() + " (" + id + ")");
+        log.info("Knowledge base deleted baseId={} name={}", id, base.getName());
     }
 
     /** What a delete would take with it; shown by the admin console before confirming. */
@@ -429,7 +439,8 @@ public class KnowledgeService implements KnowledgeRetriever {
         record.setByteSize(stored.byteSize());
             try {
                 KnowledgeDocument pending = doc;
-                return transaction.execute(
+                KnowledgeDocument savedDocument =
+                        transaction.execute(
                         status -> {
                             KnowledgeDocument saved = documents.save(pending);
                             storageRecords.save(record);
@@ -444,6 +455,15 @@ public class KnowledgeService implements KnowledgeRetriever {
                                     name + " (" + staged.byteSize() + " bytes)");
                             return saved;
                         });
+                log.info(
+                        "Knowledge document queued baseId={} documentId={} filename={}"
+                                + " parser={} bytes={}",
+                        baseId,
+                        savedDocument.getId(),
+                        savedDocument.getFilename(),
+                        savedDocument.getParser(),
+                        savedDocument.getSizeBytes());
+                return savedDocument;
             } catch (RuntimeException error) {
                 try {
                     storageDeletion.enqueue(storage.backend(), stored.key());
@@ -495,6 +515,11 @@ public class KnowledgeService implements KnowledgeRetriever {
     public KnowledgeDocument reindex(String id) {
         KnowledgeDocument document = documents.findById(id).orElseThrow(() -> new IllegalArgumentException("文档不存在"));
         String jobId = jobService.enqueueReindex(document.getKnowledgeBaseId(), id);
+        log.info(
+                "Knowledge reindex queued baseId={} documentId={} jobId={}",
+                document.getKnowledgeBaseId(),
+                id,
+                jobId);
         if (!STATUS_QUEUED.equals(document.getStatus())) {
             document.setStatus(STATUS_QUEUED);
             document.setError(null);
@@ -517,7 +542,14 @@ public class KnowledgeService implements KnowledgeRetriever {
     private List<Result> searchInternal(
             String query, List<String> ids, Integer requestedTopK, RetrievalOverrides overrides) {
         if (query == null || query.isBlank() || ids == null || ids.isEmpty()) return List.of();
+        long started = System.nanoTime();
         int requestedLimit = clamp(requestedTopK == null ? defaultTopK : requestedTopK, 1, 20);
+        log.debug(
+                "Knowledge retrieval started baseCount={} topK={} queryChars={} overrides={}",
+                ids.size(),
+                requestedLimit,
+                query.length(),
+                overrides != null);
         Map<String, String> queryVectors = new java.util.concurrent.ConcurrentHashMap<>();
         List<ScoredList> scoredLists =
                 searchExecutor
@@ -525,7 +557,13 @@ public class KnowledgeService implements KnowledgeRetriever {
                         .stream()
                         .filter(java.util.Objects::nonNull)
                         .toList();
-        if (scoredLists.isEmpty()) return List.of();
+        if (scoredLists.isEmpty()) {
+            log.warn(
+                    "Knowledge retrieval produced no scoreable bases baseCount={} durationMs={}",
+                    ids.size(),
+                    elapsedMs(started));
+            return List.of();
+        }
         if (scoredLists.size() == 1) {
             ScoredList only = scoredLists.get(0);
             List<Result> out = new ArrayList<>();
@@ -533,6 +571,11 @@ public class KnowledgeService implements KnowledgeRetriever {
             for (int i = 0; i < only.candidates().size() && i < limit; i++) {
                 out.add(only.candidates().get(i).toResult(only.config(), i + 1));
             }
+            log.info(
+                    "Knowledge retrieval completed bases={} hits={} durationMs={}",
+                    ids.size(),
+                    out.size(),
+                    elapsedMs(started));
             return out;
         }
 
@@ -558,7 +601,16 @@ public class KnowledgeService implements KnowledgeRetriever {
             out.add(item.candidate().toResult(item.config(), out.size() + 1));
             if (out.size() >= requestedLimit) break;
         }
+        log.info(
+                "Knowledge retrieval completed bases={} hits={} durationMs={}",
+                ids.size(),
+                out.size(),
+                elapsedMs(started));
         return out;
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 
 

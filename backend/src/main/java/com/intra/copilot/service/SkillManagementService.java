@@ -29,6 +29,8 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class SkillManagementService {
+    private static final Logger log = LoggerFactory.getLogger(SkillManagementService.class);
     private static final String DRAFT = "DRAFT";
     private static final String PUBLISHED = "PUBLISHED";
     private static final Set<String> ACTIVATION_MODES = Set.of("ALWAYS", "KEYWORD");
@@ -113,6 +116,12 @@ public class SkillManagementService {
         skills.save(skill);
         toolBindings.replace(skill.getId(), skill.getToolIds());
         appendAudit(skill.getId(), "CREATE_DRAFT", actor, null, skill);
+        log.info(
+                "Skill draft created skillId={} name={} actor={} toolCount={}",
+                skill.getId(),
+                skill.getName(),
+                actor,
+                skill.getToolIds().size());
         return get(skill.getId());
     }
 
@@ -147,6 +156,12 @@ public class SkillManagementService {
         }
         toolBindings.replace(id, updated.getToolIds());
         appendAudit(id, "UPDATE_DRAFT", actor, existing, updated);
+        log.info(
+                "Skill draft updated skillId={} name={} actor={} lockVersion={}",
+                id,
+                updated.getName(),
+                actor,
+                updated.getLockVersion());
         return get(id);
     }
 
@@ -198,6 +213,7 @@ public class SkillManagementService {
             throw new IllegalArgumentException("Skill 已被其他管理员修改，请刷新后重试");
         }
         appendAudit(id, enabled ? "ENABLE" : "DISABLE", actor, null, skill);
+        log.info("Skill enabled state changed skillId={} enabled={} actor={}", id, enabled, actor);
         return get(id);
     }
 
@@ -215,6 +231,7 @@ public class SkillManagementService {
         appendAudit(id, "DELETE", actor, skill, null);
         toolBindings.delete(Wrappers.<SkillToolBinding>query().eq("skill_id", id));
         skills.deleteById(id);
+        log.info("Skill deleted skillId={} actor={}", id, actor);
     }
 
     public List<SkillDefinitionVersion> versions(String id) {
@@ -279,6 +296,11 @@ public class SkillManagementService {
         version.setCreatedAt(Instant.now());
         versions.save(version);
         appendAudit(skill.getId(), "PUBLISH", actor, null, skill);
+        log.info(
+                "Skill published skillId={} publishedVersion={} actor={}",
+                skill.getId(),
+                nextVersion,
+                actor);
         return get(skill.getId());
     }
 

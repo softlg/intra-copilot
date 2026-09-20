@@ -77,6 +77,12 @@ public class AgentOrchestrator {
             List<Map<String, String>> history,
             List<String> images,
             RouteTraceListener listener) {
+        LOG.debug(
+                "Route evaluation started textChars={} historyMessages={} images={} pageContextIncluded={}",
+                text == null ? 0 : text.length(),
+                history == null ? 0 : history.size(),
+                images == null ? 0 : images.size(),
+                pageContext != null && !pageContext.isBlank());
         String prompt = routingPrompt();
         String previousAgentId = lastAssistantAgentId(history).orElse("");
         String imageContext =
@@ -129,6 +135,11 @@ public class AgentOrchestrator {
                                 contextualRoute(text, history, "模型返回 assistant 澄清路由");
                         if (contextual.isPresent()) {
                             RoutingResult result = contextual.get();
+                            LOG.info(
+                                    "Route selected by context agent={} confidence={} durationMs={}",
+                                    result.selectedAgentId(),
+                                    result.confidence(),
+                                    durationMs);
                             if (listener != null) {
                                 listener.onRouteEnd(
                                         result, rawModelOutput, prompt, input, durationMs, "context");
@@ -139,6 +150,11 @@ public class AgentOrchestrator {
                     if (listener != null) {
                         listener.onRouteEnd(parsed, rawModelOutput, prompt, input, durationMs, "llm");
                     }
+                    LOG.info(
+                            "Route selected by model agent={} confidence={} durationMs={}",
+                            parsed.selectedAgentId(),
+                            parsed.confidence(),
+                            durationMs);
                     return parsed;
                 }
                 failureReason = parsed == null
@@ -149,6 +165,11 @@ public class AgentOrchestrator {
             }
         } catch (Exception error) {
             failureReason = "模型调用异常：" + errorSummary(error);
+            LOG.warn(
+                    "Route model call failed durationMs={} type={} message={}",
+                    durationMs,
+                    error.getClass().getSimpleName(),
+                    errorSummary(error));
             if (listener != null) {
                 listener.onRouteError(prompt, input, error);
             }
@@ -157,6 +178,11 @@ public class AgentOrchestrator {
         Optional<RoutingResult> contextual = contextualRoute(text, history, failureReason);
         if (contextual.isPresent()) {
             RoutingResult result = contextual.get();
+            LOG.info(
+                    "Route selected by context after fallback agent={} confidence={} durationMs={}",
+                    result.selectedAgentId(),
+                    result.confidence(),
+                    durationMs);
             if (listener != null) {
                 listener.onRouteEnd(result, rawModelOutput, prompt, input, durationMs, "context");
             }
@@ -166,6 +192,11 @@ public class AgentOrchestrator {
         String fallbackReason = "route-copilot 未完成路由（" + failureReason + "），规则兜底路由";
         RoutingResult result =
                 new RoutingResult(fallback, fallback.id(), 0.7, fallbackReason, "rules", false, null);
+        LOG.warn(
+                "Route fallback used agent={} durationMs={} failureReason={}",
+                fallback.id(),
+                durationMs,
+                failureReason);
         if (listener != null) {
             listener.onRouteEnd(result, rawModelOutput, prompt, input, durationMs, "rules");
         }
@@ -221,8 +252,13 @@ public class AgentOrchestrator {
                 .flatMap(Optional::stream)
                 .sorted(java.util.Comparator.comparingInt(binding -> binding.binding().getPriority()))
                 .toList();
+        LOG.debug(
+                "Domain delegation candidates resolved parentAgent={} candidateCount={}",
+                domain.getId(),
+                candidates.size());
         if (listener != null) listener.onCandidates(domain.getId(), candidates);
         if (candidates.isEmpty()) {
+            LOG.info("Domain delegation skipped parentAgent={} reason=noCandidates", domain.getId());
             return new DelegationResult(false, resolve(domain.getId()), "DIRECT",
                     "未配置可用子 Agent", 1.0, candidates, null);
         }
@@ -231,12 +267,21 @@ public class AgentOrchestrator {
         if (ruleMatch.isPresent()) {
             Agent child = resolve(ruleMatch.get().definition().getId());
             if (listener != null) listener.onRuleMatch(domain.getId(), ruleMatch.get().binding(), ruleMatch.get().definition());
+            LOG.info(
+                    "Domain delegation selected by rule parentAgent={} childAgent={} priority={}",
+                    domain.getId(),
+                    child.id(),
+                    ruleMatch.get().binding().getPriority());
             return new DelegationResult(true, child, "DELEGATE",
                     "命中子 Agent 指派规则", 0.95, candidates, ruleMatch.get().binding().getRoutingRule());
         }
         if ("DELEGATE".equals(domain.getHandlingMode())) {
             Agent child = resolve(candidates.get(0).definition().getId());
             if (listener != null) listener.onFallback(domain.getId(), candidates.get(0).definition());
+            LOG.info(
+                    "Domain delegation selected by fallback parentAgent={} childAgent={}",
+                    domain.getId(),
+                    child.id());
             return new DelegationResult(true, child, "DELEGATE",
                     "领域 Agent 配置为优先委派", 0.8, candidates, null);
         }
@@ -292,6 +337,13 @@ public class AgentOrchestrator {
                     if (selected.isPresent()) {
                         if (listener != null) listener.onDispatchEnd(
                                 domain.getId(), selected.get().definition(), response.get(), durationMs, true);
+                        LOG.info(
+                                "Domain delegation selected by model parentAgent={} childAgent={}"
+                                        + " confidence={} durationMs={}",
+                                domain.getId(),
+                                selected.get().definition().getId(),
+                                node.path("confidence").asDouble(0.7),
+                                durationMs);
                         return new DelegationResult(true, resolve(childId), "DELEGATE",
                                 node.path("reason").asText("模型选择子 Agent"),
                                 node.path("confidence").asDouble(0.7), candidates, null);
@@ -303,8 +355,14 @@ public class AgentOrchestrator {
                 listener.onDispatchEnd(domain.getId(), null, "", durationMs, false);
             }
         } catch (Exception error) {
+            LOG.warn(
+                    "Domain delegation model call failed parentAgent={} type={} message={}",
+                    domain.getId(),
+                    error.getClass().getSimpleName(),
+                    errorSummary(error));
             if (listener != null) listener.onDispatchError(domain.getId(), error);
         }
+        LOG.info("Domain delegation resolved to direct parentAgent={}", domain.getId());
         return new DelegationResult(false, resolve(domain.getId()), "DIRECT",
                 "未命中规则，领域 Agent 直接处理", 0.7, candidates, null);
     }

@@ -9,6 +9,8 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.util.List;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +22,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class ToolManagementService {
+    private static final Logger log = LoggerFactory.getLogger(ToolManagementService.class);
     private static final Pattern TOOL_NAME_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,64}");
     private static final Pattern PATH_PARAMETER = Pattern.compile("\\{([A-Za-z0-9_.-]+)}");
     private static final List<String> HTTP_METHODS =
@@ -51,15 +54,21 @@ public class ToolManagementService {
         tool.setUpdatedBy(actor);
         validate(tool);
         ensureNameAvailable(tool.getName(), null);
-        return tools.save(tool);
+        ToolDefinition saved = tools.save(tool);
+        log.info(
+                "Tool draft created toolId={} name={} type={} actor={} enabled=false",
+                saved.getId(),
+                saved.getName(),
+                saved.getType(),
+                actor);
+        return saved;
     }
 
     private void applyEditableFields(ToolDefinition current, ToolDefinition value) {
         if (value == null) throw new IllegalArgumentException("Tool 配置不能为空");
         current.setName(trimToNull(value.getName()));
         current.setDescription(trimToNull(value.getDescription()));
-        String type =
-                value.getType() == null ? "HTTP" : value.getType().trim().toUpperCase();
+        String type = value.getType() == null ? "HTTP" : value.getType().trim().toUpperCase();
         current.setType(type);
         if ("HTTP".equals(type)) {
             current.setMethod(
@@ -103,8 +112,7 @@ public class ToolManagementService {
             }
             validateAuth(tool);
         } else if ("BROWSER_PROPOSAL".equals(type)) {
-            throw new IllegalArgumentException(
-                    "浏览器操作能力由系统内置 Browser Operator 提供，不支持后台配置");
+            throw new IllegalArgumentException("浏览器操作能力由系统内置 Browser Operator 提供，不支持后台配置");
         }
     }
 

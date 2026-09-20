@@ -21,6 +21,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -29,9 +34,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
-import org.apache.hc.client5.http.impl.classic.HttpClients;
-import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
 
 /**
  * Executes a configured {@link ToolDefinition} as a real action.
@@ -42,6 +44,7 @@ import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuil
  */
 @Service
 public class ToolExecutor {
+    private static final Logger log = LoggerFactory.getLogger(ToolExecutor.class);
     private static final Pattern PATH_PARAMETER = Pattern.compile("\\{([A-Za-z0-9_.-]+)}");
     private static final Set<String> QUERY_METHODS = Set.of("GET", "DELETE");
     private static final Set<String> BODY_METHODS = Set.of("POST", "PUT", "PATCH");
@@ -90,9 +93,23 @@ public class ToolExecutor {
     }
 
     public ToolExecutionResult executeDetailed(ToolDefinition def, String argumentsJson) {
-        if (def == null) return failure("Tool 定义不存在");
+        if (def == null) {
+            log.warn("Tool execution rejected reason=definitionMissing");
+            return failure("Tool 定义不存在");
+        }
+        String toolName = def.getName() == null ? "unknown" : def.getName();
+        String toolType = def.getType() == null ? "unknown" : def.getType();
+        long started = System.nanoTime();
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "Tool execution started name={} type={} arguments={}",
+                    toolName,
+                    toolType,
+                    redactArguments(def, argumentsJson));
+        }
         try {
-            return switch (def.getType() == null ? "" : def.getType().toUpperCase(Locale.ROOT)) {
+            ToolExecutionResult result =
+                    switch (def.getType() == null ? "" : def.getType().toUpperCase(Locale.ROOT)) {
                 case "MCP" -> executeMcp(def, argumentsJson);
                 case "BROWSER_PROPOSAL" -> {
                     BrowserActionValidator.NormalizedAction action =
@@ -102,9 +119,28 @@ public class ToolExecutor {
                 case "HTTP" -> executeHttp(def, argumentsJson);
                 default -> failure("不支持的 Tool 类型：" + def.getType());
             };
+            log.info(
+                    "Tool execution completed name={} type={} success={} durationMs={} outputChars={}",
+                    toolName,
+                    toolType,
+                    result.success(),
+                    elapsedMs(started),
+                    result.output() == null ? 0 : result.output().length());
+            return result;
         } catch (Exception error) {
+            log.warn(
+                    "Tool execution failed name={} type={} durationMs={} errorType={} message={}",
+                    toolName,
+                    toolType,
+                    elapsedMs(started),
+                    error.getClass().getSimpleName(),
+                    safeMessage(error));
             return failure("Tool 执行失败：" + safeMessage(error));
         }
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 
     public String redactArguments(ToolDefinition def, String argumentsJson) {

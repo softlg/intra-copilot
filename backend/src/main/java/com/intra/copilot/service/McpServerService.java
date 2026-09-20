@@ -8,8 +8,8 @@ import com.intra.copilot.model.ToolDefinition;
 import com.intra.copilot.repo.AgentDefinitionRepository;
 import com.intra.copilot.repo.McpServerRepository;
 import com.intra.copilot.repo.ToolDefinitionRepository;
-import com.intra.copilot.service.mcp.McpToolSynchronizer;
 import com.intra.copilot.service.mcp.McpSessionLeaseService;
+import com.intra.copilot.service.mcp.McpToolSynchronizer;
 import com.intra.copilot.service.network.NetworkAddressPolicy;
 import com.intra.copilot.service.network.SafeDnsResolver;
 import jakarta.annotation.PreDestroy;
@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -42,7 +43,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -252,10 +252,17 @@ public class McpServerService {
     public McpServer checkHealth(String id) {
         // 同一服务同时进行手动检查与定时检查时，跳过重复发现，避免并发写与重复同步。
         if (healthRunning.putIfAbsent(id, Boolean.TRUE) != null) {
+            log.debug("MCP health check skipped serverId={} reason=alreadyRunning", id);
             return get(id);
         }
+        long checkStarted = System.nanoTime();
         try {
             McpServer server = get(id);
+            log.info(
+                    "MCP health check started serverId={} name={} transport={}",
+                    server.getId(),
+                    server.getName(),
+                    server.getTransport());
             String previousStatus = server.getStatus();
             server.setStatus("CHECKING");
             server.setLastCheckedAt(Instant.now());
@@ -279,6 +286,8 @@ public class McpServerService {
                 server.setLastError(discoveredInterfaces.isEmpty() ? "服务已连接，但未返回可用接口" : null);
                 discovered = true;
             } catch (McpSessionBusyException busy) {
+                log.debug(
+                        "MCP health check skipped serverId={} reason=sessionBusy", server.getId());
                 server.setStatus(previousStatus);
                 server.touch();
                 return repository.save(server);
@@ -289,6 +298,13 @@ public class McpServerService {
                 server.setInterfacesJson("[]");
                 server.setCapabilitiesJson("{}");
                 server.setLastError(safeMessage(error));
+                log.warn(
+                        "MCP health check failed serverId={} name={} transport={} errorType={} message={}",
+                        server.getId(),
+                        server.getName(),
+                        server.getTransport(),
+                        error.getClass().getSimpleName(),
+                        safeMessage(error));
             }
             server.setLastLatencyMs(
                     (int)
@@ -301,6 +317,13 @@ public class McpServerService {
             if (discovered) {
                 toolSynchronizer.sync(saved, discoveredInterfaces);
             }
+            log.info(
+                    "MCP health check completed serverId={} name={} status={} interfaces={} durationMs={}",
+                    saved.getId(),
+                    saved.getName(),
+                    saved.getStatus(),
+                    saved.getInterfaceCount(),
+                    elapsedMs(checkStarted));
             return saved;
         } finally {
             healthRunning.remove(id);
@@ -331,18 +354,43 @@ public class McpServerService {
      */
     public String callTool(McpServer server, String toolName, String argumentsJson) {
         String transport = server.getTransport() == null ? "" : server.getTransport().toUpperCase();
+        long started = System.nanoTime();
+        log.debug(
+                "MCP tool call started serverId={} serverName={} tool={} transport={}",
+                server.getId(),
+                server.getName(),
+                toolName,
+                transport);
         if (!"STDIO".equals(transport)) {
             enforceSsrf(server.getServerUrl());
         }
         try {
+            String result;
             if ("SSE".equals(transport)) {
-                return callToolSse(server, toolName, argumentsJson);
+                result = callToolSse(server, toolName, argumentsJson);
+            } else if ("STDIO".equals(transport)) {
+                result = callToolStdio(server, toolName, argumentsJson);
+            } else {
+                result = callToolStreamableHttp(server, toolName, argumentsJson);
             }
-            if ("STDIO".equals(transport)) {
-                return callToolStdio(server, toolName, argumentsJson);
-            }
-            return callToolStreamableHttp(server, toolName, argumentsJson);
+            log.info(
+                    "MCP tool call completed serverId={} tool={} transport={} durationMs={} resultChars={}",
+                    server.getId(),
+                    toolName,
+                    transport,
+                    elapsedMs(started),
+                    result == null ? 0 : result.length());
+            return result;
         } catch (Exception error) {
+            log.warn(
+                    "MCP tool call failed serverId={} tool={} transport={} durationMs={}"
+                            + " errorType={} message={}",
+                    server.getId(),
+                    toolName,
+                    transport,
+                    elapsedMs(started),
+                    error.getClass().getSimpleName(),
+                    safeMessage(error));
             throw new McpProtocolException("Tool 调用失败：" + safeMessage(error));
         }
     }
@@ -1090,6 +1138,10 @@ public class McpServerService {
         }
         String value = System.getenv(envName.trim());
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 
     private String safeMessage(Exception error) {

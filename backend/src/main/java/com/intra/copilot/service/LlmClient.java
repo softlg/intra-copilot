@@ -3,6 +3,8 @@ package com.intra.copilot.service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -24,6 +26,7 @@ import reactor.core.publisher.Mono;
 /** Spring AI backed model gateway shared by routing and all agents. */
 @Service
 public class LlmClient {
+    private static final Logger log = LoggerFactory.getLogger(LlmClient.class);
     private final ChatModel chatModel;
     private final String apiKey;
 
@@ -62,7 +65,13 @@ public class LlmClient {
             return Flux.error(
                     new IllegalStateException("[未配置 LLM_API_KEY] 后端已启用，请配置 OpenAI 兼容模型后重试。"));
         }
-        return chatModel.stream(new Prompt(messages(system, history, user, images)));
+        return instrument(
+                "stream",
+                system,
+                history,
+                user,
+                images,
+                chatModel.stream(new Prompt(messages(system, history, user, images))));
     }
 
     /**
@@ -88,7 +97,23 @@ public class LlmClient {
                         .toolCallbacks(callbacks)
                         .internalToolExecutionEnabled(false)
                         .build();
-        return chatModel.stream(new Prompt(messages(system, history, user, images), options));
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "LLM tool request configured callbackCount={} toolNames={}",
+                    callbacks == null ? 0 : callbacks.length,
+                    callbacks == null
+                            ? List.of()
+                            : java.util.Arrays.stream(callbacks)
+                                    .map(callback -> callback.getToolDefinition().name())
+                                    .toList());
+        }
+        return instrument(
+                "tool-stream",
+                system,
+                history,
+                user,
+                images,
+                chatModel.stream(new Prompt(messages(system, history, user, images), options)));
     }
 
     /**
@@ -112,24 +137,104 @@ public class LlmClient {
     public Mono<Completion> completeWithUsage(
             String system, List<Map<String, String>> history, String user, List<String> images) {
         if (apiKey == null || apiKey.isBlank()) return Mono.empty();
-        return streamResponses(system, history, user, images == null ? List.of() : images)
-                .collectList()
-                .map(
-                        responses -> {
-                            String content =
-                                    responses
-                                            .stream()
-                                            .map(this::textOf)
-                                            .filter(text -> text != null && !text.isBlank())
-                                            .collect(java.util.stream.Collectors.joining());
-                            Usage usage = lastUsage(responses);
-                            return new Completion(
-                                    content,
-                                    usage == null ? null : usage.getPromptTokens(),
-                                    usage == null ? null : usage.getCompletionTokens(),
-                                    lastModel(responses));
-                        })
-                .filter(result -> result.content() != null && !result.content().isBlank());
+        return Mono.defer(
+                () -> {
+                    long started = System.nanoTime();
+                    log.debug(
+                            "LLM completion started historyMessages={} images={} systemChars={} userChars={}",
+                            history == null ? 0 : history.size(),
+                            images == null ? 0 : images.size(),
+                            length(system),
+                            length(user));
+                    return streamResponses(
+                                    system, history, user, images == null ? List.of() : images)
+                            .collectList()
+                            .map(
+                                    responses -> {
+                                        String content =
+                                                responses
+                                                        .stream()
+                                                        .map(this::textOf)
+                                                        .filter(
+                                                                text ->
+                                                                        text != null
+                                                                                && !text.isBlank())
+                                                        .collect(
+                                                                java.util.stream.Collectors
+                                                                        .joining());
+                                        Usage usage = lastUsage(responses);
+                                        return new Completion(
+                                                content,
+                                                usage == null ? null : usage.getPromptTokens(),
+                                                usage == null ? null : usage.getCompletionTokens(),
+                                                lastModel(responses));
+                                    })
+                            .filter(
+                                    result ->
+                                            result.content() != null && !result.content().isBlank())
+                            .doOnNext(
+                                    result ->
+                                            log.info(
+                                                    "LLM completion finished model={} durationMs={}"
+                                                            + " inputTokens={} outputTokens={} outputChars={}",
+                                                    result.model(),
+                                                    elapsedMs(started),
+                                                    result.inputTokens(),
+                                                    result.outputTokens(),
+                                                    length(result.content())))
+                            .doOnError(
+                                    error ->
+                                            log.warn(
+                                                    "LLM completion failed durationMs={} type={} message={}",
+                                                    elapsedMs(started),
+                                                    error.getClass().getSimpleName(),
+                                                    safeMessage(error)));
+                });
+    }
+
+    private Flux<ChatResponse> instrument(
+            String operation,
+            String system,
+            List<Map<String, String>> history,
+            String user,
+            List<String> images,
+            Flux<ChatResponse> responses) {
+        return Flux.defer(
+                () -> {
+                    long started = System.nanoTime();
+                    log.debug(
+                            "LLM request started operation={} historyMessages={} images={}"
+                                    + " systemChars={} userChars={}",
+                            operation,
+                            history == null ? 0 : history.size(),
+                            images == null ? 0 : images.size(),
+                            length(system),
+                            length(user));
+                    return responses
+                            .doOnComplete(
+                                    () ->
+                                            log.info(
+                                                    "LLM request finished operation={} durationMs={}",
+                                                    operation,
+                                                    elapsedMs(started)))
+                            .doOnError(
+                                    error ->
+                                            log.warn(
+                                                    "LLM request failed operation={} durationMs={}"
+                                                            + " type={} message={}",
+                                                    operation,
+                                                    elapsedMs(started),
+                                                    error.getClass().getSimpleName(),
+                                                    safeMessage(error)));
+                });
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
+    }
+
+    private static int length(String value) {
+        return value == null ? 0 : value.length();
     }
 
     public Mono<Completion> completeWithUsage(
