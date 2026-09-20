@@ -68,6 +68,7 @@ public class AgentDefinition {
         value.displayName = displayName;
         value.description = description;
         value.systemPrompt = systemPrompt;
+        value.role = role;
         value.parentAgentId = parentAgentId;
         value.handlingMode = handlingMode;
         value.returnMode = returnMode;

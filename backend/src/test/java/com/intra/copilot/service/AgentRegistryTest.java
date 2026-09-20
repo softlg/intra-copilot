@@ -43,6 +43,26 @@ class AgentRegistryTest {
     }
 
     @Test
+    void allDefinitionsPreservesAgentRoleWhenCopyingCachedValues() {
+        AgentDefinitionRepository definitions = mock(AgentDefinitionRepository.class);
+        AgentChildBindingRepository bindings = mock(AgentChildBindingRepository.class);
+        AgentDefinition general = agent("assistant", "general prompt");
+        general.setRole("GENERAL");
+
+        when(definitions.findAll()).thenReturn(List.of(general));
+        when(bindings.findAll()).thenReturn(List.of());
+
+        AgentRegistry registry =
+                new AgentRegistry(
+                        definitions,
+                        bindings,
+                        mock(AgentConfigVersionRepository.class),
+                        new AgentReleaseSnapshotCodec(new ObjectMapper().findAndRegisterModules()));
+
+        assertEquals("GENERAL", registry.allDefinitions().get(0).getRole());
+    }
+
+    @Test
     void draftChangesDoNotReplaceThePublishedRuntimeSnapshot() {
         AgentDefinitionRepository definitions = mock(AgentDefinitionRepository.class);
         AgentChildBindingRepository bindings = mock(AgentChildBindingRepository.class);
