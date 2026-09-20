@@ -13,6 +13,7 @@ import {
   executeEditorAction,
   resolveAttachment,
 } from "./lib/browser";
+import { originPattern } from "./lib/url";
 import {
   actionProposalSchema,
   capabilitiesSchema,
@@ -627,6 +628,17 @@ function App() {
   }, [pageInfoSelection, preferencesLoaded]);
 
   useEffect(() => {
+    if (!preferencesLoaded) return;
+    const refresh = () => void refreshCurrentTabState();
+    chrome.tabs.onActivated.addListener(refresh);
+    chrome.tabs.onUpdated.addListener(refresh);
+    return () => {
+      chrome.tabs.onActivated.removeListener(refresh);
+      chrome.tabs.onUpdated.removeListener(refresh);
+    };
+  }, [preferencesLoaded]);
+
+  useEffect(() => {
     const handleMessage = (message: any) => {
       if (
         message?.type === "BALL_VISIBILITY_CHANGED" &&
@@ -654,9 +666,43 @@ function App() {
         tabId: id,
       });
       setCurrentTabEnabled(Boolean(result?.enabled));
+      const pattern = originPattern(tabs[0]?.url);
+      const canRead =
+        pattern != null &&
+        (await chrome.permissions.contains({ origins: [pattern] }));
+      if (!canRead) setReadPageEnabled(false);
     } catch {
       setCurrentTabId(undefined);
       setCurrentWindowId(undefined);
+    }
+  }
+
+  async function updateReadPagePermission(enabled: boolean) {
+    if (!enabled) {
+      setReadPageEnabled(false);
+      chrome.storage.local.set({ readPageEnabled: false });
+      return;
+    }
+    const tab =
+      currentTabId == null
+        ? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]
+        : await chrome.tabs.get(currentTabId).catch(() => undefined);
+    const pattern = originPattern(tab?.url);
+    if (!pattern) {
+      setReadPageEnabled(false);
+      setError(t.pageContextReadFailed);
+      return;
+    }
+    try {
+      const granted =
+        (await chrome.permissions.contains({ origins: [pattern] })) ||
+        (await chrome.permissions.request({ origins: [pattern] }));
+      setReadPageEnabled(granted);
+      chrome.storage.local.set({ readPageEnabled: granted });
+      if (!granted) setError(t.pageContextPermissionRequired);
+    } catch {
+      setReadPageEnabled(false);
+      setError(t.pageContextPermissionRequired);
     }
   }
 
@@ -1702,7 +1748,15 @@ function App() {
             ctx != null && !!(ctx.url || ctx.title || ctx.visibleText),
         );
         if (meaningful.length === 0) {
-          contextError = t.pageContextReadFailed;
+          const tab = await chrome.tabs.get(ids[0]).catch(() => undefined);
+          const pattern = originPattern(tab?.url);
+          const hasPermission =
+            pattern != null &&
+            (await chrome.permissions.contains({ origins: [pattern] }));
+          contextError = hasPermission
+            ? t.pageContextReadFailed
+            : t.pageContextPermissionRequired;
+          if (!hasPermission) setReadPageEnabled(false);
         }
         meaningful.forEach((context) => {
           if (context.snapshotId && Number.isInteger(context.tabId)) {
@@ -3200,11 +3254,9 @@ function App() {
                   <input
                     type="checkbox"
                     checked={readPageEnabled}
-                    onChange={(event) => {
-                      const enabled = event.target.checked;
-                      setReadPageEnabled(enabled);
-                      chrome.storage.local.set({ readPageEnabled: enabled });
-                    }}
+                    onChange={(event) =>
+                      void updateReadPagePermission(event.target.checked)
+                    }
                   />
                   {t.readPage}
                 </label>

@@ -475,18 +475,27 @@ export async function collectContextsFromTab(
   );
   if (available.length) return available;
 
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: id, allFrames: true },
-      func: collectPageContext,
-    });
-    return results.flatMap((result) => {
-      const parsed = pageContextSchema.safeParse(result.result);
-      return parsed.success
-        ? [{ ...parsed.data, frameId: result.frameId }]
-        : [];
-    });
-  } catch {
-    return [];
-  }
+  const fallbackContexts = await Promise.all(
+    frameIds.map(async (frameId) => {
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: id, frameIds: [frameId] },
+          func: collectPageContext,
+        });
+        const result = results.find((item) => item.frameId === frameId)?.result;
+        const parsed = pageContextSchema.safeParse({
+          ...(result && typeof result === "object" ? result : {}),
+          frameId,
+          snapshotId: "",
+        });
+        return parsed.success ? parsed.data : null;
+      } catch {
+        // A restricted child frame must not discard context from the main frame.
+        return null;
+      }
+    }),
+  );
+  return fallbackContexts.filter(
+    (context): context is PageContextPayload => context != null,
+  );
 }

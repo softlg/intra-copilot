@@ -124,6 +124,8 @@ export const translations = {
     screenshotRateLimited: "截图请求过于频繁，请稍后再试。",
     pageContextReadFailed:
       "未能读取当前页面上下文，可能是浏览器内置页面或标签页尚未完成注入，请刷新后重试。",
+    pageContextPermissionRequired:
+      "当前网站尚未获得浏览器读取权限。请在“权限”中重新开启“允许读取当前页面上下文”，并在浏览器提示中允许访问此网站。",
     capabilityMismatch: "插件与后端版本不兼容，请刷新或升级浏览器插件。",
     dismissError: "关闭异常提示",
     imagePreview: "查看图片",
@@ -333,6 +335,8 @@ export const translations = {
       "Screenshot requested too often. Please try again shortly.",
     pageContextReadFailed:
       "Could not read the current page context. The page may be a built-in browser page or the tab may need to be refreshed.",
+    pageContextPermissionRequired:
+      'This site does not have browser read access. Re-enable "Allow reading the current page context" in Permissions and approve access for this site.',
     capabilityMismatch:
       "The extension and backend versions are incompatible. Refresh or update the extension.",
     dismissError: "Dismiss error",
