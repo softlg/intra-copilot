@@ -9,20 +9,29 @@ export const tokenPayloadSchema = z.object({
   text: z.string(),
 });
 
+const actionTargetSchema = z.union([
+  z.string(),
+  z.object({
+    snapshotId: z.string(),
+    frameId: z.number().int().nonnegative(),
+    elementId: z.string(),
+  }),
+]);
+
 export const actionProposalSchema = z.object({
   actionId: z.string().min(1),
   type: z.string().min(1),
-  target: z
-    .union([
-      z.string(),
-      z.object({
-        snapshotId: z.string(),
-        frameId: z.number().int().nonnegative(),
-        elementId: z.string(),
-      }),
-    ])
-    .nullable()
-    .optional(),
+  target: z.preprocess((value) => {
+    if (
+      value != null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Object.keys(value).length === 0
+    ) {
+      return undefined;
+    }
+    return value;
+  }, actionTargetSchema.nullable().optional()),
   arguments: z.record(z.string(), z.unknown()).optional(),
   reason: z.string().optional(),
   risk: z.enum(["low", "medium", "high"]).optional(),
