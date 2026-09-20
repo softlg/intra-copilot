@@ -39,7 +39,9 @@ class AgentRegistryTest {
                         mock(AgentConfigVersionRepository.class),
                         new AgentReleaseSnapshotCodec(new ObjectMapper().findAndRegisterModules()));
 
-        assertEquals("finance", registry.allDefinitions().get(0).getParentAgentId());
+        AgentDefinition copied = registry.allDefinitions().get(0);
+        assertEquals("SUB", copied.getRole());
+        assertEquals("finance", copied.getParentAgentId());
     }
 
     @Test
