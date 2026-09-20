@@ -252,6 +252,15 @@ button:disabled {
   overflow: hidden;
 }
 
+.workspace {
+  display: flex;
+  flex: 1 1 auto;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 aside {
   position: relative;
   flex: 0 0 240px;
@@ -6109,6 +6118,12 @@ pre {
     display: block;
     height: auto;
     min-height: var(--admin-viewport-height);
+    overflow: visible;
+  }
+
+  .workspace {
+    display: block;
+    height: auto;
     overflow: visible;
   }
 
