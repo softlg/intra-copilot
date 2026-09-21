@@ -325,6 +325,7 @@ function App() {
   // 每个会话独立维护发送锁和 AbortController，避免一个会话阻塞其他会话。
   const busySessionsRef = useRef(new Set<string>());
   const streamControllersRef = useRef(new Map<string, AbortController>());
+  const activeRunIdsRef = useRef(new Map<string, string>());
   const sessionBusy = Boolean(session?.id && busySessionIds.has(session.id));
   const actionTabIdRef = useRef<number | undefined>(undefined);
   const actionTargetTabRef = useRef(new Map<string, number>());
@@ -1903,6 +1904,16 @@ function App() {
           for (const parsed of pendingFrames) {
             if (!parsed) continue;
             const { name, data } = parsed;
+            if (name === "stream_started" && data) {
+              try {
+                const started = JSON.parse(data);
+                if (typeof started.runId === "string") {
+                  activeRunIdsRef.current.set(targetSessionId, started.runId);
+                }
+              } catch {
+                /* Ignore malformed lifecycle events. */
+              }
+            }
             if (name === "token" && data) {
               // 新后端用 JSON 信封 {"text": "..."} 下发正文，任意字符安全；
               // 解析失败则按裸文本处理（兼容未升级的旧后端）。
@@ -2197,6 +2208,7 @@ function App() {
       if (streamControllersRef.current.get(targetSessionId) === controller) {
         streamControllersRef.current.delete(targetSessionId);
       }
+      activeRunIdsRef.current.delete(targetSessionId);
       busySessionsRef.current.delete(targetSessionId);
       setBusySessionIds((current) => {
         const next = new Set(current);
@@ -2224,9 +2236,19 @@ function App() {
     void send({ assistantIndex: messageIndex, userMessage });
   }
 
-  function stopGeneration() {
+  async function stopGeneration() {
     const sessionId = sessionRef.current?.id;
     if (!sessionId) return;
+    const runId = activeRunIdsRef.current.get(sessionId);
+    if (runId) {
+      await Promise.race([
+        apiFetch(
+          `/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}/cancel`,
+          { method: "POST" },
+        ).catch(() => undefined),
+        new Promise((resolve) => window.setTimeout(resolve, 1500)),
+      ]);
+    }
     streamControllersRef.current.get(sessionId)?.abort();
   }
 

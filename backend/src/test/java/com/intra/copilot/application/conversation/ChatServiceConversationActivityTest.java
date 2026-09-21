@@ -18,6 +18,7 @@ import com.intra.copilot.infrastructure.agent.BrowserActionCoordinator;
 import com.intra.copilot.infrastructure.agent.BrowserCapabilityTools;
 import com.intra.copilot.infrastructure.ai.LlmClient;
 import com.intra.copilot.infrastructure.capability.ToolExecutor;
+import com.intra.copilot.infrastructure.conversation.DistributedCancellationService;
 import com.intra.copilot.infrastructure.conversation.RuntimeLockService;
 import com.intra.copilot.infrastructure.conversation.SseExecutionService;
 import com.intra.copilot.infrastructure.observability.TraceRecorder;
@@ -57,6 +58,7 @@ class ChatServiceConversationActivityTest {
                         mock(PlanningService.class),
                         mock(SseExecutionService.class),
                         mock(RuntimeLockService.class),
+                        mock(DistributedCancellationService.class),
                         new ChatPersistenceService(
                                 conversations, messages, mock(AttachmentService.class)),
                         mock(BrowserActionCoordinator.class),

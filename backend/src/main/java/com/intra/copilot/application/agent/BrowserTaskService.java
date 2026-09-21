@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.BooleanSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -105,17 +106,30 @@ public class BrowserTaskService {
     }
 
     public BrowserTask createAndWait(CreateRequest request, Duration timeout) {
+        return createAndWait(request, timeout, () -> false);
+    }
+
+    public BrowserTask createAndWait(
+            CreateRequest request, Duration timeout, BooleanSupplier canceled) {
         BrowserTask task = create(request);
-        return await(task.getTaskId(), timeout);
+        return await(task.getTaskId(), timeout, canceled);
     }
 
     public BrowserTask await(String taskId, Duration timeout) {
+        return await(taskId, timeout, () -> false);
+    }
+
+    public BrowserTask await(
+            String taskId, Duration timeout, BooleanSupplier canceled) {
         long deadline = System.nanoTime() + Math.max(1L, timeout.toMillis()) * 1_000_000L;
         for (;;) {
             BrowserTask current =
                     tasks.findById(taskId)
                             .orElseThrow(() -> new NoSuchElementException("浏览器任务不存在"));
             if (current.statusValue().terminal()) return current;
+            if (canceled != null && canceled.getAsBoolean()) {
+                return cancel(taskId);
+            }
             if (System.nanoTime() >= deadline) {
                 throw new IllegalStateException("浏览器任务等待超时");
             }

@@ -17,6 +17,7 @@ import com.intra.copilot.infrastructure.persistence.conversation.*;
 import com.intra.copilot.shared.identity.RequestContext;
 import com.intra.copilot.infrastructure.conversation.SseExecutionService;
 import com.intra.copilot.infrastructure.conversation.RuntimeLockService;
+import com.intra.copilot.infrastructure.conversation.DistributedCancellationService;
 import com.intra.copilot.shared.util.EntityIdGenerator;
 import java.io.IOException;
 import java.net.URI;
@@ -111,6 +112,7 @@ public class ChatService {
         private final PlanningService planningService;
         private final SseExecutionService streams;
         private final RuntimeLockService runtimeLocks;
+        private final DistributedCancellationService cancellations;
         private final ChatPersistenceService persistence;
         private final BrowserActionCoordinator browserActions;
         private final AgentPlanRepository agentPlans;
@@ -122,6 +124,8 @@ public class ChatService {
         private final Duration llmTimeout;
         private final long sseTimeoutMs;
         private final ObjectMapper json = new ObjectMapper();
+        private final ConcurrentHashMap<String, AtomicBoolean> activeRuns =
+                        new ConcurrentHashMap<>();
 
         public ChatService(
                         ConversationRepository c,
@@ -143,6 +147,7 @@ public class ChatService {
                         PlanningService planningService,
                         SseExecutionService streams,
                         RuntimeLockService runtimeLocks,
+                        DistributedCancellationService cancellations,
                         ChatPersistenceService persistence,
                         BrowserActionCoordinator browserActions,
                         AgentPlanRepository agentPlans,
@@ -173,6 +178,7 @@ public class ChatService {
                 this.planningService = planningService;
                 this.streams = streams;
                 this.runtimeLocks = runtimeLocks;
+                this.cancellations = cancellations;
                 this.persistence = persistence;
                 this.browserActions = browserActions;
                 this.agentPlans = agentPlans;
@@ -540,8 +546,17 @@ public class ChatService {
                         String requestId) {
                 SseEmitter out = new SseEmitter(sseTimeoutMs);
                 AtomicBoolean finished = new AtomicBoolean(false);
+                AtomicReference<String> runIdRef = new AtomicReference<>();
                 out.onCompletion(() -> finished.set(true));
                 out.onTimeout(() -> finished.set(true));
+                out.onError(
+                                error -> {
+                                        finished.set(true);
+                                        String currentRunId = runIdRef.get();
+                                        if (currentRunId != null) {
+                                                cancellations.request(currentRunId);
+                                        }
+                                });
                 String effectiveRequestId =
                                 requestId == null || requestId.isBlank()
                                                 ? EntityIdGenerator.next("RQ")
@@ -556,6 +571,25 @@ public class ChatService {
                                 text == null ? 0 : text.length(),
                                 attachmentIds == null ? 0 : attachmentIds.size(),
                                 retry);
+                runIdRef.set(effectiveRequestId);
+                activeRuns.put(effectiveRequestId, finished);
+                try {
+                        out.send(
+                                        SseEmitter.event()
+                                                .name("stream_started")
+                                                .data(
+                                                        TraceContext.eventData(
+                                                                Map.of(
+                                                                        "runId", effectiveRequestId,
+                                                                        "sessionId",
+                                                                                sessionId == null
+                                                                                        ? ""
+                                                                                        : sessionId))));
+                } catch (IOException error) {
+                        activeRuns.remove(effectiveRequestId, finished);
+                        out.completeWithError(error);
+                        return out;
+                }
 
                 ScheduledFuture<?> heartbeatTask = streams.startHeartbeat(out, finished);
 
@@ -593,9 +627,24 @@ public class ChatService {
                                                                 } catch (Exception ignored) {
                                                                 }
                                                                 TraceContext.clear();
+                                                                cancellations.clear(effectiveRequestId);
+                                                                activeRuns.remove(
+                                                                                effectiveRequestId,
+                                                                                finished);
                                                         }
                                                 });
                 return out;
+        }
+
+        public void cancel(String callerSource, String callerUserId, String sessionId, String runId) {
+                Conversation conversation = requireOwned(callerSource, callerUserId, sessionId);
+                if (runId == null || runId.isBlank()) {
+                        throw new IllegalArgumentException("runId 不能为空");
+                }
+                cancellations.request(runId);
+                AtomicBoolean active = activeRuns.get(runId);
+                if (active != null) active.set(true);
+                runtimeLocks.release("chat-session:" + conversation.getId(), runId);
         }
 
         private void runChat(
@@ -653,6 +702,7 @@ public class ChatService {
                         return;
                 }
                 try {
+                        if (cancellations.isCancelled(requestId)) return;
                         runChatUnlocked(
                                 out,
                                 finished,
@@ -690,6 +740,7 @@ public class ChatService {
                         String interactionMode,
                         String clientIp,
                         String requestId) {
+                if (cancellations.isCancelled(requestId)) return;
                 Conversation c;
                 if (sessionId == null || sessionId.isBlank()) {
                         c = create(callerSource, callerUserId);
@@ -1646,6 +1697,17 @@ public class ChatService {
                                 : BrowserRuntimeKind.TOOL_RESULT;
         }
 
+        private boolean isRunCancelled(AtomicBoolean finished) {
+                if (finished.get()) return true;
+                return isRunCancelled();
+        }
+
+        private boolean isRunCancelled() {
+                TraceContext.Values current = TraceContext.current();
+                String runId = current == null ? null : current.requestId();
+                return runId != null && cancellations.isCancelled(runId);
+        }
+
         private PlanRunResult executeDirectBrowserTask(
                 Conversation conversation,
                 String goal,
@@ -1692,9 +1754,10 @@ public class ChatService {
                                         constraints,
                                         List.of(),
                                         maxToolIterations,
-                                        SystemAgentCatalog.BROWSER_PROTOCOL_VERSION,
-                                        "chat-" + conversation.getId() + "-" + TraceContext.turnId()),
-                                Duration.ofMinutes(10));
+                                SystemAgentCatalog.BROWSER_PROTOCOL_VERSION,
+                                "chat-" + conversation.getId() + "-" + TraceContext.turnId()),
+                                Duration.ofMinutes(10),
+                                () -> isRunCancelled());
                 if (task.statusValue() != BrowserTaskStatus.COMPLETED) {
                         throw new IllegalStateException(
                                 task.getError() == null || task.getError().isBlank()
@@ -2040,10 +2103,11 @@ public class ChatService {
                                                                 sumTokens(
                                                                                 planRun.inputTokens(),
                                                                                 planOutcome.inputTokens()),
-                                                                sumTokens(
-                                                                                planRun.outputTokens(),
-                                                                                planOutcome.outputTokens()));
+                                                sumTokens(
+                                                                planRun.outputTokens(),
+                                                                planOutcome.outputTokens()));
                         }
+                        if (isRunCancelled(finished)) return;
                         String currentAnswer = planRun.content();
                         String lastReply = planRun.lastReply();
                         boolean answerStreamed = planRun.streamed();
@@ -2188,6 +2252,7 @@ public class ChatService {
                                 throw new IllegalStateException("模型未返回有效内容，请重试");
                         }
 
+                        if (isRunCancelled(finished)) return;
                         // 5) 先落库主 invocation + 消息，避免客户端中途断开导致回复丢失。
                         long completedMs = (System.nanoTime() - turnStarted) / 1_000_000L;
                         String finalAgentId = delegatedSummary && routeAgent != null ? routeAgent.id() : agent.id();
@@ -2324,7 +2389,7 @@ public class ChatService {
                 Integer outputTokens = null;
                 iteration:
                 for (int iter = 0; iter < Math.max(1, iterationLimit); iter++) {
-                        if (finished.get()) {
+                        if (isRunCancelled(finished)) {
                                 return new ReActResult(
                                                 currentAnswer == null ? "" : currentAnswer,
                                                 lastReply == null ? "" : lastReply,
@@ -2427,7 +2492,7 @@ public class ChatService {
                                                                 .put("inputTokens", modelReply.inputTokens())
                                                                 .put("outputTokens", modelReply.outputTokens())
                                                                 .save();
-                        if (finished.get()) {
+                        if (isRunCancelled(finished)) {
                                 return new ReActResult(
                                                 currentAnswer == null ? "" : currentAnswer,
                                                 lastReply == null ? "" : lastReply,
@@ -2723,7 +2788,10 @@ public class ChatService {
                                                                 .save();
                                                 emitActionProposed(out, finished, proposal);
                                                 BrowserActionCoordinator.Resolution actionResult =
-                                                        browserActions.await(proposal, finished);
+                                                        browserActions.await(
+                                                                        proposal,
+                                                                        finished,
+                                                                        () -> isRunCancelled(finished));
                                                 if (actionResult == null) {
                                                         currentAnswer = reply;
                                                         break iteration;
@@ -3108,7 +3176,8 @@ public class ChatService {
                                         constraints.maxSteps(),
                                         SystemAgentCatalog.BROWSER_PROTOCOL_VERSION,
                                         idempotencyKey),
-                                Duration.ofMinutes(10));
+                                Duration.ofMinutes(10),
+                                () -> isRunCancelled());
                 if (browserTask.statusValue() != BrowserTaskStatus.COMPLETED) {
                         throw new IllegalStateException(
                                 browserTask.getError() == null

@@ -184,6 +184,13 @@ public class ApiController {
                 requestId == null ? null : String.valueOf(requestId));
     }
 
+    @PostMapping("/sessions/{id}/runs/{runId}/cancel")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void cancelRun(@PathVariable String id, @PathVariable String runId) {
+        var identity = RequestContext.current();
+        chat.cancel(identity.source(), identity.userId(), id, runId);
+    }
+
     public record ActionResult(String status, String result) {}
 
     @PostMapping("/actions/{id}/result")

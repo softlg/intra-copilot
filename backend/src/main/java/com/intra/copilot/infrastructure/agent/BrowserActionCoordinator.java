@@ -17,6 +17,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -67,11 +68,21 @@ public class BrowserActionCoordinator {
     }
 
     public Resolution await(ActionProposal proposal, AtomicBoolean finished) {
+        return await(proposal, finished, () -> false);
+    }
+
+    public Resolution await(
+            ActionProposal proposal,
+            AtomicBoolean finished,
+            BooleanSupplier cancellationRequested) {
         CompletableFuture<Resolution> future = new CompletableFuture<>();
         waiters.put(proposal.getActionId(), future);
         long deadline = System.nanoTime() + timeout.toNanos();
         try {
             while (!finished.get()) {
+                if (cancellationRequested != null && cancellationRequested.getAsBoolean()) {
+                    return null;
+                }
                 long remaining = deadline - System.nanoTime();
                 if (remaining <= 0) {
                     resolve(proposal.getActionId(), "TIMEOUT", "等待浏览器操作结果超时");
