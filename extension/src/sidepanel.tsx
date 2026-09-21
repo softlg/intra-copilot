@@ -10,6 +10,7 @@ import { translations } from "./i18n/translations";
 import {
   attachmentObjectUrlCache,
   collectContextsFromTab,
+  ensureActionContentScript,
   executeEditorAction,
   resolveAttachment,
 } from "./lib/browser";
@@ -2066,6 +2067,7 @@ function App() {
                     };
                   } else {
                     try {
+                      await ensureActionContentScript(tabId);
                       const execution =
                         action.type === "SET_EDITOR"
                           ? await executeEditorAction(tabId, action)
@@ -2098,13 +2100,19 @@ function App() {
                         result: JSON.stringify({ execution, observation }),
                       };
                     } catch (actionError) {
+                      const rawMessage =
+                        (actionError as Error).message || String(actionError);
+                      const userMessage =
+                        /Receiving end does not exist|message port closed|Content script unavailable/i.test(
+                          rawMessage,
+                        )
+                          ? t.pageScriptDisconnected
+                          : rawMessage;
                       result = {
                         status: "FAILED",
                         result: JSON.stringify({
                           ok: false,
-                          error:
-                            (actionError as Error).message ||
-                            String(actionError),
+                          error: userMessage,
                         }),
                       };
                     }

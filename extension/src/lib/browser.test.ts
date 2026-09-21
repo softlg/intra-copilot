@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { collectContextsFromTab } from "./browser";
+import { collectContextsFromTab, ensureActionContentScript } from "./browser";
 
 const fallbackContext = {
   url: "https://example.com/orders",
@@ -67,5 +67,40 @@ describe("collectContextsFromTab", () => {
         snapshotId: "",
       },
     ]);
+  });
+});
+
+describe("ensureActionContentScript", () => {
+  it("injects the persistent content script when no receiver exists", async () => {
+    const executeScript = vi.fn().mockResolvedValue([]);
+    vi.stubGlobal("chrome", {
+      tabs: {
+        sendMessage: vi
+          .fn()
+          .mockRejectedValue(new Error("Could not establish connection")),
+      },
+      scripting: { executeScript },
+    });
+
+    await ensureActionContentScript(12);
+
+    expect(executeScript).toHaveBeenCalledWith({
+      target: { tabId: 12, allFrames: true },
+      files: ["content.js"],
+    });
+  });
+
+  it("does not inject when the content script already responds", async () => {
+    const executeScript = vi.fn();
+    vi.stubGlobal("chrome", {
+      tabs: {
+        sendMessage: vi.fn().mockResolvedValue({ ok: true }),
+      },
+      scripting: { executeScript },
+    });
+
+    await ensureActionContentScript(12);
+
+    expect(executeScript).not.toHaveBeenCalled();
   });
 });

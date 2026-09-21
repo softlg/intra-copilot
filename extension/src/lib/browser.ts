@@ -384,6 +384,7 @@ export async function executeEditorAction(
   action: any,
   interactionMode?: string,
 ) {
+  await ensureActionContentScript(tabId);
   const frameId =
     typeof action.target === "object" &&
     Number.isInteger(action.target?.frameId)
@@ -460,6 +461,7 @@ export async function collectContextsFromTab(
     frames = [];
   }
   const frameIds = frames.length ? frames.map((frame) => frame.frameId) : [0];
+  await ensureActionContentScript(id).catch(() => {});
   const contexts = await Promise.all(
     frameIds.map(async (frameId) => {
       try {
@@ -503,4 +505,21 @@ export async function collectContextsFromTab(
   return fallbackContexts.filter(
     (context): context is PageContextPayload => context != null,
   );
+}
+
+export async function ensureActionContentScript(tabId: number): Promise<void> {
+  try {
+    const response = await chrome.tabs.sendMessage(
+      tabId,
+      { type: "PING" },
+      { frameId: 0 },
+    );
+    if (response?.ok) return;
+  } catch {
+    // The content script is absent after navigation, extension reload, or first use.
+  }
+  await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    files: ["content.js"],
+  });
 }
