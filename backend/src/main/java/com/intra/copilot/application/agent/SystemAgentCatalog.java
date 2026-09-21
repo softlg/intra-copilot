@@ -14,7 +14,7 @@ public class SystemAgentCatalog {
     public static final String ROUTE_COPILOT = "route-copilot";
     public static final String ASSISTANT = "assistant";
     public static final String BROWSER_OPERATOR = "browser-operator";
-    public static final long REVISION = 2026091802L;
+    public static final long REVISION = 2026092101L;
     public static final int BROWSER_PROTOCOL_VERSION = 1;
     public static final int SYSTEM_AGENT_PROTOCOL_VERSION = 1;
     public static final String DELEGATION_TOOL_NAME = "system_agent_task";
@@ -131,6 +131,7 @@ public class SystemAgentCatalog {
                             6. 提交、删除、发送、付款、权限修改等高风险动作必须标记 high。
                             7. reason 必须结合当前页面和用户目标，写成用户能理解的自然语言说明。
                             8. 任务完成后给出简洁结果，不暴露内部 ref、Tool Schema、协议字段或执行细节。
+                            9. 失败时只说明用户可理解的原因、已完成部分和建议的下一步；不要输出内部 Tool 名称、参数、JSON、策略错误、堆栈或重复系统指令。
                             """,
                             "GENERAL",
                             true,

@@ -127,32 +127,16 @@ function FeedbackIcon({ direction }: { direction: "up" | "down" }) {
 /** 工具调用过程的折叠面板：把 Agent 实际执行了哪些工具、参数与返回值结构化展示，不污染正文。 */
 function ToolTraceView({
   trace,
-  title,
-  argsLabel,
-  resultLabel,
-  okLabel,
-  failLabel,
-  browserActionName,
-  browserActionReason,
-  browserActionLabels,
-  systemAgentTaskName,
-  systemAgentGoalLabel,
+  text,
 }: {
   trace: ToolTraceStep[];
-  title: string;
-  argsLabel: string;
-  resultLabel: string;
-  okLabel: string;
-  failLabel: string;
-  browserActionName: string;
-  browserActionReason: string;
-  browserActionLabels: Record<string, string>;
-  systemAgentTaskName: string;
-  systemAgentGoalLabel: string;
+  text: (typeof translations)[keyof typeof translations];
 }) {
-  const [open, setOpen] = useState(false);
+  const groups = groupToolTrace(trace);
+  const [open, setOpen] = useState(() =>
+    trace.some((step) => step.result == null || step.success === false),
+  );
   if (!trace.length) return null;
-  const done = trace.filter((step) => step.result != null).length;
   return (
     <div className={"tool-trace " + (open ? "open" : "collapsed")}>
       <button
@@ -164,89 +148,377 @@ function ToolTraceView({
         <span className="tool-trace-caret" aria-hidden="true">
           {open ? "▾" : "▸"}
         </span>
-        {title}
+        {text.toolTrace}
         <span className="tool-trace-count">
-          {done}/{trace.length}
+          {text.toolTraceGroupCount(groups.length)}
         </span>
       </button>
       {open && (
-        <ol className="tool-trace-list">
-          {trace.map((step, index) => {
-            const displayName =
-              step.tool === "browser_action"
-                ? browserActionName
-                : step.tool === "system_agent_task"
-                  ? systemAgentTaskName
-                  : step.tool;
-            let displayArguments = step.arguments;
-            let displayResult = step.result;
-            if (step.tool === "browser_action" && step.arguments) {
-              try {
-                const parsed = JSON.parse(step.arguments);
-                const actionLabel =
-                  browserActionLabels[parsed.type] || parsed.type;
-                displayArguments = `${actionLabel}${parsed.reason ? `\n${browserActionReason}：${parsed.reason}` : ""}`;
-              } catch {
-                /* Keep the original value when the trace is not valid JSON. */
-              }
-            }
-            if (step.tool === "system_agent_task" && step.arguments) {
-              try {
-                const parsed = JSON.parse(step.arguments);
-                displayArguments = [
-                  parsed.capability,
-                  parsed.goal ? `${systemAgentGoalLabel}：${parsed.goal}` : "",
-                ]
-                  .filter(Boolean)
-                  .join("\n");
-              } catch {
-                /* Keep the original value when the trace is not valid JSON. */
-              }
-            }
-            if (
-              step.tool === "system_agent_task" &&
-              displayResult?.startsWith("SYSTEM_AGENT_TASK_ERROR:")
-            ) {
-              displayResult = displayResult.slice(
-                "SYSTEM_AGENT_TASK_ERROR:".length,
-              );
-            }
-            return (
-              <li key={index} className="tool-trace-step">
-                <div className="tool-trace-head">
-                  <code className="tool-trace-name">{displayName}</code>
-                  {step.result != null && (
-                    <span
-                      className={
-                        "tool-trace-badge " +
-                        (step.success === false ? "failed" : "ok")
-                      }
-                    >
-                      {step.success === false ? failLabel : okLabel}
-                    </span>
-                  )}
-                </div>
-                {displayArguments ? (
-                  <pre className="tool-trace-args">
-                    {argsLabel}
-                    {displayArguments}
-                  </pre>
-                ) : null}
-                {step.result != null ? (
-                  <pre className="tool-trace-result">
-                    {resultLabel}
-                    {displayResult}
-                  </pre>
-                ) : (
-                  <div className="tool-trace-pending">{resultLabel}…</div>
-                )}
-              </li>
-            );
-          })}
-        </ol>
+        <div className="tool-trace-groups">
+          {groups.map((group) => (
+            <ToolTraceGroup group={group} text={text} key={group.id} />
+          ))}
+        </div>
       )}
     </div>
   );
+}
+
+function AssistantResponse({
+  content,
+  messageIndex,
+  copiedCode,
+  onCopyCode,
+  copyCodeLabel,
+  copiedLabel,
+  text,
+  forceIncomplete = false,
+}: {
+  content: string;
+  messageIndex: number;
+  copiedCode?: string;
+  onCopyCode: (code: string, codeId: string) => void;
+  copyCodeLabel: string;
+  copiedLabel: string;
+  text: (typeof translations)[keyof typeof translations];
+  forceIncomplete?: boolean;
+}) {
+  const [showRaw, setShowRaw] = useState(false);
+  const incomplete =
+    forceIncomplete ||
+    /达到最大 Tool 调用次数|未能生成最终答复|当前缺少的信息|请补充以下任意一项/.test(
+      content,
+    );
+  if (!incomplete) {
+    return (
+      <AssistantMarkdown
+        content={content}
+        messageIndex={messageIndex}
+        copiedCode={copiedCode}
+        onCopyCode={onCopyCode}
+        copyCodeLabel={copyCodeLabel}
+        copiedLabel={copiedLabel}
+      />
+    );
+  }
+  return (
+    <div className="assistant-incomplete">
+      <strong>{text.toolTraceIncompleteTitle}</strong>
+      <p>{text.toolTraceIncompleteHint}</p>
+      <button
+        type="button"
+        onClick={() => setShowRaw((value) => !value)}
+        aria-expanded={showRaw}
+      >
+        {showRaw
+          ? text.toolTraceHideModelResponse
+          : text.toolTraceShowModelResponse}
+      </button>
+      {showRaw ? (
+        <div className="assistant-incomplete-raw">
+          <AssistantMarkdown
+            content={content}
+            messageIndex={messageIndex}
+            copiedCode={copiedCode}
+            onCopyCode={onCopyCode}
+            copyCodeLabel={copyCodeLabel}
+            copiedLabel={copiedLabel}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type ToolTraceGroupData = {
+  id: string;
+  kind: "agent" | "observe" | "action" | "verify" | "other";
+  steps: { step: ToolTraceStep; index: number }[];
+  status: "running" | "failed" | "ok";
+};
+
+function ToolTraceGroup({
+  group,
+  text,
+}: {
+  group: ToolTraceGroupData;
+  text: (typeof translations)[keyof typeof translations];
+}) {
+  const [open, setOpen] = useState(group.status !== "ok");
+  return (
+    <section className={"tool-trace-group " + group.status}>
+      <button
+        type="button"
+        className="tool-trace-group-toggle"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className="tool-trace-group-index">{group.id}</span>
+        <span className="tool-trace-group-copy">
+          <strong>{toolTraceGroupTitle(group.kind, text)}</strong>
+          <small>{text.toolTraceOperationCount(group.steps.length)}</small>
+        </span>
+        <span className={"tool-trace-status " + group.status}>
+          {group.status === "running"
+            ? text.toolTraceRunning
+            : group.status === "failed"
+              ? text.toolTraceNeedsAttention
+              : text.toolTraceDone}
+        </span>
+        <span className="tool-trace-caret" aria-hidden="true">
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open && (
+        <div className="tool-trace-group-body">
+          {group.steps.map(({ step, index }) => (
+            <ToolTraceStepRow
+              key={`${step.tool}-${index}`}
+              step={step}
+              text={text}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ToolTraceStepRow({
+  step,
+  text,
+}: {
+  step: ToolTraceStep;
+  text: (typeof translations)[keyof typeof translations];
+}) {
+  const [open, setOpen] = useState(false);
+  const parsed = parseTraceArguments(step.arguments);
+  const title = toolTraceStepTitle(step, parsed, text);
+  const reason = conciseText(parsed?.reason, 120);
+  const status: "running" | "failed" | "ok" =
+    step.result == null ? "running" : step.success === false ? "failed" : "ok";
+  const output = friendlyToolTraceOutput(step, text);
+  return (
+    <article className={"tool-trace-step " + status}>
+      <button
+        type="button"
+        className="tool-trace-step-toggle"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className={"tool-trace-dot " + status} aria-hidden="true" />
+        <span className="tool-trace-step-copy">
+          <strong>{title}</strong>
+          {reason ? <small>{reason}</small> : null}
+        </span>
+        <span className={"tool-trace-badge " + status}>
+          {status === "running"
+            ? text.toolTraceRunning
+            : status === "failed"
+              ? text.toolFail
+              : text.toolOk}
+        </span>
+        <span className="tool-trace-caret" aria-hidden="true">
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open && (
+        <div className="tool-trace-step-details">
+          <div className="tool-trace-summary">
+            <span>{text.toolTraceOutput}</span>
+            <p>{output}</p>
+          </div>
+          {parsed?.goal ? (
+            <div className="tool-trace-summary">
+              <span>{text.toolTraceGoal}</span>
+              <p>{conciseText(parsed.goal, 260)}</p>
+            </div>
+          ) : null}
+          {step.arguments || step.result ? (
+            <details className="tool-trace-technical">
+              <summary>{text.toolTraceTechnical}</summary>
+              {step.arguments ? (
+                <pre>
+                  {text.toolTraceInput}
+                  {step.arguments}
+                </pre>
+              ) : null}
+              {step.result ? (
+                <pre>
+                  {text.toolTraceRawOutput}
+                  {step.result}
+                </pre>
+              ) : null}
+            </details>
+          ) : null}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function groupToolTrace(trace: ToolTraceStep[]): ToolTraceGroupData[] {
+  const groups: ToolTraceGroupData[] = [];
+  trace.forEach((step, index) => {
+    const kind = toolTraceGroupKind(step);
+    const previous = groups[groups.length - 1];
+    if (previous?.kind === kind) {
+      previous.steps.push({ step, index });
+    } else {
+      groups.push({
+        id: String(groups.length + 1),
+        kind,
+        steps: [{ step, index }],
+        status: "ok",
+      });
+    }
+  });
+  return groups.map((group) => ({
+    ...group,
+    status: group.steps.some(({ step }) => step.result == null)
+      ? "running"
+      : group.steps.some(({ step }) => step.success === false)
+        ? "failed"
+        : "ok",
+  }));
+}
+
+function toolTraceGroupKind(step: ToolTraceStep): ToolTraceGroupData["kind"] {
+  if (step.tool === "system_agent_task") return "agent";
+  if (step.tool === "browser_snapshot" || step.tool === "browser_extract") {
+    return "observe";
+  }
+  if (step.tool === "browser_wait" || step.tool === "browser_verify") {
+    return "verify";
+  }
+  if (step.tool === "browser_act") {
+    const action = parseTraceArguments(step.arguments)?.action;
+    if (action === "WAIT_FOR" || action === "VERIFY") return "verify";
+    if (action === "EXTRACT" || action === "SNAPSHOT") return "observe";
+    return "action";
+  }
+  return "other";
+}
+
+function toolTraceGroupTitle(
+  kind: ToolTraceGroupData["kind"],
+  text: (typeof translations)[keyof typeof translations],
+) {
+  if (kind === "agent") return text.toolTraceGroupAgent;
+  if (kind === "observe") return text.toolTraceGroupObserve;
+  if (kind === "action") return text.toolTraceGroupAction;
+  if (kind === "verify") return text.toolTraceGroupVerify;
+  return text.toolTraceGroupOther;
+}
+
+function toolTraceStepTitle(
+  step: ToolTraceStep,
+  parsed: any,
+  text: (typeof translations)[keyof typeof translations],
+) {
+  if (step.tool === "system_agent_task") return text.systemAgentTaskName;
+  if (step.tool === "browser_snapshot") return text.browserActionSnapshot;
+  if (step.tool === "browser_extract") return text.browserActionExtract;
+  if (step.tool === "browser_wait") return text.browserActionWait;
+  if (step.tool === "browser_verify") return text.browserActionVerify;
+  if (step.tool === "browser_act") {
+    const action = String(parsed?.action || "");
+    return browserActionTitle(action, text);
+  }
+  return step.tool;
+}
+
+function browserActionTitle(
+  action: string,
+  text: (typeof translations)[keyof typeof translations],
+) {
+  const labels: Record<string, string> = {
+    CLICK: text.browserActionClick,
+    FOCUS: text.browserActionFocus,
+    TYPE: text.browserActionFill,
+    FILL: text.browserActionFill,
+    CLEAR: text.browserActionClear,
+    SELECT: text.browserActionSelect,
+    CHECK: text.browserActionCheck,
+    UNCHECK: text.browserActionUncheck,
+    HOVER: text.browserActionHover,
+    SCROLL: text.browserActionScroll,
+    PRESS_KEY: text.browserActionPressKey,
+    UPLOAD: text.browserActionUpload,
+    NAVIGATE: text.browserActionNavigate,
+    SET_EDITOR: text.browserActionSetEditor,
+    WAIT_FOR: text.browserActionWait,
+    VERIFY: text.browserActionVerify,
+    EXTRACT: text.browserActionExtract,
+    SNAPSHOT: text.browserActionSnapshot,
+  };
+  return labels[action] || text.browserActionName;
+}
+
+function friendlyToolTraceOutput(
+  step: ToolTraceStep,
+  text: (typeof translations)[keyof typeof translations],
+) {
+  if (step.result == null) return text.toolTraceRunningDetail;
+  const error = extractTraceError(step.result);
+  if (step.success === false || error) {
+    return friendlyTraceError(error || step.result, text);
+  }
+  return text.toolTraceSuccessDetail;
+}
+
+function extractTraceError(raw: string | undefined) {
+  if (!raw) return "";
+  const stripped = raw.replace(/^SYSTEM_AGENT_TASK_ERROR:/, "");
+  try {
+    const value = JSON.parse(stripped);
+    if (typeof value?.error === "string") return value.error;
+    if (typeof value?.message === "string") return value.message;
+    if (typeof value?.execution?.error === "string") {
+      return value.execution.error;
+    }
+  } catch {
+    // Plain-text tool errors are handled below.
+  }
+  return stripped.replace(/^BROWSER_ACTION_ERROR:/, "");
+}
+
+function friendlyTraceError(
+  raw: string,
+  text: (typeof translations)[keyof typeof translations],
+) {
+  const value = conciseText(raw, 360);
+  if (/Receiving end does not exist|Content script unavailable/i.test(value)) {
+    return text.pageScriptDisconnected;
+  }
+  if (/最大 Tool 调用次数|未能生成最终答复/.test(value)) {
+    return text.toolTraceStepLimit;
+  }
+  if (/策略拒绝|policy rejected|risk/i.test(value)) {
+    return text.toolTracePolicyBlocked;
+  }
+  if (/必须提供 target|target|找不到目标元素/i.test(value)) {
+    return text.toolTraceInvalidTarget;
+  }
+  if (/超时|timeout/i.test(value)) {
+    return text.toolTraceTimeout;
+  }
+  return value || text.generationFailed;
+}
+
+function parseTraceArguments(raw: string | undefined): any {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function conciseText(value: unknown, max: number) {
+  if (value == null) return "";
+  const text = String(value).replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
 type PendingAttachment = {
@@ -2594,13 +2866,15 @@ function App() {
                     {assistant ? (
                       message.content ? (
                         <div className="assistant-content">
-                          <AssistantMarkdown
+                          <AssistantResponse
                             content={message.content}
                             messageIndex={index}
                             copiedCode={copiedCode}
                             onCopyCode={copyCode}
                             copyCodeLabel={t.copyCode}
                             copiedLabel={t.copied}
+                            text={t}
+                            forceIncomplete={message.status === "failed"}
                           />
                         </div>
                       ) : (
@@ -2619,24 +2893,7 @@ function App() {
                     )}
                   </div>
                   {assistant && message.toolTrace?.length ? (
-                    <ToolTraceView
-                      trace={message.toolTrace}
-                      title={t.toolTrace}
-                      argsLabel={t.toolArgs}
-                      resultLabel={t.toolResult}
-                      okLabel={t.toolOk}
-                      failLabel={t.toolFail}
-                      browserActionName={t.browserActionName}
-                      browserActionReason={t.browserActionReason}
-                      browserActionLabels={{
-                        SET_EDITOR: t.browserActionSetEditor,
-                        CLICK: t.browserActionClick,
-                        FILL: t.browserActionFill,
-                        NAVIGATE: t.browserActionNavigate,
-                      }}
-                      systemAgentTaskName={t.systemAgentTaskName}
-                      systemAgentGoalLabel={t.systemAgentGoalLabel}
-                    />
+                    <ToolTraceView trace={message.toolTrace} text={t} />
                   ) : null}
                   {assistant &&
                   message.status &&

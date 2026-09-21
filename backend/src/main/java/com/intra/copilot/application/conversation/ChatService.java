@@ -3065,10 +3065,16 @@ public class ChatService {
                                 childResult.content() == null
                                         ? ""
                                         : childResult.content().trim();
-                        boolean success = !content.isBlank();
+                        boolean toolLoopExhausted = isToolLoopExhausted(content);
+                        boolean success = !content.isBlank() && !toolLoopExhausted;
                         childInvocation.setResponseContent(content);
                         childInvocation.setStatus(success ? "COMPLETED" : "FAILED");
-                        childInvocation.setError(success ? null : "系统 Agent 未返回有效结果");
+                        childInvocation.setError(
+                                success
+                                        ? null
+                                        : toolLoopExhausted
+                                                ? "系统 Agent 未在限定步骤内完成"
+                                                : "系统 Agent 未返回有效结果");
                         childInvocation.setInputTokens(childResult.inputTokens());
                         childInvocation.setOutputTokens(childResult.outputTokens());
                         childInvocation.setDurationMs(duration);
@@ -3139,6 +3145,12 @@ public class ChatService {
                         emitToolResult(out, finished, toolName, output, false);
                         return new SystemAgentTaskOutcome(output, false, false);
                 }
+        }
+
+        private boolean isToolLoopExhausted(String content) {
+                return content != null
+                                && (content.contains("已达到最大 Tool 调用次数")
+                                        || content.contains("未能生成最终答复"));
         }
 
         private ReActResult executeDelegatedBrowserTask(
