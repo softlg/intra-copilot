@@ -1,6 +1,5 @@
 package com.intra.copilot.domain.agent;
 
-
 public final class ConfigurableAgent implements Agent {
     private final AgentDefinition definition;
 
