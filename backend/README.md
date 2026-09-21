@@ -69,6 +69,27 @@ com.intra.copilot
 The current persistence models retain MyBatis annotations to keep migration risk low. A future
 iteration can split them into separate persistence records if stricter domain isolation is needed.
 
+## Browser Runtime
+
+Browser tasks are expressed as durable `BrowserTask` records. The backend can route the same
+capability to:
+
+- `EXTENSION`: the user's Chrome or Edge page through the MV3 extension.
+- `EMBEDDED`: a host page using `@intra-copilot/embed` and the durable browser-command queue.
+- `SERVER`: an unattended Selenium/Chrome session.
+
+The extension and embedded runtimes claim leases and commands through
+`/api/v1/browser/runtimes`. Commands, leases, protocol versions, supported interaction modes,
+origin allowlists, and idempotency keys are persisted independently from the chat SSE stream, so
+page operations survive tab switches and transient disconnects. The server runtime is implemented
+by `SeleniumBrowserRuntime` and is exposed through `/api/v1/browser/tasks`.
+`browser.selenium.driver-path` and `browser.selenium.binary-path` can be configured when browser
+binaries are not on the default system path.
+
+Interaction modes are `FAST`, `VISIBLE_VIRTUAL`, `BROWSER_TRUSTED`, and `SYSTEM_TRUSTED`.
+`BROWSER_TRUSTED` uses Chrome's debugger protocol for trusted page input. `SYSTEM_TRUSTED` uses the
+optional Native Messaging host in `native-host/` and moves the real operating-system pointer.
+
 ## Adding a Feature
 
 1. Put business invariants and value objects in the owning `domain` context.

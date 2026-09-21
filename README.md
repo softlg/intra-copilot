@@ -35,7 +35,48 @@ npm run build
 
 侧边栏默认只在打开它的标签页显示，切换到其它标签页时会隐藏，切回原标签页后恢复。侧边栏右上角“设置”中勾选“在所有标签页启用”后，侧边栏会在窗口内的所有标签页持续显示。
 
-模型密钥只配置在后端环境变量中，插件不会保存或传输密钥。写入页面的点击、填写、跳转动作必须在侧边栏中逐项确认。
+模型密钥只配置在后端环境变量中，插件不会保存或传输密钥。写入页面的点击、填写、跳转动作按用户选择的“请求批准 / 帮我批准 / 完全控制”权限执行。
+
+插件默认使用“可视化操作”模式，页面中会显示虚拟光标、目标高亮和操作进度。权限设置还提供“快速执行”“浏览器真实输入”和“系统级输入”：前者不播放动画，后两者分别通过 Chrome Debugger 协议和本机 Native Host 发送可信输入。系统级输入需要额外安装 `native-host/`，且会操作真实鼠标和键盘。
+
+```powershell
+.\native-host\install.ps1 -ExtensionId YOUR_EXTENSION_ID
+```
+
+## 服务端浏览器 Runtime
+
+需要无人值守或后台执行时，可以使用服务端 Chrome Runtime：
+
+```powershell
+$env:BROWSER_SELENIUM_ENABLED="true"
+$env:BROWSER_SELENIUM_HEADLESS="true"
+$env:BROWSER_SELENIUM_DRIVER_PATH="C:\path\to\chromedriver.exe"
+```
+
+任务通过 `/api/v1/browser/tasks` 创建和查询，使用设备令牌鉴权。服务端 Runtime 支持页面观察、点击、输入、下拉、勾选、编辑器写入、等待、验证和提取，并将每一步记录到 `browser_task_event`。
+
+插件和嵌入式 SDK 使用统一的持久化 Runtime 协议：
+
+- `POST /api/v1/browser/runtimes/presence`：上报 Runtime 版本、支持动作和交互模式。
+- `POST /api/v1/browser/runtimes/leases`：领取任务与下一条命令，同时续租。
+- `POST /api/v1/browser/runtimes/commands/{id}/result`：回传动作结果、页面观察和验证状态。
+- `POST /api/v1/browser/runtimes/leases/release`：主动释放任务租约。
+
+任务支持 `allowedOrigins`、幂等键、租约、命令超时和自动过期回收。`allowFallback=true` 时，首选 Runtime 离线后可以回退到其它在线 Runtime；默认不会静默改用服务端浏览器。
+
+并发浏览器任务数由 `BROWSER_RUNTIME_WORKER_THREADS` 控制（默认 4），每个任务仍受最大步骤和超时限制。
+
+## 嵌入式 SDK
+
+`embed/` 提供不依赖浏览器插件的宿主页面 SDK：
+
+```powershell
+cd embed
+npm install
+npm run build
+```
+
+宿主页面可以通过 `attach()` 挂载同一套对话、权限和浏览器动作协议，并自动在后台领取 `EMBEDDED` 任务。默认使用 `VISIBLE_VIRTUAL` 交互模式，在宿主页面内显示虚拟光标和操作状态；需要更快执行时可以设置 `interactionMode: "FAST"`。
 
 ## 启动管理端
 

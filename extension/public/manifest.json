@@ -1,20 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Intra Copilot",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "页面助手",
   "permissions": [
     "sidePanel",
     "storage",
     "activeTab",
+    "alarms",
+    "debugger",
     "scripting",
+    "nativeMessaging",
     "tabs",
     "webNavigation"
   ],
-  "host_permissions": [
-    "http://localhost:8080/*",
-    "http://127.0.0.1:8080/*"
-  ],
+  "host_permissions": ["http://localhost:8080/*", "http://127.0.0.1:8080/*"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "service-worker.js", "type": "module" },
   "content_security_policy": {

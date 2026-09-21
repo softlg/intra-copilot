@@ -1,0 +1,8 @@
+{
+  "name": "intra-copilot-native-input",
+  "private": true,
+  "version": "0.1.0",
+  "bin": {
+    "intra-copilot-native-input": "host.js"
+  }
+}

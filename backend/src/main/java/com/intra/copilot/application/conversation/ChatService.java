@@ -19,6 +19,7 @@ import com.intra.copilot.infrastructure.conversation.SseExecutionService;
 import com.intra.copilot.infrastructure.conversation.RuntimeLockService;
 import com.intra.copilot.shared.util.EntityIdGenerator;
 import java.io.IOException;
+import java.net.URI;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -34,6 +35,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import com.intra.copilot.application.agent.AgentOrchestrator;
+import com.intra.copilot.application.agent.BrowserTaskService;
 import com.intra.copilot.application.agent.PlanningService;
 import com.intra.copilot.application.agent.SystemAgentBroker;
 import com.intra.copilot.application.agent.SystemAgentCatalog;
@@ -103,6 +105,8 @@ public class ChatService {
         private final ToolExecutor toolExecutor;
         private final BrowserCapabilityTools browserCapabilityTools;
         private final SystemAgentBroker systemAgentBroker;
+        private final BrowserRuntimeRegistry browserRuntimes;
+        private final BrowserTaskService browserTasks;
         private final SkillPromptAssembler skillAssembler;
         private final PlanningService planningService;
         private final SseExecutionService streams;
@@ -133,6 +137,8 @@ public class ChatService {
                         ToolExecutor toolExecutor,
                         BrowserCapabilityTools browserCapabilityTools,
                         SystemAgentBroker systemAgentBroker,
+                        BrowserRuntimeRegistry browserRuntimes,
+                        BrowserTaskService browserTasks,
                         SkillPromptAssembler skillAssembler,
                         PlanningService planningService,
                         SseExecutionService streams,
@@ -161,6 +167,8 @@ public class ChatService {
                 this.toolExecutor = toolExecutor;
                 this.browserCapabilityTools = browserCapabilityTools;
                 this.systemAgentBroker = systemAgentBroker;
+                this.browserRuntimes = browserRuntimes;
+                this.browserTasks = browserTasks;
                 this.skillAssembler = skillAssembler;
                 this.planningService = planningService;
                 this.streams = streams;
@@ -483,6 +491,8 @@ public class ChatService {
                                 attachmentIds,
                                 retry,
                                 clientIp,
+                                null,
+                                null,
                                 null);
         }
 
@@ -496,6 +506,36 @@ public class ChatService {
                         Map<String, Boolean> permissions,
                         List<String> attachmentIds,
                         boolean retry,
+                        String clientIp,
+                        String requestId) {
+                return chat(
+                                callerSource,
+                                callerUserId,
+                                sessionId,
+                                text,
+                                requestedAgent,
+                                pageContext,
+                                permissions,
+                                attachmentIds,
+                                retry,
+                                null,
+                                null,
+                                clientIp,
+                                requestId);
+        }
+
+        public SseEmitter chat(
+                        String callerSource,
+                        String callerUserId,
+                        String sessionId,
+                        String text,
+                        String requestedAgent,
+                        String pageContext,
+                        Map<String, Boolean> permissions,
+                        List<String> attachmentIds,
+                        boolean retry,
+                        String browserRuntime,
+                        String interactionMode,
                         String clientIp,
                         String requestId) {
                 SseEmitter out = new SseEmitter(sseTimeoutMs);
@@ -538,6 +578,8 @@ public class ChatService {
                                                                                 permissions,
                                                                                 attachmentIds,
                                                                                 retry,
+                                                                                browserRuntime,
+                                                                                interactionMode,
                                                                                 clientIp,
                                                                                 effectiveRequestId);
                                                         } catch (Throwable error) {
@@ -568,6 +610,8 @@ public class ChatService {
                         Map<String, Boolean> permissions,
                         List<String> attachmentIds,
                         boolean retry,
+                        String browserRuntime,
+                        String interactionMode,
                         String clientIp,
                         String requestId) {
                 if (sessionId == null || sessionId.isBlank()) {
@@ -583,6 +627,8 @@ public class ChatService {
                                 permissions,
                                 attachmentIds,
                                 retry,
+                                browserRuntime,
+                                interactionMode,
                                 clientIp,
                                 requestId);
                         return;
@@ -619,6 +665,8 @@ public class ChatService {
                                 permissions,
                                 attachmentIds,
                                 retry,
+                                browserRuntime,
+                                interactionMode,
                                 clientIp,
                                 requestId);
                 } finally {
@@ -638,6 +686,8 @@ public class ChatService {
                         Map<String, Boolean> permissions,
                         List<String> attachmentIds,
                         boolean retry,
+                        String browserRuntime,
+                        String interactionMode,
                         String clientIp,
                         String requestId) {
                 Conversation c;
@@ -648,6 +698,10 @@ public class ChatService {
                 }
                 boolean readPage =
                                 Boolean.TRUE.equals(permissions == null ? null : permissions.get("readPage"));
+                BrowserRuntimeKind requestedBrowserRuntime =
+                                resolveBrowserRuntime(browserRuntime, permissions, pageContext);
+                BrowserInteractionMode requestedInteractionMode =
+                                BrowserInteractionMode.from(interactionMode);
                 boolean autoRoute = requestedAgent == null || requestedAgent.isBlank();
                 TraceAttempt traceAttempt = resolveTraceAttempt(c.getId(), retry);
                 TraceContext.open(
@@ -1142,7 +1196,9 @@ public class ChatService {
                         correlationId, invocationId, agent, routeAgent,
                         delegation, baseHistory, text, enriched, images,
                         targetInvocationId, retryContext.replacedAssistantId(),
-                        turnStarted, childStarted);
+                        turnStarted, childStarted, pageContext,
+                        requestedBrowserRuntime, requestedInteractionMode,
+                        permissions);
         }
 
         /** 收集路由阶段的中间状态，稍后一次性落库为事件。 */
@@ -1573,6 +1629,117 @@ public class ChatService {
                 return browserCapabilityTools.callback(id);
         }
 
+        private BrowserRuntimeKind resolveBrowserRuntime(
+                String requested,
+                Map<String, Boolean> permissions,
+                String pageContext) {
+                if (requested != null && !requested.isBlank()) {
+                        BrowserRuntimeKind value = BrowserRuntimeKind.from(requested);
+                        if (value != BrowserRuntimeKind.TOOL_RESULT) return value;
+                }
+                if (Boolean.TRUE.equals(
+                        permissions == null ? null : permissions.get("embeddedRuntime"))) {
+                        return BrowserRuntimeKind.EMBEDDED;
+                }
+                return pageContext != null && !pageContext.isBlank()
+                                ? BrowserRuntimeKind.EXTENSION
+                                : BrowserRuntimeKind.TOOL_RESULT;
+        }
+
+        private PlanRunResult executeDirectBrowserTask(
+                Conversation conversation,
+                String goal,
+                String pageContext,
+                BrowserRuntimeKind runtimeKind,
+                BrowserInteractionMode interactionMode,
+                Map<String, Boolean> permissions) {
+                List<String> allowedOrigins = allowedOriginsFromPageContext(pageContext);
+                Map<String, Object> businessContext = new LinkedHashMap<>();
+                try {
+                        businessContext.put(
+                                "pageContext",
+                                json.readValue(
+                                        pageContext == null || pageContext.isBlank()
+                                                ? "[]"
+                                                : pageContext,
+                                        new com.fasterxml.jackson.core.type.TypeReference<>() {}));
+                } catch (Exception ignored) {
+                        businessContext.put("pageContext", pageContext);
+                }
+                boolean fullControl =
+                        Boolean.TRUE.equals(
+                                permissions == null ? null : permissions.get("fullControl"));
+                boolean delegatedApproval =
+                        Boolean.TRUE.equals(
+                                permissions == null ? null : permissions.get("autoApprove"));
+                Map<String, Object> constraints = new LinkedHashMap<>();
+                constraints.put("maxRisk", fullControl || !delegatedApproval ? "high" : "medium");
+                constraints.put("maxSteps", maxToolIterations);
+                constraints.put("runtime", runtimeKind.name());
+                constraints.put("interactionMode", interactionMode.name());
+                if (!allowedOrigins.isEmpty()) constraints.put("allowedOrigins", allowedOrigins);
+                BrowserTask task =
+                        browserTasks.createAndWait(
+                                new BrowserTaskService.CreateRequest(
+                                        conversation.getId(),
+                                        SystemAgentCatalog.BROWSER_OPERATE,
+                                        interactionMode.name(),
+                                        runtimeKind.name(),
+                                        goal,
+                                        null,
+                                        allowedOrigins,
+                                        businessContext,
+                                        constraints,
+                                        List.of(),
+                                        maxToolIterations,
+                                        SystemAgentCatalog.BROWSER_PROTOCOL_VERSION,
+                                        "chat-" + conversation.getId() + "-" + TraceContext.turnId()),
+                                Duration.ofMinutes(10));
+                if (task.statusValue() != BrowserTaskStatus.COMPLETED) {
+                        throw new IllegalStateException(
+                                task.getError() == null || task.getError().isBlank()
+                                        ? "浏览器任务执行失败"
+                                        : task.getError());
+                }
+                String content = task.getResult();
+                try {
+                        JsonNode result = json.readTree(task.getResult());
+                        content = result.path("summary").asText(content);
+                } catch (Exception ignored) {
+                }
+                if (content == null || content.isBlank()) content = "浏览器任务已完成。";
+                return new PlanRunResult(content, content, false, null, null);
+        }
+
+        private List<String> allowedOriginsFromPageContext(String pageContext) {
+                if (pageContext == null || pageContext.isBlank()) return List.of();
+                try {
+                        JsonNode root = json.readTree(pageContext);
+                        List<String> origins = new ArrayList<>();
+                        if (root.isArray()) {
+                                for (JsonNode item : root) {
+                                        addOrigin(origins, item.path("url").asText(""));
+                                }
+                        } else if (root.isObject()) {
+                                addOrigin(origins, root.path("url").asText(""));
+                        }
+                        return origins.stream().distinct().limit(16).toList();
+                } catch (Exception ignored) {
+                        return List.of();
+                }
+        }
+
+        private void addOrigin(List<String> values, String url) {
+                try {
+                        URI uri = URI.create(url);
+                        if (List.of("http", "https").contains(uri.getScheme())
+                                && uri.getHost() != null) {
+                                values.add(uri.getScheme() + "://" + uri.getHost());
+                        }
+                } catch (Exception ignored) {
+                }
+        }
+
         /**
          * 代理执行主循环（ReAct）：让模型在「推理 → 调用 Tool → 观察结果 → 再推理」之间迭代，
          * 直到模型给出最终答复或达到最大轮次。Tool 调用通过 {@link ToolExecutor} 真正执行（HTTP/MCP/浏览器提案），
@@ -1596,7 +1763,11 @@ public class ChatService {
                         String targetInvocationId,
                         String replacedAssistantId,
                         long turnStarted,
-                        long childStarted) {
+                        long childStarted,
+                        String pageContext,
+                        BrowserRuntimeKind browserRuntimeKind,
+                        BrowserInteractionMode browserInteractionMode,
+                        Map<String, Boolean> permissions) {
                 try {
                         // 1) 从已发布版本构建有效 system prompt；编辑中的草稿不会影响线上会话。
                         String baseSystemPrompt =
@@ -1700,6 +1871,19 @@ public class ChatService {
                         boolean delegatedSummary = delegation.delegated()
                                         && routeAgent instanceof ConfigurableAgent parent
                                         && "DOMAIN_SUMMARY".equals(parent.definition().getReturnMode());
+                        PlanRunResult directBrowserTask = null;
+                        if (SystemAgentCatalog.BROWSER_OPERATOR.equals(agent.id())
+                                && browserRuntimeKind != BrowserRuntimeKind.TOOL_RESULT) {
+                                emitStage(out, finished, "browser_task", "正在操作页面…");
+                                directBrowserTask =
+                                        executeDirectBrowserTask(
+                                                conversation,
+                                                userInput,
+                                                pageContext,
+                                                browserRuntimeKind,
+                                                browserInteractionMode,
+                                                permissions);
+                        }
                         // 2) 对复杂任务先制定并持久化计划；简单任务继续走原有 ReAct。
                         AgentDefinition planningDefinition =
                                         agent instanceof ConfigurableAgent configurable
@@ -1719,16 +1903,27 @@ public class ChatService {
                                 .syntheticDefinition(callerDefinition)
                                 .ifPresent(availableTools::add);
                         PlanningService.PlanOutcome planOutcome =
-                                        planningService.createPlanOutcome(
-                                                planningDefinition,
-                                                conversation.getId(),
-                                                targetInvocationId,
-                                                correlationId,
-                                                routeAgent.id(),
-                                                planningUserInput,
-                                                userInput,
-                                                baseHistory,
-                                                availableTools);
+                                        directBrowserTask != null
+                                                ? new PlanningService.PlanOutcome(
+                                                        Optional.empty(),
+                                                        "BROWSER_TASK",
+                                                        "浏览器任务由系统 Runtime 执行，无需再次规划",
+                                                        null,
+                                                        null,
+                                                        0L,
+                                                        false,
+                                                        null,
+                                                        null)
+                                                : planningService.createPlanOutcome(
+                                                        planningDefinition,
+                                                        conversation.getId(),
+                                                        targetInvocationId,
+                                                        correlationId,
+                                                        routeAgent.id(),
+                                                        planningUserInput,
+                                                        userInput,
+                                                        baseHistory,
+                                                        availableTools);
                         PlanningService.PlanExecution planExecution =
                                         planOutcome.execution().orElse(null);
                         String planDecisionStatus =
@@ -1763,9 +1958,10 @@ public class ChatService {
                                                         .put("inputTokens", planOutcome.inputTokens())
                                                         .put("outputTokens", planOutcome.outputTokens())
                                                         .save();
-                        if (planExecution != null) {
+                        if (directBrowserTask == null && planExecution != null) {
                                 emitStage(out, finished, "planning", "正在制定执行计划…");
-                        } else if ("FAILED".equals(planDecisionStatus)) {
+                        } else if (directBrowserTask == null
+                                && "FAILED".equals(planDecisionStatus)) {
                                 trace.event(
                                                                         targetInvocationId,
                                                                         correlationId,
@@ -1782,7 +1978,9 @@ public class ChatService {
                                                 .save();
                         }
                         PlanRunResult planRun;
-                        if (planExecution != null) {
+                        if (directBrowserTask != null) {
+                                planRun = directBrowserTask;
+                        } else if (planExecution != null) {
                                 planRun =
                                                 executePlan(
                                                         out,
@@ -2456,6 +2654,58 @@ public class ChatService {
                                                                                 + "\n请调整动作参数或结束子任务，不得绕过限制。"));
                                                         continue iteration;
                                                 }
+                                                Optional<BrowserRuntime> serverRuntime =
+                                                        activeSystemTask != null
+                                                                        && "SERVER"
+                                                                                .equalsIgnoreCase(
+                                                                                        activeSystemTask
+                                                                                                .request()
+                                                                                                .runtimeKind())
+                                                                ? browserRuntimes.find(
+                                                                                BrowserRuntimeKind.SERVER,
+                                                                                BrowserInteractionMode
+                                                                                        .VISIBLE_VIRTUAL)
+                                                                : Optional.empty();
+                                                if (serverRuntime.isPresent()) {
+                                                        BrowserTask runtimeTask =
+                                                                serverRuntimeTask(
+                                                                        activeSystemTask,
+                                                                        targetInvocationId);
+                                                        BrowserRuntime.ActionResult runtimeResult =
+                                                                serverRuntime
+                                                                        .get()
+                                                                        .execute(
+                                                                                runtimeTask,
+                                                                                BrowserActionValidator
+                                                                                        .normalize(
+                                                                                                proposalJson));
+                                                        String runtimeStatus =
+                                                                runtimeResult.ok()
+                                                                        ? "EXECUTED"
+                                                                        : "FAILED";
+                                                        turns.add(
+                                                                Map.of(
+                                                                        "role",
+                                                                        "user",
+                                                                        "content",
+                                                                        browserActions.resultPrompt(
+                                                                                proposal,
+                                                                                new BrowserActionCoordinator
+                                                                                        .Resolution(
+                                                                                        runtimeStatus,
+                                                                                        serverRuntimeResult(
+                                                                                                runtimeTask,
+                                                                                                runtimeResult)))));
+                                                        if (runtimeResult.ok()) {
+                                                                currentAnswer = reply;
+                                                                continue iteration;
+                                                        }
+                                                        currentAnswer =
+                                                                Objects.toString(
+                                                                        runtimeResult.error(),
+                                                                        "服务端浏览器动作失败");
+                                                        break iteration;
+                                                }
                                                 trace.event(
                                                                                 targetInvocationId,
                                                                                 correlationId,
@@ -2518,6 +2768,38 @@ public class ChatService {
                                 answerStreamed,
                                 inputTokens,
                                 outputTokens);
+        }
+
+        private BrowserTask serverRuntimeTask(
+                SystemAgentBroker.ResolvedTask task, String taskId) {
+                BrowserTask runtimeTask = new BrowserTask();
+                runtimeTask.setTaskId(taskId);
+                runtimeTask.setCapability(task.request().capability());
+                runtimeTask.setGoal(task.request().goal());
+                runtimeTask.setStartUrl(task.request().startUrl());
+                runtimeTask.setInteractionMode(
+                        BrowserInteractionMode.from(task.request().interactionMode()).name());
+                runtimeTask.setRuntimeKind(BrowserRuntimeKind.SERVER.name());
+                runtimeTask.setBusinessContext("{}");
+                runtimeTask.setConstraints(task.canonicalJson());
+                runtimeTask.setSuccessCriteria("[]");
+                runtimeTask.setMaxSteps(task.request().constraints().maxSteps());
+                return runtimeTask;
+        }
+
+        private String serverRuntimeResult(
+                BrowserTask task, BrowserRuntime.ActionResult result) {
+                Map<String, Object> value = new LinkedHashMap<>();
+                value.put("taskId", task.getTaskId());
+                value.put("ok", result.ok());
+                value.put("verified", result.verified());
+                value.put("status", result.status());
+                value.put("result", result.result());
+                value.put("error", result.error());
+                if (result.observation() != null) {
+                        value.put("observation", result.observation());
+                }
+                return safeJsonObject(value);
         }
 
         private SystemAgentTaskOutcome executeSystemAgentTask(
@@ -2666,28 +2948,50 @@ public class ChatService {
                                         + "\n\n[Tool] 在需要观察或操作页面时必须通过 function calling 调用已提供的系统 Tool，"
                                         + "不要输出 Tool JSON 文本。"
                                         + OUTPUT_FORMAT_GUIDANCE;
+                        boolean browserCapability =
+                                SystemAgentCatalog.BROWSER_OPERATE.equals(
+                                                task.request().capability())
+                                        || SystemAgentCatalog.BROWSER_EXTRACT.equals(
+                                                task.request().capability());
+                        boolean durableBrowserTask =
+                                browserCapability
+                                        && !"TOOL_RESULT"
+                                                .equalsIgnoreCase(
+                                                        task.request().runtimeKind());
                         ReActResult childResult =
-                                executeReAct(
-                                        out,
-                                        finished,
-                                        conversation,
-                                        targetSystem,
-                                        new ArrayList<>(),
-                                        "请执行以下系统 Agent 子任务：\n"
-                                                + task.canonicalJson(),
-                                        List.of(),
-                                        targetToolIds,
-                                        targetCallbacks,
-                                        childInvocation.getId(),
-                                        correlationId,
-                                        null,
-                                        null,
-                                        false,
-                                        task.target(),
-                                        nextDepth,
-                                        path,
-                                        task.request().constraints().maxSteps(),
-                                        task);
+                                durableBrowserTask
+                                        ? executeDelegatedBrowserTask(
+                                                task, conversation.getId())
+                                        : executeReAct(
+                                                out,
+                                                finished,
+                                                conversation,
+                                                targetSystem,
+                                                new ArrayList<>(),
+                                                "请执行以下系统 Agent 子任务：\n"
+                                                        + task.canonicalJson(),
+                                                List.of(),
+                                                targetToolIds,
+                                                targetCallbacks,
+                                                childInvocation.getId(),
+                                                correlationId,
+                                                null,
+                                                null,
+                                                false,
+                                                task.target(),
+                                                nextDepth,
+                                                path,
+                                                task.request().constraints().maxSteps(),
+                                                task);
+                        if ("SERVER".equalsIgnoreCase(task.request().runtimeKind())) {
+                                BrowserTask runtimeTask =
+                                        serverRuntimeTask(task, childInvocation.getId());
+                                browserRuntimes
+                                        .find(
+                                                BrowserRuntimeKind.SERVER,
+                                                BrowserInteractionMode.VISIBLE_VIRTUAL)
+                                        .ifPresent(runtime -> runtime.close(runtimeTask));
+                        }
                         long duration = (System.nanoTime() - started) / 1_000_000L;
                         String content =
                                 childResult.content() == null
@@ -2767,6 +3071,59 @@ public class ChatService {
                         emitToolResult(out, finished, toolName, output, false);
                         return new SystemAgentTaskOutcome(output, false, false);
                 }
+        }
+
+        private ReActResult executeDelegatedBrowserTask(
+                SystemAgentBroker.ResolvedTask task, String conversationId) {
+                SystemAgentBroker.Constraints constraints = task.request().constraints();
+                Map<String, Object> constraintMap = new LinkedHashMap<>();
+                constraintMap.put("allowedActions", constraints.allowedActions());
+                constraintMap.put("maxRisk", constraints.maxRisk());
+                constraintMap.put("maxSteps", constraints.maxSteps());
+                constraintMap.put("runtime", task.request().runtimeKind());
+                constraintMap.put("interactionMode", task.request().interactionMode());
+                constraintMap.put("allowFallback", constraints.allowFallback());
+                if (!constraints.allowedOrigins().isEmpty()) {
+                        constraintMap.put("allowedOrigins", constraints.allowedOrigins());
+                }
+                String idempotencyKey =
+                        task.target().getId()
+                                + ":"
+                                + TraceContext.traceId()
+                                + ":"
+                                + TraceContext.turnId();
+                BrowserTask browserTask =
+                        browserTasks.createAndWait(
+                                new BrowserTaskService.CreateRequest(
+                                        conversationId,
+                                        task.request().capability(),
+                                        task.request().interactionMode(),
+                                        task.request().runtimeKind(),
+                                        task.request().goal(),
+                                        task.request().startUrl(),
+                                        constraints.allowedOrigins(),
+                                        task.request().businessContext(),
+                                        constraintMap,
+                                        task.request().successCriteria(),
+                                        constraints.maxSteps(),
+                                        SystemAgentCatalog.BROWSER_PROTOCOL_VERSION,
+                                        idempotencyKey),
+                                Duration.ofMinutes(10));
+                if (browserTask.statusValue() != BrowserTaskStatus.COMPLETED) {
+                        throw new IllegalStateException(
+                                browserTask.getError() == null
+                                                || browserTask.getError().isBlank()
+                                        ? "浏览器系统 Agent 执行失败"
+                                        : browserTask.getError());
+                }
+                String content = browserTask.getResult();
+                try {
+                        JsonNode result = json.readTree(browserTask.getResult());
+                        content = result.path("summary").asText(content);
+                } catch (Exception ignored) {
+                }
+                if (content == null || content.isBlank()) content = "浏览器任务已完成。";
+                return new ReActResult(content, content, false, null, null);
         }
 
         private void emitSystemAgentDelegation(

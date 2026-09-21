@@ -5,6 +5,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.intra.copilot.application.agent.AgentOrchestrator;
+import com.intra.copilot.application.agent.BrowserRuntimeRegistry;
+import com.intra.copilot.application.agent.BrowserTaskService;
 import com.intra.copilot.application.agent.PlanningService;
 import com.intra.copilot.application.agent.SystemAgentBroker;
 import com.intra.copilot.application.capability.HookService;
@@ -49,6 +51,8 @@ class ChatServiceConversationActivityTest {
                         mock(ToolExecutor.class),
                         mock(BrowserCapabilityTools.class),
                         mock(SystemAgentBroker.class),
+                        mock(BrowserRuntimeRegistry.class),
+                        mock(BrowserTaskService.class),
                         mock(SkillPromptAssembler.class),
                         mock(PlanningService.class),
                         mock(SseExecutionService.class),

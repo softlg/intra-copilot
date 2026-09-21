@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const capabilitiesSchema = z.object({
   browserProtocolVersion: z.number(),
+  browserRuntimeProtocolVersion: z.number().optional(),
   streamTimeoutMs: z.number().positive().optional(),
 });
 

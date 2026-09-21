@@ -1,0 +1,17 @@
+{
+  "name": "@intra-copilot/embed",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "format": "prettier --write \"src/**/*.ts\" \"*.{json,ts}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"*.{json,ts}\""
+  },
+  "devDependencies": {
+    "prettier": "3.9.6",
+    "typescript": "7.0.2"
+  }
+}

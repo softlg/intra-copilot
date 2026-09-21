@@ -34,7 +34,7 @@ class SystemAgentBrokerTest {
                   "capability":"browser.operate",
                   "goal":"填写报工单并提交",
                   "businessContext":{"workOrder":"WO-1"},
-                  "constraints":{"allowedActions":["TYPE","CLICK"],"maxRisk":"medium","maxSteps":6},
+                  "constraints":{"allowedActions":["TYPE","CLICK"],"maxRisk":"medium","maxSteps":6,"runtime":"SERVER","interactionMode":"VISIBLE_VIRTUAL","startUrl":"https://example.com/form","allowedOrigins":["https://example.com"],"allowFallback":true},
                   "successCriteria":["页面出现提交成功"]
                 }
                 """;
@@ -50,6 +50,11 @@ class SystemAgentBrokerTest {
         assertEquals(SystemAgentCatalog.BROWSER_OPERATOR, task.target().getId());
         assertEquals("DELEGATE", task.request().mode());
         assertEquals(6, task.request().constraints().maxSteps());
+        assertEquals("SERVER", task.request().runtimeKind());
+        assertEquals("VISIBLE_VIRTUAL", task.request().interactionMode());
+        assertEquals("https://example.com/form", task.request().startUrl());
+        assertEquals(List.of("https://example.com"), task.request().constraints().allowedOrigins());
+        assertTrue(task.request().constraints().allowFallback());
         assertTrue(task.allowsAction("CLICK", "medium"));
         assertFalse(task.allowsAction("CLICK", "high"));
         assertFalse(task.allowsAction("NAVIGATE", "medium"));

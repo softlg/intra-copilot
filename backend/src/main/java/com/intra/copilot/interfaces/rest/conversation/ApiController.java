@@ -1,6 +1,8 @@
 package com.intra.copilot.interfaces.rest.conversation;
 
 import com.intra.copilot.application.agent.AgentRegistry;
+import com.intra.copilot.application.agent.BrowserRuntimeLeaseService;
+import com.intra.copilot.application.agent.BrowserRuntimeRegistry;
 import com.intra.copilot.application.agent.SystemAgentBroker;
 import com.intra.copilot.application.agent.SystemAgentCatalog;
 import com.intra.copilot.application.conversation.AttachmentService;
@@ -36,6 +38,7 @@ public class ApiController {
     private final AttachmentService attachmentService;
     private final SystemAgentCatalog systemAgents;
     private final SystemAgentBroker systemAgentBroker;
+    private final BrowserRuntimeRegistry browserRuntimes;
 
     public ApiController(
             ChatService c,
@@ -44,7 +47,8 @@ public class ApiController {
             AgentRegistry registry,
             AttachmentService attachmentService,
             SystemAgentCatalog systemAgents,
-            SystemAgentBroker systemAgentBroker) {
+            SystemAgentBroker systemAgentBroker,
+            BrowserRuntimeRegistry browserRuntimes) {
         chat = c;
         general = g;
         this.routeCopilot = routeCopilot;
@@ -52,6 +56,7 @@ public class ApiController {
         this.attachmentService = attachmentService;
         this.systemAgents = systemAgents;
         this.systemAgentBroker = systemAgentBroker;
+        this.browserRuntimes = browserRuntimes;
     }
 
     @GetMapping("/agents")
@@ -81,8 +86,12 @@ public class ApiController {
         return Map.of(
                 "browserProtocolVersion",
                 SystemAgentCatalog.BROWSER_PROTOCOL_VERSION,
+                "browserRuntimeProtocolVersion",
+                BrowserRuntimeLeaseService.PROTOCOL_VERSION,
                 "browserActions",
                 SystemAgentCatalog.BROWSER_ACTIONS,
+                "browserInteractionModes",
+                List.of("FAST", "VISIBLE_VIRTUAL", "BROWSER_TRUSTED", "SYSTEM_TRUSTED"),
                 "browserTools",
                 SystemAgentCatalog.BROWSER_TOOL_IDS,
                 "systemAgentProtocolVersion",
@@ -91,6 +100,12 @@ public class ApiController {
                 SystemAgentCatalog.DELEGATION_TOOL_NAME,
                 "systemAgentCapabilities",
                 systemAgentBroker.descriptors(),
+                "browserRuntimes",
+                Map.of(
+                        "supported",
+                        List.of("EXTENSION", "EMBEDDED", "SERVER"),
+                        "available",
+                        browserRuntimes.availableKinds().stream().map(Enum::name).toList()),
                 "streamTimeoutMs",
                 chat.sseTimeoutMs());
     }
@@ -145,7 +160,9 @@ public class ApiController {
             String pageContext,
             Map<String, Boolean> permissions,
             List<String> attachmentIds,
-            boolean retry) {}
+            boolean retry,
+            String browserRuntime,
+            String interactionMode) {}
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestBody ChatRequest req, HttpServletRequest request) {
@@ -161,6 +178,8 @@ public class ApiController {
                 req.permissions(),
                 req.attachmentIds(),
                 req.retry(),
+                req.browserRuntime(),
+                req.interactionMode(),
                 request.getRemoteAddr(),
                 requestId == null ? null : String.valueOf(requestId));
     }

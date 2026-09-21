@@ -27,6 +27,40 @@ root.style.display = "none";
 const shadow = root.attachShadow({ mode: "open" });
 document.documentElement.appendChild(root);
 shadow.innerHTML = `<style>.ball{position:fixed;right:22px;bottom:80px;width:52px;height:52px;border-radius:50%;background:#2563eb;color:#fff;z-index:2147483647;display:grid;place-items:center;font:700 18px sans-serif;box-shadow:0 5px 16px #0004;cursor:grab;user-select:none}.ball.edge{width:26px;height:68px;right:0;border-radius:24px 0 0 24px;font-size:12px}.ball-button{position:absolute;width:20px;height:20px;padding:0;border:1px solid #fff;border-radius:50%;background:#111;color:#fff;box-shadow:0 2px 6px #0004;cursor:pointer;font:600 13px/18px sans-serif;place-items:center}.mini{top:-11px;right:-11px;display:grid}.dismiss{top:-11px;left:-11px;display:grid}.dismiss:hover{background:#dc2626}</style><div class="ball" title="打开 Intra Copilot">✦<button class="ball-button mini" title="收缩">−</button><button class="ball-button dismiss" title="关闭悬浮球" aria-label="关闭悬浮球">×</button></div>`;
+const visualRoot = document.createElement("div");
+visualRoot.id = "intra-copilot-visual-root";
+const visualShadow = visualRoot.attachShadow({ mode: "open" });
+visualShadow.innerHTML = `<style>
+.cursor{position:fixed;left:0;top:0;width:18px;height:18px;border:2px solid #2563eb;border-radius:50%;background:#fff;box-shadow:0 3px 10px #0004;opacity:0;pointer-events:none;transition:transform 220ms ease,opacity 120ms ease;z-index:2147483647}
+.highlight{position:fixed;border:2px solid #2563eb;border-radius:6px;background:#2563eb14;box-shadow:0 0 0 1px #fff8;opacity:0;pointer-events:none;transition:all 180ms ease;z-index:2147483646}
+.status{position:fixed;right:18px;bottom:18px;padding:8px 12px;border-radius:8px;background:#111827f2;color:#fff;font:12px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px #0004;opacity:0;pointer-events:none;transition:opacity 160ms ease;z-index:2147483647}
+.approval{position:fixed;inset:0;display:none;place-items:center;background:#11182738;z-index:2147483647;font:13px/1.5 system-ui,sans-serif}
+.approval.open{display:grid}
+.approval-card{width:min(420px,calc(100vw - 32px));padding:18px;border:1px solid #d1d5db;border-radius:10px;background:#fff;color:#111827;box-shadow:0 18px 60px #11182740}
+.approval-title{margin:0 0 8px;font-size:16px}
+.approval-reason{margin:0 0 12px;color:#374151;white-space:pre-wrap}
+.approval-actions{display:flex;justify-content:flex-end;gap:8px}
+.approval-actions button{padding:7px 12px;border:1px solid #d1d5db;border-radius:7px;background:#fff;color:#111827;cursor:pointer}
+.approval-actions .primary{border-color:#2563eb;background:#2563eb;color:#fff}
+</style><div class="highlight"></div><div class="cursor"></div><div class="status"></div><div class="approval"><div class="approval-card"><h2 class="approval-title"></h2><p class="approval-reason"></p><div class="approval-actions"><button type="button" class="reject"></button><button type="button" class="primary approve"></button></div></div></div>`;
+document.documentElement.appendChild(visualRoot);
+const visualCursor = visualShadow.querySelector(".cursor") as HTMLElement;
+const visualHighlight = visualShadow.querySelector(".highlight") as HTMLElement;
+const visualStatus = visualShadow.querySelector(".status") as HTMLElement;
+const approvalPanel = visualShadow.querySelector(".approval") as HTMLElement;
+const approvalTitle = visualShadow.querySelector(
+  ".approval-title",
+) as HTMLElement;
+const approvalReason = visualShadow.querySelector(
+  ".approval-reason",
+) as HTMLElement;
+const approvalApprove = visualShadow.querySelector(
+  ".approve",
+) as HTMLButtonElement;
+const approvalReject = visualShadow.querySelector(
+  ".reject",
+) as HTMLButtonElement;
+let visualStatusTimer: number | undefined;
 const ball = shadow.querySelector(".ball") as HTMLElement;
 const mini = shadow.querySelector(".mini") as HTMLButtonElement;
 const dismiss = shadow.querySelector(".dismiss") as HTMLButtonElement;
@@ -34,6 +68,9 @@ let language: Language = "zh";
 let pageEnabled = false;
 let frameId = 0;
 let snapshotSequence = 0;
+let interactionMode:
+  "FAST" | "VISIBLE_VIRTUAL" | "BROWSER_TRUSTED" | "SYSTEM_TRUSTED" =
+  "VISIBLE_VIRTUAL";
 const actionElements = new Map<string, HTMLElement>();
 let currentSnapshotId = "";
 let snapshotStale = false;
@@ -96,11 +133,18 @@ function restoreBallPosition(value: any) {
 }
 
 chrome.storage.local.get(
-  ["ballPos", "ballAnchor", "ballEdge", "language"],
+  ["ballPos", "ballAnchor", "ballEdge", "language", "interactionMode"],
   (value: any) => {
     if (value.language === "en" || value.language === "zh") {
       updateBallLanguage(value.language);
     }
+    if (
+      value.interactionMode === "FAST" ||
+      value.interactionMode === "VISIBLE_VIRTUAL" ||
+      value.interactionMode === "BROWSER_TRUSTED" ||
+      value.interactionMode === "SYSTEM_TRUSTED"
+    )
+      interactionMode = value.interactionMode;
     if (value.ballEdge) ball.classList.add("edge");
     restoreBallPosition(value);
   },
@@ -109,6 +153,13 @@ refreshPageEnabled();
 chrome.storage.onChanged.addListener((changes) => {
   const next = changes.language?.newValue;
   if (next === "en" || next === "zh") updateBallLanguage(next);
+  if (
+    changes.interactionMode?.newValue === "FAST" ||
+    changes.interactionMode?.newValue === "VISIBLE_VIRTUAL" ||
+    changes.interactionMode?.newValue === "BROWSER_TRUSTED" ||
+    changes.interactionMode?.newValue === "SYSTEM_TRUSTED"
+  )
+    interactionMode = changes.interactionMode.newValue;
   if (changes.activationMode || changes.enabledTabIds) refreshPageEnabled();
 });
 window.addEventListener("resize", clampBall);
@@ -116,6 +167,9 @@ window.visualViewport?.addEventListener("resize", clampBall);
 new MutationObserver(() => {
   if (!document.documentElement.contains(root)) {
     document.documentElement.appendChild(root);
+  }
+  if (!document.documentElement.contains(visualRoot)) {
+    document.documentElement.appendChild(visualRoot);
   }
 }).observe(document.documentElement, { childList: true, subtree: true });
 ball.addEventListener("pointerdown", (e) => {
@@ -342,7 +396,11 @@ function deepVisibleText(
       : body.textContent || "";
   const nested: string = Array.from(root.querySelectorAll("*"))
     .filter(
-      (element) => element.shadowRoot && element.id !== "intra-copilot-root",
+      (element) =>
+        element.shadowRoot &&
+        !["intra-copilot-root", "intra-copilot-visual-root"].includes(
+          element.id,
+        ),
     )
     .map((element) => deepVisibleText(element.shadowRoot!))
     .filter(Boolean)
@@ -701,6 +759,127 @@ function extractValue(element: HTMLElement | null, format: string) {
   return element.innerText || element.textContent || "";
 }
 
+async function showVisualAction(
+  element: HTMLElement,
+  type: string,
+  reason?: string,
+) {
+  if (interactionMode === "FAST") return;
+  const rect = element.getBoundingClientRect();
+  const targetX = rect.left + rect.width / 2 - 9;
+  const targetY = rect.top + rect.height / 2 - 9;
+  visualCursor.style.opacity = "1";
+  visualCursor.style.transform = `translate(${targetX}px, ${targetY}px)`;
+  visualHighlight.style.opacity = "1";
+  visualHighlight.style.left = `${rect.left - 3}px`;
+  visualHighlight.style.top = `${rect.top - 3}px`;
+  visualHighlight.style.width = `${rect.width + 6}px`;
+  visualHighlight.style.height = `${rect.height + 6}px`;
+  showVisualStatus(reason || actionProgressText(type));
+  await new Promise((resolve) => window.setTimeout(resolve, 230));
+}
+
+let approvalResolver: ((approved: boolean) => void) | null = null;
+
+function requestActionApproval(action: any) {
+  if (approvalResolver) approvalResolver(false);
+  approvalTitle.textContent =
+    language === "en" ? "Allow page operation?" : "是否允许页面操作？";
+  const actionLabel = actionProgressText(String(action?.type || ""));
+  const reason = normalizedText(action?.reason);
+  const risk = String(action?.risk || "medium");
+  approvalReason.textContent = [
+    actionLabel,
+    reason,
+    language === "en" ? `Risk: ${risk}` : `风险等级：${risk}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  approvalApprove.textContent =
+    language === "en" ? "Allow once" : "允许本次操作";
+  approvalReject.textContent = language === "en" ? "Reject" : "拒绝";
+  approvalPanel.classList.add("open");
+  return new Promise<boolean>((resolve) => {
+    approvalResolver = (approved) => {
+      approvalResolver = null;
+      approvalPanel.classList.remove("open");
+      resolve(approved);
+    };
+  });
+}
+
+approvalApprove.addEventListener("click", () => approvalResolver?.(true));
+approvalReject.addEventListener("click", () => approvalResolver?.(false));
+
+function showVisualStatus(message: string, persistMs = 1800) {
+  if (interactionMode === "FAST") return;
+  visualStatus.textContent = message;
+  visualStatus.style.opacity = "1";
+  if (visualStatusTimer !== undefined) window.clearTimeout(visualStatusTimer);
+  visualStatusTimer = window.setTimeout(() => {
+    visualStatus.style.opacity = "0";
+  }, persistMs);
+}
+
+function hideVisualAction() {
+  visualCursor.style.opacity = "0";
+  visualHighlight.style.opacity = "0";
+}
+
+function actionProgressText(type: string) {
+  if (language === "en") {
+    return (
+      {
+        CLICK: "Clicking the target",
+        TYPE: "Writing into the input",
+        FILL: "Writing into the input",
+        SET_EDITOR: "Writing code",
+        SELECT: "Selecting an option",
+        CHECK: "Checking the option",
+        UNCHECK: "Unchecking the option",
+        NAVIGATE: "Opening the page",
+      }[type] || "Operating on the page"
+    );
+  }
+  return (
+    {
+      CLICK: "正在点击目标",
+      TYPE: "正在填写输入框",
+      FILL: "正在填写输入框",
+      SET_EDITOR: "正在写入代码",
+      SELECT: "正在选择选项",
+      CHECK: "正在勾选",
+      UNCHECK: "正在取消勾选",
+      NAVIGATE: "正在打开页面",
+    }[type] || "正在操作页面"
+  );
+}
+
+function actionRect(element: HTMLElement) {
+  element.scrollIntoView({ block: "center", inline: "center" });
+  const rect = element.getBoundingClientRect();
+  let left = rect.left;
+  let top = rect.top;
+  let currentWindow: Window = window;
+  while (currentWindow.frameElement instanceof HTMLElement) {
+    const frameRect = currentWindow.frameElement.getBoundingClientRect();
+    left += frameRect.left;
+    top += frameRect.top;
+    currentWindow = currentWindow.parent;
+  }
+  const chromeTop = Math.max(0, window.outerHeight - window.innerHeight);
+  return {
+    x: left + rect.width / 2,
+    y: top + rect.height / 2,
+    screenX: window.screenX + left + rect.width / 2,
+    screenY: window.screenY + chromeTop + top + rect.height / 2,
+    left,
+    top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
 async function executeBrowserAction(a: any) {
   const supported = new Set([
     "CLICK",
@@ -726,6 +905,8 @@ async function executeBrowserAction(a: any) {
     throw Error(language === "en" ? "Unsupported action" : "不支持的操作");
   }
   if (a.type === "NAVIGATE") {
+    showVisualStatus(actionProgressText(a.type));
+    await new Promise((resolve) => window.setTimeout(resolve, 220));
     location.href = a.arguments?.url;
     return { ok: true, action: a.type, verified: true, observation: null };
   }
@@ -751,6 +932,9 @@ async function executeBrowserAction(a: any) {
     throw Error(
       language === "en" ? "Target element not found" : "找不到目标元素",
     );
+  }
+  if (element) {
+    await showVisualAction(element, a.type, a.reason);
   }
 
   let execution: Record<string, unknown> = { ok: true, action: a.type };
@@ -854,6 +1038,7 @@ async function executeBrowserAction(a: any) {
         a.arguments?.timeoutMs || 5000,
         true,
       )));
+  hideVisualAction();
   return {
     ...execution,
     verified,
@@ -887,6 +1072,17 @@ chrome.runtime.onMessage.addListener((msg: any, sender: any, send: any) => {
     send(collectContext());
     return true;
   }
+  if (msg?.type === "GET_ACTION_RECT") {
+    const element = resolveActionElement(msg.target, true);
+    send(element ? { ok: true, rect: actionRect(element) } : { ok: false });
+    return true;
+  }
+  if (msg?.type === "REQUEST_ACTION_APPROVAL") {
+    void requestActionApproval(msg.action).then((approved) =>
+      send({ ok: true, approved }),
+    );
+    return true;
+  }
   if (msg?.type === "CLEAR_EDITOR_TARGET") {
     document
       .querySelectorAll("[data-intra-copilot-editor-target]")
@@ -897,11 +1093,24 @@ chrome.runtime.onMessage.addListener((msg: any, sender: any, send: any) => {
     return true;
   }
   if (msg?.type === "EXECUTE_ACTION") {
+    const previousMode = interactionMode;
+    if (
+      msg.interactionMode === "FAST" ||
+      msg.interactionMode === "VISIBLE_VIRTUAL" ||
+      msg.interactionMode === "BROWSER_TRUSTED" ||
+      msg.interactionMode === "SYSTEM_TRUSTED"
+    ) {
+      interactionMode = msg.interactionMode;
+    }
     void executeBrowserAction(msg.action)
       .then(send)
-      .catch((error) =>
-        send({ ok: false, error: (error as Error).message || String(error) }),
-      );
+      .catch((error) => {
+        hideVisualAction();
+        send({ ok: false, error: (error as Error).message || String(error) });
+      })
+      .finally(() => {
+        interactionMode = previousMode;
+      });
     return true;
   }
 });

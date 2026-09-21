@@ -379,7 +379,11 @@ export async function setEditorValueInPage(args: any) {
   };
 }
 
-export async function executeEditorAction(tabId: number, action: any) {
+export async function executeEditorAction(
+  tabId: number,
+  action: any,
+  interactionMode?: string,
+) {
   const frameId =
     typeof action.target === "object" &&
     Number.isInteger(action.target?.frameId)
@@ -392,6 +396,7 @@ export async function executeEditorAction(tabId: number, action: any) {
       {
         type: "EXECUTE_ACTION",
         action,
+        interactionMode,
       },
       { frameId },
     );

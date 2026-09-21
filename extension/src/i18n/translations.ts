@@ -65,6 +65,7 @@ export const translations = {
     stageGenerating: "正在生成回答…",
     stageProcessing: "正在整理处理结果…",
     stageSummarizing: "正在整理最终回答…",
+    stageBrowserTask: "正在操作页面…",
     stageTool: (tool: string) => `正在调用工具：${tool}`,
     uploadFailed: "附件上传失败",
     invalidAction: "操作提案格式无效",
@@ -163,6 +164,17 @@ export const translations = {
     actionPermissionDelegateHint: "自动批准低、中风险操作，高风险仍会询问。",
     actionPermissionFull: "完全控制",
     actionPermissionFullHint: "所有页面操作都自动执行，不再询问。",
+    interactionModeTitle: "操作展示",
+    interactionModeVisible: "可视化操作",
+    interactionModeVisibleHint: "显示虚拟光标、目标高亮和操作进度。",
+    interactionModeFast: "快速执行",
+    interactionModeFastHint: "不播放视觉动画，直接执行页面操作。",
+    interactionModeBrowserTrusted: "浏览器真实输入",
+    interactionModeBrowserTrustedHint:
+      "通过浏览器调试协议发送真实鼠标和键盘事件，页面会显示调试提示。",
+    interactionModeSystemTrusted: "系统级输入",
+    interactionModeSystemTrustedHint:
+      "通过本机输入助手控制真实鼠标和键盘，需要单独安装 Native Host。",
     permissionNote: "授权模式会保存在当前浏览器中，可随时修改。",
     actionConfirmTitle: "确认下一步",
     actionConfirm: (type: string, reason: string, risk: string) => {
@@ -272,6 +284,7 @@ export const translations = {
     stageGenerating: "Generating a response…",
     stageProcessing: "Processing the result…",
     stageSummarizing: "Preparing the final response…",
+    stageBrowserTask: "Operating the page…",
     stageTool: (tool: string) => `Calling tool: ${tool}`,
     uploadFailed: "Attachment upload failed",
     invalidAction: "Invalid action proposal",
@@ -376,6 +389,18 @@ export const translations = {
       "Automatically approve low and medium risk actions. High risk still asks.",
     actionPermissionFull: "Full control",
     actionPermissionFullHint: "Run every page action automatically.",
+    interactionModeTitle: "Operation display",
+    interactionModeVisible: "Visible operation",
+    interactionModeVisibleHint:
+      "Show the virtual cursor, target highlight, and progress.",
+    interactionModeFast: "Fast execution",
+    interactionModeFastHint: "Execute directly without visual animation.",
+    interactionModeBrowserTrusted: "Trusted browser input",
+    interactionModeBrowserTrustedHint:
+      "Sends browser-level mouse and keyboard events through the debugger protocol.",
+    interactionModeSystemTrusted: "System input",
+    interactionModeSystemTrustedHint:
+      "Controls the real mouse and keyboard through the native input host.",
     permissionNote:
       "The selected mode is stored in this browser and can be changed at any time.",
     actionConfirmTitle: "Confirm next step",

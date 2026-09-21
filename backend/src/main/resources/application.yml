@@ -122,6 +122,19 @@ mcp:
   stdio-working-directory: ${MCP_STDIO_WORKING_DIRECTORY:}
   health-check-interval-ms: ${MCP_HEALTH_CHECK_INTERVAL_MS:300000}
   session-idle-ms: ${MCP_SESSION_IDLE_MS:300000}
+browser:
+  runtime:
+    presence-ttl-seconds: ${BROWSER_RUNTIME_PRESENCE_TTL_SECONDS:75}
+    lease-seconds: ${BROWSER_RUNTIME_LEASE_SECONDS:45}
+    command-timeout-seconds: ${BROWSER_RUNTIME_COMMAND_TIMEOUT_SECONDS:120}
+    maintenance-interval-ms: ${BROWSER_RUNTIME_MAINTENANCE_INTERVAL_MS:30000}
+    worker-threads: ${BROWSER_RUNTIME_WORKER_THREADS:4}
+  selenium:
+    enabled: ${BROWSER_SELENIUM_ENABLED:true}
+    headless: ${BROWSER_SELENIUM_HEADLESS:true}
+    timeout-seconds: ${BROWSER_SELENIUM_TIMEOUT_SECONDS:30}
+    driver-path: ${BROWSER_SELENIUM_DRIVER_PATH:}
+    binary-path: ${BROWSER_SELENIUM_BINARY_PATH:}
 app:
   security:
     # Production deployments must provide a non-default password and a stable

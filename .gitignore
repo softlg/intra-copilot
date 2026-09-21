@@ -3,6 +3,9 @@
 extension/dist/
 admin/dist/
 admin/dist-verify/
+embed/dist/
+native-host/host.cmd
+native-host/com.intra_copilot.input.json
 .lithe/
 .workbuddy/
 backend/data/

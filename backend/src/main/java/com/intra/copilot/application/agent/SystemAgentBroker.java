@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.intra.copilot.domain.agent.AgentDefinition;
+import com.intra.copilot.domain.agent.BrowserInteractionMode;
 import com.intra.copilot.domain.capability.ToolDefinition;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -33,7 +34,15 @@ public class SystemAgentBroker {
     private static final Set<String> TASK_FIELDS =
             Set.of("capability", "mode", "goal", "businessContext", "constraints", "successCriteria");
     private static final Set<String> CONSTRAINT_FIELDS =
-            Set.of("allowedActions", "maxRisk", "maxSteps");
+            Set.of(
+                    "allowedActions",
+                    "maxRisk",
+                    "maxSteps",
+                    "runtime",
+                    "interactionMode",
+                    "startUrl",
+                    "allowedOrigins",
+                    "allowFallback");
 
     private final SystemAgentCatalog catalog;
     private final AgentRegistry registry;
@@ -121,6 +130,30 @@ public class SystemAgentBroker {
         Map<String, Object> businessContext =
                 objectMap(root.path("businessContext"), "businessContext");
         Constraints constraints = parseConstraints(root.path("constraints"), target);
+        String runtimeKind =
+                optionalText(root.path("constraints"), "runtime", "TOOL_RESULT")
+                        .toUpperCase(Locale.ROOT);
+        if (!Set.of("TOOL_RESULT", "EXTENSION", "EMBEDDED", "SERVER").contains(runtimeKind)) {
+            throw new IllegalArgumentException("constraints.runtime 不是支持的浏览运行环境");
+        }
+        String startUrl = optionalText(root.path("constraints"), "startUrl", "");
+        if (!startUrl.isBlank()) {
+            java.net.URI uri = java.net.URI.create(startUrl);
+            if (!List.of("http", "https").contains(uri.getScheme())
+                    || uri.getHost() == null) {
+                throw new IllegalArgumentException("constraints.startUrl 必须是 http 或 https 地址");
+            }
+        }
+        String interactionMode =
+                optionalText(
+                                root.path("constraints"),
+                                "interactionMode",
+                                BrowserInteractionMode.VISIBLE_VIRTUAL.name())
+                        .toUpperCase(Locale.ROOT);
+        if (!Set.of("FAST", "VISIBLE_VIRTUAL", "BROWSER_TRUSTED", "SYSTEM_TRUSTED")
+                .contains(interactionMode)) {
+            throw new IllegalArgumentException("constraints.interactionMode 不是支持的交互模式");
+        }
         List<String> successCriteria =
                 stringList(root.path("successCriteria"), "successCriteria", 10);
         TaskRequest request =
@@ -134,6 +167,9 @@ public class SystemAgentBroker {
                         goal,
                         businessContext,
                         constraints,
+                        runtimeKind,
+                        interactionMode,
+                        startUrl,
                         successCriteria);
         try {
             return new ResolvedTask(
@@ -147,6 +183,9 @@ public class SystemAgentBroker {
                                     "goal", request.goal(),
                                     "businessContext", request.businessContext(),
                                     "constraints", request.constraints(),
+                                    "runtime", request.runtimeKind(),
+                                    "interactionMode", request.interactionMode(),
+                                    "startUrl", request.startUrl(),
                                     "successCriteria", request.successCriteria())));
         } catch (Exception error) {
             throw new IllegalArgumentException("system_agent_task 参数无法序列化", error);
@@ -216,7 +255,8 @@ public class SystemAgentBroker {
 
     private Constraints parseConstraints(JsonNode node, AgentDefinition target) {
         if (node.isMissingNode() || node.isNull()) {
-            return new Constraints(List.of(), "high", normalizedMaxSteps(10, target));
+            return new Constraints(
+                    List.of(), "high", normalizedMaxSteps(10, target), List.of(), false);
         }
         if (!node.isObject()) throw new IllegalArgumentException("constraints 必须是 JSON 对象");
         rejectUnknownFields(node, CONSTRAINT_FIELDS);
@@ -238,8 +278,26 @@ public class SystemAgentBroker {
             }
             maxSteps = maxStepsNode.asInt();
         }
+        List<String> allowedOrigins =
+                stringList(node.path("allowedOrigins"), "constraints.allowedOrigins", 32)
+                        .stream()
+                        .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                        .distinct()
+                        .toList();
+        JsonNode allowFallbackNode = node.path("allowFallback");
+        boolean allowFallback = false;
+        if (!allowFallbackNode.isMissingNode() && !allowFallbackNode.isNull()) {
+            if (!allowFallbackNode.isBoolean()) {
+                throw new IllegalArgumentException("constraints.allowFallback 必须是布尔值");
+            }
+            allowFallback = allowFallbackNode.asBoolean();
+        }
         return new Constraints(
-                allowedActions, maxRisk, normalizedMaxSteps(maxSteps, target));
+                allowedActions,
+                maxRisk,
+                normalizedMaxSteps(maxSteps, target),
+                allowedOrigins,
+                allowFallback);
     }
 
     private int normalizedMaxSteps(int requested, AgentDefinition target) {
@@ -318,9 +376,17 @@ public class SystemAgentBroker {
             String goal,
             Map<String, Object> businessContext,
             Constraints constraints,
+            String runtimeKind,
+            String interactionMode,
+            String startUrl,
             List<String> successCriteria) {}
 
-    public record Constraints(List<String> allowedActions, String maxRisk, int maxSteps) {}
+    public record Constraints(
+            List<String> allowedActions,
+            String maxRisk,
+            int maxSteps,
+            List<String> allowedOrigins,
+            boolean allowFallback) {}
 
     public record ResolvedTask(
             SystemAgentCatalog.Spec spec,
@@ -384,6 +450,28 @@ public class SystemAgentBroker {
                     .add("high");
             constraintProperties.putObject("maxSteps").put("type", "integer").put("minimum", 1)
                     .put("maximum", 10);
+            constraintProperties
+                    .putObject("runtime")
+                    .put("type", "string")
+                    .putArray("enum")
+                    .add("TOOL_RESULT")
+                    .add("EXTENSION")
+                    .add("EMBEDDED")
+                    .add("SERVER");
+            constraintProperties.putObject("startUrl").put("type", "string").put("maxLength", 2048);
+            ObjectNode allowedOrigins = constraintProperties.putObject("allowedOrigins");
+            allowedOrigins.put("type", "array");
+            allowedOrigins.putObject("items").put("type", "string").put("maxLength", 512);
+            allowedOrigins.put("maxItems", 32);
+            constraintProperties.putObject("allowFallback").put("type", "boolean");
+            constraintProperties
+                    .putObject("interactionMode")
+                    .put("type", "string")
+                    .putArray("enum")
+                    .add("FAST")
+                    .add("VISIBLE_VIRTUAL")
+                    .add("BROWSER_TRUSTED")
+                    .add("SYSTEM_TRUSTED");
 
             ObjectNode properties = json.createObjectNode();
             ObjectNode capability = properties.putObject("capability");

@@ -6,6 +6,8 @@
 
 const DEVICE_ID_KEY = "auth.deviceId";
 const KEY_PAIR_KEY = "auth.keyPair";
+const KEY_PAIR_LOCK_KEY = "auth.keyPair.lock";
+const AUTH_BOOTSTRAP_LOCK_KEY = "auth.bootstrap.lock";
 const SOURCE = "extension";
 const TOKEN_TTL_SECONDS = 60 * 55; // 55 分钟：留 5 分钟提前续签余地
 
@@ -37,6 +39,45 @@ interface StoredKey {
 }
 
 async function getOrCreateKeyPair(): Promise<CryptoKeyPair> {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const existing = await readStoredKeyPair();
+    if (existing) return existing;
+    const lock = (await chrome.storage.local.get(KEY_PAIR_LOCK_KEY))[
+      KEY_PAIR_LOCK_KEY
+    ] as { owner?: unknown; expiresAt?: unknown } | undefined;
+    const now = Date.now();
+    if (!lock || typeof lock.expiresAt !== "number" || lock.expiresAt < now) {
+      const owner = crypto.randomUUID();
+      await chrome.storage.local.set({
+        [KEY_PAIR_LOCK_KEY]: { owner, expiresAt: now + 10_000 },
+      });
+      const confirmed = (await chrome.storage.local.get(KEY_PAIR_LOCK_KEY))[
+        KEY_PAIR_LOCK_KEY
+      ] as { owner?: unknown } | undefined;
+      if (confirmed?.owner !== owner) {
+        await delay(100);
+        continue;
+      }
+      try {
+        const raced = await readStoredKeyPair();
+        if (raced) return raced;
+        const keyPair = await generateAndStoreKeyPair();
+        return keyPair;
+      } finally {
+        const current = (await chrome.storage.local.get(KEY_PAIR_LOCK_KEY))[
+          KEY_PAIR_LOCK_KEY
+        ] as { owner?: unknown } | undefined;
+        if (current?.owner === owner) {
+          await chrome.storage.local.remove(KEY_PAIR_LOCK_KEY);
+        }
+      }
+    }
+    await delay(100);
+  }
+  throw new Error("Timed out while initializing the device key pair");
+}
+
+async function readStoredKeyPair(): Promise<CryptoKeyPair | null> {
   const stored = (await chrome.storage.local.get(KEY_PAIR_KEY)) as Record<
     string,
     StoredKey | undefined
@@ -59,6 +100,10 @@ async function getOrCreateKeyPair(): Promise<CryptoKeyPair> {
       ),
     };
   }
+  return null;
+}
+
+async function generateAndStoreKeyPair(): Promise<CryptoKeyPair> {
   const keyPair = await crypto.subtle.generateKey(
     {
       name: "RSASSA-PKCS1-v1_5",
@@ -81,6 +126,10 @@ async function getOrCreateKeyPair(): Promise<CryptoKeyPair> {
     },
   });
   return keyPair;
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 /** 用私钥对 payload 签 RS256，输出 base64url JWT。 */
@@ -189,27 +238,67 @@ export async function bootstrapAuth(apiBase: string): Promise<AuthBootstrap> {
   if (!(await hasApiHostPermission(apiBase))) {
     throw new Error(`缺少后端访问权限：${new URL(apiBase).origin}`);
   }
-  const storedDeviceId = await chrome.storage.local.get(DEVICE_ID_KEY);
-  const requestedDeviceId =
-    typeof storedDeviceId[DEVICE_ID_KEY] === "string" &&
-    !String(storedDeviceId[DEVICE_ID_KEY]).startsWith("pending-")
-      ? String(storedDeviceId[DEVICE_ID_KEY])
-      : undefined;
+  let deviceId = await storedDeviceId();
   const keyPair = await getOrCreateKeyPair();
-  const registered = await registerDevice(
-    apiBase,
-    requestedDeviceId,
-    keyPair.publicKey,
-    keyPair.privateKey,
-  );
-  const deviceId = registered.deviceId;
-  await chrome.storage.local.set({ [DEVICE_ID_KEY]: deviceId });
+  if (!deviceId) {
+    for (let attempt = 0; attempt < 100 && !deviceId; attempt++) {
+      const lock = (await chrome.storage.local.get(AUTH_BOOTSTRAP_LOCK_KEY))[
+        AUTH_BOOTSTRAP_LOCK_KEY
+      ] as { owner?: unknown; expiresAt?: unknown } | undefined;
+      const now = Date.now();
+      if (!lock || typeof lock.expiresAt !== "number" || lock.expiresAt < now) {
+        const owner = crypto.randomUUID();
+        await chrome.storage.local.set({
+          [AUTH_BOOTSTRAP_LOCK_KEY]: { owner, expiresAt: now + 20_000 },
+        });
+        const confirmed = (
+          await chrome.storage.local.get(AUTH_BOOTSTRAP_LOCK_KEY)
+        )[AUTH_BOOTSTRAP_LOCK_KEY] as { owner?: unknown } | undefined;
+        if (confirmed?.owner !== owner) {
+          await delay(100);
+          continue;
+        }
+        try {
+          deviceId = await storedDeviceId();
+          if (!deviceId) {
+            const registered = await registerDevice(
+              apiBase,
+              undefined,
+              keyPair.publicKey,
+              keyPair.privateKey,
+            );
+            deviceId = registered.deviceId;
+            await chrome.storage.local.set({ [DEVICE_ID_KEY]: deviceId });
+          }
+        } finally {
+          const current = (
+            await chrome.storage.local.get(AUTH_BOOTSTRAP_LOCK_KEY)
+          )[AUTH_BOOTSTRAP_LOCK_KEY] as { owner?: unknown } | undefined;
+          if (current?.owner === owner) {
+            await chrome.storage.local.remove(AUTH_BOOTSTRAP_LOCK_KEY);
+          }
+        }
+        break;
+      }
+      await delay(100);
+      deviceId = await storedDeviceId();
+    }
+  }
+  if (!deviceId) throw new Error("Timed out while registering the device");
   return {
     deviceId,
     authedFetch: makeAuthedFetch(apiBase, keyPair.privateKey, deviceId, () =>
       registerDevice(apiBase, deviceId, keyPair.publicKey, keyPair.privateKey),
     ),
   };
+}
+
+async function storedDeviceId(): Promise<string | undefined> {
+  const stored = await chrome.storage.local.get(DEVICE_ID_KEY);
+  const value = stored[DEVICE_ID_KEY];
+  return typeof value === "string" && !value.startsWith("pending-")
+    ? value
+    : undefined;
 }
 
 function makeAuthedFetch(

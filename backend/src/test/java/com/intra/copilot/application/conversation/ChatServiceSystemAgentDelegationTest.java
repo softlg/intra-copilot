@@ -34,6 +34,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
 import com.intra.copilot.application.agent.AgentOrchestrator;
 import com.intra.copilot.application.agent.AgentRegistry;
+import com.intra.copilot.application.agent.BrowserRuntimeRegistry;
+import com.intra.copilot.application.agent.BrowserTaskService;
 import com.intra.copilot.application.agent.PlanningService;
 import com.intra.copilot.application.agent.SystemAgentBroker;
 import com.intra.copilot.application.agent.SystemAgentCatalog;
@@ -78,6 +80,8 @@ class ChatServiceSystemAgentDelegationTest {
                         mock(ToolExecutor.class),
                         mock(BrowserCapabilityTools.class),
                         broker,
+                        mock(BrowserRuntimeRegistry.class),
+                        mock(BrowserTaskService.class),
                         mock(SkillPromptAssembler.class),
                         mock(PlanningService.class),
                         mock(SseExecutionService.class),

@@ -13,6 +13,7 @@ import {
   executeEditorAction,
   resolveAttachment,
 } from "./lib/browser";
+import { BROWSER_RUNTIME_PROTOCOL_VERSION } from "./lib/browser-runtime";
 import { originPattern } from "./lib/url";
 import {
   actionProposalSchema,
@@ -337,6 +338,9 @@ function App() {
   const [readPageEnabled, setReadPageEnabled] = useState(true);
   const [actionPermission, setActionPermission] =
     useState<ActionPermission>("ask");
+  const [interactionMode, setInteractionMode] = useState<
+    "FAST" | "VISIBLE_VIRTUAL" | "BROWSER_TRUSTED" | "SYSTEM_TRUSTED"
+  >("VISIBLE_VIRTUAL");
   const [pageInfoSelection, setPageInfoSelection] = useState<
     Record<PageInfoKey, boolean>
   >({
@@ -449,7 +453,10 @@ function App() {
           }
           const mismatch =
             Number(capabilities?.browserProtocolVersion) !==
-            BROWSER_PROTOCOL_VERSION;
+              BROWSER_PROTOCOL_VERSION ||
+            (capabilities?.browserRuntimeProtocolVersion != null &&
+              capabilities.browserRuntimeProtocolVersion !==
+                BROWSER_RUNTIME_PROTOCOL_VERSION);
           setBrowserProtocolMismatch(mismatch);
           if (mismatch)
             setError("插件与后端版本不兼容，请刷新或升级浏览器插件。");
@@ -555,6 +562,7 @@ function App() {
         "language",
         "readPageEnabled",
         "actionPermission",
+        "interactionMode",
         "activationMode",
         "sidePanelAllTabs",
         "pageInfoSelection",
@@ -564,6 +572,8 @@ function App() {
         language?: Language;
         readPageEnabled?: boolean;
         actionPermission?: ActionPermission;
+        interactionMode?:
+          "FAST" | "VISIBLE_VIRTUAL" | "BROWSER_TRUSTED" | "SYSTEM_TRUSTED";
         activationMode?: ActivationMode;
         sidePanelAllTabs?: boolean;
         pageInfoSelection?: Partial<Record<PageInfoKey, boolean>>;
@@ -583,6 +593,14 @@ function App() {
           value.actionPermission === "full"
         ) {
           setActionPermission(value.actionPermission);
+        }
+        if (
+          value.interactionMode === "FAST" ||
+          value.interactionMode === "VISIBLE_VIRTUAL" ||
+          value.interactionMode === "BROWSER_TRUSTED" ||
+          value.interactionMode === "SYSTEM_TRUSTED"
+        ) {
+          setInteractionMode(value.interactionMode);
         }
         if (
           value.activationMode === "all_pages" ||
@@ -626,6 +644,11 @@ function App() {
     if (!preferencesLoaded) return;
     chrome.storage.local.set({ pageInfoSelection });
   }, [pageInfoSelection, preferencesLoaded]);
+
+  useEffect(() => {
+    if (!preferencesLoaded) return;
+    chrome.storage.local.set({ interactionMode });
+  }, [interactionMode, preferencesLoaded]);
 
   useEffect(() => {
     if (!preferencesLoaded) return;
@@ -1534,6 +1557,8 @@ function App() {
         return t.stageProcessing;
       case "summarizing":
         return t.stageSummarizing;
+      case "browser_task":
+        return t.stageBrowserTask;
       case "tool":
         return t.stageTool(tool || "");
       default:
@@ -1819,178 +1844,208 @@ function App() {
             autoApprove: actionPermission === "delegate",
             fullControl: actionPermission === "full",
           },
+          browserRuntime: "EXTENSION",
+          interactionMode,
         }),
       });
       if (!response.ok || !response.body) throw Error(t.requestFailed);
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      // 修改当前助手消息的元信息（内容、Agent 归属、委派关系等）。
-      const patchAssistantMsg = (patch: (last: Msg) => Partial<Msg>) => {
-        updateSessionMessages(targetSessionId, (items) => {
-          const target = items[assistantIndex];
-          if (!target || target.role !== "assistant") return items;
-          const next = [...items];
-          next[assistantIndex] = {
-            ...target,
-            ...patch(target),
-          };
-          return next;
-        });
-      };
-      // 流式 token 累加 + 批量 flush：避免每个 delta 都触发整条消息全量重渲染
-      // （react-markdown + rehype-highlight 对长回复开销明显），以 ~60ms 节流合并刷新。
-      let pendingToken = "";
-      let tokenFlushScheduled = false;
-      const flushTokens = () => {
-        tokenFlushScheduled = false;
-        if (!pendingToken) return;
-        const chunk = pendingToken;
-        pendingToken = "";
-        sawContent = true;
-        patchAssistantMsg((last) => ({
-          content: last.content + chunk,
-          stage: undefined,
-        }));
-      };
-      const scheduleTokenFlush = () => {
-        if (tokenFlushScheduled) return;
-        tokenFlushScheduled = true;
-        window.setTimeout(flushTokens, 60);
-      };
-      // 标准化 SSE 事件解析：逐行解析，多个 data: 行按换行 join（对齐 EventSource 规范），
-      // 只剥离 colon 后单个空格的帧封装字符，绝不吞掉正文里的真实空格；事件名同样按规范解析。
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        armStreamTimeout();
-        buffer += decoder.decode(value, { stream: true });
-        let pendingFrames: ReturnType<typeof parseSseFrame>[] = [];
-        buffer = consumeSseBuffer(buffer, (frame) => pendingFrames.push(frame));
-        for (const parsed of pendingFrames) {
-          if (!parsed) continue;
-          const { name, data } = parsed;
-          if (name === "token" && data) {
-            // 新后端用 JSON 信封 {"text": "..."} 下发正文，任意字符安全；
-            // 解析失败则按裸文本处理（兼容未升级的旧后端）。
-            let tokenText = data;
-            try {
-              const parsed = tokenPayloadSchema.safeParse(JSON.parse(data));
-              if (parsed.success) tokenText = parsed.data.text;
-            } catch {
-              /* 保持原始 data（旧后端裸文本格式） */
+      const runtimePoll = window.setInterval(() => {
+        void chrome.runtime.sendMessage({ type: "BROWSER_RUNTIME_POLL" });
+      }, 1500);
+      try {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        // 修改当前助手消息的元信息（内容、Agent 归属、委派关系等）。
+        const patchAssistantMsg = (patch: (last: Msg) => Partial<Msg>) => {
+          updateSessionMessages(targetSessionId, (items) => {
+            const target = items[assistantIndex];
+            if (!target || target.role !== "assistant") return items;
+            const next = [...items];
+            next[assistantIndex] = {
+              ...target,
+              ...patch(target),
+            };
+            return next;
+          });
+        };
+        // 流式 token 累加 + 批量 flush：避免每个 delta 都触发整条消息全量重渲染
+        // （react-markdown + rehype-highlight 对长回复开销明显），以 ~60ms 节流合并刷新。
+        let pendingToken = "";
+        let tokenFlushScheduled = false;
+        const flushTokens = () => {
+          tokenFlushScheduled = false;
+          if (!pendingToken) return;
+          const chunk = pendingToken;
+          pendingToken = "";
+          sawContent = true;
+          patchAssistantMsg((last) => ({
+            content: last.content + chunk,
+            stage: undefined,
+          }));
+        };
+        const scheduleTokenFlush = () => {
+          if (tokenFlushScheduled) return;
+          tokenFlushScheduled = true;
+          window.setTimeout(flushTokens, 60);
+        };
+        // 标准化 SSE 事件解析：逐行解析，多个 data: 行按换行 join（对齐 EventSource 规范），
+        // 只剥离 colon 后单个空格的帧封装字符，绝不吞掉正文里的真实空格；事件名同样按规范解析。
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          armStreamTimeout();
+          buffer += decoder.decode(value, { stream: true });
+          let pendingFrames: ReturnType<typeof parseSseFrame>[] = [];
+          buffer = consumeSseBuffer(buffer, (frame) =>
+            pendingFrames.push(frame),
+          );
+          for (const parsed of pendingFrames) {
+            if (!parsed) continue;
+            const { name, data } = parsed;
+            if (name === "token" && data) {
+              // 新后端用 JSON 信封 {"text": "..."} 下发正文，任意字符安全；
+              // 解析失败则按裸文本处理（兼容未升级的旧后端）。
+              let tokenText = data;
+              try {
+                const parsed = tokenPayloadSchema.safeParse(JSON.parse(data));
+                if (parsed.success) tokenText = parsed.data.text;
+              } catch {
+                /* 保持原始 data（旧后端裸文本格式） */
+              }
+              if (tokenText) {
+                pendingToken += tokenText;
+                scheduleTokenFlush();
+              }
             }
-            if (tokenText) {
-              pendingToken += tokenText;
-              scheduleTokenFlush();
-            }
-          }
-          if (name === "stage" && data) {
-            try {
-              const parsed = JSON.parse(data);
-              patchAssistantMsg(() => ({
-                stage: stageLabel(parsed.key, parsed.tool),
-              }));
-            } catch {
-              /* 忽略无法解析的阶段事件 */
-            }
-          }
-          if (name === "agent_selected" && data) {
-            // 让用户看到这条消息实际由哪个 Agent 处理（自动路由时尤其重要）。
-            try {
-              const selected = JSON.parse(data);
-              patchAssistantMsg(() => ({
-                agentId: selected.agentId,
-                agentName: selected.displayName || selected.agentId,
-              }));
-            } catch {
-              /* 忽略无法解析的事件 */
-            }
-          }
-          if (name === "message_completed" && data) {
-            // 用服务端权威完整内容覆盖本地累积内容：即使流式阶段因任意原因被损坏，
-            // 此处也能一次性纠偏（message_completed 仅在正常完成时下发）。
-            try {
-              const completed = JSON.parse(data);
-              if (typeof completed.content === "string") {
-                flushTokens();
-                if (completed.content) sawContent = true;
-                // 若用户中途点了停止，保留 stopped 状态，不被完成的权威内容覆盖
-                // （后端正常完成才会下发 message_completed，此处仅兜底极端竞态）。
-                patchAssistantMsg((last) => ({
-                  content: completed.content,
-                  stage: undefined,
-                  stopped: last.stopped,
-                  status: last.stopped ? "stopped" : "ok",
+            if (name === "stage" && data) {
+              try {
+                const parsed = JSON.parse(data);
+                patchAssistantMsg(() => ({
+                  stage: stageLabel(parsed.key, parsed.tool),
                 }));
+              } catch {
+                /* 忽略无法解析的阶段事件 */
               }
-            } catch {
-              /* 忽略无法解析的事件 */
             }
-          }
-          if (name === "action_proposed" && data) {
-            try {
-              const parsedAction = actionProposalSchema.safeParse(
-                JSON.parse(data),
-              );
-              if (!parsedAction.success) {
-                throw new Error(t.invalidAction);
+            if (name === "agent_selected" && data) {
+              // 让用户看到这条消息实际由哪个 Agent 处理（自动路由时尤其重要）。
+              try {
+                const selected = JSON.parse(data);
+                patchAssistantMsg(() => ({
+                  agentId: selected.agentId,
+                  agentName: selected.displayName || selected.agentId,
+                }));
+              } catch {
+                /* 忽略无法解析的事件 */
               }
-              const action = parsedAction.data;
-              if (browserProtocolMismatch) {
-                await apiFetch(`/actions/${action.actionId}/result`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    status: "FAILED",
-                    result: JSON.stringify({
-                      ok: false,
-                      error: t.capabilityMismatch,
+            }
+            if (name === "message_completed" && data) {
+              // 用服务端权威完整内容覆盖本地累积内容：即使流式阶段因任意原因被损坏，
+              // 此处也能一次性纠偏（message_completed 仅在正常完成时下发）。
+              try {
+                const completed = JSON.parse(data);
+                if (typeof completed.content === "string") {
+                  flushTokens();
+                  if (completed.content) sawContent = true;
+                  // 若用户中途点了停止，保留 stopped 状态，不被完成的权威内容覆盖
+                  // （后端正常完成才会下发 message_completed，此处仅兜底极端竞态）。
+                  patchAssistantMsg((last) => ({
+                    content: completed.content,
+                    stage: undefined,
+                    stopped: last.stopped,
+                    status: last.stopped ? "stopped" : "ok",
+                  }));
+                }
+              } catch {
+                /* 忽略无法解析的事件 */
+              }
+            }
+            if (name === "action_proposed" && data) {
+              try {
+                const parsedAction = actionProposalSchema.safeParse(
+                  JSON.parse(data),
+                );
+                if (!parsedAction.success) {
+                  throw new Error(t.invalidAction);
+                }
+                const action = parsedAction.data;
+                if (browserProtocolMismatch) {
+                  await apiFetch(`/actions/${action.actionId}/result`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      status: "FAILED",
+                      result: JSON.stringify({
+                        ok: false,
+                        error: t.capabilityMismatch,
+                      }),
                     }),
-                  }),
-                });
-                continue;
-              }
-              const autoApproved =
-                action.readOnly === true || actionPermission === "full";
-              let approved =
-                autoApproved ||
-                (await askConfirm({
-                  title: t.actionConfirmTitle,
-                  danger: action.risk === "high",
-                  message: t
-                    .actionConfirm(
-                      action.type,
-                      action.reason || "",
-                      action.risk || "",
-                    )
-                    .split("\n")
-                    .map((line, index) => (
-                      <React.Fragment key={index}>
-                        {line}
-                        {index > 0 ? <br /> : null}
-                      </React.Fragment>
-                    )),
-                }));
-              let result = {
-                status: approved ? "EXECUTED" : "REJECTED",
-                result: approved ? "" : t.rejected,
-              };
-              if (approved) {
-                if (action.type === "NAVIGATE") {
-                  try {
-                    const destination = new URL(
-                      String(action.arguments?.url || ""),
-                    );
-                    const granted = await chrome.permissions.contains({
-                      origins: [`${destination.origin}/*`],
-                    });
-                    if (!granted) {
-                      throw new Error(t.pageContextReadFailed);
+                  });
+                  continue;
+                }
+                const autoApproved =
+                  action.readOnly === true || actionPermission === "full";
+                let approved =
+                  autoApproved ||
+                  (await askConfirm({
+                    title: t.actionConfirmTitle,
+                    danger: action.risk === "high",
+                    message: t
+                      .actionConfirm(
+                        action.type,
+                        action.reason || "",
+                        action.risk || "",
+                      )
+                      .split("\n")
+                      .map((line, index) => (
+                        <React.Fragment key={index}>
+                          {line}
+                          {index > 0 ? <br /> : null}
+                        </React.Fragment>
+                      )),
+                  }));
+                let result = {
+                  status: approved ? "EXECUTED" : "REJECTED",
+                  result: approved ? "" : t.rejected,
+                };
+                if (approved) {
+                  if (action.type === "NAVIGATE") {
+                    try {
+                      const destination = new URL(
+                        String(action.arguments?.url || ""),
+                      );
+                      const granted = await chrome.permissions.contains({
+                        origins: [`${destination.origin}/*`],
+                      });
+                      if (!granted) {
+                        throw new Error(t.pageContextReadFailed);
+                      }
+                    } catch {
+                      approved = false;
+                      result = {
+                        status: "FAILED",
+                        result: JSON.stringify({
+                          ok: false,
+                          error: t.pageContextReadFailed,
+                        }),
+                      };
                     }
-                  } catch {
-                    approved = false;
+                  }
+                }
+                if (approved && result.status === "EXECUTED") {
+                  const tabs = await chrome.tabs.query({
+                    active: true,
+                    currentWindow: true,
+                  });
+                  const tabId =
+                    (typeof action.target === "object" &&
+                    action.target?.snapshotId
+                      ? actionTargetTabRef.current.get(action.target.snapshotId)
+                      : undefined) ??
+                    actionTabIdRef.current ??
+                    tabs[0]?.id;
+                  if (tabId == null) {
                     result = {
                       status: "FAILED",
                       result: JSON.stringify({
@@ -1998,143 +2053,124 @@ function App() {
                         error: t.pageContextReadFailed,
                       }),
                     };
+                  } else {
+                    try {
+                      const execution =
+                        action.type === "SET_EDITOR"
+                          ? await executeEditorAction(tabId, action)
+                          : await chrome.tabs.sendMessage(
+                              tabId,
+                              {
+                                type: "EXECUTE_ACTION",
+                                action,
+                              },
+                              {
+                                frameId:
+                                  action.target &&
+                                  typeof action.target === "object" &&
+                                  Number.isInteger(action.target?.frameId)
+                                    ? action.target.frameId
+                                    : 0,
+                              },
+                            );
+                      const observations = await collectContextsFromTab(tabId);
+                      const observation =
+                        observations.length === 1
+                          ? observations[0]
+                          : observations;
+                      result = {
+                        status:
+                          (execution as { ok?: boolean } | undefined)?.ok ===
+                          false
+                            ? "FAILED"
+                            : "EXECUTED",
+                        result: JSON.stringify({ execution, observation }),
+                      };
+                    } catch (actionError) {
+                      result = {
+                        status: "FAILED",
+                        result: JSON.stringify({
+                          ok: false,
+                          error:
+                            (actionError as Error).message ||
+                            String(actionError),
+                        }),
+                      };
+                    }
                   }
                 }
-              }
-              if (approved && result.status === "EXECUTED") {
-                const tabs = await chrome.tabs.query({
-                  active: true,
-                  currentWindow: true,
+                await apiFetch(`/actions/${action.actionId}/result`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(result),
                 });
-                const tabId =
-                  (typeof action.target === "object" &&
-                  action.target?.snapshotId
-                    ? actionTargetTabRef.current.get(action.target.snapshotId)
-                    : undefined) ??
-                  actionTabIdRef.current ??
-                  tabs[0]?.id;
-                if (tabId == null) {
-                  result = {
-                    status: "FAILED",
-                    result: JSON.stringify({
-                      ok: false,
-                      error: t.pageContextReadFailed,
-                    }),
-                  };
-                } else {
-                  try {
-                    const execution =
-                      action.type === "SET_EDITOR"
-                        ? await executeEditorAction(tabId, action)
-                        : await chrome.tabs.sendMessage(
-                            tabId,
-                            {
-                              type: "EXECUTE_ACTION",
-                              action,
-                            },
-                            {
-                              frameId:
-                                action.target &&
-                                typeof action.target === "object" &&
-                                Number.isInteger(action.target?.frameId)
-                                  ? action.target.frameId
-                                  : 0,
-                            },
-                          );
-                    const observations = await collectContextsFromTab(tabId);
-                    const observation =
-                      observations.length === 1
-                        ? observations[0]
-                        : observations;
-                    result = {
-                      status:
-                        (execution as { ok?: boolean } | undefined)?.ok ===
-                        false
-                          ? "FAILED"
-                          : "EXECUTED",
-                      result: JSON.stringify({ execution, observation }),
-                    };
-                  } catch (actionError) {
-                    result = {
-                      status: "FAILED",
-                      result: JSON.stringify({
-                        ok: false,
-                        error:
-                          (actionError as Error).message || String(actionError),
-                      }),
-                    };
-                  }
-                }
+              } catch {
+                setError(t.invalidAction);
               }
-              await apiFetch(`/actions/${action.actionId}/result`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(result),
-              });
-            } catch {
-              setError(t.invalidAction);
             }
-          }
-          if (name === "tool_invoked" && data) {
-            // 工具调用过程可视化：追加到独立的 toolTrace，再由 UI 折叠区渲染，不污染正文。
-            try {
-              const payload = JSON.parse(data);
-              patchAssistantMsg((last) => ({
-                toolTrace: [
-                  ...(last.toolTrace || []),
-                  { tool: payload.tool, arguments: payload.arguments },
-                ],
-              }));
-            } catch {
-              /* 忽略无法解析的工具事件 */
+            if (name === "tool_invoked" && data) {
+              // 工具调用过程可视化：追加到独立的 toolTrace，再由 UI 折叠区渲染，不污染正文。
+              try {
+                const payload = JSON.parse(data);
+                patchAssistantMsg((last) => ({
+                  toolTrace: [
+                    ...(last.toolTrace || []),
+                    { tool: payload.tool, arguments: payload.arguments },
+                  ],
+                }));
+              } catch {
+                /* 忽略无法解析的工具事件 */
+              }
             }
-          }
-          if (name === "tool_result" && data) {
-            try {
-              const payload = JSON.parse(data);
-              patchAssistantMsg((last) => {
-                const next = [...(last.toolTrace || [])];
-                const idx = next.findIndex(
-                  (step) => step.tool === payload.tool && step.result == null,
-                );
-                if (idx >= 0) {
-                  next[idx] = {
-                    ...next[idx],
-                    result: payload.result,
-                    success: payload.success,
-                  };
-                } else {
-                  next.push({
-                    tool: payload.tool,
-                    result: payload.result,
-                    success: payload.success,
-                  });
-                }
-                return { toolTrace: next };
-              });
-            } catch {
-              /* 忽略无法解析的工具事件 */
+            if (name === "tool_result" && data) {
+              try {
+                const payload = JSON.parse(data);
+                patchAssistantMsg((last) => {
+                  const next = [...(last.toolTrace || [])];
+                  const idx = next.findIndex(
+                    (step) => step.tool === payload.tool && step.result == null,
+                  );
+                  if (idx >= 0) {
+                    next[idx] = {
+                      ...next[idx],
+                      result: payload.result,
+                      success: payload.success,
+                    };
+                  } else {
+                    next.push({
+                      tool: payload.tool,
+                      result: payload.result,
+                      success: payload.success,
+                    });
+                  }
+                  return { toolTrace: next };
+                });
+              } catch {
+                /* 忽略无法解析的工具事件 */
+              }
             }
-          }
-          if (name === "error" && data) {
-            // 后端以 JSON 形式下发 { code, message }，直接展示原始 data 会把 JSON 暴露给用户。
-            let message = data;
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed?.code === "MODEL_TIMEOUT") message = t.modelTimeout;
-              else if (parsed?.code === "MODEL_ERROR")
-                message = t.modelUnavailable;
-              else if (parsed && typeof parsed.message === "string")
-                message = parsed.message;
-            } catch {
-              /* 非 JSON 时按纯文本处理 */
+            if (name === "error" && data) {
+              // 后端以 JSON 形式下发 { code, message }，直接展示原始 data 会把 JSON 暴露给用户。
+              let message = data;
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed?.code === "MODEL_TIMEOUT") message = t.modelTimeout;
+                else if (parsed?.code === "MODEL_ERROR")
+                  message = t.modelUnavailable;
+                else if (parsed && typeof parsed.message === "string")
+                  message = parsed.message;
+              } catch {
+                /* 非 JSON 时按纯文本处理 */
+              }
+              streamError = message;
+              markGenerationFailed(message, assistantIndex, targetSessionId);
             }
-            streamError = message;
-            markGenerationFailed(message, assistantIndex, targetSessionId);
           }
         }
+        flushTokens();
+      } finally {
+        window.clearInterval(runtimePoll);
       }
-      flushTokens();
       if (!sawContent && !streamError)
         markGenerationFailed(t.requestFailed, assistantIndex, targetSessionId);
     } catch (e) {
@@ -3288,6 +3324,45 @@ function App() {
                         chrome.storage.local.set({
                           actionPermission: value,
                         });
+                      }}
+                    />
+                    <span>
+                      <strong>{label}</strong>
+                      <small>{hint}</small>
+                    </span>
+                  </label>
+                ))}
+                <div className="permission-section-title">
+                  {t.interactionModeTitle}
+                </div>
+                {(
+                  [
+                    [
+                      "VISIBLE_VIRTUAL",
+                      t.interactionModeVisible,
+                      t.interactionModeVisibleHint,
+                    ],
+                    ["FAST", t.interactionModeFast, t.interactionModeFastHint],
+                    [
+                      "BROWSER_TRUSTED",
+                      t.interactionModeBrowserTrusted,
+                      t.interactionModeBrowserTrustedHint,
+                    ],
+                    [
+                      "SYSTEM_TRUSTED",
+                      t.interactionModeSystemTrusted,
+                      t.interactionModeSystemTrustedHint,
+                    ],
+                  ] as const
+                ).map(([value, label, hint]) => (
+                  <label className="permission-choice" key={value}>
+                    <input
+                      type="radio"
+                      name="interactionMode"
+                      checked={interactionMode === value}
+                      onChange={() => {
+                        setInteractionMode(value);
+                        chrome.storage.local.set({ interactionMode: value });
                       }}
                     />
                     <span>
