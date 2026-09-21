@@ -2,6 +2,10 @@
 
 浏览器内的页面助手（Chrome/Edge Chromium MV3 + Spring Boot + Spring AI）。
 
+## 后端架构
+
+后端采用模块化单体 + DDD 分层，按 `domain`、`application`、`infrastructure`、`interfaces` 组织，并划分 Agent、Capability、Conversation、Knowledge、Identity、Admin 六个业务上下文。详细目录、依赖规则和新功能落位方式见 [`backend/README.md`](backend/README.md)。
+
 ## 启动后端
 
 ```powershell

@@ -1,0 +1,211 @@
+package com.intra.copilot.interfaces.rest.conversation;
+
+import com.intra.copilot.application.agent.AgentRegistry;
+import com.intra.copilot.application.agent.SystemAgentBroker;
+import com.intra.copilot.application.agent.SystemAgentCatalog;
+import com.intra.copilot.application.conversation.AttachmentService;
+import com.intra.copilot.application.conversation.ChatService;
+import com.intra.copilot.domain.agent.*;
+import com.intra.copilot.domain.agent.GeneralAgent;
+import com.intra.copilot.domain.agent.RouteCopilotAgent;
+import com.intra.copilot.domain.conversation.*;
+import com.intra.copilot.domain.conversation.ActionProposal;
+import com.intra.copilot.domain.conversation.AttachmentView;
+import com.intra.copilot.domain.conversation.Conversation;
+import com.intra.copilot.domain.conversation.MessageView;
+import com.intra.copilot.shared.identity.RequestContext;
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.*;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+@RestController
+@RequestMapping("/api/v1")
+public class ApiController {
+    private final ChatService chat;
+    private final GeneralAgent general;
+    private final RouteCopilotAgent routeCopilot;
+    private final AgentRegistry registry;
+    private final AttachmentService attachmentService;
+    private final SystemAgentCatalog systemAgents;
+    private final SystemAgentBroker systemAgentBroker;
+
+    public ApiController(
+            ChatService c,
+            GeneralAgent g,
+            RouteCopilotAgent routeCopilot,
+            AgentRegistry registry,
+            AttachmentService attachmentService,
+            SystemAgentCatalog systemAgents,
+            SystemAgentBroker systemAgentBroker) {
+        chat = c;
+        general = g;
+        this.routeCopilot = routeCopilot;
+        this.registry = registry;
+        this.attachmentService = attachmentService;
+        this.systemAgents = systemAgents;
+        this.systemAgentBroker = systemAgentBroker;
+    }
+
+    @GetMapping("/agents")
+    public List<Map<String, Object>> agents() {
+        return registry.enabledDefinitions()
+                .stream()
+                .filter(definition -> List.of("GENERAL", "DOMAIN").contains(definition.getRole()))
+                .filter(definition -> systemAgents.isClientVisible(definition.getId()))
+                .map(
+                        definition -> {
+                            Map<String, Object> value = new LinkedHashMap<>();
+                            value.put("id", definition.getId());
+                            value.put("displayName", definition.getDisplayName());
+                            value.put("description", definition.getDescription());
+                            value.put("role", definition.getRole());
+                            value.put(
+                                    "supportsBrowserActions",
+                                    definition.isSupportsBrowserActions());
+                            value.put("publishedVersion", definition.getPublishedVersion());
+                            return value;
+                        })
+                .toList();
+    }
+
+    @GetMapping("/capabilities")
+    public Map<String, Object> capabilities() {
+        return Map.of(
+                "browserProtocolVersion",
+                SystemAgentCatalog.BROWSER_PROTOCOL_VERSION,
+                "browserActions",
+                SystemAgentCatalog.BROWSER_ACTIONS,
+                "browserTools",
+                SystemAgentCatalog.BROWSER_TOOL_IDS,
+                "systemAgentProtocolVersion",
+                SystemAgentCatalog.SYSTEM_AGENT_PROTOCOL_VERSION,
+                "systemAgentDelegationTool",
+                SystemAgentCatalog.DELEGATION_TOOL_NAME,
+                "systemAgentCapabilities",
+                systemAgentBroker.descriptors(),
+                "streamTimeoutMs",
+                chat.sseTimeoutMs());
+    }
+
+    @PostMapping("/sessions")
+    public Conversation create() {
+        var identity = RequestContext.current();
+        return chat.create(identity.source(), identity.userId());
+    }
+
+    @GetMapping("/sessions")
+    public List<Conversation> list() {
+        var identity = RequestContext.current();
+        return chat.list(identity.source(), identity.userId());
+    }
+
+    @GetMapping("/sessions/{id}/messages")
+    public List<MessageView> history(@PathVariable String id) {
+        var identity = RequestContext.current();
+        return chat.historyWithAttachments(identity.source(), identity.userId(), id);
+    }
+
+    public record RenameSessionRequest(String title) {}
+
+    @PatchMapping("/sessions/{id}")
+    public Conversation rename(@PathVariable String id, @RequestBody RenameSessionRequest req) {
+        var identity = RequestContext.current();
+        return chat.rename(
+                identity.source(), identity.userId(), id, req == null ? null : req.title());
+    }
+
+    public record ReorderSessionsRequest(List<String> orderedIds) {}
+
+    @PostMapping("/sessions/reorder")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void reorder(@RequestBody ReorderSessionsRequest req) {
+        var identity = RequestContext.current();
+        chat.reorder(identity.source(), identity.userId(), req == null ? null : req.orderedIds());
+    }
+
+    @DeleteMapping("/sessions/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable String id) {
+        var identity = RequestContext.current();
+        chat.delete(identity.source(), identity.userId(), id);
+    }
+
+    public record ChatRequest(
+            String sessionId,
+            String message,
+            String agentId,
+            String pageContext,
+            Map<String, Boolean> permissions,
+            List<String> attachmentIds,
+            boolean retry) {}
+
+    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@RequestBody ChatRequest req, HttpServletRequest request) {
+        var identity = RequestContext.current();
+        Object requestId = request.getAttribute("requestId");
+        return chat.chat(
+                identity.source(),
+                identity.userId(),
+                req.sessionId(),
+                req.message(),
+                req.agentId(),
+                req.pageContext(),
+                req.permissions(),
+                req.attachmentIds(),
+                req.retry(),
+                request.getRemoteAddr(),
+                requestId == null ? null : String.valueOf(requestId));
+    }
+
+    public record ActionResult(String status, String result) {}
+
+    @PostMapping("/actions/{id}/result")
+    public ActionProposal action(@PathVariable String id, @RequestBody ActionResult req) {
+        var identity = RequestContext.current();
+        return chat.result(identity.source(), identity.userId(), id, req.status(), req.result());
+    }
+
+    /**
+     * 上传聊天附件（图片或文件）。字节经 {@link AttachmentService} 落到对象存储（MinIO 或本地）， 返回可展示的附件视图列表（含后端取回地址）。随后通过
+     * {@code /chat/stream} 的 {@code attachmentIds} 关联到具体消息。
+     */
+    @PostMapping(value = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public List<AttachmentView> uploadAttachments(@RequestParam("files") List<MultipartFile> files)
+            throws Exception {
+        var identity = RequestContext.current();
+        return attachmentService.upload(identity.source(), identity.userId(), files);
+    }
+
+    /** 取回单条附件字节，供前端渲染图片或下载文件。需鉴权。 */
+    @GetMapping("/attachments/{id}")
+    public ResponseEntity<ByteArrayResource> serveAttachment(@PathVariable String id)
+            throws Exception {
+        var identity = RequestContext.current();
+        var stored = attachmentService.serve(identity.source(), identity.userId(), id);
+        byte[] bytes = stored.bytes();
+        ByteArrayResource resource = new ByteArrayResource(bytes);
+        String contentType =
+                stored.contentType() == null ? "application/octet-stream" : stored.contentType();
+        String disposition =
+                (stored.safeInline()
+                                ? ContentDisposition.inline()
+                                : ContentDisposition.attachment())
+                        .filename(stored.filename(), java.nio.charset.StandardCharsets.UTF_8)
+                        .build()
+                        .toString();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, contentType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
+                .header("X-Content-Type-Options", "nosniff")
+                .contentLength(bytes.length)
+                .body(resource);
+    }
+}

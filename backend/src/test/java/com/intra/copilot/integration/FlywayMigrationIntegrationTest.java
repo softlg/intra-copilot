@@ -33,9 +33,7 @@ class FlywayMigrationIntegrationTest {
         assertEquals(53, flyway.migrate().migrationsExecuted);
         try (Connection connection =
                 DriverManager.getConnection(
-                        POSTGRES.getJdbcUrl(),
-                        POSTGRES.getUsername(),
-                        POSTGRES.getPassword())) {
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())) {
             assertTrue(tableExists(connection, "auth_rate_limit"));
             assertTrue(tableExists(connection, "storage_delete_outbox"));
             assertTrue(tableExists(connection, "runtime_lock"));
@@ -56,8 +54,7 @@ class FlywayMigrationIntegrationTest {
 
     private static boolean tableExists(Connection connection, String table) throws SQLException {
         try (var statement =
-                connection.prepareStatement(
-                        "SELECT to_regclass('public.' || ?) IS NOT NULL")) {
+                connection.prepareStatement("SELECT to_regclass('public.' || ?) IS NOT NULL")) {
             statement.setString(1, table);
             try (var result = statement.executeQuery()) {
                 result.next();

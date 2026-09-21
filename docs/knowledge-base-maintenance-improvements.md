@@ -1,7 +1,8 @@
 # 知识库维护改进方案
 
-> 适用范围：`backend/src/main/java/com/intra/copilot/service/KnowledgeService.java`、
-> `KnowledgeAdminController.java`、`EmbeddingClient.java`、`EmbeddingProfileService.java`、
+> 适用范围：`backend/src/main/java/com/intra/copilot/application/knowledge/KnowledgeService.java`、
+> `interfaces/rest/knowledge/KnowledgeAdminController.java`、`infrastructure/knowledge/EmbeddingClient.java`、
+> `application/knowledge/EmbeddingProfileService.java`、`domain/knowledge` 下的
 > `KnowledgeBase / KnowledgeDocument / DocumentChunk` 模型、`V3 / V11 / V18` 迁移，
 > 以及 `admin/src/main.tsx` 中的知识库维护页（含 maintenance / qa / retrieval 三个 section）。
 >
@@ -77,7 +78,7 @@
    );
    ```
 
-2. **新增 `StorageBackend` 接口**（`backend/src/main/java/com/intra/copilot/storage/`）：
+2. **新增 `StorageBackend` 接口**（`backend/src/main/java/com/intra/copilot/infrastructure/knowledge/storage/`）：
    - `LocalStorageBackend`（默认，`${app.upload-dir}/kb/{baseId}/{documentId}{ext}`）
    - 后续可加 `S3StorageBackend`、`MinIOStorageBackend`（不改业务代码）
    - `application.yml` 增加 `app.storage.backend: local`，多 backend 用 profile 切换

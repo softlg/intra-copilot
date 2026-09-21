@@ -1,0 +1,216 @@
+package com.intra.copilot.interfaces.rest.conversation;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intra.copilot.application.conversation.AttachmentService;
+import com.intra.copilot.domain.agent.AgentPlan;
+import com.intra.copilot.domain.agent.AgentPlanStep;
+import com.intra.copilot.domain.conversation.AgentInvocation;
+import com.intra.copilot.domain.conversation.AgentInvocationEvent;
+import com.intra.copilot.domain.conversation.AttachmentView;
+import com.intra.copilot.domain.conversation.Conversation;
+import com.intra.copilot.domain.conversation.Message;
+import com.intra.copilot.infrastructure.observability.TraceRecorder;
+import com.intra.copilot.infrastructure.persistence.conversation.ActionProposalRepository;
+import com.intra.copilot.infrastructure.persistence.conversation.AgentInvocationRepository;
+import com.intra.copilot.infrastructure.persistence.conversation.AgentPlanRepository;
+import com.intra.copilot.infrastructure.persistence.conversation.AgentPlanStepRepository;
+import com.intra.copilot.infrastructure.persistence.conversation.ConversationRepository;
+import com.intra.copilot.infrastructure.persistence.conversation.MessageRepository;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.ResponseEntity;
+
+class ConversationLogAdminControllerTest {
+
+    @Test
+    void detailIncludesMessageAttachmentMetadata() {
+        ConversationRepository conversations = mock(ConversationRepository.class);
+        MessageRepository messages = mock(MessageRepository.class);
+        AgentInvocationRepository invocations = mock(AgentInvocationRepository.class);
+        ActionProposalRepository actions = mock(ActionProposalRepository.class);
+        AgentPlanRepository plans = mock(AgentPlanRepository.class);
+        AgentPlanStepRepository planSteps = mock(AgentPlanStepRepository.class);
+        AttachmentService attachments = mock(AttachmentService.class);
+        TraceRecorder trace = mock(TraceRecorder.class);
+        ConversationLogAdminController controller =
+                new ConversationLogAdminController(
+                        conversations,
+                        messages,
+                        invocations,
+                        actions,
+                        plans,
+                        planSteps,
+                        attachments,
+                        trace,
+                        new ObjectMapper());
+
+        Conversation conversation = mock(Conversation.class);
+        when(conversation.getId()).thenReturn("conversation-1");
+        when(conversation.getTitle()).thenReturn("附件会话");
+        when(conversation.getCreatedAt()).thenReturn(Instant.parse("2026-09-10T00:00:00Z"));
+        when(conversation.getUpdatedAt()).thenReturn(Instant.parse("2026-09-10T00:01:00Z"));
+        when(conversations.findById("conversation-1")).thenReturn(Optional.of(conversation));
+
+        Message message = new Message("conversation-1", "user", "请查看图片", null, null);
+        when(messages.findByConversationIdOrderByCreatedAtAsc("conversation-1"))
+                .thenReturn(List.of(message));
+        AgentInvocation invocation = new AgentInvocation();
+        invocation.setConversationId("conversation-1");
+        invocation.setSequence(1);
+        when(invocations.findByConversationIdOrderByCreatedAtAsc("conversation-1"))
+                .thenReturn(List.of(invocation));
+        AgentInvocationEvent routeEvent = new AgentInvocationEvent();
+        routeEvent.setInvocationId(invocation.getId());
+        routeEvent.setEventType("ROUTE_START");
+        when(trace.listByInvocation(invocation.getId())).thenReturn(List.of(routeEvent));
+        when(actions.findByConversationIdOrderByExpiresAtAsc("conversation-1"))
+                .thenReturn(List.of());
+        AgentPlan plan = new AgentPlan();
+        plan.setConversationId("conversation-1");
+        plan.setInvocationId(invocation.getId());
+        plan.setGoal("完成测试计划");
+        when(plans.findByConversationIdOrderByCreatedAtAsc("conversation-1"))
+                .thenReturn(List.of(plan));
+        AgentPlanStep step = new AgentPlanStep();
+        step.setPlanId(plan.getId());
+        step.setStepIndex(1);
+        step.setTitle("查询数据");
+        step.setToolNames("[\"search\"]");
+        when(planSteps.findByPlanIdOrderByStepIndexAsc(plan.getId())).thenReturn(List.of(step));
+        AttachmentView attachment =
+                new AttachmentView(
+                        "attachment-1",
+                        "screen.png",
+                        "image/png",
+                        128,
+                        true,
+                        "/attachments/attachment-1");
+        when(attachments.listForMessage(message.getId())).thenReturn(List.of(attachment));
+
+        ConversationLogAdminController.ConversationLog detail = controller.detail("conversation-1");
+
+        assertEquals(1, detail.messages().size());
+        assertEquals(1, detail.messages().get(0).attachments().size());
+        assertEquals("screen.png", detail.messages().get(0).attachments().get(0).filename());
+        assertEquals("image/png", detail.messages().get(0).attachments().get(0).contentType());
+        assertEquals(128, detail.messages().get(0).attachments().get(0).size());
+        assertEquals(
+                "/admin/conversation-logs/attachments/attachment-1",
+                detail.messages().get(0).attachments().get(0).url());
+        assertEquals(1, detail.invocationTraces().size());
+        assertEquals(
+                "ROUTE_START", detail.invocationTraces().get(0).events().get(0).getEventType());
+        assertEquals(1, detail.plans().size());
+        assertEquals("完成测试计划", detail.plans().get(0).plan().getGoal());
+        assertEquals(List.of("search"), detail.plans().get(0).steps().get(0).toolNames());
+    }
+
+    @Test
+    void servesAttachmentFromAdminEndpoint() throws Exception {
+        AttachmentService attachments = mock(AttachmentService.class);
+        ConversationLogAdminController controller =
+                new ConversationLogAdminController(
+                        mock(ConversationRepository.class),
+                        mock(MessageRepository.class),
+                        mock(AgentInvocationRepository.class),
+                        mock(ActionProposalRepository.class),
+                        mock(AgentPlanRepository.class),
+                        mock(AgentPlanStepRepository.class),
+                        attachments,
+                        mock(TraceRecorder.class),
+                        new ObjectMapper());
+        byte[] bytes = new byte[] {1, 2, 3};
+        when(attachments.serveForAdmin("attachment-1"))
+                .thenReturn(new AttachmentService.StoredBytes(bytes, "image/png", "screen.png"));
+
+        ResponseEntity<ByteArrayResource> response = controller.attachment("attachment-1");
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("image/png", response.getHeaders().getContentType().toString());
+        assertEquals("inline", response.getHeaders().getContentDisposition().getType());
+        assertEquals("screen.png", response.getHeaders().getContentDisposition().getFilename());
+        assertEquals(bytes.length, response.getBody().contentLength());
+    }
+
+    @Test
+    void detailBuildsParentChildTraceWithWallClockDuration() {
+        ConversationRepository conversations = mock(ConversationRepository.class);
+        MessageRepository messages = mock(MessageRepository.class);
+        AgentInvocationRepository invocations = mock(AgentInvocationRepository.class);
+        ActionProposalRepository actions = mock(ActionProposalRepository.class);
+        AgentPlanRepository plans = mock(AgentPlanRepository.class);
+        AgentPlanStepRepository planSteps = mock(AgentPlanStepRepository.class);
+        AttachmentService attachments = mock(AttachmentService.class);
+        TraceRecorder trace = mock(TraceRecorder.class);
+        ConversationLogAdminController controller =
+                new ConversationLogAdminController(
+                        conversations,
+                        messages,
+                        invocations,
+                        actions,
+                        plans,
+                        planSteps,
+                        attachments,
+                        trace,
+                        new ObjectMapper());
+
+        Conversation conversation = mock(Conversation.class);
+        when(conversation.getId()).thenReturn("conversation-2");
+        when(conversations.findById("conversation-2")).thenReturn(Optional.of(conversation));
+        when(messages.findByConversationIdOrderByCreatedAtAsc("conversation-2"))
+                .thenReturn(List.of());
+        when(actions.findByConversationIdOrderByExpiresAtAsc("conversation-2"))
+                .thenReturn(List.of());
+        when(plans.findByConversationIdOrderByCreatedAtAsc("conversation-2")).thenReturn(List.of());
+
+        AgentInvocation parent = new AgentInvocation();
+        parent.setConversationId("conversation-2");
+        parent.setTraceId("TR-1");
+        parent.setTurnId("TN-1");
+        parent.setAttemptNo(1);
+        parent.setSequence(1);
+        parent.setDepth(1);
+        parent.setStatus("COMPLETED");
+        parent.setStartedAt(Instant.parse("2026-09-10T00:00:00Z"));
+        parent.setCompletedAt(Instant.parse("2026-09-10T00:00:01Z"));
+        AgentInvocation child = new AgentInvocation();
+        child.setConversationId("conversation-2");
+        child.setTraceId("TR-1");
+        child.setTurnId("TN-1");
+        child.setAttemptNo(1);
+        child.setParentInvocationId(parent.getId());
+        child.setParentSpanId(parent.getId());
+        child.setSequence(2);
+        child.setDepth(2);
+        child.setStatus("COMPLETED");
+        child.setStartedAt(Instant.parse("2026-09-10T00:00:00.100Z"));
+        child.setCompletedAt(Instant.parse("2026-09-10T00:00:00.900Z"));
+        when(invocations.findByConversationIdOrderByCreatedAtAsc("conversation-2"))
+                .thenReturn(List.of(parent, child));
+        AgentInvocationEvent planDecision = new AgentInvocationEvent();
+        planDecision.setInvocationId(child.getId());
+        planDecision.setEventType("PLAN_DECISION");
+        planDecision.setStatus("TRIGGERED");
+        planDecision.setPayload(
+                new ObjectMapper().createObjectNode().put("mode", "ALWAYS").put("reason", "强制规划"));
+        when(trace.listByInvocation(parent.getId())).thenReturn(List.of());
+        when(trace.listByInvocation(child.getId())).thenReturn(List.of(planDecision));
+
+        ConversationLogAdminController.ConversationLog detail = controller.detail("conversation-2");
+
+        assertEquals(1, detail.traces().size());
+        assertEquals(1, detail.traces().get(0).roots().size());
+        assertEquals(1, detail.traces().get(0).roots().get(0).children().size());
+        assertEquals(1000, detail.traces().get(0).durationMs());
+        assertEquals(1000, detail.totalDurationMs());
+        assertEquals(1, detail.traces().get(0).planDecisions().size());
+        assertEquals("TRIGGERED", detail.traces().get(0).planDecisions().get(0).status());
+    }
+}
