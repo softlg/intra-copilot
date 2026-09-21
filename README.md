@@ -65,6 +65,7 @@ $env:BROWSER_SELENIUM_DRIVER_PATH="C:\path\to\chromedriver.exe"
 任务支持 `allowedOrigins`、幂等键、租约、命令超时和自动过期回收。`allowFallback=true` 时，首选 Runtime 离线后可以回退到其它在线 Runtime；默认不会静默改用服务端浏览器。
 
 并发浏览器任务数由 `BROWSER_RUNTIME_WORKER_THREADS` 控制（默认 4），每个任务仍受最大步骤和超时限制。
+后台每 15 秒检查一次异常退出的执行线程；`CREATED`、`QUEUED` 或长时间无心跳的 `RUNNING` 任务会自动重新入队，避免会话永久等待。
 
 ## 嵌入式 SDK
 

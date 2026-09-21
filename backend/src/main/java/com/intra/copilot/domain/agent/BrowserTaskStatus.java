@@ -5,6 +5,7 @@ import java.util.Locale;
 /** Persisted lifecycle for one browser task. */
 public enum BrowserTaskStatus {
     CREATED,
+    QUEUED,
     RUNNING,
     WAITING_USER,
     WAITING_PAGE,

@@ -50,6 +50,7 @@ public interface BrowserTaskRepository extends BaseMapper<BrowserTask> {
                                 .in(
                                         "status",
                                         BrowserTaskStatus.CREATED.name(),
+                                        BrowserTaskStatus.QUEUED.name(),
                                         BrowserTaskStatus.RUNNING.name())
                                 .gt("lease_expires_at", Instant.now())
                                 .orderByDesc("updated_at")
@@ -65,6 +66,7 @@ public interface BrowserTaskRepository extends BaseMapper<BrowserTask> {
                         .in(
                                 "status",
                                 BrowserTaskStatus.CREATED.name(),
+                                BrowserTaskStatus.QUEUED.name(),
                                 BrowserTaskStatus.RUNNING.name())
                         .and(
                                 wrapper ->
@@ -133,10 +135,124 @@ public interface BrowserTaskRepository extends BaseMapper<BrowserTask> {
                         .in(
                                 "status",
                                 BrowserTaskStatus.CREATED.name(),
+                                BrowserTaskStatus.QUEUED.name(),
                                 BrowserTaskStatus.RUNNING.name())
                         .isNotNull("expires_at")
                         .lt("expires_at", now)
                         .orderByAsc("expires_at")
                         .last("LIMIT " + Math.max(1, Math.min(500, limit))));
+    }
+
+    default int markQueued(String taskId, String executionToken, Instant now) {
+        return update(
+                null,
+                Wrappers.<BrowserTask>update()
+                        .eq("task_id", taskId)
+                        .eq("status", BrowserTaskStatus.CREATED.name())
+                        .set("status", BrowserTaskStatus.QUEUED.name())
+                        .set("execution_token", executionToken)
+                        .set("worker_heartbeat_at", now)
+                        .set("updated_at", now)
+                        .setSql("execution_attempts = execution_attempts + 1"));
+    }
+
+    default int heartbeat(String taskId, String executionToken, Instant now) {
+        return update(
+                null,
+                Wrappers.<BrowserTask>update()
+                        .eq("task_id", taskId)
+                        .eq("execution_token", executionToken)
+                        .in(
+                                "status",
+                                BrowserTaskStatus.QUEUED.name(),
+                                BrowserTaskStatus.RUNNING.name())
+                        .set("worker_heartbeat_at", now)
+                        .set("updated_at", now));
+    }
+
+    default int startExecution(String taskId, String executionToken, Instant now) {
+        return update(
+                null,
+                Wrappers.<BrowserTask>update()
+                        .eq("task_id", taskId)
+                        .eq("status", BrowserTaskStatus.QUEUED.name())
+                        .eq("execution_token", executionToken)
+                        .set("status", BrowserTaskStatus.RUNNING.name())
+                        .set("started_at", now)
+                        .set("worker_heartbeat_at", now)
+                        .set("updated_at", now));
+    }
+
+    default int clearExecution(String taskId) {
+        return update(
+                null,
+                Wrappers.<BrowserTask>update()
+                        .eq("task_id", taskId)
+                        .setSql("execution_token = NULL")
+                        .setSql("worker_heartbeat_at = NULL"));
+    }
+
+    default List<BrowserTask> findRecoverable(
+            Instant createdBefore, Instant heartbeatBefore, Instant runningBefore, int limit) {
+        return selectList(
+                Wrappers.<BrowserTask>query()
+                        .and(
+                                wrapper ->
+                                        wrapper.and(
+                                                        created ->
+                                                                created.eq(
+                                                                                "status",
+                                                                                BrowserTaskStatus
+                                                                                        .CREATED
+                                                                                        .name())
+                                                                        .lt(
+                                                                                "created_at",
+                                                                                createdBefore))
+                                                .or(
+                                                        queued ->
+                                                                queued.eq(
+                                                                                "status",
+                                                                                BrowserTaskStatus
+                                                                                        .QUEUED
+                                                                                        .name())
+                                                                        .and(
+                                                                                heartbeat ->
+                                                                                        heartbeat
+                                                                                                .isNull(
+                                                                                                        "worker_heartbeat_at")
+                                                                                                .or()
+                                                                                                .lt(
+                                                                                                        "worker_heartbeat_at",
+                                                                                                        heartbeatBefore)))
+                                                .or(
+                                                        running ->
+                                                                running.eq(
+                                                                                "status",
+                                                                                BrowserTaskStatus
+                                                                                        .RUNNING
+                                                                                        .name())
+                                                                        .and(
+                                                                                heartbeat ->
+                                                                                        heartbeat
+                                                                                                .isNull(
+                                                                                                        "worker_heartbeat_at")
+                                                                                                .or()
+                                                                                                .lt(
+                                                                                                        "worker_heartbeat_at",
+                                                                                                        runningBefore))))
+                        .orderByAsc("updated_at")
+                        .last("LIMIT " + Math.max(1, Math.min(200, limit))));
+    }
+
+    default int requeue(String taskId, String expectedStatus, Instant now) {
+        return update(
+                null,
+                Wrappers.<BrowserTask>update()
+                        .eq("task_id", taskId)
+                        .eq("status", expectedStatus)
+                        .set("status", BrowserTaskStatus.CREATED.name())
+                        .setSql("execution_token = NULL")
+                        .setSql("worker_heartbeat_at = NULL")
+                        .set("updated_at", now));
     }
 }

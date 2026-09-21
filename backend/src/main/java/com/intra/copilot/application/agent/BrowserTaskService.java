@@ -26,10 +26,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.RejectedExecutionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.tool.ToolCallback;
@@ -39,6 +42,7 @@ import org.springframework.stereotype.Service;
 /** Queues and runs unattended browser tasks on a server-side browser runtime. */
 @Service
 public class BrowserTaskService {
+    private static final Logger log = LoggerFactory.getLogger(BrowserTaskService.class);
     private static final Duration MODEL_TIMEOUT = Duration.ofSeconds(180);
     private final BrowserTaskRepository tasks;
     private final BrowserTaskEventRepository events;
@@ -88,14 +92,15 @@ public class BrowserTaskService {
             BrowserTask existing =
                     tasks.findByIdempotencyKey(identity.userId(), request.idempotencyKey())
                             .orElse(null);
-            if (existing != null) return existing;
+            if (existing != null) {
+                resumeIfNeeded(existing);
+                return tasks.findById(existing.getTaskId()).orElse(existing);
+            }
         }
         BrowserTask task = newTask(request);
         BrowserTask saved = tasks.save(task);
         event(saved, "TASK_CREATED", saved.getStatus(), Map.of("capability", task.getCapability()));
-        CompletableFuture.runAsync(
-                () -> RequestContext.runWith(identity, () -> executeTask(saved.getTaskId())),
-                workers);
+        schedule(saved, identity);
         return saved;
     }
 
@@ -121,6 +126,12 @@ public class BrowserTaskService {
                 throw new IllegalStateException("浏览器任务等待被中断", error);
             }
         }
+    }
+
+    public void resume(String taskId) {
+        BrowserTask task = tasks.findById(taskId).orElse(null);
+        if (task == null) return;
+        resumeIfNeeded(task);
     }
 
     @PreDestroy
@@ -206,25 +217,107 @@ public class BrowserTaskService {
         task.setStatus(BrowserTaskStatus.CANCELED.name());
         task.setCompletedAt(Instant.now());
         clearLease(task);
+        clearExecution(task);
         task.touch();
         BrowserTask saved = tasks.save(task);
+        tasks.clearExecution(saved.getTaskId());
         commands.cancelActive(saved.getTaskId(), "用户取消了浏览器任务");
         event(saved, "TASK_CANCELED", saved.getStatus(), Map.of());
         return saved;
     }
 
-    private void executeTask(String taskId) {
+    private void resumeIfNeeded(BrowserTask task) {
+        if (task == null || task.statusValue().terminal()) return;
+        if (task.getExecutionAttempts() >= 3) {
+            fail(task, "浏览器任务连续启动失败，已停止自动恢复", task.getStepsUsed());
+            return;
+        }
+        if (task.statusValue() != BrowserTaskStatus.CREATED) {
+            Instant heartbeat = task.getWorkerHeartbeatAt();
+            if (heartbeat != null && heartbeat.isAfter(Instant.now().minus(Duration.ofMinutes(10)))) {
+                return;
+            }
+            if (tasks.requeue(task.getTaskId(), task.getStatus(), Instant.now()) != 1) {
+                return;
+            }
+            task.setStatus(BrowserTaskStatus.CREATED.name());
+            task.setExecutionToken(null);
+            task.setWorkerHeartbeatAt(null);
+        }
+        schedule(task, systemIdentity(task.getOwnerUserId()));
+    }
+
+    private void schedule(BrowserTask task, RequestContext.Identity identity) {
+        String executionToken = UUID.randomUUID().toString();
+        Instant now = Instant.now();
+        if (tasks.markQueued(task.getTaskId(), executionToken, now) != 1) {
+            BrowserTask current = tasks.findById(task.getTaskId()).orElse(null);
+            if (current == null || current.statusValue().terminal()) return;
+            log.debug(
+                    "Browser task already queued or running taskId={} status={}",
+                    task.getTaskId(),
+                    current.getStatus());
+            return;
+        }
+        task.setStatus(BrowserTaskStatus.QUEUED.name());
+        task.setExecutionToken(executionToken);
+        task.setWorkerHeartbeatAt(now);
+        event(task, "TASK_QUEUED", task.getStatus(), Map.of("attempt", executionToken));
+        try {
+            workers.execute(
+                    () -> runScheduledTask(task.getTaskId(), executionToken, identity));
+        } catch (RejectedExecutionException error) {
+            fail(task, "浏览器任务执行线程池不可用", 0);
+        }
+    }
+
+    private void runScheduledTask(
+            String taskId, String executionToken, RequestContext.Identity identity) {
+        try {
+            RequestContext.runWith(identity, () -> executeTask(taskId, executionToken));
+        } catch (Throwable error) {
+            log.error(
+                    "Browser task worker crashed taskId={} executionToken={}",
+                    taskId,
+                    executionToken,
+                    error);
+            BrowserTask task = tasks.findById(taskId).orElse(null);
+            if (task != null && !task.statusValue().terminal()) {
+                fail(
+                        task,
+                        error.getMessage() == null
+                                ? error.getClass().getSimpleName()
+                                : error.getMessage(),
+                        task.getStepsUsed());
+            }
+        }
+    }
+
+    private RequestContext.Identity systemIdentity(String ownerUserId) {
+        return new RequestContext.Identity(
+                "system", ownerUserId, "browser-task-worker");
+    }
+
+    private void executeTask(String taskId, String executionToken) {
         BrowserTask task = tasks.findById(taskId).orElse(null);
         if (task == null || task.statusValue().terminal()) return;
+        if (!BrowserTaskStatus.QUEUED.name().equals(task.getStatus())
+                || !Objects.equals(executionToken, task.getExecutionToken())) {
+            return;
+        }
         BrowserRuntime runtime = awaitRuntime(task);
         if (runtime == null) {
             fail(task, "没有可用的浏览器 Runtime：" + task.getRuntimeKind(), 0);
             return;
         }
-        task.setStatus(BrowserTaskStatus.RUNNING.name());
-        task.setStartedAt(Instant.now());
-        task.touch();
-        tasks.save(task);
+        if (tasks.startExecution(taskId, executionToken, Instant.now()) != 1) {
+            log.info(
+                    "Browser task execution ownership changed taskId={} token={}",
+                    taskId,
+                    executionToken);
+            return;
+        }
+        task = tasks.findById(taskId).orElse(task);
         event(task, "TASK_STARTED", task.getStatus(), Map.of("runtime", runtime.kind().name()));
         try {
             String answer = runAgentLoop(task, runtime);
@@ -239,6 +332,9 @@ public class BrowserTaskService {
             clearLease(task);
             task.touch();
             tasks.save(task);
+            tasks.clearExecution(task.getTaskId());
+            task.setExecutionToken(null);
+            task.setWorkerHeartbeatAt(null);
             event(task, "TASK_COMPLETED", task.getStatus(), Map.of("summary", answer));
         } catch (Exception error) {
             fail(task, safeMessage(error), task.getStepsUsed());
@@ -254,7 +350,12 @@ public class BrowserTaskService {
         long deadline =
                 System.nanoTime()
                         + (remote ? Duration.ofSeconds(60).toNanos() : 0L);
+        long nextHeartbeatAt = 0L;
         do {
+            if (System.nanoTime() >= nextHeartbeatAt) {
+                heartbeat(task);
+                nextHeartbeatAt = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+            }
             BrowserRuntime runtime =
                     runtimes.findForTask(task, task.interactionMode()).orElse(null);
             if (runtime != null) return runtime;
@@ -306,8 +407,13 @@ public class BrowserTaskService {
                 browserTools.toolIds().stream().map(browserTools::callback).toList();
         String lastAnswer = "";
         for (int step = 0; step < task.getMaxSteps(); step++) {
-            if (tasks.findById(task.getTaskId()).map(item -> item.statusValue() == BrowserTaskStatus.CANCELED).orElse(false)) {
-                throw new IllegalStateException("任务已取消");
+            heartbeat(task);
+            BrowserTask current = tasks.findById(task.getTaskId()).orElse(null);
+            if (current == null
+                    || current.statusValue() == BrowserTaskStatus.CANCELED
+                    || current.statusValue() != BrowserTaskStatus.RUNNING
+                    || !Objects.equals(task.getExecutionToken(), current.getExecutionToken())) {
+                throw new IllegalStateException("浏览器任务执行权已失效");
             }
             ToolCallReply reply =
                     callModel(
@@ -459,8 +565,10 @@ public class BrowserTaskService {
         current.setStepsUsed(steps);
         current.setCompletedAt(Instant.now());
         clearLease(current);
+        clearExecution(current);
         current.touch();
         tasks.save(current);
+        tasks.clearExecution(current.getTaskId());
         commands.failActive(current.getTaskId(), message);
         event(current, "TASK_FAILED", current.getStatus(), Map.of("error", message));
     }
@@ -579,10 +687,20 @@ public class BrowserTaskService {
         return message == null || message.isBlank() ? error.getClass().getSimpleName() : message;
     }
 
+    private void heartbeat(BrowserTask task) {
+        if (task.getExecutionToken() == null) return;
+        tasks.heartbeat(task.getTaskId(), task.getExecutionToken(), Instant.now());
+    }
+
     private void clearLease(BrowserTask task) {
         task.setLeaseRuntimeInstanceId(null);
         task.setLeaseTokenHash(null);
         task.setLeaseExpiresAt(null);
+    }
+
+    private void clearExecution(BrowserTask task) {
+        task.setExecutionToken(null);
+        task.setWorkerHeartbeatAt(null);
     }
 
     private static int riskRank(String risk) {

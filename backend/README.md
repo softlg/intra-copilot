@@ -83,6 +83,8 @@ The extension and embedded runtimes claim leases and commands through
 origin allowlists, and idempotency keys are persisted independently from the chat SSE stream, so
 page operations survive tab switches and transient disconnects. The server runtime is implemented
 by `SeleniumBrowserRuntime` and is exposed through `/api/v1/browser/tasks`.
+Task workers publish a heartbeat and are automatically requeued if an asynchronous worker exits
+before writing a terminal state.
 `browser.selenium.driver-path` and `browser.selenium.binary-path` can be configured when browser
 binaries are not on the default system path.
 

@@ -32,6 +32,9 @@ public class BrowserTask {
     private String leaseTokenHash;
     private Instant leaseExpiresAt;
     private String runtimeVersion;
+    private String executionToken;
+    private Instant workerHeartbeatAt;
+    private int executionAttempts;
     private int maxSteps = 10;
     private int stepsUsed;
     private Instant createdAt = Instant.now();
@@ -219,6 +222,30 @@ public class BrowserTask {
 
     public void setRuntimeVersion(String value) {
         runtimeVersion = value == null || value.isBlank() ? null : value.trim();
+    }
+
+    public String getExecutionToken() {
+        return executionToken;
+    }
+
+    public void setExecutionToken(String value) {
+        executionToken = value == null || value.isBlank() ? null : value.trim();
+    }
+
+    public Instant getWorkerHeartbeatAt() {
+        return workerHeartbeatAt;
+    }
+
+    public void setWorkerHeartbeatAt(Instant value) {
+        workerHeartbeatAt = value;
+    }
+
+    public int getExecutionAttempts() {
+        return executionAttempts;
+    }
+
+    public void setExecutionAttempts(int value) {
+        executionAttempts = Math.max(0, value);
     }
 
     public int getMaxSteps() {

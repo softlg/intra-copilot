@@ -128,6 +128,7 @@ browser:
     lease-seconds: ${BROWSER_RUNTIME_LEASE_SECONDS:45}
     command-timeout-seconds: ${BROWSER_RUNTIME_COMMAND_TIMEOUT_SECONDS:120}
     maintenance-interval-ms: ${BROWSER_RUNTIME_MAINTENANCE_INTERVAL_MS:30000}
+    recovery-interval-ms: ${BROWSER_RUNTIME_RECOVERY_INTERVAL_MS:15000}
     worker-threads: ${BROWSER_RUNTIME_WORKER_THREADS:4}
   selenium:
     enabled: ${BROWSER_SELENIUM_ENABLED:true}
