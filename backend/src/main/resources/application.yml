@@ -2,6 +2,9 @@ server:
   port: ${SERVER_PORT:8080}
   address: ${SERVER_ADDRESS:127.0.0.1}
 spring:
+  output:
+    ansi:
+      enabled: ${LOG_ANSI_ENABLED:DETECT}
   ai:
     openai:
       base-url: ${LLM_BASE_URL:https://api.openai.com/v1}
@@ -50,7 +53,7 @@ springdoc:
     path: /swagger-ui.html
 logging:
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [trace=%X{traceId:-} turn=%X{turnId:-} span=%X{spanId:-} request=%X{requestId:-}] %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %levelColor(%-5level) [%thread] [trace=%X{traceId:-} turn=%X{turnId:-} span=%X{spanId:-} request=%X{requestId:-}] %logger{36} - %msg%n"
   level:
     root: ${LOG_LEVEL_ROOT:INFO}
     com.intra.copilot: ${LOG_LEVEL_COM_INTRA_COPILOT:INFO}
