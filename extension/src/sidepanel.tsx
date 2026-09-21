@@ -3097,7 +3097,7 @@ function App() {
               </svg>
             </button>
           </div>
-          <div className="composer-row">
+          <div className="composer-box">
             {(attachments.length > 0 || screenshot) && (
               <div className="composer-previews">
                 {attachments.map((attachment) => (
@@ -3154,17 +3154,6 @@ function App() {
               </div>
             )}
             <div className="composer-input-shell">
-              <button
-                type="button"
-                className="composer-expand-button"
-                onClick={() => setComposerExpanded((expanded) => !expanded)}
-                title={composerExpanded ? t.collapseComposer : t.expandComposer}
-                aria-label={
-                  composerExpanded ? t.collapseComposer : t.expandComposer
-                }
-              >
-                {composerExpanded ? "↙" : "↗"}
-              </button>
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -3184,35 +3173,75 @@ function App() {
                 aria-label={t.chatInput}
               />
             </div>
-            <button
-              className={"send-button" + (sessionBusy ? " stop-button" : "")}
-              onClick={sessionBusy ? stopGeneration : () => void send()}
-              title={sessionBusy ? t.stop : t.send}
-              aria-label={sessionBusy ? t.stop : t.send}
-            >
-              {sessionBusy ? "■" : t.send}
-            </button>
-          </div>
-          <div className="composer-tools" ref={composerToolsRef}>
-            <button
-              className="tool-button"
-              onClick={openTools}
-              title={t.addTools}
-              aria-label={t.addTools}
-            >
-              ＋
-            </button>
-            <button
-              className="tool-button permission-button"
-              onClick={() => {
-                setToolsOpen(false);
-                setPermissionOpen((open) => !open);
-              }}
-              title={t.permission}
-              aria-label={t.permission}
-            >
-              ◉ {t.permission}
-            </button>
+            <div className="composer-box-footer">
+              <div className="composer-tools" ref={composerToolsRef}>
+                <button
+                  className="tool-button"
+                  onClick={openTools}
+                  title={t.addTools}
+                  aria-label={t.addTools}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+                <button
+                  className="tool-button permission-button"
+                  onClick={() => {
+                    setToolsOpen(false);
+                    setPermissionOpen((open) => !open);
+                  }}
+                  title={t.permission}
+                  aria-label={t.permission}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="4" y="10" width="16" height="10" rx="2" />
+                    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+                  </svg>
+                  <span>{t.permission}</span>
+                </button>
+              </div>
+              <div className="composer-actions">
+                <button
+                  type="button"
+                  className="composer-expand-button"
+                  onClick={() => setComposerExpanded((expanded) => !expanded)}
+                  title={
+                    composerExpanded ? t.collapseComposer : t.expandComposer
+                  }
+                  aria-label={
+                    composerExpanded ? t.collapseComposer : t.expandComposer
+                  }
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+                  </svg>
+                </button>
+                <button
+                  className={
+                    "send-button" + (sessionBusy ? " stop-button" : "")
+                  }
+                  onClick={sessionBusy ? stopGeneration : () => void send()}
+                  title={sessionBusy ? t.stop : t.send}
+                  aria-label={sessionBusy ? t.stop : t.send}
+                  disabled={
+                    !sessionBusy &&
+                    !input.trim() &&
+                    attachments.length === 0 &&
+                    !screenshot
+                  }
+                >
+                  {sessionBusy ? (
+                    <span className="stop-icon" aria-hidden="true" />
+                  ) : (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m22 2-7 20-4-9-9-4Z" />
+                      <path d="M22 2 11 13" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
             {toolsOpen && (
               <div className="tool-popover tools-menu">
                 <div className="tools-menu-title">{t.attachmentMenu}</div>
