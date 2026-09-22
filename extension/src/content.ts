@@ -73,6 +73,7 @@ let interactionMode:
   "VISIBLE_VIRTUAL";
 const actionElements = new Map<string, HTMLElement>();
 let currentSnapshotId = "";
+let currentSnapshotCapabilities = "";
 let snapshotStale = false;
 let snapshotObserver: MutationObserver | null = null;
 function setPageEnabled(enabled: boolean) {
@@ -255,7 +256,7 @@ export function collectContext(): Ctx {
     title: document.title,
     selection: getSelection()?.toString().slice(0, 4000) || "",
     visibleText: deepVisibleText().slice(0, 12000),
-    domSummary: `snapshotId="${currentSnapshotId}" frameId=${frameId}\n${elements
+    domSummary: `snapshotId="${currentSnapshotId}" frameId=${frameId}\n${currentSnapshotCapabilities}\n${elements
       .map((item) => item.summary)
       .join("\n")}`,
     frameId,
@@ -269,48 +270,70 @@ function collectActionElements(): ActionElement[] {
   snapshotStale = false;
   actionElements.clear();
   currentSnapshotId = `snap_${Date.now()}_${frameId}_${++snapshotSequence}`;
-  const elements = deepQueryAll(
+  const baseElements = deepQueryAll(
     document,
-    "input,button,select,textarea,a,[role='button'],[contenteditable='true'],.monaco-editor,.cm-editor,[role='status'],[aria-live],pre,code,h1,h2,h3,table,[data-testid],[id*='result' i],[class*='result' i]",
+    "input,button,select,textarea,a,[role='button'],[role='textbox'],[role='combobox'],[contenteditable='true'],.monaco-editor,.cm-editor,.view-lines,.cm-content,[data-mode-id],[data-language],[role='status'],[aria-live],pre,code,h1,h2,h3,table,[data-testid],[id*='result' i],[class*='result' i],[id*='editor' i],[class*='editor' i],[id*='code' i],[class*='code' i]",
   )
     .filter((element): element is HTMLElement => element instanceof HTMLElement)
-    .filter(isVisible)
-    .slice(0, 120)
-    .map((element, index) => {
-      const elementId = `el_${index + 1}`;
-      actionElements.set(elementId, element);
-      const tag = element.tagName.toLowerCase();
-      const codeEditor = element.matches(".monaco-editor,.cm-editor");
-      const role =
-        (codeEditor ? "code-editor" : element.getAttribute("role")) ||
-        (tag === "a" ? "link" : tag === "button" ? "button" : tag);
-      const name = compact(
-        (codeEditor ? "代码编辑器" : "") ||
-          element.getAttribute("aria-label") ||
-          element.getAttribute("title") ||
-          (element as HTMLInputElement).placeholder ||
-          element.innerText ||
-          (element as HTMLInputElement).value ||
-          element.getAttribute("name") ||
-          "",
-      );
-      const type = (element as HTMLInputElement).type;
-      const disabled =
-        "disabled" in element &&
-        Boolean((element as HTMLInputElement).disabled);
-      const value = compact((element as HTMLInputElement).value || "");
-      const details = [
-        `${elementId} <${tag}>`,
-        `role="${role}"`,
-        name ? `name="${escapeAttribute(name)}"` : "",
-        type ? `type="${type}"` : "",
-        value ? `value="${escapeAttribute(value)}"` : "",
-        disabled ? "disabled=true" : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
-      return { elementId, element, summary: details };
-    });
+    .filter(isVisible);
+  const editorElements: HTMLElement[] = [];
+  deepQueryAll(document, ".view-line,.cm-line,[data-line-number]").forEach(
+    (element) => {
+      if (!(element instanceof HTMLElement)) return;
+      const editor =
+        element.closest(
+          ".monaco-editor,.cm-editor,[role='textbox'],[contenteditable='true'],[data-mode-id],[data-language],[class*='editor' i]",
+        ) || element;
+      if (editor instanceof HTMLElement && isVisible(editor)) {
+        editorElements.push(editor);
+      }
+    },
+  );
+  const candidates = Array.from(new Set([...baseElements, ...editorElements]));
+  const elements = candidates.slice(0, 120).map((element, index) => {
+    const elementId = `el_${index + 1}`;
+    actionElements.set(elementId, element);
+    const tag = element.tagName.toLowerCase();
+    const codeEditor = isCodeEditorElement(element);
+    const role =
+      (codeEditor ? "code-editor" : element.getAttribute("role")) ||
+      (tag === "a" ? "link" : tag === "button" ? "button" : tag);
+    const name = compact(
+      (codeEditor ? "代码编辑器" : "") ||
+        element.getAttribute("aria-label") ||
+        element.getAttribute("title") ||
+        (element as HTMLInputElement).placeholder ||
+        element.innerText ||
+        (element as HTMLInputElement).value ||
+        element.getAttribute("name") ||
+        "",
+    );
+    const type = (element as HTMLInputElement).type;
+    const disabled =
+      "disabled" in element && Boolean((element as HTMLInputElement).disabled);
+    const value = compact((element as HTMLInputElement).value || "");
+    const languageHost = element.matches("[data-language],[data-mode-id]")
+      ? element
+      : element.querySelector("[data-language],[data-mode-id]");
+    const language =
+      element.getAttribute("data-language") ||
+      element.getAttribute("data-mode-id") ||
+      languageHost?.getAttribute("data-language") ||
+      languageHost?.getAttribute("data-mode-id") ||
+      "";
+    const details = [
+      `${elementId} <${tag}>`,
+      `role="${role}"`,
+      name ? `name="${escapeAttribute(name)}"` : "",
+      language ? `language="${escapeAttribute(language)}"` : "",
+      type ? `type="${type}"` : "",
+      value ? `value="${escapeAttribute(value)}"` : "",
+      disabled ? "disabled=true" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return { elementId, element, summary: details };
+  });
   snapshotObserver = new MutationObserver((records) => {
     if (records.some((record) => mutationTouchesRegisteredElement(record))) {
       snapshotStale = true;
@@ -322,7 +345,30 @@ function collectActionElements(): ActionElement[] {
     attributes: true,
     characterData: true,
   });
+  const editorCount = elements.filter((item) =>
+    isCodeEditorElement(item.element),
+  ).length;
+  const runButton = elements.some((item) => /运行|run/i.test(item.summary));
+  const submitButton = elements.some((item) =>
+    /提交|submit/i.test(item.summary),
+  );
+  const capabilities = `capabilities: editor=${editorCount > 0} run=${runButton} submit=${submitButton}`;
+  currentSnapshotCapabilities = capabilities;
   return elements;
+}
+
+function isCodeEditorElement(element: HTMLElement) {
+  return Boolean(
+    element.matches(
+      ".monaco-editor,.cm-editor,.view-lines,.cm-content,[data-mode-id],[data-language]",
+    ) ||
+    element.closest(
+      ".monaco-editor,.cm-editor,[data-mode-id],[data-language]",
+    ) ||
+    element.querySelector(
+      ".monaco-editor,.cm-editor,.view-lines,.cm-content,[data-mode-id],[data-language]",
+    ),
+  );
 }
 
 function mutationTouchesRegisteredElement(record: MutationRecord) {

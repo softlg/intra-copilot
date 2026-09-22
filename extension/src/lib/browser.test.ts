@@ -74,6 +74,9 @@ describe("ensureActionContentScript", () => {
   it("injects the persistent content script when no receiver exists", async () => {
     const executeScript = vi.fn().mockResolvedValue([]);
     vi.stubGlobal("chrome", {
+      webNavigation: {
+        getAllFrames: vi.fn().mockResolvedValue([{ frameId: 0 }]),
+      },
       tabs: {
         sendMessage: vi
           .fn()
@@ -85,7 +88,7 @@ describe("ensureActionContentScript", () => {
     await ensureActionContentScript(12);
 
     expect(executeScript).toHaveBeenCalledWith({
-      target: { tabId: 12, allFrames: true },
+      target: { tabId: 12, frameIds: [0] },
       files: ["content.js"],
     });
   });
@@ -93,6 +96,9 @@ describe("ensureActionContentScript", () => {
   it("does not inject when the content script already responds", async () => {
     const executeScript = vi.fn();
     vi.stubGlobal("chrome", {
+      webNavigation: {
+        getAllFrames: vi.fn().mockResolvedValue([{ frameId: 0 }]),
+      },
       tabs: {
         sendMessage: vi.fn().mockResolvedValue({ ok: true }),
       },
@@ -102,5 +108,39 @@ describe("ensureActionContentScript", () => {
     await ensureActionContentScript(12);
 
     expect(executeScript).not.toHaveBeenCalled();
+  });
+
+  it("injects only the child frame whose receiver is missing", async () => {
+    const executeScript = vi.fn().mockResolvedValue([]);
+    vi.stubGlobal("chrome", {
+      webNavigation: {
+        getAllFrames: vi
+          .fn()
+          .mockResolvedValue([{ frameId: 0 }, { frameId: 7 }]),
+      },
+      tabs: {
+        sendMessage: vi
+          .fn()
+          .mockImplementation(
+            async (
+              _tabId: number,
+              _message: unknown,
+              options: { frameId: number },
+            ) =>
+              options.frameId === 0
+                ? { ok: true }
+                : Promise.reject(new Error("No receiver")),
+          ),
+      },
+      scripting: { executeScript },
+    });
+
+    await ensureActionContentScript(12);
+
+    expect(executeScript).toHaveBeenCalledTimes(1);
+    expect(executeScript).toHaveBeenCalledWith({
+      target: { tabId: 12, frameIds: [7] },
+      files: ["content.js"],
+    });
   });
 });

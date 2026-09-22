@@ -508,18 +508,37 @@ export async function collectContextsFromTab(
 }
 
 export async function ensureActionContentScript(tabId: number): Promise<void> {
+  let frameIds = [0];
   try {
-    const response = await chrome.tabs.sendMessage(
-      tabId,
-      { type: "PING" },
-      { frameId: 0 },
-    );
-    if (response?.ok) return;
+    const frames = await chrome.webNavigation.getAllFrames({ tabId });
+    if (frames?.length) frameIds = frames.map((frame) => frame.frameId);
   } catch {
-    // The content script is absent after navigation, extension reload, or first use.
+    // webNavigation may be unavailable on restricted pages.
   }
-  await chrome.scripting.executeScript({
-    target: { tabId, allFrames: true },
-    files: ["content.js"],
-  });
+  const missing = (
+    await Promise.all(
+      frameIds.map(async (frameId) => {
+        try {
+          const response = await chrome.tabs.sendMessage(
+            tabId,
+            { type: "PING" },
+            { frameId },
+          );
+          return response?.ok ? null : frameId;
+        } catch {
+          return frameId;
+        }
+      }),
+    )
+  ).filter((frameId): frameId is number => frameId != null);
+  await Promise.all(
+    missing.map((frameId) =>
+      chrome.scripting
+        .executeScript({
+          target: { tabId, frameIds: [frameId] },
+          files: ["content.js"],
+        })
+        .catch(() => {}),
+    ),
+  );
 }
