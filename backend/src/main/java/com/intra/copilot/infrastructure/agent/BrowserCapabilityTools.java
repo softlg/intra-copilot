@@ -94,7 +94,7 @@ public class BrowserCapabilityTools {
         add(
                 values,
                 "browser_snapshot",
-                "读取当前页面最新结构化快照，不修改页面。",
+                "读取当前页面结构化快照。任务开始时调用一次；动作结果已包含最新 observation，除非引用失效或页面导航，否则不要重复调用。",
                 SNAPSHOT_SCHEMA);
         add(
                 values,
@@ -104,17 +104,17 @@ public class BrowserCapabilityTools {
         add(
                 values,
                 "browser_wait",
-                "等待页面条件成立，不修改页面。",
+                "等待页面异步条件成立。动作已经通过 postcondition 验证时不要重复调用。",
                 WAIT_SCHEMA);
         add(
                 values,
                 "browser_verify",
-                "验证当前页面是否满足指定条件。",
+                "额外验证页面条件。只在动作没有 postcondition 或需要独立确认时调用。",
                 VERIFY_SCHEMA);
         add(
                 values,
                 "browser_extract",
-                "从当前页面提取文本、表格、代码或字段值。",
+                "提取页面文本、表格或结果。不要用它读取代码编辑器；SET_EDITOR 的结果已经包含写入验证。",
                 EXTRACT_SCHEMA);
         definitions = Map.copyOf(values);
     }

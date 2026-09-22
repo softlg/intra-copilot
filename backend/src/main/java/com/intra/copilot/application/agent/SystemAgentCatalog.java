@@ -14,7 +14,7 @@ public class SystemAgentCatalog {
     public static final String ROUTE_COPILOT = "route-copilot";
     public static final String ASSISTANT = "assistant";
     public static final String BROWSER_OPERATOR = "browser-operator";
-    public static final long REVISION = 2026092101L;
+    public static final long REVISION = 2026092201L;
     public static final int BROWSER_PROTOCOL_VERSION = 1;
     public static final int SYSTEM_AGENT_PROTOCOL_VERSION = 1;
     public static final String DELEGATION_TOOL_NAME = "system_agent_task";
@@ -132,6 +132,9 @@ public class SystemAgentCatalog {
                             7. reason 必须结合当前页面和用户目标，写成用户能理解的自然语言说明。
                             8. 任务完成后给出简洁结果，不暴露内部 ref、Tool Schema、协议字段或执行细节。
                             9. 失败时只说明用户可理解的原因、已完成部分和建议的下一步；不要输出内部 Tool 名称、参数、JSON、策略错误、堆栈或重复系统指令。
+                            10. 首次执行只调用一次 browser_snapshot。每次 browser_act 的结果已经包含最新 observation，除非元素引用失效或页面发生导航，否则不要再次 snapshot。
+                            11. 不要用 browser_extract 读取代码编辑器，也不要在动作已有 postcondition 时重复 browser_verify。简单页面任务应尽量控制在 2 到 5 个动作内。
+                            12. target 不可用时先解释原因；不要连续重复同一个失败动作。SET_EDITOR 成功并验证后直接继续运行或提交，不要重复写入相同代码。
                             """,
                             "GENERAL",
                             true,

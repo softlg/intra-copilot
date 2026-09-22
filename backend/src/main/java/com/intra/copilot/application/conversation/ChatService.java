@@ -2388,6 +2388,8 @@ public class ChatService {
                 boolean answerStreamed = false;
                 Integer inputTokens = null;
                 Integer outputTokens = null;
+                Map<String, Integer> browserActionAttempts = new HashMap<>();
+                boolean freshBrowserObservation = false;
                 iteration:
                 for (int iter = 0; iter < Math.max(1, iterationLimit); iter++) {
                         if (isRunCancelled(finished)) {
@@ -2679,6 +2681,36 @@ public class ChatService {
                                 if (!browserPrefix.isBlank()) {
                                         String proposalJson =
                                                 result.substring(browserPrefix.length());
+                                        BrowserActionValidator.NormalizedAction browserAction =
+                                                BrowserActionValidator.normalize(
+                                                        proposalJson);
+                                        if ("SNAPSHOT".equals(browserAction.type())
+                                                && freshBrowserObservation) {
+                                                turns.add(
+                                                        Map.of(
+                                                                "role",
+                                                                "user",
+                                                                "content",
+                                                                "已复用最近一次 browser_act 返回的页面 observation，"
+                                                                        + "不要重复调用 browser_snapshot。请直接执行下一步动作。"));
+                                                continue iteration;
+                                        }
+                                        String actionKey =
+                                                browserActionKey(browserAction);
+                                        int actionAttempt =
+                                                browserActionAttempts.merge(
+                                                        actionKey, 1, Integer::sum);
+                                        if (actionAttempt > 2) {
+                                                turns.add(
+                                                        Map.of(
+                                                                "role",
+                                                                "user",
+                                                                "content",
+                                                                "相同页面动作已重复执行多次，请改变策略。"
+                                                                        + "如果元素引用失效，请停止重复尝试并说明原因。"));
+                                                continue iteration;
+                                        }
+                                        freshBrowserObservation = false;
                                         ActionProposal proposal =
                                                 browserActions.create(
                                                                 conversation.getId(),
@@ -2774,6 +2806,8 @@ public class ChatService {
                                                                         toolName,
                                                                         runtimeResultJson,
                                                                         runtimeResult.ok());
+                                                        freshBrowserObservation =
+                                                                runtimeResult.ok();
                                                         if (runtimeResult.ok()) {
                                                                 currentAnswer = reply;
                                                                 continue iteration;
@@ -2819,6 +2853,10 @@ public class ChatService {
                                                 String actionResultText =
                                                         browserActions.resultPrompt(
                                                                 proposal, actionResult);
+                                                freshBrowserObservation =
+                                                        "EXECUTED"
+                                                                .equalsIgnoreCase(
+                                                                        actionResult.status());
                                                 turns.add(
                                                         Map.of(
                                                                 "role",
@@ -3783,6 +3821,17 @@ public class ChatService {
                 if (left == null) return right;
                 if (right == null) return left;
                 return left + right;
+        }
+
+        private static String browserActionKey(
+                        BrowserActionValidator.NormalizedAction action) {
+                return action.type()
+                                + "|"
+                                + action.target()
+                                + "|"
+                                + action.argumentsJson()
+                                + "|"
+                                + action.postconditionJson();
         }
 
         private String safeErrorMessage(Throwable error) {

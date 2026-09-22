@@ -420,6 +420,8 @@ public class BrowserTaskService {
         List<ToolCallback> callbacks =
                 browserTools.toolIds().stream().map(browserTools::callback).toList();
         String lastAnswer = "";
+        Map<String, Integer> actionAttempts = new LinkedHashMap<>();
+        boolean freshObservation = false;
         for (int step = 0; step < task.getMaxSteps(); step++) {
             heartbeat(task);
             BrowserTask current = tasks.findById(task.getTaskId()).orElse(null);
@@ -460,6 +462,29 @@ public class BrowserTaskService {
                 BrowserActionValidator.NormalizedAction action =
                         BrowserActionValidator.normalize(output.substring("BROWSER_ACTION:".length()));
                 enforceTaskPolicy(task, action);
+                if ("SNAPSHOT".equals(action.type()) && freshObservation) {
+                    turns.add(
+                            Map.of(
+                                    "role",
+                                    "user",
+                                    "content",
+                                    "已复用最近一次浏览器动作返回的 observation，"
+                                            + "不要重复调用 browser_snapshot。"));
+                    continue;
+                }
+                int attempt =
+                        actionAttempts.merge(
+                                browserActionKey(action), 1, Integer::sum);
+                if (attempt > 2) {
+                    turns.add(
+                            Map.of(
+                                    "role",
+                                    "user",
+                                    "content",
+                                    "相同页面动作已重复执行多次，请改变策略或结束任务。"));
+                    continue;
+                }
+                freshObservation = false;
                 task.setStatus(BrowserTaskStatus.RUNNING.name());
                 task.setStepsUsed(task.getStepsUsed() + 1);
                 task.touch();
@@ -475,6 +500,7 @@ public class BrowserTaskService {
                                 "risk", action.risk(),
                                 "step", task.getStepsUsed()));
                 BrowserRuntime.ActionResult result = runtime.execute(task, action);
+                freshObservation = result.ok();
                 event(
                         task,
                         "ACTION_FINISHED",
@@ -514,6 +540,17 @@ public class BrowserTaskService {
             }
         }
         return lastAnswer.isBlank() ? "已达到最大步骤数。" : lastAnswer;
+    }
+
+    private static String browserActionKey(
+            BrowserActionValidator.NormalizedAction action) {
+        return action.type()
+                + "|"
+                + action.target()
+                + "|"
+                + action.argumentsJson()
+                + "|"
+                + action.postconditionJson();
     }
 
     private ToolCallReply callModel(
