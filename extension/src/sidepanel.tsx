@@ -244,7 +244,7 @@ function ToolTraceGroup({
   group: ToolTraceGroupData;
   text: (typeof translations)[keyof typeof translations];
 }) {
-  const [open, setOpen] = useState(group.status !== "ok");
+  const [open, setOpen] = useState(false);
   return (
     <section className={"tool-trace-group " + group.status}>
       <button
@@ -273,7 +273,7 @@ function ToolTraceGroup({
         <div className="tool-trace-group-body">
           {group.steps.map(({ step, index }) => (
             <ToolTraceStepRow
-              key={`${step.tool}-${index}`}
+              key={step.id || `${step.tool}-${index}`}
               step={step}
               text={text}
             />
@@ -531,6 +531,7 @@ type PendingAttachment = {
 };
 
 type ToolTraceStep = {
+  id?: string;
   tool: string;
   /** tool_invoked 携带的入参（JSON 字符串）。 */
   arguments?: string;
@@ -2406,7 +2407,11 @@ function App() {
                 patchAssistantMsg((last) => ({
                   toolTrace: [
                     ...(last.toolTrace || []),
-                    { tool: payload.tool, arguments: payload.arguments },
+                    {
+                      id: payload.callId,
+                      tool: payload.tool,
+                      arguments: payload.arguments,
+                    },
                   ],
                 }));
               } catch {
@@ -2418,9 +2423,15 @@ function App() {
                 const payload = JSON.parse(data);
                 patchAssistantMsg((last) => {
                   const next = [...(last.toolTrace || [])];
-                  const idx = next.findIndex(
-                    (step) => step.tool === payload.tool && step.result == null,
-                  );
+                  const idx = payload.callId
+                    ? next.findIndex(
+                        (step) =>
+                          step.id === payload.callId && step.result == null,
+                      )
+                    : next.findIndex(
+                        (step) =>
+                          step.tool === payload.tool && step.result == null,
+                      );
                   if (idx >= 0) {
                     next[idx] = {
                       ...next[idx],
@@ -2429,6 +2440,7 @@ function App() {
                     };
                   } else {
                     next.push({
+                      id: payload.callId,
                       tool: payload.tool,
                       result: payload.result,
                       success: payload.success,

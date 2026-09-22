@@ -1531,8 +1531,6 @@ public class ChatService {
                 List<AssistantMessage.ToolCall> toolCalls = new ArrayList<>();
                 AtomicBoolean streamed = new AtomicBoolean(false);
                 AtomicReference<ChatResponse> lastResponse = new AtomicReference<>();
-                StreamingReplyEmitter emitter =
-                                streamToUser ? new StreamingReplyEmitter(out, finished) : null;
                 try {
                         llm.streamWithTools(system, history, user, images, callbacks)
                                 .doOnNext(
@@ -1542,9 +1540,6 @@ public class ChatService {
                                                         String text = textOf(response);
                                                         if (text != null && !text.isBlank()) {
                                                                 full.append(text);
-                                                                if (emitter != null && emitter.accept(text)) {
-                                                                        streamed.set(true);
-                                                                }
                                                         }
                                                         AssistantMessage msg =
                                                                         response.getResult() == null
@@ -1559,8 +1554,14 @@ public class ChatService {
                                 .blockOptional(llmTimeout)
                                 .orElse(List.of());
                 } finally {
-                        if (emitter != null && emitter.finish()) {
+                        if (streamToUser && toolCalls.isEmpty()) {
+                                for (String chunk : splitForStreaming(full.toString())) {
+                                        if (finished.get()
+                                                || !emitToken(out, finished, chunk)) {
+                                                break;
+                                        }
                                         streamed.set(true);
+                                }
                         }
                 }
                 ChatResponse response = lastResponse.get();
@@ -2584,6 +2585,7 @@ public class ChatService {
                                         emitToolResult(
                                                         out,
                                                         finished,
+                                                        call.id(),
                                                         call.name(),
                                                         "未找到已启用的 Tool：" + call.name(),
                                                         false);
@@ -2608,6 +2610,7 @@ public class ChatService {
                                 emitToolInvoked(
                                                 out,
                                                 finished,
+                                                call.id(),
                                                 toolName,
                                                 redactedArguments);
                                 long toolStarted = System.nanoTime();
@@ -2707,6 +2710,7 @@ public class ChatService {
                                                         emitToolResult(
                                                                         out,
                                                                         finished,
+                                                                        call.id(),
                                                                         toolName,
                                                                         blocked,
                                                                         false);
@@ -2748,6 +2752,10 @@ public class ChatService {
                                                                 runtimeResult.ok()
                                                                         ? "EXECUTED"
                                                                         : "FAILED";
+                                                        String runtimeResultJson =
+                                                                serverRuntimeResult(
+                                                                        runtimeTask,
+                                                                        runtimeResult);
                                                         turns.add(
                                                                 Map.of(
                                                                         "role",
@@ -2758,9 +2766,14 @@ public class ChatService {
                                                                                 new BrowserActionCoordinator
                                                                                         .Resolution(
                                                                                         runtimeStatus,
-                                                                                        serverRuntimeResult(
-                                                                                                runtimeTask,
-                                                                                                runtimeResult)))));
+                                                                                        runtimeResultJson))));
+                                                        emitToolResult(
+                                                                        out,
+                                                                        finished,
+                                                                        call.id(),
+                                                                        toolName,
+                                                                        runtimeResultJson,
+                                                                        runtimeResult.ok());
                                                         if (runtimeResult.ok()) {
                                                                 currentAnswer = reply;
                                                                 continue iteration;
@@ -2793,16 +2806,37 @@ public class ChatService {
                                                                         finished,
                                                                         () -> isRunCancelled(finished));
                                                 if (actionResult == null) {
+                                                        emitToolResult(
+                                                                        out,
+                                                                        finished,
+                                                                        call.id(),
+                                                                        toolName,
+                                                                        "用户已停止生成",
+                                                                        false);
                                                         currentAnswer = reply;
                                                         break iteration;
                                                 }
+                                                String actionResultText =
+                                                        browserActions.resultPrompt(
+                                                                proposal, actionResult);
                                                 turns.add(
                                                         Map.of(
                                                                 "role",
                                                                 "user",
                                                                 "content",
-                                                                browserActions.resultPrompt(
-                                                                        proposal, actionResult)));
+                                                                actionResultText));
+                                                emitToolResult(
+                                                                out,
+                                                                finished,
+                                                                call.id(),
+                                                                toolName,
+                                                                actionResultText,
+                                                                !"FAILED".equalsIgnoreCase(
+                                                                                actionResult.status())
+                                                                        && !"REJECTED"
+                                                                                .equalsIgnoreCase(
+                                                                                        actionResult
+                                                                                                .status()));
                                                 currentAnswer = reply;
                                                 continue iteration;
                                         }
@@ -2812,6 +2846,7 @@ public class ChatService {
                                 emitToolResult(
                                                 out,
                                                 finished,
+                                                call.id(),
                                                 toolName,
                                                 result,
                                                 execution.success());
@@ -2884,7 +2919,12 @@ public class ChatService {
                         String planStepId) {
                 String toolName = SystemAgentCatalog.DELEGATION_TOOL_NAME;
                 String redactedArguments = systemAgentBroker.redactArguments(call.arguments());
-                emitToolInvoked(out, finished, toolName, redactedArguments);
+                emitToolInvoked(
+                                out,
+                                finished,
+                                call.id(),
+                                toolName,
+                                redactedArguments);
                 long started = System.nanoTime();
                 AgentInvocationEvent toolCallEvent =
                                 trace.event(
@@ -3106,7 +3146,13 @@ public class ChatService {
                                 .put("targetAgentId", task.target().getId())
                                 .put("result", traceText(content, 16000))
                                 .save();
-                        emitToolResult(out, finished, toolName, content, success);
+                        emitToolResult(
+                                        out,
+                                        finished,
+                                        call.id(),
+                                        toolName,
+                                        content,
+                                        success);
                         emitSystemAgentDelegation(
                                 out,
                                 finished,
@@ -3142,7 +3188,13 @@ public class ChatService {
                                 .put("message", message)
                                 .save();
                         String output = SystemAgentBroker.TASK_ERROR_PREFIX + message;
-                        emitToolResult(out, finished, toolName, output, false);
+                        emitToolResult(
+                                        out,
+                                        finished,
+                                        call.id(),
+                                        toolName,
+                                        output,
+                                        false);
                         return new SystemAgentTaskOutcome(output, false, false);
                 }
         }
@@ -3831,36 +3883,48 @@ public class ChatService {
                 }
         }
 
-        private void emitToolInvoked(SseEmitter out, AtomicBoolean finished, String name, String argumentsJson) {
+        private void emitToolInvoked(
+                        SseEmitter out,
+                        AtomicBoolean finished,
+                        String callId,
+                        String name,
+                        String argumentsJson) {
                 if (finished.get()) return;
                 try {
+                        Map<String, Object> payload = new LinkedHashMap<>();
+                        payload.put("tool", name);
+                        payload.put("callId", callId);
+                        payload.put("arguments", argumentsJson);
                         out.send(
                                 SseEmitter.event()
                                         .name("tool_invoked")
                                         .data(
                                                 TraceContext.eventData(
-                                                        Map.of("tool", name, "arguments", argumentsJson))));
+                                                        payload)));
                 } catch (IOException ignored) { }
         }
 
         private void emitToolResult(
                         SseEmitter out,
                         AtomicBoolean finished,
+                        String callId,
                         String name,
                         String result,
                         boolean success) {
                 if (finished.get()) return;
                 String preview = result.length() > 2000 ? result.substring(0, 2000) + "\n...[truncated]" : result;
                 try {
+                        Map<String, Object> payload = new LinkedHashMap<>();
+                        payload.put("tool", name);
+                        payload.put("callId", callId);
+                        payload.put("result", preview);
+                        payload.put("success", success);
                         out.send(
                                 SseEmitter.event()
                                         .name("tool_result")
                                         .data(
                                                 TraceContext.eventData(
-                                                        Map.of(
-                                                                "tool", name,
-                                                                "result", preview,
-                                                                "success", success))));
+                                                        payload)));
                 } catch (IOException ignored) { }
         }
 
